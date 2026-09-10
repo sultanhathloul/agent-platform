@@ -1,0 +1,40 @@
+# Tier aliases → concrete endpoints (README §19.1, ADR-0008).
+# This file is the only place in the repository that names a model.
+# num_ctx must be >= the tier window in config/models.yaml; Ollama silently
+# truncates prompts longer than num_ctx.
+model_list:
+  - model_name: fast
+    litellm_params:
+      model: ollama_chat/qwen2.5:3b
+      api_base: os.environ/OLLAMA_BASE_URL
+      num_ctx: 32768
+  - model_name: standard
+    litellm_params:
+      model: ollama_chat/qwen2.5:14b-instruct
+      api_base: os.environ/OLLAMA_BASE_URL
+      num_ctx: 32768
+  - model_name: heavy
+    litellm_params:
+      model: ollama_chat/gemma4:31b
+      api_base: os.environ/OLLAMA_BASE_URL
+      num_ctx: 65536
+  - model_name: embed
+    litellm_params:
+      model: ollama/bge-m3
+      api_base: os.environ/OLLAMA_BASE_URL
+    model_info:
+      mode: embedding
+  # rerank (bge-reranker-v2-m3) is added in phase 04; Ollama cannot serve it (ADR-0008).
+
+router_settings:
+  # Only downward fallback that keeps the risk floor (never below standard).
+  fallbacks:
+    - heavy: [standard]
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 300
+  num_retries: 1
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

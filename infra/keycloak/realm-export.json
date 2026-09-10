@@ -1,0 +1,169 @@
+{
+  "realm": "agent",
+  "enabled": true,
+  "displayName": "Agent Platform",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ar", "en"],
+  "defaultLocale": "ar",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      {
+        "name": "default-roles-agent",
+        "description": "Roles every new user receives",
+        "composite": true,
+        "composites": { "realm": ["user"] }
+      },
+      {
+        "name": "user",
+        "description": "Base role for every platform user",
+        "composite": true,
+        "composites": { "realm": ["cap:general"] }
+      },
+      { "name": "admin", "description": "Platform administrator" },
+      { "name": "cap:general", "description": "Capability: general knowledge answers" },
+      { "name": "cap:sql", "description": "Capability: text-to-SQL over business data" },
+      { "name": "cap:web", "description": "Capability: web search" },
+      { "name": "cap:docs", "description": "Capability: chat with uploaded documents" },
+      { "name": "cap:kb", "description": "Capability: knowledge-base plugins" },
+      { "name": "kb:moe:read", "description": "Knowledge base moe (Ministry of Education): read" }
+    ]
+  },
+  "defaultRole": { "name": "default-roles-agent" },
+  "groups": [
+    {
+      "name": "moe-analysts",
+      "path": "/moe-analysts",
+      "attributes": { "description": ["MoE analysts: SQL and the moe knowledge base"] },
+      "realmRoles": ["user", "cap:sql", "cap:kb", "kb:moe:read"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "web",
+      "name": "Agent web UI",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": ["${WEB_PUBLIC_URL}/*"],
+      "webOrigins": ["${WEB_PUBLIC_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${WEB_PUBLIC_URL}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "gateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "gateway",
+      "name": "Agent gateway",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KC_GATEWAY_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-gateway",
+      "enabled": true,
+      "serviceAccountClientId": "gateway",
+      "clientRoles": {
+        "realm-management": ["view-users", "manage-users", "view-realm", "manage-realm"]
+      }
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin@agent.local",
+      "firstName": "مدير",
+      "lastName": "المنصة",
+      "attributes": { "tenant_id": ["default"] },
+      "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
+      "realmRoles": ["default-roles-agent", "admin"]
+    },
+    {
+      "username": "analyst",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "analyst@agent.local",
+      "firstName": "سارة",
+      "lastName": "المحللة",
+      "attributes": { "tenant_id": ["default"] },
+      "credentials": [{ "type": "password", "value": "analyst", "temporary": false }],
+      "realmRoles": ["default-roles-agent"],
+      "groups": ["/moe-analysts"]
+    },
+    {
+      "username": "viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "viewer@agent.local",
+      "firstName": "خالد",
+      "lastName": "المستعرض",
+      "attributes": { "tenant_id": ["default"] },
+      "credentials": [{ "type": "password", "value": "viewer", "temporary": false }],
+      "realmRoles": ["default-roles-agent", "cap:docs"]
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"Username\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"Email\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"First name\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"Last name\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"tenant_id\",\"displayName\":\"Tenant\",\"validations\":{\"length\":{\"max\":64},\"pattern\":{\"pattern\":\"^[a-z0-9_-]+$\",\"error-message\":\"tenant_id: lowercase letters, digits, - or _\"}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":false}],\"groups\":[{\"name\":\"user-metadata\",\"displayHeader\":\"User metadata\",\"displayDescription\":\"Attributes, which refer to user metadata\"}]}"
+          ]
+        }
+      }
+    ]
+  }
+}

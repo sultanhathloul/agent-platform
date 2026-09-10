@@ -1,0 +1,22 @@
+# Test-only LiteLLM config (ADR-0007). Same aliases as config.yaml, every one
+# answering with mock_response, so `make test` exercises the real client path
+# (Context Assembly → models.call → LiteLLM) without reaching a model.
+model_list:
+  - model_name: fast
+    litellm_params:
+      model: openai/mock-fast
+      api_key: mock
+      mock_response: "هذه إجابة تجريبية من النموذج الوهمي. This is a mock answer."
+  - model_name: standard
+    litellm_params:
+      model: openai/mock-standard
+      api_key: mock
+      mock_response: "هذه إجابة تجريبية من النموذج الوهمي. This is a mock answer."
+  - model_name: heavy
+    litellm_params:
+      model: openai/mock-heavy
+      api_key: mock
+      mock_response: "هذه إجابة تجريبية من النموذج الوهمي. This is a mock answer."
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

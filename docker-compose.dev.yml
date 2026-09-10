@@ -1,0 +1,20 @@
+# Development overlay: exposes internal ports and hot-reloads the agent.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+services:
+  postgres:
+    ports: ["5433:5432"]
+  redis:
+    ports: ["6380:6379"]
+  minio:
+    ports: ["9000:9000", "9001:9001"]
+  litellm:
+    ports: ["4000:4000"]
+  otel-collector:
+    ports: ["4318:4318"]
+  agent:
+    ports: ["8000:8000"]
+    volumes:
+      - ./services/agent/app:/app/app:ro
+      - ./config:/srv/config:ro
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
+              "--reload", "--reload-dir", "/app/app"]
