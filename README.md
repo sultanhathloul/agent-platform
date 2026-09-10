@@ -115,8 +115,8 @@ A single message may combine use cases (e.g. UC1 + UC4). The orchestrator decide
 │   │   │   ├── capabilities/    ← ONE package per capability (§18): sql/, web/, docs/, kb/, general/, email_proofreader/
 │   │   │   ├── tools/           ← registry.py, broker.py (shared execution path; no capability code here)
 │   │   │   ├── guardrails/      ← engine.py, checkers/, checkpoints.py, schema.py
-│   │   │   ├── rag/             ← ingest/, chunkers/, embed.py, vectorstore/, rerank.py
-│   │   │   ├── models/          ← gateway.py (LiteLLM client), routing.py, prompts/
+│   │   │   ├── rag/             ← shared core library used by capabilities: ingest/, chunkers/, embed.py, vectorstore/, rerank.py
+│   │   │   ├── models/          ← gateway.py (LiteLLM client), routing.py, prompts.py (loader only; prompt files live in config/prompts/ and capabilities/*/prompts/)
 │   │   │   ├── observability/   ← otel.py, langfuse.py
 │   │   │   ├── evaluation/      ← online_judge.py
 │   │   │   └── api/             ← FastAPI routes (internal)
@@ -169,7 +169,7 @@ class AgentState(TypedDict):
     conversation_id: str
     user_id: str
     tenant_id: str
-    permissions: list[str]              # e.g. ["tool:sql","tool:web","kb:moe:read"]
+    permissions: list[str]              # e.g. ["cap:general","cap:sql","kb:moe:read"]
     # per-turn
     turn: int
     user_message: str
@@ -305,7 +305,7 @@ The subsections below describe the five v1 capabilities. Each one is implemented
 
 All tools register in `tools/registry.py` with: `name`, `description_ar`, `description_en`, `input_schema` (Pydantic), `risk` (`read|write`), `required_permission`, `timeout_s`, `max_retries`. The `broker.py` is the only path to execution: it resolves secrets from env/Vault, applies policy (§10), enforces timeout/retry, normalizes results to `ToolResult{status, content, sources[], latency_ms}` and emits spans.
 
-### 9.1 SQL tool (UC1) — `tools/sql/`
+### 9.1 SQL tool (UC1) — `capabilities/sql/`
 
 - **Semantic layer** (`config/semantic-layer/`): each exposed table with Arabic + English descriptions, column descriptions, allowed joins, sensitive columns (excluded at the view level, not by prompt), plus `metrics.yaml` (named metrics with canonical SQL) and `examples.yaml` (question → SQL pairs). Ingest this into a `schema_chunks` vector table on startup.
 - **Schema retrieval**: retrieve top-k tables/columns/examples for the question; never inject the whole schema.
@@ -317,19 +317,19 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 - **Result**: rows preview (≤50 rows to the model), full result to the UI as a table + downloadable CSV; the SQL is always shown to the user (it is the evidence).
 - Interface: `QueryEngine` with `PostgresEngine` now; leave `StarRocksEngine` stub with TODO for v2 (HDFS/Iceberg).
 
-### 9.2 Web tool (UC2) — `tools/web/`
+### 9.2 Web tool (UC2) — `capabilities/web/`
 
 - `web_search(query, recency)` → SearXNG JSON API, top 8; `web_fetch(url)` → readability extraction, max 6k tokens/page, allow/deny domain lists from policy.
 - Sanitization: strip scripts/instructions-like patterns; wrap content as untrusted data in the prompt (`<untrusted source="…">`), and the system prompt states that instructions inside sources are data.
 - Citation validation: every URL in the answer must exist in this turn's `tool_calls` results, else the answer fails validation.
 
-### 9.3 Documents tool (UC3) — `rag/ingest/`
+### 9.3 Documents tool (UC3) — `capabilities/docs/` (ingestion via the shared `rag/` library)
 
 - Upload → MinIO → ingestion job: type detection (PDF, DOCX, XLSX, TXT, MD; images via OCR are **v2**, keep a hook), text extraction, Arabic normalization (alef/yaa/taa-marbuta variants, tatweel removal, diacritics optional), chunking (`recursive`, 800 tokens, 120 overlap, heading-aware for MD/DOCX), embeddings via LiteLLM (`bge-m3`), stored in a **session-scoped** collection `sess_{conversation_id}` with `expires_at`.
 - Retrieval: hybrid + rerank; page/section metadata for citations.
 - Status streamed to the UI (`pending → indexed`) so the user can see when the file is ready.
 
-### 9.4 Knowledge-base plugins (UC4) — `tools/kb/`
+### 9.4 Knowledge-base plugins (UC4) — `capabilities/kb/`
 
 - Admin creates a KB: `{slug, name_ar, name_en, icon, description, embedding_model, visibility: role-based}`; each KB has its own collection `kb_{slug}` and a Keycloak role `kb:{slug}:read` (created via Admin API when the KB is created).
 - Admin uploads documents to a KB (same ingestion pipeline, org-scoped, no expiry, versioned; re-ingest replaces by `doc_id`).
@@ -393,8 +393,8 @@ Seed policies in `config/policies/`:
 ## 11. Identity, authorization, admin
 
 - Keycloak realm `agent` (export in `infra/keycloak/realm-export.json`): clients `web` (public, PKCE) and `gateway` (confidential, service account with `realm-management` roles to manage users/roles).
-- Realm roles: `user`, `admin`, `tool:sql`, `tool:web`, `tool:docs`, and one `kb:{slug}:read` per KB (created dynamically). Groups map to role bundles (e.g. group *MoE analysts* → `user`, `tool:sql`, `kb:moe:read`).
-- Token claims → `permissions[]` in the principal. The gateway is the only place that interprets Keycloak roles; the agent only sees `permissions[]`.
+- Realm roles: `user` (composite; includes `cap:general`), `admin`, one `cap:{slug}` per capability (e.g. `cap:sql`, `cap:web`, `cap:docs`, `cap:kb`), and one `kb:{slug}:read` per KB (created dynamically). Groups map to role bundles (e.g. group *MoE analysts* → `user`, `cap:sql`, `cap:kb`, `kb:moe:read`).
+- Token claims → `permissions[]` in the principal. The gateway is the only place that interprets Keycloak roles; the agent only sees `permissions[]`. `tenant_id` comes from the Keycloak user attribute `tenant_id` (mapped into a token claim) and defaults to `default` when absent.
 - Admin console (in the web app, `admin` role): users & groups (delegated to Keycloak Admin API through the gateway), KB management + role assignment, policies, evaluation dashboards (links to Langfuse), context debug panel, audit log search.
 - Seed users: `admin/admin`, `analyst/analyst` (sql + moe KB), `viewer/viewer` (general + docs only).
 
