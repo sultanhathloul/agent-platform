@@ -1,0 +1,31 @@
+slug: general
+version: 1.0.0
+name: {ar: "المعرفة العامة", en: "General knowledge"}
+description:
+  ar: "إجابات مباشرة من معرفة النموذج دون أدوات."
+  en: "Direct answers from the model's own knowledge, without tools."
+icon: "sparkles"
+enabled_by_default: true
+permission: "cap:general"          # part of the base `user` role (ADR-0006)
+risk: read
+ui:
+  mode: auto
+  order: 100
+routing_hints:
+  description:
+    ar: "أسئلة المعرفة العامة والمحادثة التي لا تحتاج إلى بيانات أو مستندات أو بحث."
+    en: "General knowledge and conversation that need no data, documents or search."
+  keywords: {ar: [], en: []}
+  rules:
+    - when: fallback               # selected when no other capability's rule matches
+model:
+  min_tier: fast                   # README §19.4
+  steps: {}
+  on_overflow: compress
+context:
+  needs: []                        # no evidence and no model call; the answer node answers
+  max_input_tokens: 6000           # UC5 keeps the answer context small
+limits:
+  max_iterations: 1
+  timeout_s: 30
+state_namespace: "cap.general"

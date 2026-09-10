@@ -1,0 +1,8 @@
+{"id": "general-ar-capital", "locale": "ar", "message": "ما عاصمة المملكة العربية السعودية؟", "expect": {"contains_any": ["الرياض"], "script": "arabic"}}
+{"id": "general-en-capital", "locale": "en", "message": "What is the capital of Saudi Arabia?", "expect": {"contains_any": ["Riyadh"], "script": "latin"}}
+{"id": "general-ar-week", "locale": "ar", "message": "كم عدد أيام الأسبوع؟", "expect": {"contains_any": ["سبعة", "7", "٧"], "excludes_any": ["خمسة"], "script": "arabic"}}
+{"id": "general-en-week", "locale": "en", "message": "How many days are there in a week?", "expect": {"contains_any": ["seven", "7"], "excludes_any": ["five"], "script": "latin"}}
+{"id": "general-ar-sum", "locale": "ar", "message": "ما ناتج جمع ٢ و ٣؟", "expect": {"contains_any": ["5", "٥", "خمسة"], "script": "arabic"}}
+{"id": "general-ar-flag", "locale": "ar", "message": "ما لون علم المملكة العربية السعودية الأساسي؟", "expect": {"contains_any": ["الأخضر", "أخضر", "خضراء"], "excludes_any": ["الأزرق", "أزرق", "الأحمر", "أحمر"], "script": "arabic"}}
+{"id": "general-ar-ocean", "locale": "ar", "message": "ما أكبر محيط في العالم؟", "expect": {"contains_any": ["الهادئ", "الهادي"], "excludes_any": ["الأطلسي"], "script": "arabic"}}
+{"id": "general-en-planet", "locale": "en", "message": "Which planet is known as the Red Planet?", "expect": {"contains_any": ["Mars"], "script": "latin"}}
