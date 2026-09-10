@@ -1,0 +1,3 @@
+# Minimum pass rate per eval suite (README §12). `make eval`, and CI from
+# phase 09, fail when a suite drops below its threshold or has none.
+general: 0.85
