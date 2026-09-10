@@ -1,0 +1,79 @@
+{
+  "app": {
+    "name": "Agent Platform",
+    "description": "A secure AI assistant running inside your organization's infrastructure"
+  },
+  "header": {
+    "newChat": "New chat",
+    "signOut": "Sign out",
+    "switchLanguage": "Change language"
+  },
+  "locale": {
+    "ar": "العربية",
+    "en": "English"
+  },
+  "auth": {
+    "checking": "Checking your session…",
+    "title": "Welcome to Agent Platform",
+    "description": "Sign in with your organization account to start a conversation with the assistant.",
+    "signIn": "Sign in",
+    "completing": "Completing sign-in…",
+    "callbackFailed": "Sign-in could not be completed. Please try again.",
+    "retry": "Try again"
+  },
+  "chat": {
+    "starting": "Starting a new conversation…",
+    "emptyTitle": "How can I help you today?",
+    "emptyHint": "Ask a question and the assistant will answer right away.",
+    "inputLabel": "Your message",
+    "placeholder": "Type your question…",
+    "send": "Send",
+    "stop": "Stop",
+    "composerHint": "Press <key>Enter</key> to send and <key>Shift+Enter</key> for a new line.",
+    "you": "You",
+    "assistant": "Assistant",
+    "thinking": "Preparing an answer…",
+    "stopped": "Answer generation stopped at your request.",
+    "citations": "Sources",
+    "usage": "Tokens used: {tokensIn} in, {tokensOut} out"
+  },
+  "chips": {
+    "tier": "Model tier",
+    "guard": "Guardrail",
+    "tool": "Tool",
+    "latency": "{ms} ms"
+  },
+  "guardActions": {
+    "allow": "Allowed",
+    "block": "Blocked",
+    "redact": "Redacted",
+    "rewrite": "Rewritten",
+    "warn": "Warning",
+    "require_approval": "Awaiting approval",
+    "log_only": "Logged only"
+  },
+  "toolStatus": {
+    "running": "Running",
+    "ok": "Done",
+    "error": "Failed",
+    "denied": "Denied",
+    "pending_approval": "Awaiting approval"
+  },
+  "errors": {
+    "unauthorized": "Your session has expired. Please sign in again.",
+    "forbidden": "You do not have permission to perform this request.",
+    "kb_forbidden": "You do not have access to one of the selected knowledge bases.",
+    "invalid_request": "The request could not be processed because it is invalid.",
+    "agent_unavailable": "The assistant service is currently unavailable. Please try again shortly.",
+    "agent_stream_interrupted": "The answer stream was interrupted before it finished. Please try again.",
+    "internal_error": "An unexpected internal error occurred.",
+    "turn_failed": "The answer to your question could not be completed.",
+    "network_error": "Could not reach the server. Check your network connection.",
+    "not_found": "The requested resource was not found.",
+    "no_capability_available": "No capability available to you can handle this request.",
+    "context_overflow": "The request is too long for the model to process.",
+    "model_unavailable": "The language model is currently unavailable. Please try again shortly.",
+    "validation_failed": "The answer did not pass verification, so it was not shown.",
+    "unknown": "An unknown error occurred."
+  }
+}

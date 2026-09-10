@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* System fonts only: the platform runs air-gapped, so no web-font downloads. */
+@theme {
+  --font-sans: "Noto Sans Arabic", "Segoe UI", Tahoma, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
