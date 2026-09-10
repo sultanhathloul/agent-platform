@@ -1,0 +1,268 @@
+{
+  "openapi" : "3.1.0",
+  "info" : {
+    "title" : "Agent Platform Gateway API",
+    "version" : "1.0.0"
+  },
+  "servers" : [ {
+    "url" : "/",
+    "description" : "Gateway"
+  } ],
+  "security" : [ {
+    "bearer" : [ ]
+  } ],
+  "paths" : {
+    "/v1/chat/turns" : {
+      "post" : {
+        "description" : "Streams agent events as Server-Sent Events. Event payloads are defined in docs/events.schema.json. Errors before the stream starts are JSON envelopes.",
+        "operationId" : "turn",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ChatTurnRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/event-stream" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "SSE stream of agent events"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_forbidden"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          }
+        },
+        "summary" : "Run one chat turn",
+        "tags" : [ "chat" ]
+      }
+    },
+    "/v1/health" : {
+      "get" : {
+        "operationId" : "health",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "security" : [ ],
+        "summary" : "Liveness of the gateway itself",
+        "tags" : [ "health" ]
+      }
+    },
+    "/v1/me" : {
+      "get" : {
+        "operationId" : "me",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeMeResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Current user, tenant and permissions",
+        "tags" : [ "identity" ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "ApiEnvelopeMeResponse" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/MeResponse"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiError" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "message_ar" : {
+            "type" : "string"
+          },
+          "message_en" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "code", "message_ar", "message_en" ]
+      },
+      "ApiErrorEnvelope" : {
+        "properties" : {
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "error", "request_id" ]
+      },
+      "Attachment" : {
+        "default" : [ ],
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "mime" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "name" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        },
+        "required" : [ "id", "mime", "name" ]
+      },
+      "ChatTurnRequest" : {
+        "properties" : {
+          "attachments" : {
+            "type" : "array",
+            "default" : [ ],
+            "items" : {
+              "$ref" : "#/components/schemas/Attachment"
+            },
+            "maxItems" : 20,
+            "minItems" : 0
+          },
+          "conversation_id" : {
+            "type" : "string",
+            "format" : "uuid",
+            "pattern" : "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "locale" : {
+            "type" : "string",
+            "default" : "ar",
+            "enum" : [ "ar", "en" ],
+            "pattern" : "^(ar|en)$"
+          },
+          "message" : {
+            "type" : "string",
+            "maxLength" : 8000,
+            "minLength" : 0
+          },
+          "selected_kbs" : {
+            "type" : "array",
+            "default" : [ ],
+            "items" : {
+              "type" : "string",
+              "default" : "[]",
+              "pattern" : "^[a-z0-9_-]{1,64}$"
+            },
+            "maxItems" : 20,
+            "minItems" : 0
+          }
+        },
+        "required" : [ "conversation_id", "message" ]
+      },
+      "HealthResponse" : {
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "MeResponse" : {
+        "properties" : {
+          "display_name" : {
+            "type" : "string"
+          },
+          "is_admin" : {
+            "type" : "boolean"
+          },
+          "permissions" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "tenant_id" : {
+            "type" : "string"
+          },
+          "user_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "is_admin", "permissions", "tenant_id", "user_id" ]
+      }
+    },
+    "securitySchemes" : {
+      "bearer" : {
+        "bearerFormat" : "JWT",
+        "scheme" : "bearer",
+        "type" : "http"
+      }
+    }
+  }
+}
