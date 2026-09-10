@@ -1,0 +1,20 @@
+# Context Assembly (README §7). The pipeline order is configuration; each name
+# maps to a step class in services/agent/app/context/selectors/.
+# Phase 01 ships the minimal pipeline (ADR-0009). Summary, memory, retrieval and
+# tool-result steps join in later phases.
+pipeline:
+  - system_instructions
+  - state_digest
+  - sliding_window
+  - capability_findings
+  - user_message
+  - budget_guard
+
+window_messages: 6
+reserved_loop_headroom_tokens: 1000
+
+# Core nodes that call a model, and the blocks each one needs.
+nodes:
+  answer:
+    system_prompt: answer.system
+    needs: [system, state_digest, window, findings, user_message]

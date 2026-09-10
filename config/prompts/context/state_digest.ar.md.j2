@@ -1,0 +1,25 @@
+---
+id: context.state_digest
+version: 1.1.0
+role: context
+locale: ar
+changelog:
+  - "1.0.0: first version (phase 01)"
+  - "1.1.0: no turn number (not in README §7); the step omits the block when there is nothing to report"
+---
+حالة المحادثة:
+{% if selected_kbs %}
+- قواعد المعرفة المختارة: {{ selected_kbs | join("، ") }}
+{% endif %}
+{% if decisions %}
+- قرارات سابقة:
+{% for d in decisions %}
+  - {{ d.key }}: {{ d.value }}
+{% endfor %}
+{% endif %}
+{% if open_threads %}
+- مسائل مفتوحة: {{ open_threads | join("؛ ") }}
+{% endif %}
+{% if artifacts %}
+- مخرجات سابقة: {{ artifacts | join("، ") }}
+{% endif %}

@@ -1,0 +1,14 @@
+---
+id: context.findings
+version: 1.0.0
+role: context
+locale: ar
+changelog:
+  - "1.0.0: first version (phase 01)"
+---
+الأدلة:
+{% for f in findings %}
+
+[{{ f.capability }}]
+{{ f.findings }}
+{% endfor %}

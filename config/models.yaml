@@ -1,0 +1,32 @@
+# Tiers, roles, escalation and caps (README §19.1). Aliases resolve to concrete
+# models in infra/litellm/config.yaml. Code names roles and steps, never models.
+# `window` must not exceed the num_ctx configured for the alias in LiteLLM.
+tiers:
+  fast:     {alias: fast,     window: 32000, max_output: 2000, cost_weight: 1}
+  standard: {alias: standard, window: 32000, max_output: 4000, cost_weight: 5}
+  heavy:    {alias: heavy,    window: 65536, max_output: 8000, cost_weight: 20}   # dev host limit; spec example is 131072
+
+# Lowest to highest; "one tier up" follows this order.
+order: [fast, standard, heavy]
+
+roles:                      # helper roles are pinned to fast
+  router:     fast
+  summarizer: fast
+  judge:      fast          # online eval + llm_judge guard checker
+  extractor:  fast          # memory candidate extraction, context compression
+  reflection: standard
+  reasoning:  standard      # provisional; capability floors and escalation apply (§19.3)
+
+escalation:
+  complexity_high: heavy
+  risk_high: standard
+  context_overflow_default: compress   # compress | escalate; a capability manifest may override
+  on_validation_failure: "+1"  # one tier up, once
+  max_escalations_per_turn: 2
+
+caps:                        # ceilings; also expressible as MODEL_TIER guard policies
+  default: heavy
+  role:viewer: standard
+
+embedding:
+  alias: embed
