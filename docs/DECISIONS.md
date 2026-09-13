@@ -16,13 +16,9 @@ Entry format:
 - Consequences: <what it costs, what it enables, what to revisit>
 ```
 
-## Decided
-
-Choices confirmed by the owner.
+Entries are in number order. An entry's text never changes once committed; its Status line carries its state and may only gain a one-line note, `Accepted on <date>` or `Superseded by ADR-NNNN on <date>` (ADR-0034). `decided` entries were confirmed by the owner; `assumed` entries fill a gap in the spec with the simplest option that fits the architecture; `proposed` entries argue against a closed decision, which stays in force until the owner accepts the proposal.
 
 ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10); 0001–0005 are unassigned.
-
-ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by the owner on 2026-09-13. Their entries keep their original text; only `Status` changed.
 
 ### ADR-0006: Permission naming is `cap:{slug}` and `kb:{slug}:read`
 - Date: 2026-09-10
@@ -67,7 +63,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0011: Browser login with oidc-client-ts; the browser calls the gateway directly
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: §13 allows next-auth or oidc-client-ts. The `web` client is public with PKCE (§11). Inside the web container, the browser-facing Keycloak URL is unreachable.
 - Decision: oidc-client-ts runs in the browser (authorization code + PKCE S256). Tokens stay in sessionStorage and renew with the refresh token. The browser calls the gateway directly under CORS, so no Next.js server sits in the SSE path. URLs are read at request time by the root layout, so one image works for any deployment.
 - Consequences: No server-side session, and the gateway is the only token consumer. The gateway must keep CORS limited to the web origin. XSS would expose the tokens in sessionStorage, so a CSP should follow (phase 09 hardening).
@@ -75,7 +71,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0012: Token issuer is the browser-facing URL; JWKS is fetched internally
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: Tokens are issued to the browser at `http://localhost:8081`, but containers reach Keycloak at `http://keycloak:8080`.
 - Decision: Keycloak runs with `KC_HOSTNAME=<public URL>` and `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`. The gateway validates `iss` against the public issuer string and fetches keys from the internal JWKS URI. It never uses issuer discovery. Audience must contain `gateway` (an audience mapper on the `web` client adds it).
 - Consequences: Two settings (`GATEWAY_KEYCLOAK_ISSUER`, `GATEWAY_KEYCLOAK_JWKS_URI`) must agree with the Keycloak hostname.
@@ -83,7 +79,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0013: Gateway runtime, SSE proxy and audit storage
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: The gateway must stream agent SSE unchanged (§6.1.6), keep one trace per turn (§12), and write one audit record per turn (§16).
 - Decision: Spring MVC runs on Java 21 virtual threads, and the proxy runs on the request thread, so the trace context carries into the agent call and `traceparent` propagates. The upstream is a JDK HttpClient (HTTP/1.1) that forwards lines unchanged and flushes at each event boundary. A mid-stream failure appends one `error` event (`agent_stream_interrupted`, `seq: -1`). Audit lives in schema `gateway` of database `app` (Flyway). A trigger rejects UPDATE, DELETE and TRUNCATE. Statuses are `ok`, `error`, `denied`, `aborted`; requests rejected by validation are not audited.
 - Consequences: The `app` role owns the table and could drop the trigger. True immutability needs a separate insert-only role (phase 09). `/v3/api-docs` is public in compose; disable it with `SPRINGDOC_API_DOCS_ENABLED=false` in production.
@@ -91,7 +87,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0014: `general` contributes no findings; the answer node makes the only model call
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: UC5 is "direct model answer, no tools", and every capability must run through the §18 contract. If both `general` and the answer node called the model, general turns would cost two calls.
 - Decision: The `general` subgraph returns an empty finding and makes no model call. The core `answer` node answers, on the tier floor of the selected capabilities. When a call is made on behalf of capabilities, the highest capability floor (with per-step overrides) replaces the role's provisional default. Other calls use the role default (§19.1). The answer budget is capped by the largest `max_input_tokens` of the selected capabilities.
 - Consequences: General questions use one `fast` model call. The same path serves turns where several capabilities contribute evidence.
@@ -99,7 +95,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0015: Routing rules gain `fallback`; the router model arrives with the second capability
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: §18.2 lists `toggled` and `keyword` rules. With one capability, a router-model call would decide nothing.
 - Decision: The manifest rules are `toggled`, `keyword` (matched after Arabic normalization), `attachments` and `fallback`. `fallback` capabilities are chosen only when no other rule matched; `general` declares it. `toggled` matches nothing until the turn request carries capability toggles (phase 05). The 3B router model is added in phase 04, the first phase with two capabilities. Arabic normalization lives in `app/text/arabic.py` so the router, the `keyword_list` checker and chunkers can share it.
 - Consequences: General turns cost no router call. Phase 04 adds a router step for when rules leave several candidates.
@@ -107,7 +103,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0016: AgentState additions and in-memory checkpointing in phase 01
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: §5.1 has no place for per-turn ids, locale, capability outputs or capability state namespaces (§18.2).
 - Decision: Four fields are added:
   - `turn_id`: used in event envelopes and, from phase 02, the debug context lookup.
@@ -120,7 +116,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0017: `models.call` takes a ContextPackage and a TierDecision
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: Rule 6 requires every model call to go through Context Assembly. §19.2 shows `models.call(role=..., step=..., messages=...)`.
 - Decision: The gateway accepts only an assembled `ContextPackage` plus the resolver's `TierDecision`, and it rejects a package assembled for a different tier. The call flow is resolve tier → budget → assemble → call. Calls always stream; usage comes from LiteLLM (`stream_options.include_usage`), estimated only when it is missing.
 - Consequences: Raw messages cannot reach a model by construction. The resolve/assemble/call sequence is explicit at each call site.
@@ -128,7 +124,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0018: Token counting with tiktoken o200k_base, baked into the image
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: Budgets need token counts for Qwen and Gemma, and the runtime must work offline.
 - Decision: `TiktokenCounter("o200k_base")` is a model-agnostic estimate, behind a `TokenCounter` protocol. The encoding file is downloaded at image build (`TIKTOKEN_CACHE_DIR`). Billing-grade counts come from model usage.
 - Consequences: Budgets are estimates, and the tier budget keeps headroom (`reserved_loop_headroom_tokens`). An exact per-model tokenizer can replace it behind the same protocol.
@@ -136,7 +132,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0019: Test harness layout
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: ADR-0007 requires tests to go through LiteLLM, and the host has no JDK 21.
 - Decision: `litellm-mock` (same image, `infra/litellm/config.mock.yaml`) and `agent-tests` run under the compose `test` profile. Gateway and web tests run in the `test` target of their Dockerfiles. Locally, `uv run pytest` reaches the mock on port 4001. Integration tests fail, never skip, when the mock is unreachable. A test tracer provider with an in-memory exporter asserts span attributes, including the context block token counts.
 - Consequences: `make test` needs Docker only; no host JDK or Node is required.
@@ -144,7 +140,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0020: Configuration files added in phase 01
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: Several phase 01 behaviours need data that §20 says belongs in files.
 - Decision:
   - `config/context.yaml` holds the Context Assembly pipeline order, window size, headroom and per-node needs/system prompt.
@@ -155,7 +151,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0021: Observability defaults
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: §12 hashes user ids but says nothing about prompt content in traces.
 - Decision:
   - `OBSERVABILITY_CAPTURE_CONTENT=true` by default: generation spans carry messages and output, and the trace carries the user message and the answer.
@@ -168,7 +164,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0022: Infra details the spec left open
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: §14 names services, not their wiring.
 - Decision:
   - **Postgres:** one owner role per database (`app`, `business`, `keycloak`, `langfuse`).
@@ -183,7 +179,7 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 ### ADR-0023: Empty state digest omitted; short answer prompt
 - Date: 2026-09-10
 - Phase: 01
-- Status: decided (assumed 2026-09-10, confirmed 2026-09-13)
+- Status: assumed — Accepted on 2026-09-13
 - Context: §7 includes the state digest "always". On a first turn, the digest can only say "Turn: 1". Measured through LiteLLM on the fast tier against the `general` suite (8 cases):
   - `answer.system@1.0.0` plus that digest: 2/8.
   - The long prompt's rule "if the user writes in Arabic, answer in Modern Standard Arabic" made the fast model answer English questions in Arabic, even when called directly on Ollama.
@@ -193,20 +189,19 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
   - `answer.system@1.1.0` is a short instruction set. The permitted tool list renders only when the node has tools; evidence and policy-hint sections render only when present.
 - Consequences: A first-turn context holds the system and user blocks only. The digest reappears on its own once phase 02 adds decisions and open threads. Prompt changes keep being measured against the eval suites (§20).
 
-### ADR-0024: `general` runs on `standard`; `fast` is for instruction-following roles
-- Date: 2026-09-10, decided 2026-09-13
+### ADR-0024: The fast tier misses the Arabic general-knowledge eval
+- Date: 2026-09-10
 - Phase: 01
-- Status: decided — option (b) below
+- Status: proposed — Superseded by ADR-0035 on 2026-09-13
 - Context: README §19.4 puts `general` on `min_tier: fast`, and ADR-0008 maps `fast` to `qwen2.5:3b`. The `general` suite (5 Arabic and 3 English cases; `contains_any`, `excludes_any` and script checks) has a 0.85 threshold. Measured through LiteLLM with `answer.system@1.1.0`:
   - `fast`: 6/8 and 5/8 on two probe runs, and 5/8 (0.62) in `make eval` through the full stack.
   - `standard`: 7/8 (probe).
   The failures on `fast` are wrong Arabic facts (flag colour, largest ocean) and an occasional reply in Chinese. Prompt fixes (ADR-0023) closed most of the gap; what remains is model capacity.
-- Options put to the owner:
-  - (a) Replace the `fast` model with a stronger small Arabic-capable model, keeping §19.4.
-  - (b) Set `general.min_tier: standard`, overriding §19.4.
-  - (c) Keep both, and lower the `general` threshold to what `fast` achieves.
-- Decision: **option (b)**. `services/agent/app/capabilities/general/manifest.yaml` sets `min_tier: standard`, and README §19.4 is patched to match. Owner's rationale: the `fast` tier exists for instruction-following roles (router, summarizer, judge, extractor), not for world knowledge. A general-knowledge answer depends on what the model knows, and a 3B model does not know enough in Arabic. Putting `general` on `fast` was an error in the spec, not a defect in the model.
-- Consequences: General turns run on `qwen2.5:14b-instruct` and are slower; the added latency is not yet measured. Helper roles stay on `fast`, so the per-turn helper saving of §19 is untouched. The threshold stays at 0.85 and the suite grows instead (ADR-0028). Option (a) is not dead: it returns as ADR-0030, measured against helper-role work rather than general knowledge.
+- Decision (proposed, not in force). One of:
+  - (a) **Recommended.** Replace the `fast` model with a stronger small Arabic-capable model, keeping §19.4. Every helper role (router, summarizer, judge, extractor) also runs on `fast`, and the `llm_judge` checker is the primary Arabic topic filter (§10.2), so they would all gain too. The candidate would need to be pulled (with owner approval) and measured on this suite first.
+  - (b) Set `general.min_tier: standard`, overriding §19.4. Each general turn gets slower (not yet measured).
+  - (c) Keep both, and lower the `general` threshold to what `fast` achieves, accepting weaker general answers.
+- Consequences: Until the owner decides, `general` stays on `fast`, the threshold stays at 0.85, and `make eval` fails. Phase 01 cannot be marked done.
 
 ### ADR-0025: `tool:{name}` stays as a guardrail policy scope
 - Date: 2026-09-13
@@ -240,26 +235,6 @@ ADR-0011 to ADR-0023 were recorded as *assumed* during phase 01 and confirmed by
 - Decision: Grow the suite to 20 cases — 13 Arabic and 7 English — and keep the threshold at 0.85, so three misses are tolerated. Checks stay deterministic: `contains_any` and `excludes_any` compared after Arabic folding, plus the `script` share.
 - Consequences: `make eval` runs 20 turns through the live stack on `standard`, so it takes longer. New cases must have a ground truth that does not age (no "current" office-holders, no dated figures) and tolerant `contains_any` lists covering ordinary Arabic spelling variants.
 
-### ADR-0032: Decoding temperature is a per-role setting in `config/models.yaml`
-- Date: 2026-09-13, decided 2026-09-13
-- Phase: 01
-- Status: decided — the owner accepted the proposal with a change: per role, not one global value
-- Context: `ModelGateway.call` sampled at a hard-coded `temperature=0.2`, chosen while building phase 01 and never recorded. With `answer.system@1.2.0` the `general` suite scored 18/20, 17/20, 18/20 (0.90, 0.85, 0.90) on three consecutive runs, one of them exactly on the threshold. The recurring failures are script drift by `qwen2.5:14b-instruct`, not missing knowledge.
-- Decision: `config/models.yaml` gains a `temperature` block with one entry per role — `router`, `summarizer`, `judge` and `extractor` at **0.0**, `reasoning` and `reflection` at **0.2**. `ModelGateway` reads the temperature for `decision.role`; no temperature literal remains in code, and startup fails when a role has no temperature or the value is outside 0.0–2.0.
-- Consequences: The helper calls that run on every turn — routing, summarizing, judging, extracting — become deterministic, so their output is comparable between runs and an eval regression there is attributable to a change rather than to sampling. The answer keeps a little sampling at 0.2, so **this does not remove the `general` suite's run-to-run variance**; it bounds non-determinism to the one call whose phrasing should vary. Adding a role to `roles` means adding its temperature too.
-
-### ADR-0033: `validate` gains a word-level mixed-script rule in phase 02
-- Date: 2026-09-13
-- Phase: 02 (decided in phase 01, deliberately not implemented yet)
-- Status: decided
-- Context: The CJK check (ADR-0027) catches an Arabic answer that drifts into Chinese, Japanese or Korean, but it does not catch Latin spliced inside an Arabic word. The measured example is `"العملة الرسمية … هي الريyal السعودي"`, which passes every guard today and would reach a user as broken text.
-- Decision: In phase 02, extend the script check in `app/text/script.py` and `validation_issues` with a **word-level rule**: any whitespace-delimited token that contains both Arabic and Latin letters fails validation. A small configurable allow-list covers tokens that are legitimately mixed; it lives in configuration, not in code (§20).
-- Consequences: A whole-token rule stays deterministic and cheap, and it leaves ordinary mixed *sentences* alone — an Arabic answer may still quote a Latin term as its own word, e.g. `الرياض (Riyadh)`. The allow-list is the escape hatch for real mixed tokens, and it needs Arabic test cases like every other checker (CLAUDE.md rule 7). Not implemented in phase 01, so `"الريyal"` still reaches the user until phase 02.
-
-## Assumed
-
-Places where the spec was silent. We picked the simplest option that fits the architecture, and the owner may overturn it.
-
 ### ADR-0029: First-run documentation, `make models`, and remote model endpoints
 - Date: 2026-09-13
 - Phase: 01
@@ -270,10 +245,6 @@ Places where the spec was silent. We picked the simplest option that fits the ar
   - `scripts/pull_models.sh` (target `make models`) pulls the models named in `infra/litellm/config.yaml` — still the only file that names a model — through the Ollama HTTP API, so `OLLAMA_HOST` can point it at a remote server. Present models are skipped, so it is re-runnable.
   - `VLLM_API_KEY` is added to `.env.example` and passed to the `litellm` container, so moving a tier to an OpenAI-compatible endpoint is two `.env` values plus three lines in the LiteLLM config.
 - Consequences: The host-side scripts (`preflight.sh`, `pull_models.sh`) read shell variables, not `.env`, because they run outside compose; §21.4 says so explicitly. `make models` needs `curl` and `jq`, which `preflight.sh` already assumes.
-
-## Proposed
-
-Arguments against a closed decision. The current decision stays in force until the owner accepts a proposal.
 
 ### ADR-0030: Evaluate `qwen2.5:7b-instruct` as the `fast` model, on helper-role work
 - Date: 2026-09-13
@@ -291,7 +262,21 @@ Arguments against a closed decision. The current decision stays in force until t
 - Proposal: Split the two checkpoints by what they can safely do mid-stream. `DATA` (PII redaction) runs on a **sentence-level buffer** during streaming: a sentence is released only once it is clean, so redaction happens before the text leaves. `OUTPUT` **block** policies run on the **complete answer before streaming starts**, because a block is not something a buffer can undo. Measure the added time-to-first-token for both and record the numbers with the decision.
 - Consequences: A turn with `OUTPUT` block policies enabled pays roughly one full generation before the first token appears, which is the trade-off phase 03 has to weigh; with only `DATA` policies the cost is one sentence of latency. The measurement is part of the phase 03 done-check.
 
-ADR-0032 was proposed here and decided above, in the "Decided" section.
+### ADR-0032: Pin the decoding temperature for the answer call
+- Date: 2026-09-13
+- Phase: 01, proposed for phase 02
+- Status: proposed — Superseded by ADR-0036 on 2026-09-13
+- Context: `ModelGateway.call` samples at `temperature=0.2`, a value chosen while building phase 01 and never recorded. With `answer.system@1.2.0` the `general` suite was measured three times in a row on `standard`: 18/20, 17/20, 18/20 (0.90, 0.85, 0.90). One run landed exactly on the threshold. Both recurring failures are script drift by `qwen2.5:14b-instruct` — `"العملة … هي الريyal السعودي"` and an answer that continues in Chinese — not knowledge errors, and they move between runs because decoding is sampled.
+- Proposal: give each role a decoding temperature in `config/models.yaml`, where §20 keeps tuning knobs, and set the `reasoning` role to 0. A factual government assistant gains nothing from sampling, and an eval suite that gates a phase should not be a coin flip when it sits near its threshold.
+- Consequences: Answers become reproducible for a fixed prompt and context, so an eval regression is attributable to a change rather than to luck; phrasing becomes more uniform. This changes behaviour for every capability, so it is the owner's call rather than an assumption. Until it is decided, the suite passes with about one case of headroom.
+
+### ADR-0033: `validate` gains a word-level mixed-script rule in phase 02
+- Date: 2026-09-13
+- Phase: 02 (decided in phase 01, deliberately not implemented yet)
+- Status: decided
+- Context: The CJK check (ADR-0027) catches an Arabic answer that drifts into Chinese, Japanese or Korean, but it does not catch Latin spliced inside an Arabic word. The measured example is `"العملة الرسمية … هي الريyal السعودي"`, which passes every guard today and would reach a user as broken text.
+- Decision: In phase 02, extend the script check in `app/text/script.py` and `validation_issues` with a **word-level rule**: any whitespace-delimited token that contains both Arabic and Latin letters fails validation. A small configurable allow-list covers tokens that are legitimately mixed; it lives in configuration, not in code (§20).
+- Consequences: A whole-token rule stays deterministic and cheap, and it leaves ordinary mixed *sentences* alone — an Arabic answer may still quote a Latin term as its own word, e.g. `الرياض (Riyadh)`. The allow-list is the escape hatch for real mixed tokens, and it needs Arabic test cases like every other checker (CLAUDE.md rule 7). Not implemented in phase 01, so `"الريyal"` still reaches the user until phase 02.
 
 ### ADR-0034: An ADR's text is immutable; only its Status line may change
 - Date: 2026-09-13
@@ -300,3 +285,19 @@ ADR-0032 was proposed here and decided above, in the "Decided" section.
 - Context: CLAUDE.md rule 10 and the header of this file say past entries are never rewritten. During phase 01 the owner nevertheless instructed that entries be updated in place as decisions were taken. Following that instruction, ADR-0011 to ADR-0023 were moved from "Assumed" to "Decided", ADR-0024 lost its original options and recommendation to the decision that closed it, and ADR-0032's proposal was replaced by the decision the owner took. The PR #1 review found that the log no longer shows what was proposed, when, or why it changed. The mistake was the owner's instruction, not the agent's reading of the rule; the owner says so here.
 - Decision: An ADR's text is immutable once committed. Only its Status line may change, and only by appending a one-line note: `Accepted on <date>` or `Superseded by ADR-NNNN on <date>`. Any other change to a decision is a new entry that supersedes the old one. Entries stay in number order and never move between sections; the Status line carries the state. CLAUDE.md rule 10 is amended to say this. ADR-0011 to ADR-0024 are restored to their text at commit 79c6575; ADR-0031 and ADR-0032, which did not exist then, are restored to the text of the commit that first added them (18d78ea and 171487c). What was later written into ADR-0024 and ADR-0032 is re-recorded as ADR-0035 and ADR-0036.
 - Consequences: The log reads as history: every decision keeps the proposal and evidence that produced it. A reviewer can check a `docs/DECISIONS.md` diff mechanically: lines may be added, and an existing entry may change only on its Status line. A decision that evolves several times accumulates entries instead of one polished text.
+
+### ADR-0035: `general` runs on `standard`; `fast` is for instruction-following roles
+- Date: 2026-09-13
+- Phase: 01
+- Status: decided
+- Context: ADR-0024 put three options to the owner after the `fast` tier missed the `general` suite's 0.85 threshold, and recommended (a). The owner chose (b). The decision was first written into ADR-0024 itself; ADR-0034 restores that entry and records the decision here. The measurements behind it are ADR-0024's.
+- Decision: **option (b)**. `services/agent/app/capabilities/general/manifest.yaml` sets `min_tier: standard`, and README §19.4 is patched to match. Owner's rationale: the `fast` tier exists for instruction-following roles (router, summarizer, judge, extractor), not for world knowledge. A general-knowledge answer depends on what the model knows, and a 3B model does not know enough in Arabic. Putting `general` on `fast` was an error in the spec, not a defect in the model.
+- Consequences: General turns run on `qwen2.5:14b-instruct` and are slower; the added latency is not yet measured. Helper roles stay on `fast`, so the per-turn helper saving of §19 is untouched. The threshold stays at 0.85 and the suite grows instead (ADR-0028). Option (a) is not dead: it returns as ADR-0030, measured against helper-role work rather than general knowledge.
+
+### ADR-0036: Decoding temperature is a per-role setting in `config/models.yaml`
+- Date: 2026-09-13
+- Phase: 01
+- Status: decided
+- Context: ADR-0032 proposed a temperature per role in `config/models.yaml` with `reasoning` at 0. `ModelGateway.call` sampled at a hard-coded `temperature=0.2`, chosen while building phase 01 and never recorded. With `answer.system@1.2.0` the `general` suite scored 18/20, 17/20, 18/20 (0.90, 0.85, 0.90) on three consecutive runs, one of them exactly on the threshold. The recurring failures are script drift by `qwen2.5:14b-instruct`, not missing knowledge. The owner accepted the proposal with a change: a value per role, with the answer keeping a little sampling. The decision was first written into ADR-0032 itself; ADR-0034 restores that entry and records the decision here.
+- Decision: `config/models.yaml` gains a `temperature` block with one entry per role — `router`, `summarizer`, `judge` and `extractor` at **0.0**, `reasoning` and `reflection` at **0.2**. `ModelGateway` reads the temperature for `decision.role`; no temperature literal remains in code, and startup fails when a role has no temperature or the value is outside 0.0–2.0.
+- Consequences: The helper calls that run on every turn — routing, summarizing, judging, extracting — become deterministic, so their output is comparable between runs and an eval regression there is attributable to a change rather than to sampling. The answer keeps a little sampling at 0.2, so **this does not remove the `general` suite's run-to-run variance**; it bounds non-determinism to the one call whose phrasing should vary. Adding a role to `roles` means adding its temperature too.
