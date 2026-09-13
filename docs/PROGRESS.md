@@ -91,6 +91,24 @@ Owner notes:
 - **Reranker:** `bge-reranker-v2-m3` is not in the Ollama library, and Ollama has no rerank API. How to serve it is a phase 04 decision (ADR-0008).
 - **Open for phase 03:** ADR-0030 (measure a stronger `fast` model on helper-role work) and ADR-0031 (where the `OUTPUT` and `DATA` guards run relative to streaming).
 
+### Fix session: PR #1 review findings (2026-09-13)
+
+Scope: apply the owner's review of PR #1 and nothing else; re-run `make test`, `make eval`, `make smoke`; push.
+
+Checklist:
+- [ ] A. ADR-0034: an ADR's text is immutable, only its Status line changes; CLAUDE.md rule 10 amended; ADR-0011–0024, ADR-0031 and ADR-0032 restored to their original text; later changes become ADR-0035 and ADR-0036
+- [ ] 1. Conversation ownership: `gateway.conversations`, 403 `conversation_forbidden` at the gateway, the agent rejects a thread owned by another user or tenant; negative tests on both sides
+- [ ] 2. Capability runtime context: `run_capabilities` passes a `RuntimeContext` (models.call, broker, stream writer, principal, cap_state, resolver); events stream while the capability runs; `_context_for` resolves the tier and assembles a real budget; step overrides accepted; `general` on the same path; a test-only fake capability uses models.call and the broker
+- [ ] 3. `retract` event when validate, OUTPUT or DATA fail after tokens streamed; the web replaces the shown text with the error; `persist_state` stores what the user saw plus the post-guard draft; ADR-0031 superseded by a decided entry
+- [ ] 4. Tier caps by principal role (`role:viewer: standard` takes effect), tested
+- [ ] 5. Audit fail-closed, tested
+- [ ] 6. `make test` runs gateway and web tests every time (no cached test layer)
+- [ ] 7. Capability-neutral answer prompt (Latin ban removed, version bump); no model name in the prompt changelog or `tokens.py`; stale `general/graph.py` docstring fixed
+- [ ] 8. Contract drift tests (agent OpenAPI, events schema, gateway OpenAPI); the documented 422 becomes the actual 400
+- [ ] 9. Smoke requires ≥3 token events before `done`; `run_evals.py` creates a Langfuse dataset run
+- [ ] Tech debt for phase 02 recorded below
+- [ ] `make test`, `make eval`, `make smoke` green; push
+
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
