@@ -20,7 +20,7 @@ You are building the Sovereign Agent Platform described in `README.md`. Read `RE
 7. **Arabic is first-class.** Every user-facing string goes in `services/web/src/i18n/ar.json` and `en.json`; every guard checker and chunker gets Arabic test cases.
 8. **Tests and evals are part of the phase.** A phase is done when `make test`, `make eval` (the suites that exist so far) and `scripts/smoke.sh` are green. Do not declare done otherwise.
 9. **Small commits, conventional messages** (`feat(agent): …`, `fix(gateway): …`, `test(guardrails): …`). One PR per phase on a branch `phase/NN-name`.
-10. **Record every non-trivial choice** in `docs/DECISIONS.md` (ADR format: context, decision, consequences). Never rewrite past entries.
+10. **Record every non-trivial choice** in `docs/DECISIONS.md` (ADR format: context, decision, consequences). An ADR's text is immutable: only its Status line may change, and only with a one-line note, `Accepted on <date>` or `Superseded by ADR-NNNN on <date>`. Every other change to a decision is a new entry that supersedes the old one (ADR-0034).
 
 ## Session protocol
 
