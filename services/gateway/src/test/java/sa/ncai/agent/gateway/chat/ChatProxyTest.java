@@ -22,6 +22,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import sa.ncai.agent.gateway.GatewayTestSupport;
+import sa.ncai.agent.gateway.InMemoryAuditRepository;
 import sa.ncai.agent.gateway.audit.AuditEvent;
 import sa.ncai.agent.gateway.audit.AuditStatus;
 
@@ -137,6 +138,47 @@ class ChatProxyTest extends GatewayTestSupport {
         AGENT.enqueue(sse(DONE_STREAM));
         mvc.perform(chat(body("سؤال آخر", List.of()))).andExpect(status().isOk()); // the owner continues
         assertThat(AGENT.getRequestCount()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void unreachableAuditLogRefusesTheTurnBeforeCallingTheAgent() throws Exception {
+        auditLog().setMode(InMemoryAuditRepository.Mode.DOWN);
+        int before = AGENT.getRequestCount();
+
+        mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("audit_unavailable"))
+                .andExpect(jsonPath("$.error.message_ar").isNotEmpty());
+
+        assertThat(AGENT.getRequestCount()).isEqualTo(before);
+    }
+
+    @Test
+    void failedAuditWriteReplacesTheAnswerWithAnError() throws Exception {
+        auditLog().setMode(InMemoryAuditRepository.Mode.WRITES_FAIL);
+        AGENT.enqueue(sse(DONE_STREAM));
+
+        String content = mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(content).doesNotContain("event: done");
+        int retract = content.indexOf("event: retract\n");
+        int error = content.indexOf("event: error\n");
+        assertThat(retract).isPositive();
+        assertThat(error).isGreaterThan(retract);
+        assertThat(content.substring(retract)).contains("\"reason\":\"audit_unavailable\"");
+        assertThat(content.substring(error)).contains("\"code\":\"audit_unavailable\"");
+        assertThat(auditLog().events()).isEmpty();
+    }
+
+    @Test
+    void refusalThatCannotBeAuditedIsAuditUnavailable() throws Exception {
+        auditLog().setMode(InMemoryAuditRepository.Mode.WRITES_FAIL);
+
+        mvc.perform(chat(body("سؤال", List.of("moh"))))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("audit_unavailable"));
     }
 
     static Stream<String> invalidBodies() {

@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -41,7 +42,9 @@ import sa.ncai.agent.gateway.proxy.SseRelay;
 
 /**
  * One chat turn: authorize, forward to the agent, stream the agent's events back
- * unchanged, and write exactly one audit record.
+ * unchanged, and write exactly one audit record. Audit is fail-closed (ADR-0042): a turn
+ * does not start while the audit log is unreachable, and a turn whose record cannot be
+ * written ends in {@code audit_unavailable} instead of its answer.
  *
  * <p>The stream is proxied on the request thread (a virtual thread), not an async
  * executor, so the trace context of the incoming request covers the agent call.
@@ -99,6 +102,9 @@ public class ChatController {
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "502", description = "agent_unavailable",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                                schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "503", description = "audit_unavailable",
+                        content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class)))
             })
     public void turn(
@@ -109,43 +115,57 @@ public class ChatController {
         long started = System.nanoTime();
         String requestId = RequestIdFilter.requestId(request);
         GatewayPrincipal principal = GatewayPrincipal.from(jwt);
+        if (!auditReachable()) {
+            errors.write(request, response, ErrorCode.AUDIT_UNAVAILABLE);
+            return;
+        }
+
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("selected_kbs", body.selectedKbs());
+        AtomicBoolean audited = new AtomicBoolean();
         AuditStatus status = AuditStatus.ERROR;
         try {
             List<String> denied = kbAccess.denied(principal, body.selectedKbs());
             if (!denied.isEmpty()) {
-                status = AuditStatus.DENIED;
                 detail.put("denied_kbs", denied);
                 detail.put("error_code", ErrorCode.KB_FORBIDDEN.code());
-                errors.write(request, response, ErrorCode.KB_FORBIDDEN);
+                refuse(request, response, ErrorCode.KB_FORBIDDEN,
+                        auditEvent(requestId, principal, body, AuditStatus.DENIED, detail, started), audited);
                 return;
             }
             // A new id is bound to the caller; an id owned by another user or tenant is refused (ADR-0041).
             if (!conversations.bindOrGetOwner(body.conversationId(), principal.userId(), principal.tenantId())
                     .is(principal.userId(), principal.tenantId())) {
-                status = AuditStatus.DENIED;
                 detail.put("error_code", ErrorCode.CONVERSATION_FORBIDDEN.code());
-                errors.write(request, response, ErrorCode.CONVERSATION_FORBIDDEN);
+                refuse(request, response, ErrorCode.CONVERSATION_FORBIDDEN,
+                        auditEvent(requestId, principal, body, AuditStatus.DENIED, detail, started), audited);
                 return;
             }
-            RelayOutcome outcome = agent.streamTurn(agentRequest(body, principal), requestId, upstream -> {
+            agent.streamTurn(agentRequest(body, principal), requestId, upstream -> {
                 openStream(response);
-                return relay.relay(upstream, response.getOutputStream(), requestId);
+                // The terminal event leaves only after this record is written (ADR-0042).
+                return relay.relay(upstream, response.getOutputStream(), requestId, outcome -> {
+                    audited.set(true);
+                    Map<String, Object> ended = new LinkedHashMap<>(detail);
+                    ended.putAll(outcomeDetail(outcome));
+                    AuditStatus endStatus =
+                            outcome.kind() == RelayOutcome.Kind.DONE ? AuditStatus.OK : AuditStatus.ERROR;
+                    return append(auditEvent(requestId, principal, body, endStatus, ended, started));
+                });
             });
-            status = outcome.kind() == RelayOutcome.Kind.DONE ? AuditStatus.OK : AuditStatus.ERROR;
-            detail.putAll(outcomeDetail(outcome));
         } catch (AgentUnavailableException e) {
             log.warn("{}", e.getMessage());
             detail.put("error_code", ErrorCode.AGENT_UNAVAILABLE.code());
-            errors.write(request, response, ErrorCode.AGENT_UNAVAILABLE);
+            refuse(request, response, ErrorCode.AGENT_UNAVAILABLE,
+                    auditEvent(requestId, principal, body, AuditStatus.ERROR, detail, started), audited);
         } catch (ClientGoneException e) {
             status = AuditStatus.ABORTED;
             log.info("client disconnected during turn");
         } finally {
-            detail.put("latency_ms", (System.nanoTime() - started) / 1_000_000);
-            append(new AuditEvent(requestId, principal.userId(), principal.tenantId(), AUDIT_ACTION,
-                    body.conversationId(), status, detail));
+            if (!audited.get()) {
+                // Nobody is left to refuse: the client disconnected or the turn failed unexpectedly.
+                append(auditEvent(requestId, principal, body, status, detail, started));
+            }
         }
     }
 
@@ -191,11 +211,47 @@ public class ChatController {
         return detail;
     }
 
-    private void append(AuditEvent event) {
+    private static AuditEvent auditEvent(
+            String requestId,
+            GatewayPrincipal principal,
+            ChatTurnRequest body,
+            AuditStatus status,
+            Map<String, Object> detail,
+            long started) {
+        Map<String, Object> recorded = new LinkedHashMap<>(detail);
+        recorded.put("latency_ms", (System.nanoTime() - started) / 1_000_000);
+        return new AuditEvent(requestId, principal.userId(), principal.tenantId(), AUDIT_ACTION,
+                body.conversationId(), status, recorded);
+    }
+
+    /** Audits a refusal, then answers with {@code code}, or with audit_unavailable when the record failed. */
+    private void refuse(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            ErrorCode code,
+            AuditEvent event,
+            AtomicBoolean audited) throws IOException {
+        audited.set(true);
+        errors.write(request, response, append(event) ? code : ErrorCode.AUDIT_UNAVAILABLE);
+    }
+
+    private boolean auditReachable() {
+        try {
+            audit.check();
+            return true;
+        } catch (RuntimeException e) {
+            log.error("audit log unreachable; refusing the turn", e);
+            return false;
+        }
+    }
+
+    private boolean append(AuditEvent event) {
         try {
             audit.append(event);
+            return true;
         } catch (RuntimeException e) {
             log.error("audit write failed for request {}", event.requestId(), e);
+            return false;
         }
     }
 }

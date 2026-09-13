@@ -34,6 +34,11 @@ public class JdbcAuditRepository implements AuditRepository {
                 .update();
     }
 
+    @Override
+    public void check() {
+        jdbc.sql("SELECT 1 FROM gateway.audit_events LIMIT 0").query().listOfRows();
+    }
+
     private String toJson(AuditEvent event) {
         try {
             return mapper.writeValueAsString(event.detail());

@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -18,10 +19,12 @@ import sa.ncai.agent.gateway.api.ErrorCode;
 import sa.ncai.agent.gateway.api.ErrorMessages;
 
 /**
- * Copies the agent's SSE stream to the browser byte for byte (README §6.1.6), flushing at
- * every event boundary. It watches for the terminal {@code done}/{@code error} event for the
- * audit record. If the stream breaks or ends without one, it appends a single
- * {@code agent_stream_interrupted} error event in the agent's envelope format.
+ * Copies the agent's SSE stream to the browser byte for byte (README §6.1.6), one event block at
+ * a time, flushing at every event boundary. Before the terminal {@code done}/{@code error} event
+ * leaves, {@code commit} writes the audit record; when that fails, the terminal event is replaced
+ * by {@code retract} and an {@code audit_unavailable} error, so no turn completes without its
+ * audit record (ADR-0042). If the stream breaks or ends without a terminal event, a single
+ * {@code agent_stream_interrupted} error event is appended, also after {@code commit}.
  */
 @Component
 public class SseRelay {
@@ -37,11 +40,14 @@ public class SseRelay {
     }
 
     /**
+     * @param commit writes the audit record for the outcome; returns false when it could not
      * @throws ClientGoneException when writing to {@code downstream} fails
      */
-    public RelayOutcome relay(InputStream upstream, OutputStream downstream, String requestId) {
+    public RelayOutcome relay(
+            InputStream upstream, OutputStream downstream, String requestId, Predicate<RelayOutcome> commit) {
         InputStream in = new BufferedInputStream(upstream, 8192);
         ByteArrayOutputStream line = new ByteArrayOutputStream(512);
+        ByteArrayOutputStream block = new ByteArrayOutputStream(1024);
         String eventType = null;
         StringBuilder data = new StringBuilder();
         RelayOutcome terminal = null;
@@ -63,15 +69,19 @@ public class SseRelay {
             }
             byte[] bytes = line.toByteArray();
             line.reset();
-            write(downstream, bytes);
+            block.writeBytes(bytes);
 
             String text = stripLineEnding(new String(bytes, StandardCharsets.UTF_8));
             if (text.isEmpty()) {
-                flush(downstream);
-                RelayOutcome outcome = terminalOutcome(eventType, data);
+                RelayOutcome outcome = terminal == null ? terminalOutcome(eventType, data) : null;
                 if (outcome != null) {
                     terminal = outcome;
+                    write(downstream, commit.test(outcome) ? block.toByteArray() : auditUnavailable(requestId));
+                } else {
+                    write(downstream, block.toByteArray());
                 }
+                flush(downstream);
+                block.reset();
                 eventType = null;
                 data.setLength(0);
             } else if (text.startsWith("event:")) {
@@ -84,16 +94,21 @@ public class SseRelay {
             }
         }
 
-        if (line.size() > 0) {
-            write(downstream, line.toByteArray());
+        // An unfinished event block is forwarded as it arrived.
+        block.writeBytes(line.toByteArray());
+        if (block.size() > 0) {
+            write(downstream, block.toByteArray());
         }
         if (terminal != null) {
             flush(downstream);
             return terminal;
         }
-        write(downstream, interruptedEvent(requestId));
+        RelayOutcome interrupted = RelayOutcome.interrupted();
+        write(downstream, commit.test(interrupted)
+                ? errorEvent(requestId, ErrorCode.AGENT_STREAM_INTERRUPTED)
+                : auditUnavailable(requestId));
         flush(downstream);
-        return RelayOutcome.interrupted();
+        return interrupted;
     }
 
     private RelayOutcome terminalOutcome(String eventType, StringBuilder data) {
@@ -115,20 +130,40 @@ public class SseRelay {
         return new RelayOutcome(kind, payload);
     }
 
-    private byte[] interruptedEvent(String requestId) {
-        ApiError error = messages.error(ErrorCode.AGENT_STREAM_INTERRUPTED);
-        ObjectNode envelope = mapper.createObjectNode();
-        envelope.put("type", "error");
-        envelope.put("request_id", requestId);
-        envelope.putNull("turn_id");
-        envelope.put("seq", -1);
+    /** Withdraws any streamed text, then reports that the turn could not be audited. */
+    private byte[] auditUnavailable(String requestId) {
+        ObjectNode retract = envelope("retract", requestId);
+        retract.putObject("data").put("reason", ErrorCode.AUDIT_UNAVAILABLE.code());
+        ByteArrayOutputStream out = new ByteArrayOutputStream(512);
+        out.writeBytes(sse("retract", retract));
+        out.writeBytes(errorEvent(requestId, ErrorCode.AUDIT_UNAVAILABLE));
+        return out.toByteArray();
+    }
+
+    private byte[] errorEvent(String requestId, ErrorCode code) {
+        ApiError error = messages.error(code);
+        ObjectNode envelope = envelope("error", requestId);
         ObjectNode payload = envelope.putObject("data");
         payload.put("code", error.code());
         payload.put("message_ar", error.messageAr());
         payload.put("message_en", error.messageEn());
         payload.put("retryable", true);
+        return sse("error", envelope);
+    }
+
+    /** The agent's event envelope for an event the gateway injects ({@code seq: -1}). */
+    private ObjectNode envelope(String type, String requestId) {
+        ObjectNode envelope = mapper.createObjectNode();
+        envelope.put("type", type);
+        envelope.put("request_id", requestId);
+        envelope.putNull("turn_id");
+        envelope.put("seq", -1);
+        return envelope;
+    }
+
+    private byte[] sse(String type, ObjectNode envelope) {
         try {
-            return ("event: error\ndata: " + mapper.writeValueAsString(envelope) + "\n\n")
+            return ("event: " + type + "\ndata: " + mapper.writeValueAsString(envelope) + "\n\n")
                     .getBytes(StandardCharsets.UTF_8);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);

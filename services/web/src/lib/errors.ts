@@ -9,6 +9,7 @@ export const KNOWN_ERROR_CODES = [
   "invalid_request",
   "agent_unavailable",
   "agent_stream_interrupted",
+  "audit_unavailable",
   "internal_error",
   "turn_failed",
   "network_error",

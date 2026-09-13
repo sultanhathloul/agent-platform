@@ -67,6 +67,7 @@
     "invalid_request": "The request could not be processed because it is invalid.",
     "agent_unavailable": "The assistant service is currently unavailable. Please try again shortly.",
     "agent_stream_interrupted": "The answer stream was interrupted before it finished. Please try again.",
+    "audit_unavailable": "Your request could not be recorded in the audit log, so it was not carried out. Please try again shortly.",
     "internal_error": "An unexpected internal error occurred.",
     "turn_failed": "The answer to your question could not be completed.",
     "network_error": "Could not reach the server. Check your network connection.",
