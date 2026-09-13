@@ -38,6 +38,12 @@ function mergeCitations(current: Citation[], incoming: Citation[]): Citation[] {
   return [...current, ...incoming.filter((c) => !seen.has(c.id))];
 }
 
+// A turn that ends in an error has no answer: text streamed before it is withdrawn, not left
+// on screen beside the error (ADR-0048).
+function failed(message: AssistantMessage, error: ErrorInfo): AssistantMessage {
+  return { ...message, status: "error", text: "", receivedTokens: false, error };
+}
+
 export function applyEvent(message: AssistantMessage, event: StreamEvent): AssistantMessage {
   const m = message.requestId ? message : { ...message, requestId: event.request_id };
   switch (event.type) {
@@ -106,28 +112,24 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
         traceId: event.data.trace_id ?? undefined,
       };
     case "error":
-      return {
-        ...m,
-        status: "error",
-        error: {
-          code: event.data.code,
-          message_ar: event.data.message_ar,
-          message_en: event.data.message_en,
-          retryable: event.data.retryable ?? false,
-        },
-      };
+      return failed(m, {
+        code: event.data.code,
+        message_ar: event.data.message_ar,
+        message_en: event.data.message_en,
+        retryable: event.data.retryable ?? false,
+      });
     case "retract":
       // A check failed after the text streamed (ADR-0039): stop showing it; the error that follows takes its place.
       return { ...m, text: "", receivedTokens: false };
     default:
-      return message; // event types from a newer server are ignored
+      return message; // event types from a newer server (or `progress`, not rendered yet) are ignored
   }
 }
 
 /** Called when the stream closes: a turn that never reached done/error was interrupted. */
 export function finalizeStream(message: AssistantMessage): AssistantMessage {
   if (message.status !== "streaming") return message;
-  return { ...message, status: "error", error: { code: "agent_stream_interrupted", retryable: true } };
+  return failed(message, { code: "agent_stream_interrupted", retryable: true });
 }
 
 export function markAborted(message: AssistantMessage): AssistantMessage {
@@ -135,5 +137,5 @@ export function markAborted(message: AssistantMessage): AssistantMessage {
 }
 
 export function markError(message: AssistantMessage, error: ErrorInfo): AssistantMessage {
-  return { ...message, status: "error", error };
+  return failed(message, error);
 }

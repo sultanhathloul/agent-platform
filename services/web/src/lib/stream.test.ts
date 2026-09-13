@@ -85,11 +85,22 @@ describe("applyEvent", () => {
     expect(m.citations).toHaveLength(1);
   });
 
-  it("records error events", () => {
+  it("records error events and withdraws the text streamed before them", () => {
     const m = run([token("جزء"), error("turn_failed")]);
     expect(m.status).toBe("error");
+    expect(m.text).toBe("");
+    expect(m.receivedTokens).toBe(false);
     expect(m.error).toEqual({ code: "turn_failed", message_ar: "رسالة الخادم", message_en: "server message", retryable: true });
   });
+
+  it.each(["model_unavailable", "turn_failed", "agent_stream_interrupted", "audit_unavailable"])(
+    "clears partial text on %s, not only after retract",
+    (code) => {
+      const m = run([token("نصف "), token("إجابة"), error(code)]);
+      expect(m.text).toBe("");
+      expect(m.error?.code).toBe(code);
+    },
+  );
 
   it("replaces retracted text with the error that follows", () => {
     const retract: StreamEvent = { ...meta, seq: next(), type: "retract", data: { reason: "validation_failed" } };
