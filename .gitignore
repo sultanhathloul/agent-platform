@@ -38,3 +38,7 @@ dist/
 # logs and os noise
 *.log
 .DS_Store
+
+# editors
+.idea/
+.vscode/
