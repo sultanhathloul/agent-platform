@@ -132,14 +132,31 @@ Human review needed (this session):
 Scope: apply the second review of PR #1 (violations 1–6, residual risks 1–6 and 8–13); record residual risk 7 as phase 02/08 tech debt; nothing else. Re-run `make test`, `make eval`, `make smoke`; push.
 
 Checklist:
-- [ ] Capability contract (ADR-0047): the capability's `ContextPackage` is detached from `AgentState` (manifest-needed blocks only, a copy of its own `cap_state` slice, the principal); `RuntimeContext` exposes `call_model(role, step, extra_blocks)` (findings blocks only, assembled through `context.needs`), the broker and `stream_writer`, and no resolver, guard engine or model config; `stream_writer` takes only `CapabilityEvent` (`tool_start`, `tool_end`, `citation`, new `progress`), refused at the type level and at runtime; `CapabilityOutput.cap_state` required; `CapabilityOutput.cost` is non-model cost only, model usage is recorded once by `call_model`; tests for each
-- [ ] Retract / persist (ADR-0048): history stores the post-guard text, the streamed text goes to `additional_kwargs` for audit; agent `POST /v1/conversations/{id}/turns/{turn_id}/retract` marks the persisted reply retracted and Context Assembly skips it; the gateway calls it when the audit write of a finished turn fails; the web clears streamed text on every error and on `agent_stream_interrupted`; tests
-- [ ] Tier caps (ADR-0049): effective ceiling = min(`caps.default`, role cap) in the gateway and the agent; `TierResolver.resolve` requires a principal; `principal.max_tier` is an enum of the known tiers and an unknown value is a 400; tests (`role:x: heavy` under `default: standard` → `standard`)
-- [ ] Ownership (ADR-0050): the agent runner binds an unowned thread to its first caller atomically and refuses another owner before anything is written; the identity node keeps its check; the gateway lower-cases `conversation_id` before binding and forwarding; the agent requires a lower-case UUID; tests
-- [ ] Gateway JDBC tests (ADR-0051): `JdbcConversationRepository` (`ON CONFLICT` path, concurrent first binds) and the V2 migration against the compose Postgres under the `test` profile, run by `make test`
-- [ ] `scripts/smoke.sh`: the viewer's turn runs on `standard`; the viewer reusing the analyst's `conversation_id` gets 403 `conversation_forbidden`
-- [ ] PROGRESS: stale ADR-0040 item fixed; residual risk 7 recorded as tech debt
-- [ ] `make test`, `make eval`, `make smoke` green; push
+- [x] Capability contract (ADR-0047): the capability's `ContextPackage` is detached from `AgentState` (manifest-needed blocks only, a copy of its own `cap_state` slice, the principal); `RuntimeContext` exposes `call_model(role, step, extra_blocks)` (findings blocks only, assembled through `context.needs`), the broker and `stream_writer`, and no resolver, guard engine or model config; `stream_writer` takes only `CapabilityEvent` (`tool_start`, `tool_end`, `citation`, new `progress`), refused at the type level and at runtime; `CapabilityOutput.cap_state` required; `CapabilityOutput.cost` is non-model cost only, model usage is recorded once by `call_model`; tests for each
+- [x] Retract / persist (ADR-0048): history stores the post-guard text, the streamed text goes to `additional_kwargs` for audit; agent `POST /v1/conversations/{id}/turns/{turn_id}/retract` marks the persisted reply retracted and Context Assembly skips it; the gateway calls it when the audit write of a finished turn fails; the web clears streamed text on every error and on `agent_stream_interrupted`; tests
+- [x] Tier caps (ADR-0049): effective ceiling = min(`caps.default`, role cap) in the gateway and the agent; `TierResolver.resolve` requires a principal; `principal.max_tier` is an enum of the known tiers and an unknown value is a 400; tests (`role:x: heavy` under `default: standard` → `standard`)
+- [x] Ownership (ADR-0050): the agent runner binds an unowned thread to its first caller atomically and refuses another owner before anything is written; the identity node keeps its check; the gateway lower-cases `conversation_id` before binding and forwarding; the agent requires a lower-case UUID; tests
+- [x] Gateway JDBC tests (ADR-0051): `JdbcConversationRepository` (`ON CONFLICT` path, concurrent first binds) and the V2 migration against the compose Postgres under the `test` profile, run by `make test`
+- [x] `scripts/smoke.sh`: the viewer's turn runs on `standard`; the viewer reusing the analyst's `conversation_id` gets 403 `conversation_forbidden`
+- [x] PROGRESS: stale ADR-0040 item fixed; residual risk 7 recorded as tech debt
+- [x] `make test`, `make eval`, `make smoke` green; push
+
+Session result (2026-09-13):
+- **`make up`:** green after a rebuild of agent, gateway and web; the existing Keycloak volume already carries the `viewer` role.
+- **`make test`:** green (exit 0). Agent 111 passed. Gateway 53 passed in the image `test` stage (run for real, ADR-0043) plus 5 JDBC tests in `gateway-db-tests` against the compose Postgres. Web 51 passed with typecheck and lint.
+- **`make smoke`:** green; new checks: viewer reusing the analyst's `conversation_id` → 403 `conversation_forbidden`; the viewer's token carries `viewer` and every tier event of the viewer's turn is `standard`. The general floor is itself `standard`, so this check cannot tell a working cap from a missing one; the cap arithmetic is covered by `TierCapsTest` and `tests/unit/test_models.py`.
+- **`make eval`:** green, **18/20 (0.90)** against 0.85. Failures unchanged: `"…هي الريyal السعودي"` (ADR-0033, phase 02) and the sunrise answer stopped as `validation_failed`. Langfuse dataset run `make-eval-20260913T125148Z`.
+- API versions: agent OpenAPI stays 1.1.0 (ADR-0046's reasoning: 1.1.0 has not left this PR) despite the retract endpoint, the `max_tier` enum and the UUID `conversation_id`; `docs/events.schema.json` gains `progress` (additive, still `events.v1`); gateway OpenAPI unchanged.
+
+Human review needed (this session):
+- `docker-compose.yml`: `gateway-db-tests` under the `test` profile connects as the `postgres` superuser (`POSTGRES_PASSWORD`) to create and drop a throwaway database; the `gateway-gradle-cache` volume is now declared in compose.
+- `config/messages/errors.yaml`: new `turn_not_found` text (ar/en).
+- `Makefile`: `make test` now also starts `postgres` and runs `test-gateway-db`.
+- The agent API version decision above (1.1.0 kept) is the owner's call to confirm.
+
+How to verify:
+- `make up && make test && make smoke && make eval`
+- Gateway JDBC tests alone: `make test-gateway-db`
 
 ## Phase 02: State, Context Assembly, Memory
 
