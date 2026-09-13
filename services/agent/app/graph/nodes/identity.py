@@ -11,7 +11,8 @@ async def load_identity_and_state(state: AgentState, runtime: Runtime[TurnContex
     """Identity comes from the gateway's principal, never from the model or the
     request body. Per-turn fields reset; across-turn fields carry over from the
     checkpoint. A thread that belongs to another user or tenant is refused before
-    anything from it is read (defense in depth behind the gateway, ADR-0041)."""
+    anything from it is read: defense in depth behind the gateway and the turn
+    runner, which refuse such a turn before the graph runs (ADR-0041, ADR-0050)."""
     principal = runtime.context.principal
     owner = (state.get("user_id"), state.get("tenant_id"))
     if owner[0] is not None and owner != (principal.user_id, principal.tenant_id):

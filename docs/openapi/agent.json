@@ -399,9 +399,9 @@
         "properties": {
           "conversation_id": {
             "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Conversation Id"
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Conversation Id",
+            "description": "UUID, lower-case; the gateway normalises it (ADR-0050)."
           },
           "principal": {
             "$ref": "#/components/schemas/Principal"

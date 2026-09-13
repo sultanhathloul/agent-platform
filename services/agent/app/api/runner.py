@@ -3,6 +3,10 @@
 The graph runs in its own task and feeds a queue, so the `turn` span and its
 context live in one task for the whole turn. If the client disconnects, the
 SSE generator stops and the task is cancelled.
+
+Before the graph runs, the conversation is bound to its first caller and any
+other caller is refused, so nothing of a refused turn reaches the thread
+(ADR-0050). load_identity_and_state keeps its own check behind this one.
 """
 
 import asyncio
@@ -16,6 +20,7 @@ from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
 from app.api.events import DoneData, StateDigest, Usage, build_event
+from app.api.ownership import Owner, StoredOwner
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
 from app.graph.deps import Services, TurnContext
@@ -30,9 +35,24 @@ _END = object()
 RetractOutcome = Literal["retracted", "forbidden", "not_found"]
 
 
+def _thread(conversation_id: str) -> dict:
+    return {"configurable": {"thread_id": conversation_id}}
+
+
 class TurnRunner:
     def __init__(self, services: Services):
         self.services = services
+
+    def _stored_owner(self, conversation_id: str) -> StoredOwner:
+        """Reads the owner a checkpointed thread records (set by load_identity_and_state)."""
+
+        async def read() -> Owner | None:
+            values = (await self.services.graph.aget_state(_thread(conversation_id))).values or {}
+            if values.get("user_id") is None:
+                return None
+            return Owner(user_id=values["user_id"], tenant_id=values["tenant_id"])
+
+        return read
 
     async def retract(
         self, conversation_id: str, turn_id: str, principal: Principal, reason: str
@@ -42,16 +62,17 @@ class TurnRunner:
         turn's audit record cannot be written and the client was told the reply is
         withdrawn."""
         graph = self.services.graph
-        config = {"configurable": {"thread_id": conversation_id}}
+        config = _thread(conversation_id)
         with tracer.start_as_current_span("turn.retract") as span:
             span.set_attribute("conversation_id", conversation_id)
             span.set_attribute("turn_id", turn_id)
             span.set_attribute("retract.reason", reason)
-            values = (await graph.aget_state(config)).values or {}
-            if values.get("user_id") is None:
+            owner = await self.services.owners.owner_of(conversation_id, self._stored_owner(conversation_id))
+            if owner is None:
                 return "not_found"
-            if (values["user_id"], values.get("tenant_id")) != (principal.user_id, principal.tenant_id):
+            if owner != Owner(principal.user_id, principal.tenant_id):
                 return "forbidden"
+            values = (await graph.aget_state(config)).values or {}
             for message in reversed(values.get("messages") or []):
                 kwargs = message.additional_kwargs
                 if message.type != "ai" or kwargs.get("turn_id") != turn_id:
@@ -105,10 +126,19 @@ class TurnRunner:
             if settings.observability_capture_content:
                 span.set_attribute("langfuse.trace.input", req.message)
             try:
+                caller = Owner(principal.user_id, principal.tenant_id)
+                owner = await self.services.owners.bind_or_get(
+                    req.conversation_id, caller, self._stored_owner(req.conversation_id)
+                )
+                if owner != caller:
+                    # Refused before the graph writes its input into the thread (ADR-0050).
+                    raise TurnError(
+                        "conversation_forbidden", detail="the conversation belongs to another owner"
+                    )
                 final: dict = {}
                 async for mode, chunk in self.services.graph.astream(
                     graph_input,
-                    config={"configurable": {"thread_id": req.conversation_id}},
+                    config=_thread(req.conversation_id),
                     context=ctx,
                     stream_mode=["custom", "values"],
                 ):

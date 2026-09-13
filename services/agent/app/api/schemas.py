@@ -30,7 +30,9 @@ class AttachmentRef(BaseModel):
 class TurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    conversation_id: str = Field(min_length=1, max_length=64)
+    conversation_id: str = Field(
+        pattern=CONVERSATION_ID_PATTERN, description="UUID, lower-case; the gateway normalises it (ADR-0050)."
+    )
     principal: Principal
     message: str = Field(min_length=1, max_length=8000)
     attachments: list[AttachmentRef] = []

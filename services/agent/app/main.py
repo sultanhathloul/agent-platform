@@ -15,6 +15,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api.messages import ErrorMessages
+from app.api.ownership import ConversationOwners
 from app.api.routes import router
 from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
@@ -80,6 +81,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         tools=tools,
         broker=ToolBroker(tools, guard),
         messages=ErrorMessages.load(settings.config_dir),
+        owners=ConversationOwners(),
         graph=build_graph(),
     )
 

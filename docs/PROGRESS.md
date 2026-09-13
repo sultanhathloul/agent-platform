@@ -156,6 +156,10 @@ Tech debt carried from the PR #1 review (recorded 2026-09-13; not fixed in phase
   - Client disconnect mid-turn (`app/api/runner.py` task cancellation).
 - [ ] Add the lint rule README §18.4 requires: a capability must not read or write another capability's `cap_state` namespace. Today only the runtime slice exists.
 
+Tech debt carried from the second PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
+- [ ] Residual risk 7: `GET /v1/debug/context/{turn_id}` (phase 02) and `POST /v1/turns/{id}/approve` (phase 08) must each perform the conversation ownership check themselves. Both reach a thread without running `load_identity_and_state` (a debug read, and a resume from an interrupt in the middle of the graph), and neither goes through the turn runner's binding (ADR-0050).
+- [ ] `ConversationOwners` (ADR-0050) is in memory, like the phase 01 checkpointer; make it durable in Postgres together with the checkpointer, so a restart keeps both.
+
 ## Phase 03: Guardrails engine
 
 - Branch: `phase/03-guardrails`

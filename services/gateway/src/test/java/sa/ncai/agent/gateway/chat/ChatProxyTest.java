@@ -157,6 +157,25 @@ class ChatProxyTest extends GatewayTestSupport {
     }
 
     @Test
+    void upperCaseConversationIdIsBoundForwardedAndAuditedLowerCase() throws Exception {
+        AGENT.enqueue(sse(DONE_STREAM));
+        String upper = CONVERSATION_ID.toUpperCase(java.util.Locale.ROOT);
+
+        mvc.perform(chat("{\"conversation_id\":\"" + upper + "\",\"message\":\"سؤال\"}")).andExpect(status().isOk());
+
+        RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(upstream).isNotNull();
+        assertThat(mapper.readTree(upstream.getBody().readUtf8()).path("conversation_id").asText())
+                .isEqualTo(CONVERSATION_ID);
+        assertThat(singleAudit().conversationId()).isEqualTo(CONVERSATION_ID);
+
+        // Both spellings are one conversation: another user is refused under the lower-case one.
+        mvc.perform(chat(body("سؤال", List.of()), token(c -> c.subject("user-999"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("conversation_forbidden"));
+    }
+
+    @Test
     void unreachableAuditLogRefusesTheTurnBeforeCallingTheAgent() throws Exception {
         auditLog().setMode(InMemoryAuditRepository.Mode.DOWN);
         int before = AGENT.getRequestCount();

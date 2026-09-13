@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.api.messages import ErrorMessages
+from app.api.ownership import ConversationOwners
 from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
 from app.guardrails.engine import GuardEngine
@@ -31,6 +32,7 @@ class Services:
     tools: ToolRegistry
     broker: ToolBroker
     messages: ErrorMessages
+    owners: ConversationOwners
     graph: Any  # compiled main graph
 
 

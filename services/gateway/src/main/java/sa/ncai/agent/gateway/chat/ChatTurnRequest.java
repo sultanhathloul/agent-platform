@@ -7,8 +7,12 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import java.util.Locale;
 
-/** Body of {@code POST /v1/chat/turns}. The message is trimmed before validation. */
+/**
+ * Body of {@code POST /v1/chat/turns}. The message is trimmed before validation. The conversation
+ * id is lower-cased, so ownership, audit and the agent's thread all see one spelling (ADR-0050).
+ */
 public record ChatTurnRequest(
         @NotNull
         @Pattern(regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -36,6 +40,7 @@ public record ChatTurnRequest(
     public static final int MAX_MESSAGE_CHARS = 8000;
 
     public ChatTurnRequest {
+        conversationId = conversationId == null ? null : conversationId.toLowerCase(Locale.ROOT);
         message = message == null ? null : message.strip();
         selectedKbs = selectedKbs == null ? List.of() : List.copyOf(selectedKbs);
         attachments = attachments == null ? List.of() : List.copyOf(attachments);
