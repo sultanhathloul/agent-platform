@@ -6,8 +6,8 @@ A phase is done only when `make test`, `make eval` (the suites that exist so far
 
 ## Phase 01: Skeleton & platform
 
-- Branch: `phase/01-skeleton`
-- Status: **not done; blocked on an owner decision.** `make eval` fails (`general` 5/8 = 0.62 against a 0.85 threshold) because the fast tier's Arabic answers fall short (ADR-0024). `make up`, `make test` and `make smoke` are green.
+- Branch: `phase/01-skeleton` — PR #1, https://github.com/sultanhathloul/agent-platform/pull/1
+- Status: **done, awaiting review.** `make up`, `make test`, `make smoke` and `make eval` are green. ADR-0024 is decided (option (b)); nothing is blocked.
 - Done when: `make up` green; login works; `general` capability answers a question with streaming; Langfuse shows a trace with context block token counts.
 
 Scope restated:
@@ -19,7 +19,7 @@ Scope restated:
 
 Checklist:
 - [x] Docs: README aligned with ADR-0006 and ADR-0010; ADRs 0006–0010 recorded
-- [x] Skeleton: `.gitignore`, `.env.example`, `scripts/init_env.sh` (creates `.env` with random secrets), `Makefile` (`up down seed test eval smoke logs openapi`)
+- [x] Skeleton: `.gitignore`, `.env.example`, `scripts/init_env.sh` (creates `.env` with random secrets), `Makefile` (`up down seed test eval smoke logs openapi models`)
 - [x] Compose: all phase 01 services with health checks; `litellm-mock` and test runners under the `test` profile; `docker-compose.dev.yml` (ports, agent hot reload)
 - [x] Postgres init: databases `app`, `business`, `keycloak`, `langfuse` with one owner role each; `vector` extension in `app`
 - [x] Keycloak realm: clients `web` (public, PKCE S256, `gateway` audience, `tenant_id` claim) and `gateway` (confidential, service account); roles `user` ⊃ `cap:general`, `admin`, `cap:{sql,web,docs,kb}`, `kb:moe:read`; group `moe-analysts`; seed users `admin`, `analyst`, `viewer`
@@ -32,37 +32,43 @@ Checklist:
 - [x] Agent: models gateway (LiteLLM client, streaming, usage) + minimal tier resolver (`model.tier_decision` on the span, `MODEL_TIER` hook)
 - [x] Agent: seven checkpoints as pass-through hooks; tool registry + broker skeleton (`PRE_TOOL`/`POST_TOOL`, timeout, retries)
 - [x] Agent: OTel → collector → Langfuse; `turn` root span with conversation/tenant/hashed-user attributes; `context.assemble`; `model.call` generations
+- [x] Agent: `validate` rejects an Arabic answer containing CJK characters (`app/text/script.py`, ADR-0027)
 - [x] Gateway: Spring Boot 3.5 / Java 21 / Gradle; JWT (issuer, audience, expiry, JWKS); principal; `GET /v1/me`; `POST /v1/chat/turns` SSE proxy (bytes unchanged); `selected_kbs ⊆ permitted`; `audit_events` (Flyway); OTel + traceparent; CORS; ar/en error envelope; `docs/openapi/gateway.json`
-- [x] Web: Next.js 15 + TS + Tailwind + next-intl (ar default, RTL); oidc-client-ts PKCE login/logout; `/chat/new` → `/chat/[id]`; streamed answers; generated API and event types; every string in `ar.json` and `en.json`. Sending a message from inside the browser is not verified yet (see below).
+- [x] Web: Next.js 15 + TS + Tailwind + next-intl (ar default, RTL); oidc-client-ts PKCE login/logout; `/chat/new` → `/chat/[id]`; streamed answers; generated API and event types; every string in `ar.json` and `en.json`
 - [x] Tests: agent unit + integration through mock LiteLLM; gateway (JWT, authz, proxy); web (SSE parser, i18n key parity); `make test` green
-- [ ] Evals: `evals/run_evals.py` (golden + `capabilities/*/evals` discovery); `general` suite in ar and en; `evals/thresholds.yaml`. Built, but **`make eval` fails** (ADR-0024).
+- [x] Evals: `evals/run_evals.py` (golden + `capabilities/*/evals` discovery); `general` suite, 20 cases in ar and en; `evals/thresholds.yaml`; `make eval` green
 - [x] Smoke: health → PKCE login → `/v1/me` → 401 checks → streamed Arabic `general` turn → Langfuse trace with block token counts; `make smoke` green
+- [x] Setup: `make models` + `scripts/pull_models.sh`; README §21 "Getting started on a new machine" including a shared model server
 - [x] Wrap-up: PROGRESS done/left/verify; list of `config/` and `infra/` files for human review
 
-Session result (2026-09-10):
+Session result (2026-09-13), closing the phase:
 - **`make up`:** green. 13 long-running services are up, every one with a healthcheck is healthy, and `minio-init` completed. The OTel collector image is distroless, so it has no healthcheck.
 - **`make test`:** green.
-  - agent: 58 passed, in the `agent-tests` container through `litellm-mock`.
-  - web: 46 passed across 4 files (typecheck and lint included).
-  - gateway: 37 passed, 0 failed, 0 skipped. The layer was cached in `make test`, so I re-ran it fresh with `gradle cleanTest test`.
-- **`make smoke`:** green. It checks:
-  - health, then PKCE login for `analyst` and `viewer`
-  - 401 with no token and with a bad token; `cap:*`/`kb:*` permissions, none `tool:*`; `tenant_id=default`; an Arabic display name
-  - the viewer's kb selection rejected with 403
-  - a streamed Arabic answer on the `fast` tier, whose first token arrives before `done`
-  - a Langfuse trace whose `context.assemble` carries block token counts, and a `model.call` generation with usage
-  - one `chat.turn` audit row
-- **`make eval`:** fails, 5/8 = 0.62 against 0.85. The three misses are the fast model's Arabic (wrong facts, one reply that drifts into Chinese). The prompt fixes in ADR-0023 raised the score from 2/8; the rest needs the owner decision in ADR-0024.
-- **Browser:** a real browser login works: Keycloak PKCE lands on the chat, with the Arabic name in an RTL layout. Sending a message from the browser is **not verified**. The automation tool's typing and clicks never reached React's handlers: no request reached the gateway and there were no console errors. The same tool drove the non-React Keycloak form fine, and the CORS preflight is correct. This needs a manual check.
-- **Commits:** on `phase/01-skeleton`, not pushed, no PR (the phase is not done).
+  - agent: 67 passed (58 before, plus the new `test_validate.py`).
+  - gateway: 37 tests, 0 failed, 0 skipped. `make test` serves this layer from cache, so it was re-run for real with `gradle cleanTest test --no-build-cache`; a plain `cleanTest test` still restores `:test FROM-CACHE` and proves nothing.
+  - web: 46 passed across 4 files, with typecheck and lint, re-run fresh with `docker build --target test --no-cache-filter test`.
+- **`make smoke`:** green, with the tier check now expecting `standard` for a general turn.
+- **`make eval`:** green. `general` 18/20 = 0.90 against the 0.85 threshold.
+  - Run-to-run variance, three consecutive runs on the same stack: 0.90, 0.85, 0.90. One run sat exactly on the threshold.
+  - The two recurring failures are script drift by `qwen2.5:14b-instruct`, not wrong knowledge: `"…هي الريyal السعودي"` and an answer that continues in Chinese. The second is caught by the new `validate` check and ends the turn as `validation_failed`.
+  - ADR-0032 proposes pinning the reasoning temperature to 0 in `config/models.yaml` so the gate stops depending on sampling. **Not implemented — it changes behaviour for every capability and is the owner's call.**
+- **Browser:** the owner confirmed that sending a message from the UI works. The earlier automation failure was a tool artefact, not a bug.
 
-Left for this phase:
-1. Owner decision on ADR-0024. Then run `make eval` until green.
-2. Manual check: log in as `analyst`/`analyst` at http://localhost:3000 and send one message.
-3. Push the branch and open the PR.
+What changed this session:
+- `general.min_tier: fast → standard` (ADR-0024, option (b)), with README §19.4, the manifest, two integration tests and the smoke tier check moved with it.
+- `validate` gained the deterministic CJK check for Arabic answers, with `app/text/script.py` and `tests/unit/test_validate.py` (ADR-0027).
+- `answer.system` ar went to **1.2.0** with one line requiring Arabic script. It is what moved the suite from 16/20 to 18/20; the two remaining failures are the ones above.
+- The `general` suite grew from 8 to 20 cases (13 Arabic, 7 English) at the unchanged 0.85 threshold (ADR-0028).
+- README: seven checkpoints in §0, §10.1 (new `MODEL_TIER` row), §15 and §18.4 (ADR-0026); `tool:{name}` documented as a policy scope, never a permission (ADR-0025); new §21 "Getting started on a new machine".
+- `make models` + `scripts/pull_models.sh`, and `VLLM_API_KEY` wired to the litellm container (ADR-0029).
+- ADR-0011 to ADR-0023 moved from *assumed* to *decided*; ADR-0030, ADR-0031 and ADR-0032 recorded as proposals.
+- `.DS_Store` and `docs/.DS_Store` are no longer tracked; `.idea/` and `.vscode/` are ignored.
+
+Left for this phase: **nothing but review.** PR #1 is ready for review; the owner merges it.
 
 How to verify:
 - `make up && make test && make smoke && make eval`
+- Gateway tests for real: `docker run --rm -v "$PWD/services/gateway":/w -v gateway-gradle-cache:/home/gradle/.gradle -w /w gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache`
 - Web: http://localhost:3000 (`analyst`/`analyst`, `viewer`/`viewer`, `admin`/`admin`).
 - Langfuse: http://localhost:3001 (credentials in `.env`).
 
@@ -70,18 +76,16 @@ Human review needed:
 - `infra/keycloak/realm-export.json`: roles, groups, the gateway service account's `realm-management` roles, and the user-profile `tenant_id` attribute.
 - `infra/litellm/config.yaml`: aliases, `num_ctx` per alias, and the `heavy → standard` fallback.
 - `config/models.yaml`: the dev heavy window of 65536.
-- `config/prompts/**`: `answer.system@1.1.0`, `context.state_digest@1.1.0`, `context.findings@1.0.0`.
+- `config/prompts/**`: `answer.system@1.2.0` (ar) and `@1.1.0` (en), `context.state_digest@1.1.0`, `context.findings@1.0.0`. The ar and en versions differ on purpose: only the Arabic prompt needed the script rule.
 - `config/context.yaml`, `config/messages/errors.yaml`.
-- `evals/thresholds.yaml` and `services/agent/app/capabilities/general/evals/general.jsonl`.
+- `evals/thresholds.yaml` and `services/agent/app/capabilities/general/evals/general.jsonl` (the 20 cases and their ground truths).
 - `infra/otel/collector.yaml`, `infra/postgres/init/00-databases.sh`.
 
 Owner notes:
 - **Docker memory:** Docker Desktop has 8 GB and the stack uses about 6.5 GB, with Keycloak capped at a 768 MB heap and the gateway at 768 MB. 12 GB or more is recommended so that `make test` builds have headroom.
-- **`.DS_Store`:** files were committed in the initial spec commit and show as modified. They are not staged here; removing them from git is your call.
+- **Eval headroom:** the `general` suite passes with roughly one case of margin. ADR-0032 is the way to remove the luck; until it is decided, expect an occasional 0.85.
 - **Reranker:** `bge-reranker-v2-m3` is not in the Ollama library, and Ollama has no rerank API. How to serve it is a phase 04 decision (ADR-0008).
-- **Open points for phase 03:**
-  - The policy scope `tool:{name}` (ADR-0006).
-  - Tokens stream before the `OUTPUT`/`DATA` guards run, so a later redact or block must retract text the user has already seen.
+- **Open for phase 03:** ADR-0030 (measure a stronger `fast` model on helper-role work) and ADR-0031 (where the `OUTPUT` and `DATA` guards run relative to streaming).
 
 ## Phase 02: State, Context Assembly, Memory
 
