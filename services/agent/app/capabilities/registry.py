@@ -5,9 +5,9 @@ build() fails fast, naming the offending file."""
 import importlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
+from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import ValidationError
 
 from app.capabilities.contract import Manifest
@@ -27,7 +27,7 @@ class ManifestError(RuntimeError):
 @dataclass
 class LoadedCapability:
     manifest: Manifest
-    graph: Any  # CompiledStateGraph
+    graph: CompiledStateGraph  # compiled by the core from the capability's StateGraph (ADR-0053)
     path: Path
     tools: list[ToolSpec] = field(default_factory=list)
 
@@ -37,6 +37,20 @@ class LoadedCapability:
 
     def model_spec(self) -> CapabilityModelSpec:
         return self.manifest.model_spec()
+
+
+def _compile_capability(built: object, directory: Path) -> CompiledStateGraph:
+    """The core owns compilation (ADR-0053). `build()` returns an uncompiled
+    `StateGraph`; the core compiles it with no checkpointer, store or
+    `interrupt_before/after`, so a capability cannot arrange its own persistence
+    or interrupt the run. Any other return type is rejected here, before the
+    graph is ever invoked."""
+    if not isinstance(built, StateGraph):
+        raise ManifestError(
+            f"{directory}/graph.py: build() must return a StateGraph for the core to compile, "
+            f"got {type(built).__name__}"
+        )
+    return built.compile()
 
 
 def load_manifest(path: Path, models: ModelsConfig) -> Manifest:
@@ -70,7 +84,8 @@ class CapabilityRegistry:
             tools: list[ToolSpec] = []
             if (directory / "tools.py").is_file():
                 tools = list(importlib.import_module(f"{package}.{directory.name}.tools").tools())
-            loaded.append(LoadedCapability(manifest=manifest, graph=build(), path=directory, tools=tools))
+            graph = _compile_capability(build(), directory)
+            loaded.append(LoadedCapability(manifest=manifest, graph=graph, path=directory, tools=tools))
         return cls(loaded)
 
     def get(self, slug: str) -> LoadedCapability:

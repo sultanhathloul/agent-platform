@@ -27,7 +27,7 @@ def test_manifest_is_valid(models_config):
 
 
 async def test_subgraph_returns_empty_finding_and_keeps_its_state():
-    graph = build()
+    graph = build().compile()  # build() returns a StateGraph; the core compiles it (ADR-0053)
     principal = Principal(user_id="u1", permissions=("cap:general",))
     package = ContextPackage(node="capability.general", tier="standard", locale="ar", budget_limit=1000)
     cap_input = CapabilityInput(

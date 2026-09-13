@@ -34,9 +34,10 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     }
 
 
-def build():
+def build() -> StateGraph:
+    # Returns the uncompiled StateGraph; the core compiles it (ADR-0053).
     graph = StateGraph(_State, context_schema=RuntimeContext)
     graph.add_node("run", _run)
     graph.add_edge(START, "run")
     graph.add_edge("run", END)
-    return graph.compile()
+    return graph
