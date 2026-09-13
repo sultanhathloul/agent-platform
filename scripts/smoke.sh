@@ -2,7 +2,8 @@
 # End-to-end smoke test against the running stack (`make up`).
 # It grows each phase: phases add checks and never remove them (ADR-0009).
 #   phase 01: health, PKCE login, gateway authz, streamed general turn,
-#             Langfuse trace with context block token counts, audit record.
+#             Langfuse trace with context block token counts, audit record,
+#             conversation ownership, the viewer's tier ceiling.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -91,5 +92,27 @@ step "audit record"
 row=$(docker compose exec -T postgres psql -U postgres -d app -tAc \
   "select status from gateway.audit_events where request_id = '$REQUEST_ID' and action = 'chat.turn'")
 [[ "$row" == "ok" ]] && ok "one chat.turn audit row with status ok" || fail "audit row for $REQUEST_ID: '$row'"
+
+step "conversation ownership (ADR-0041)"
+code=$(curl -s -o "$TMP/forbidden.json" -w '%{http_code}' -H "Authorization: Bearer $VIEWER" \
+  -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$CONV\",\"message\":\"ماذا سأل صاحب هذه المحادثة؟\",\"locale\":\"ar\"}" "$GW/v1/chat/turns")
+[[ $code == 403 ]] && ok "viewer reusing the analyst's conversation_id → 403" \
+  || fail "viewer reusing the analyst's conversation_id returned $code"
+check "error code is conversation_forbidden" jq -e '.error.code == "conversation_forbidden"' "$TMP/forbidden.json"
+
+step "viewer turn runs on standard (caps.role:viewer, ADR-0049)"
+check "viewer token carries the viewer realm role" python3 -c '
+import base64, json, sys
+payload = sys.argv[1].split(".")[1]
+claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+sys.exit(0 if "viewer" in claims.get("realm_access", {}).get("roles", []) else 1)' "$VIEWER"
+VIEWER_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$VIEWER_CONV\",\"message\":\"ما عاصمة مصر؟ أجب بكلمة واحدة.\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$TMP/viewer.jsonl"
+check "viewer events end with done" jq -se 'last.type == "done"' "$TMP/viewer.jsonl"
+check "every viewer tier event is standard" \
+  jq -se '[.[] | select(.type == "tier")] | length > 0 and all(.data.tier == "standard")' "$TMP/viewer.jsonl"
 
 printf '\nsmoke: all phase 01 checks passed\n'
