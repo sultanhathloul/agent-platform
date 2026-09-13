@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.guardrails.engine import GuardEngine
+from app.identity import Principal
 from app.models.config import ModelsConfig
 from app.models.routing import CapabilityModelSpec, TierResolver
 
@@ -85,3 +86,28 @@ async def test_cap_bounds_the_final_tier(models_config):
         "standard",
         True,
     )
+
+
+async def test_role_cap_applies_to_the_principal(models_config):
+    # config/models.yaml seeds `role:viewer: standard` (README §19.1, ADR-0040).
+    deep = CapabilityModelSpec(slug="deep", min_tier="heavy")
+    resolver = TierResolver(models_config, GuardEngine())
+
+    viewer = Principal(user_id="v", roles=("user", "viewer"))
+    capped = await resolver.resolve("reasoning", capabilities=[deep], principal=viewer)
+    assert (capped.cap, capped.final, capped.capped) == ("standard", "standard", True)
+    assert "caps.role:viewer" in capped.reason
+
+    # a permission is never read as a role
+    analyst = Principal(user_id="a", roles=("user",), permissions=("cap:viewer",))
+    uncapped = await resolver.resolve("reasoning", capabilities=[deep], principal=analyst)
+    assert (uncapped.cap, uncapped.final, uncapped.capped) == ("heavy", "heavy", False)
+
+
+async def test_tightest_matching_role_cap_wins(models_config):
+    raw = models_config.model_dump()
+    raw["caps"]["role:admin"] = "heavy"
+    resolver = TierResolver(ModelsConfig.model_validate(raw), GuardEngine())
+    deep = CapabilityModelSpec(slug="deep", min_tier="heavy")
+    both = Principal(user_id="x", roles=("admin", "viewer"))
+    assert (await resolver.resolve("reasoning", capabilities=[deep], principal=both)).final == "standard"

@@ -79,6 +79,8 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(principal.path("user_id").asText()).isEqualTo("user-123");
         assertThat(principal.path("tenant_id").asText()).isEqualTo("tenant-a");
         assertThat(principal.path("permissions").toString()).isEqualTo("[\"cap:general\",\"kb:moe:read\"]");
+        // default-roles-agent and offline_access are Keycloak built-ins; permissions are not roles (ADR-0040)
+        assertThat(principal.path("roles").toString()).isEqualTo("[\"user\"]");
         assertThat(principal.path("display_name").asText()).isEqualTo("سارة المحللة");
         assertThat(principal.path("locale").asText()).isEqualTo("ar");
 

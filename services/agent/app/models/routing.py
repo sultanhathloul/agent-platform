@@ -91,10 +91,12 @@ class TierResolver:
         # 2–4. Router, context and validation escalation: phase 08.
         wanted = floor
 
-        # 5. Cap: MODEL_TIER checkpoint (7th). Policies may lower the ceiling (phase 03).
+        # 5. Cap: the ceiling for the principal's roles (ADR-0040), seen by the
+        #    MODEL_TIER checkpoint (7th). Policies may lower it (phase 03).
+        ceiling, source = self._ceiling(principal)
         outcome = await self.guard.evaluate(
             Checkpoint.MODEL_TIER,
-            {"role": role, "step": step, "tier": wanted, "cap": self.config.caps["default"]},
+            {"role": role, "step": step, "tier": wanted, "cap": ceiling},
             principal=principal,
         )
         cap = outcome.payload["cap"]
@@ -107,5 +109,18 @@ class TierResolver:
             cap=cap,
             final=final,
             capped=final != wanted,
-            reason=reason + ("; capped" if final != wanted else ""),
+            reason=reason + (f"; capped by {source}" if final != wanted else ""),
         )
+
+    def _ceiling(self, principal: Principal | None) -> tuple[str, str]:
+        """The tightest `caps.role:<name>` entry among the principal's roles, else `caps.default`."""
+        roles = set(principal.roles) if principal else set()
+        matched = {
+            key: tier
+            for key, tier in self.config.caps.items()
+            if key.startswith("role:") and key.removeprefix("role:") in roles
+        }
+        if not matched:
+            return self.config.caps["default"], "caps.default"
+        key = min(matched, key=lambda k: self.config.rank(matched[k]))
+        return matched[key], f"caps.{key}"

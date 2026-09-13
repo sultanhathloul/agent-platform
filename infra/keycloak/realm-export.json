@@ -30,6 +30,7 @@
         "composites": { "realm": ["cap:general"] }
       },
       { "name": "admin", "description": "Platform administrator" },
+      { "name": "viewer", "description": "Read-mostly user; model tier capped at standard (config/models.yaml caps, ADR-0040)" },
       { "name": "cap:general", "description": "Capability: general knowledge answers" },
       { "name": "cap:sql", "description": "Capability: text-to-SQL over business data" },
       { "name": "cap:web", "description": "Capability: web search" },
@@ -150,7 +151,7 @@
       "lastName": "المستعرض",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "viewer", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "cap:docs"]
+      "realmRoles": ["default-roles-agent", "viewer", "cap:docs"]
     }
   ],
   "components": {

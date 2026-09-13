@@ -12,7 +12,12 @@ public record AgentTurnRequest(
         List<String> selectedKbs,
         String locale) {
 
-    /** Identity set by the gateway, never by the model. */
+    /** Identity set by the gateway, never by the model. {@code roles} only select tier ceilings (ADR-0040). */
     public record Principal(
-            String userId, String tenantId, List<String> permissions, String displayName, String locale) {}
+            String userId,
+            String tenantId,
+            List<String> permissions,
+            List<String> roles,
+            String displayName,
+            String locale) {}
 }

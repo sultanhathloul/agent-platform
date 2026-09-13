@@ -1,7 +1,8 @@
 """The principal the gateway sends with every turn (README §6.1).
 
-Identity is set by the gateway, never by the model. The agent only sees
-`permissions` (ADR-0006); it never interprets Keycloak roles.
+Identity is set by the gateway, never by the model. `permissions` authorize
+(ADR-0006). `roles` are the gateway-filtered application roles, used only to
+pick model tier ceilings, never to authorize (ADR-0040).
 """
 
 import hashlib
@@ -19,6 +20,7 @@ class Principal(BaseModel):
     user_id: str = Field(min_length=1)
     tenant_id: str = Field(default="default", min_length=1)
     permissions: tuple[str, ...] = ()
+    roles: tuple[str, ...] = ()
     display_name: str = ""
     locale: Locale = "ar"
 
