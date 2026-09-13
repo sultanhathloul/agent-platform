@@ -29,7 +29,7 @@ Checklist:
 - [x] Agent: `AgentState` (§5.1, additions in ADR-0016); graph `load_identity → guard(INPUT) → assemble_context → route → guard(TOOL_LIST) → run_capabilities → answer → validate → guard(OUTPUT) → guard(DATA) → persist_state`
 - [x] Agent: capability contract + registry (manifest validation, fail fast); `general` capability; manifest routing rules
 - [x] Agent: `ContextAssembler` interface + minimal steps with per-block token counts; prompt loader (front-matter `id`, `version`); answer prompts in ar and en
-- [x] Agent: models gateway (LiteLLM client, streaming, usage) + minimal tier resolver (`model.tier_decision` on the span, `MODEL_TIER` hook)
+- [x] Agent: models gateway (LiteLLM client, streaming, usage) + minimal tier resolver (`model.tier_decision` on the span, `MODEL_TIER` hook); decoding temperature per role from `config/models.yaml` (ADR-0032)
 - [x] Agent: seven checkpoints as pass-through hooks; tool registry + broker skeleton (`PRE_TOOL`/`POST_TOOL`, timeout, retries)
 - [x] Agent: OTel → collector → Langfuse; `turn` root span with conversation/tenant/hashed-user attributes; `context.assemble`; `model.call` generations
 - [x] Agent: `validate` rejects an Arabic answer containing CJK characters (`app/text/script.py`, ADR-0027)
@@ -44,14 +44,16 @@ Checklist:
 Session result (2026-09-13), closing the phase:
 - **`make up`:** green. 13 long-running services are up, every one with a healthcheck is healthy, and `minio-init` completed. The OTel collector image is distroless, so it has no healthcheck.
 - **`make test`:** green.
-  - agent: 67 passed (58 before, plus the new `test_validate.py`).
+  - agent: 70 passed (58 before, plus `test_validate.py` and the per-role temperature tests).
   - gateway: 37 tests, 0 failed, 0 skipped. `make test` serves this layer from cache, so it was re-run for real with `gradle cleanTest test --no-build-cache`; a plain `cleanTest test` still restores `:test FROM-CACHE` and proves nothing.
   - web: 46 passed across 4 files, with typecheck and lint, re-run fresh with `docker build --target test --no-cache-filter test`.
 - **`make smoke`:** green, with the tier check now expecting `standard` for a general turn.
-- **`make eval`:** green. `general` 18/20 = 0.90 against the 0.85 threshold.
-  - Run-to-run variance, three consecutive runs on the same stack: 0.90, 0.85, 0.90. One run sat exactly on the threshold.
-  - The two recurring failures are script drift by `qwen2.5:14b-instruct`, not wrong knowledge: `"…هي الريyal السعودي"` and an answer that continues in Chinese. The second is caught by the new `validate` check and ends the turn as `validation_failed`.
-  - ADR-0032 proposes pinning the reasoning temperature to 0 in `config/models.yaml` so the gate stops depending on sampling. **Not implemented — it changes behaviour for every capability and is the owner's call.**
+- **`make eval`:** green, measured in two rounds — before and after the per-role temperature of ADR-0032.
+  - Before (one hard-coded 0.2 for every call), three consecutive runs: **0.90, 0.85, 0.90**.
+  - After (helper roles 0.0, `reasoning` and `reflection` 0.2), three consecutive runs: **0.85, 0.90, 0.85** — 17/20, 18/20, 17/20 against the 0.85 threshold. All three pass; two sit exactly on it.
+  - The change was not expected to steady *this* suite: a `general` turn makes exactly one model call, the answer, and the owner kept `reasoning` at 0.2. What it makes deterministic is every helper call — router, summarizer, judge, extractor — which is where run-to-run comparability starts to matter, from the `llm_judge` checker in phase 03 onward.
+  - The recurring failures are the same ones, and all are model defects rather than missing knowledge: `"…هي الريyal السعودي"` (byte-identical in all three runs), the sunrise answer continuing in Chinese, which `validate` catches and ends as `validation_failed`, and the flag colour answered as red in two of the three runs.
+  - ADR-0033 is the decided phase 02 follow-up: a word-level rule failing any token that mixes Arabic and Latin letters would catch the `الريyal` class, which no guard catches today.
 - **Browser:** the owner confirmed that sending a message from the UI works. The earlier automation failure was a tool artefact, not a bug.
 
 What changed this session:
@@ -61,7 +63,9 @@ What changed this session:
 - The `general` suite grew from 8 to 20 cases (13 Arabic, 7 English) at the unchanged 0.85 threshold (ADR-0028).
 - README: seven checkpoints in §0, §10.1 (new `MODEL_TIER` row), §15 and §18.4 (ADR-0026); `tool:{name}` documented as a policy scope, never a permission (ADR-0025); new §21 "Getting started on a new machine".
 - `make models` + `scripts/pull_models.sh`, and `VLLM_API_KEY` wired to the litellm container (ADR-0029).
-- ADR-0011 to ADR-0023 moved from *assumed* to *decided*; ADR-0030, ADR-0031 and ADR-0032 recorded as proposals.
+- Decoding temperature became a per-role setting in `config/models.yaml` — `router`, `summarizer`, `judge`, `extractor` at 0.0, `reasoning` and `reflection` at 0.2 (ADR-0032, accepted by the owner with that change). `ModelGateway` reads it by role, no temperature literal is left in code, and startup fails when a role has no temperature or the value is outside 0.0–2.0. The tier decision's role now drives the span attribute `model.temperature`.
+- ADR-0033 recorded as decided for phase 02: extend the script check with a word-level rule failing any token that mixes Arabic and Latin letters, with a small configurable allow-list. **Not implemented in phase 01, by instruction.**
+- ADR-0011 to ADR-0023 moved from *assumed* to *decided*; ADR-0030 and ADR-0031 recorded as proposals for phase 03.
 - `.DS_Store` and `docs/.DS_Store` are no longer tracked; `.idea/` and `.vscode/` are ignored.
 
 Left for this phase: **nothing but review.** PR #1 is ready for review; the owner merges it.
@@ -75,7 +79,7 @@ How to verify:
 Human review needed:
 - `infra/keycloak/realm-export.json`: roles, groups, the gateway service account's `realm-management` roles, and the user-profile `tenant_id` attribute.
 - `infra/litellm/config.yaml`: aliases, `num_ctx` per alias, and the `heavy → standard` fallback.
-- `config/models.yaml`: the dev heavy window of 65536.
+- `config/models.yaml`: the dev heavy window of 65536, and the `temperature` block (ADR-0032).
 - `config/prompts/**`: `answer.system@1.2.0` (ar) and `@1.1.0` (en), `context.state_digest@1.1.0`, `context.findings@1.0.0`. The ar and en versions differ on purpose: only the Arabic prompt needed the script rule.
 - `config/context.yaml`, `config/messages/errors.yaml`.
 - `evals/thresholds.yaml` and `services/agent/app/capabilities/general/evals/general.jsonl` (the 20 cases and their ground truths).
@@ -83,7 +87,7 @@ Human review needed:
 
 Owner notes:
 - **Docker memory:** Docker Desktop has 8 GB and the stack uses about 6.5 GB, with Keycloak capped at a 768 MB heap and the gateway at 768 MB. 12 GB or more is recommended so that `make test` builds have headroom.
-- **Eval headroom:** the `general` suite passes with roughly one case of margin. ADR-0032 is the way to remove the luck; until it is decided, expect an occasional 0.85.
+- **Eval headroom:** the `general` suite passes with at most one case of margin, and two of the three runs after ADR-0032 landed exactly on 0.85. The per-role temperature does not change that, by design — the answer call is still sampled at 0.2. If the margin matters more than variety in phrasing, `temperature.reasoning: 0.0` is a one-line change in `config/models.yaml`.
 - **Reranker:** `bge-reranker-v2-m3` is not in the Ollama library, and Ollama has no rerank API. How to serve it is a phase 04 decision (ADR-0008).
 - **Open for phase 03:** ADR-0030 (measure a stronger `fast` model on helper-role work) and ADR-0031 (where the `OUTPUT` and `DATA` guards run relative to streaming).
 
