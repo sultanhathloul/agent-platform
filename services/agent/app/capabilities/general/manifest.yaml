@@ -19,7 +19,7 @@ routing_hints:
   rules:
     - when: fallback               # selected when no other capability's rule matches
 model:
-  min_tier: fast                   # README §19.4
+  min_tier: standard               # README §19.4, amended by ADR-0024
   steps: {}
   on_overflow: compress
 context:

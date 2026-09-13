@@ -12,7 +12,7 @@ MANIFEST = Path(__file__).resolve().parents[1] / "manifest.yaml"
 def test_manifest_is_valid(models_config):
     manifest = load_manifest(MANIFEST, models_config)
     assert manifest.permission == "cap:general"
-    assert manifest.model.min_tier == "fast"
+    assert manifest.model.min_tier == "standard"  # ADR-0024
     assert [rule.when for rule in manifest.routing_hints.rules] == ["fallback"]
     assert manifest.name.ar and manifest.name.en
 

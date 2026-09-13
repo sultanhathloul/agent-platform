@@ -60,7 +60,7 @@ async def test_general_turn_streams_tokens_then_done(client, litellm):
     assert {e["request_id"] for e in events} == {"req-1"}
     assert len({e["turn_id"] for e in events}) == 1
 
-    assert events[0]["data"]["tier"] == "fast"  # general's floor (README §19.4)
+    assert events[0]["data"]["tier"] == "standard"  # general's floor (README §19.4, ADR-0024)
     tokens = [e["data"]["text"] for e in events if e["type"] == "token"]
     assert len(tokens) >= 2
     assert "".join(tokens) == MOCK_ANSWER
@@ -103,7 +103,7 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
 
     generation = by_name["model.call"][0]
     assert generation.attributes["langfuse.observation.type"] == "generation"
-    assert json.loads(generation.attributes["model.tier_decision"])["final"] == "fast"
+    assert json.loads(generation.attributes["model.tier_decision"])["final"] == "standard"  # ADR-0024
     assert {f"node.{n}" for n in ("route", "run_capabilities", "answer", "validate")} <= set(by_name)
     assert "capability.general" in by_name
     checkpoints = {s.attributes["guard.checkpoint"] for s in by_name["guard.check"]}
