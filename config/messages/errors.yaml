@@ -21,6 +21,9 @@ validation_failed:
 turn_failed:
   ar: "تعذّر إكمال الطلب."
   en: "The request could not be completed."
+capability_failed:
+  ar: "تعذّر إكمال إحدى القدرات المطلوبة، فلم تكتمل الإجابة."
+  en: "A capability could not complete, so the answer was not produced."
 output_blocked:
   ar: "حُجبت الإجابة بموجب سياسة المحتوى."
   en: "The answer was withheld by a content policy."

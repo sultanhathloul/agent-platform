@@ -12,6 +12,7 @@ export const KNOWN_ERROR_CODES = [
   "audit_unavailable",
   "internal_error",
   "turn_failed",
+  "capability_failed",
   "network_error",
   "not_found",
   "no_capability_available",

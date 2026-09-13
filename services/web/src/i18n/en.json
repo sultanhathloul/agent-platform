@@ -70,6 +70,7 @@
     "audit_unavailable": "Your request could not be recorded in the audit log, so it was not carried out. Please try again shortly.",
     "internal_error": "An unexpected internal error occurred.",
     "turn_failed": "The answer to your question could not be completed.",
+    "capability_failed": "A capability could not complete, so the answer was not produced.",
     "network_error": "Could not reach the server. Check your network connection.",
     "not_found": "The requested resource was not found.",
     "no_capability_available": "No capability available to you can handle this request.",
