@@ -64,6 +64,8 @@ async def answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx.usage.add(result.tokens_in, result.tokens_out)
     return {
         "draft_answer": result.text,
+        # Every token was streamed, so this is what the user saw (ADR-0039).
+        "shown_answer": result.text,
         "tokens_in": (state.get("tokens_in") or 0) + result.tokens_in,
         "tokens_out": (state.get("tokens_out") or 0) + result.tokens_out,
     }

@@ -1,14 +1,16 @@
 """Graph-level guard checkpoints: INPUT (1), TOOL_LIST (2), OUTPUT (5), DATA (6).
 PRE_TOOL/POST_TOOL run in the broker, MODEL_TIER in the tier resolver.
 
-With no policies loaded (phase 01) every checkpoint allows. Block, redact and
-rewrite handling arrives with the policy engine in phase 03.
+With no policies loaded (phase 01) every checkpoint allows. A `block` at OUTPUT
+or DATA already ends the turn and retracts the streamed text (ADR-0039); the
+policy engine and redact/rewrite handling arrive in phase 03.
 """
 
 from langgraph.runtime import Runtime
 
+from app.errors import TurnError
 from app.graph.deps import TurnContext
-from app.graph.nodes import emit, traced
+from app.graph.nodes import emit, retract_streamed, traced
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import GuardOutcome
@@ -57,7 +59,11 @@ async def guard_output(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         {"answer": state["draft_answer"], "citations": state.get("citations") or []},
         principal=runtime.context.principal,
     )
-    return {"guard_events": _record(state, runtime, outcome)}
+    events = _record(state, runtime, outcome)
+    if outcome.blocked:
+        retract_streamed(state, runtime, "output_blocked")
+        raise TurnError("output_blocked")
+    return {"guard_events": events}
 
 
 @traced("guard.DATA")
@@ -65,4 +71,8 @@ async def guard_data(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     outcome = await runtime.context.services.guard.evaluate(
         Checkpoint.DATA, state["draft_answer"], principal=runtime.context.principal
     )
-    return {"draft_answer": outcome.payload, "guard_events": _record(state, runtime, outcome)}
+    events = _record(state, runtime, outcome)
+    if outcome.blocked:
+        retract_streamed(state, runtime, "data_blocked")
+        raise TurnError("data_blocked")
+    return {"draft_answer": outcome.payload, "guard_events": events}

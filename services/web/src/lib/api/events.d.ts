@@ -9,7 +9,15 @@
  * One SSE event streamed by POST /v1/turns (agent) and POST /v1/chat/turns (gateway).
  */
 export type AgentEvent =
-  TokenEvent | TierEvent | GuardEvent | ToolStartEvent | ToolEndEvent | CitationEvent | DoneEvent | ErrorEvent;
+  | TokenEvent
+  | TierEvent
+  | GuardEvent
+  | ToolStartEvent
+  | ToolEndEvent
+  | CitationEvent
+  | DoneEvent
+  | ErrorEvent
+  | RetractEvent;
 export type RequestId = string;
 export type TurnId = string | null;
 /**
@@ -111,6 +119,17 @@ export type Code = string;
 export type MessageAr = string;
 export type MessageEn = string;
 export type Retryable = boolean;
+export type RequestId8 = string;
+export type TurnId8 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq8 = number;
+export type Type8 = "retract";
+/**
+ * Error code of the check that withdrew the streamed text (ADR-0039).
+ */
+export type Reason1 = string;
 
 export interface TokenEvent {
   request_id: RequestId;
@@ -225,4 +244,17 @@ export interface ErrorData {
   message_ar: MessageAr;
   message_en: MessageEn;
   retryable?: Retryable;
+}
+/**
+ * Withdraws every answer token streamed so far in this turn.
+ */
+export interface RetractEvent {
+  request_id: RequestId8;
+  turn_id: TurnId8;
+  seq: Seq8;
+  type: Type8;
+  data: RetractData;
+}
+export interface RetractData {
+  reason: Reason1;
 }

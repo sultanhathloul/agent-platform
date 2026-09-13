@@ -92,6 +92,10 @@ class ErrorData(_Model):
     retryable: bool = False
 
 
+class RetractData(_Model):
+    reason: str = Field(description="Error code of the check that withdrew the streamed text (ADR-0039).")
+
+
 # ------------------------------------------------------------------ envelope
 
 
@@ -143,6 +147,13 @@ class ErrorEvent(_Envelope):
     data: ErrorData
 
 
+class RetractEvent(_Envelope):
+    """Withdraws every answer token streamed so far in this turn."""
+
+    type: Literal["retract"]
+    data: RetractData
+
+
 AgentEvent = Annotated[
     TokenEvent
     | TierEvent
@@ -151,7 +162,8 @@ AgentEvent = Annotated[
     | ToolEndEvent
     | CitationEvent
     | DoneEvent
-    | ErrorEvent,
+    | ErrorEvent
+    | RetractEvent,
     Field(discriminator="type"),
 ]
 
@@ -166,9 +178,12 @@ _PAYLOADS: dict[str, type[_Model]] = {
     "citation": Citation,
     "done": DoneData,
     "error": ErrorData,
+    "retract": RetractData,
 }
 
-EventType = Literal["token", "tier", "guard", "tool_start", "tool_end", "citation", "done", "error"]
+EventType = Literal[
+    "token", "tier", "guard", "tool_start", "tool_end", "citation", "done", "error", "retract"
+]
 
 
 def build_event(type_: EventType, data: dict | _Model, *, request_id: str, turn_id: str | None, seq: int):

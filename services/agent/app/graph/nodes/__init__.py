@@ -27,3 +27,10 @@ def traced(name: str) -> Callable[[Node], Node]:
 def emit(runtime: Runtime[TurnContext], type_: str, data: dict) -> None:
     """Streams one event to the client (wrapped into the envelope by the runner)."""
     runtime.stream_writer({"type": type_, "data": data})
+
+
+def retract_streamed(state: AgentState, runtime: Runtime[TurnContext], reason: str) -> None:
+    """Withdraws the answer tokens already streamed this turn before the turn ends
+    in an error. Interim until phase 03 buffers output before it leaves (ADR-0039)."""
+    if state.get("shown_answer"):
+        emit(runtime, "retract", {"reason": reason})

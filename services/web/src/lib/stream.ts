@@ -116,6 +116,9 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
           retryable: event.data.retryable ?? false,
         },
       };
+    case "retract":
+      // A check failed after the text streamed (ADR-0039): stop showing it; the error that follows takes its place.
+      return { ...m, text: "", receivedTokens: false };
     default:
       return message; // event types from a newer server are ignored
   }

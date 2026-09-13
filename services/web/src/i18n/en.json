@@ -74,6 +74,8 @@
     "context_overflow": "The request is too long for the model to process.",
     "model_unavailable": "The language model is currently unavailable. Please try again shortly.",
     "validation_failed": "The answer did not pass verification, so it was not shown.",
+    "output_blocked": "The answer was withheld by a content policy.",
+    "data_blocked": "The answer was withheld because it contains protected data.",
     "unknown": "An unknown error occurred."
   }
 }

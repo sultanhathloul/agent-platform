@@ -91,6 +91,14 @@ describe("applyEvent", () => {
     expect(m.error).toEqual({ code: "turn_failed", message_ar: "رسالة الخادم", message_en: "server message", retryable: true });
   });
 
+  it("replaces retracted text with the error that follows", () => {
+    const retract: StreamEvent = { ...meta, seq: next(), type: "retract", data: { reason: "validation_failed" } };
+    const m = run([token("العاصمة "), token("北京"), retract, error("validation_failed")]);
+    expect(m.text).toBe("");
+    expect(m.status).toBe("error");
+    expect(m.error?.code).toBe("validation_failed");
+  });
+
   it("ignores unknown event types", () => {
     const before = run([token("x")]);
     const after = applyEvent(before, { ...meta, seq: 99, type: "progress", data: {} } as unknown as StreamEvent);

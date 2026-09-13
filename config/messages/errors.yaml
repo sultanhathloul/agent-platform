@@ -21,3 +21,9 @@ validation_failed:
 turn_failed:
   ar: "تعذّر إكمال الطلب."
   en: "The request could not be completed."
+output_blocked:
+  ar: "حُجبت الإجابة بموجب سياسة المحتوى."
+  en: "The answer was withheld by a content policy."
+data_blocked:
+  ar: "حُجبت الإجابة لأنها تتضمن بيانات محمية."
+  en: "The answer was withheld because it contains protected data."

@@ -356,6 +356,64 @@
       "title": "GuardEvent",
       "type": "object"
     },
+    "RetractData": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "Error code of the check that withdrew the streamed text (ADR-0039).",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "RetractData",
+      "type": "object"
+    },
+    "RetractEvent": {
+      "additionalProperties": false,
+      "description": "Withdraws every answer token streamed so far in this turn.",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "retract",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/RetractData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "RetractEvent",
+      "type": "object"
+    },
     "StateDigest": {
       "additionalProperties": false,
       "properties": {
@@ -690,6 +748,7 @@
       "done": "#/$defs/DoneEvent",
       "error": "#/$defs/ErrorEvent",
       "guard": "#/$defs/GuardEvent",
+      "retract": "#/$defs/RetractEvent",
       "tier": "#/$defs/TierEvent",
       "token": "#/$defs/TokenEvent",
       "tool_end": "#/$defs/ToolEndEvent",
@@ -721,6 +780,9 @@
     },
     {
       "$ref": "#/$defs/ErrorEvent"
+    },
+    {
+      "$ref": "#/$defs/RetractEvent"
     }
   ]
 }

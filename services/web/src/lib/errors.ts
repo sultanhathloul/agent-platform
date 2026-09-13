@@ -16,6 +16,8 @@ export const KNOWN_ERROR_CODES = [
   "context_overflow",
   "model_unavailable",
   "validation_failed",
+  "output_blocked",
+  "data_blocked",
   "unknown",
 ] as const;
 

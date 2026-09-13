@@ -25,6 +25,7 @@ async def load_identity_and_state(state: AgentState, runtime: Runtime[TurnContex
         "sql_history": [],
         "capability_outputs": [],
         "draft_answer": None,
+        "shown_answer": None,
         "citations": [],
         "guard_events": [],
         "reflection": None,

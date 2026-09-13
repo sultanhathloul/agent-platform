@@ -57,6 +57,7 @@ class AgentState(TypedDict, total=False):
     sql_history: list[dict]
     capability_outputs: list[dict]  # addition: CapabilityOutput per slug, read by the answer node
     draft_answer: str | None
+    shown_answer: str | None  # addition: text streamed to the user; differs from draft_answer after a guard
     citations: list[dict]
     guard_events: list[dict]
     reflection: dict | None
