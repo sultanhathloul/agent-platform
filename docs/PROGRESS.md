@@ -188,6 +188,34 @@ How to verify:
 - `make up && make test && make smoke`
 - Isolation tests alone: `cd services/agent && uv run pytest tests/integration/test_capability_isolation.py tests/unit/test_capability_runtime.py tests/unit/test_capability_lint.py` (mock LiteLLM running)
 
+### Fix session: fourth PR #1 review (2026-09-13)
+
+Scope: the two findings of the fourth review — the fresh config (ADR-0052) stops a capability from *reading* the parent config/checkpointer/store, but not from *escaping* to the main graph through LangGraph control-flow. A capability node that raised `ParentCommand` wrote forged identity/permissions/`cap_state`/messages into the main graph's checkpoint; a forged `GraphInterrupt` left the thread with a pending interrupt. The registry also accepted any object with an `ainvoke`. Fix by an exception/return firewall in the core, type-checked compilation, and lint. Nothing else. Re-run `make test`, `make smoke`; push.
+
+Checklist:
+- [x] 1. Exception firewall in `_invoke_isolated`: the subgraph runs in the isolated task; ANY `BaseException` other than a clean return is converted to a `capability_failed` result and recorded on the capability span; `CancelledError` is re-raised only after the subgraph task is cancelled and drained. ParentCommand, GraphInterrupt, a returned `Command` (raised as ParentCommand by LangGraph), timeout and unknown exceptions all caught. Nothing a capability raises reaches the main graph's retry handler or its checkpoint.
+- [x] 2. Registry accepts only a `CompiledStateGraph` the core compiled from the capability's `StateGraph`: `build()` returns a `StateGraph`, the core compiles it with no checkpointer, store or `interrupt_before/after`; any other return type is a `ManifestError`.
+- [x] 3. Lint (`app/capabilities/ruff.toml`): ban `langgraph.errors`, `langgraph.types.Command`, `langgraph.types.interrupt`, and the `langgraph.pregel` and `langgraph.checkpoint` packages under `app/capabilities/`.
+- [x] 4. Tests: ParentCommand reproduction (identity, permissions, other namespaces and messages unchanged) and forged-GraphInterrupt reproduction (no pending interrupt on the thread) as permanent integration tests; a unit test that an arbitrary exception yields `capability_failed` and an untouched checkpoint; a registry test that a non-`StateGraph` `build()` is rejected; new lint bans covered.
+- [x] 5. ADR-0053: capability isolation is one exception/return firewall in the core, plus type-checked compilation, plus lint; enumerated bans are secondary; process-level isolation (separate worker) is the phase-09 option if capabilities ever become third-party.
+- [x] `capability_failed` error code added to `config/messages/errors.yaml`, the web i18n catalogs and `KNOWN_ERROR_CODES`.
+- [x] `make test`, `make smoke` green; push. (`make eval` not re-run: no prompt, model or answer-path change.)
+
+Session result (2026-09-13):
+- **Fix (finding 1).** `_invoke_isolated` (`app/graph/nodes/capabilities.py`) now awaits the subgraph task behind a firewall: `TimeoutError` → `CapabilityFailed(retryable)`; `CancelledError` → task cancelled and drained, then re-raised; any other `BaseException` (ParentCommand, GraphInterrupt, a returned Command, unknown) → `CapabilityFailed`. `run_capabilities` records the failure on the `capability.{slug}` span and ends the turn as the new `capability_failed` error. `_output`'s invalid-output path and the own-checkpointer/store check now also raise `CapabilityFailed`, so every capability failure ends the turn as `capability_failed` (was `turn_failed`).
+- **Fix (finding 2, part a).** `build()` returns an uncompiled `StateGraph`; `registry._compile_capability` compiles it in the core with no checkpointer, store or interrupts, and rejects any other return type as `ManifestError`. `general/graph.py` and the test `probe` capability return `StateGraph`; `LoadedCapability.graph` is typed `CompiledStateGraph`.
+- **Fix (finding 2, part b).** `app/capabilities/ruff.toml` bans `langgraph.errors`, `langgraph.types.Command`, `langgraph.types.interrupt`, `langgraph.pregel` and `langgraph.checkpoint` under `app/capabilities/`.
+- **Tests.** `tests/integration/test_capability_isolation.py`: a ParentCommand from a capability leaves identity/permissions/other namespaces/messages unchanged and the turn ends `capability_failed`; a forged GraphInterrupt leaves the thread with no pending interrupt. `tests/unit/test_capability_runtime.py`: an arbitrary exception yields `capability_failed` and an untouched checkpoint (no partial writes, no interrupt). `tests/unit/test_registry.py`: `_compile_capability` compiles a `StateGraph` and rejects a compiled graph, a fake graph, a plain object and `None`. `tests/unit/test_capability_lint.py`: the five new bans fire under `app/capabilities/`. The three existing capability-failure assertions moved from `turn_failed` to `capability_failed`.
+- **`make test`:** green (exit 0). Agent 139 passed. Gateway BUILD SUCCESSFUL (image `test` task, run for real) plus 5 `gateway-db-tests`. Web 51 passed with typecheck and lint.
+- **`make up`:** green (agent rebuilt). **`make smoke`:** green (exit 0), all phase 01 checks.
+- `make eval` not re-run, by instruction: no prompt, model or answer-path change.
+- ADR-0053 records the firewall + type-checked compilation + lint, and notes process-level isolation as the phase-09 option for third-party capabilities.
+
+Human review needed (this session):
+- `services/agent/app/capabilities/ruff.toml`: the five added bans.
+- README §18.1/§18.3 now describe `build()` as returning a compiled subgraph; ADR-0053 moves compilation into the core (`build()` returns a `StateGraph`). README text left unchanged this session; the owner may want to patch those two lines to match, like ADR-0026 did.
+- `config/messages/errors.yaml`, `services/web/src/i18n/{ar,en}.json`, `services/web/src/lib/errors.ts`: the new `capability_failed` code and its ar/en text.
+
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
@@ -248,3 +276,5 @@ Tech debt carried from the second PR #1 review (recorded 2026-09-13; not fixed i
 - Branch: `phase/09-hardening`
 - Status: not started
 - Done when: CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check.
+
+Hardening option carried from the fourth PR #1 review (ADR-0053): capability isolation is enforced in-process (fresh config, exception/return firewall, core-owned compilation, lint). `RuntimeContext`'s callables are still core objects reachable by attribute reflection. If capabilities ever become third-party rather than first-party code in this repo, run each subgraph in a separate worker process with only its `RuntimeContext` marshalled across the boundary. Not needed for v1's five first-party capabilities.
