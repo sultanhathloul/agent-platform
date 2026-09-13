@@ -1,8 +1,20 @@
 {"id": "general-ar-capital", "locale": "ar", "message": "ما عاصمة المملكة العربية السعودية؟", "expect": {"contains_any": ["الرياض"], "script": "arabic"}}
-{"id": "general-en-capital", "locale": "en", "message": "What is the capital of Saudi Arabia?", "expect": {"contains_any": ["Riyadh"], "script": "latin"}}
 {"id": "general-ar-week", "locale": "ar", "message": "كم عدد أيام الأسبوع؟", "expect": {"contains_any": ["سبعة", "7", "٧"], "excludes_any": ["خمسة"], "script": "arabic"}}
-{"id": "general-en-week", "locale": "en", "message": "How many days are there in a week?", "expect": {"contains_any": ["seven", "7"], "excludes_any": ["five"], "script": "latin"}}
 {"id": "general-ar-sum", "locale": "ar", "message": "ما ناتج جمع ٢ و ٣؟", "expect": {"contains_any": ["5", "٥", "خمسة"], "script": "arabic"}}
 {"id": "general-ar-flag", "locale": "ar", "message": "ما لون علم المملكة العربية السعودية الأساسي؟", "expect": {"contains_any": ["الأخضر", "أخضر", "خضراء"], "excludes_any": ["الأزرق", "أزرق", "الأحمر", "أحمر"], "script": "arabic"}}
 {"id": "general-ar-ocean", "locale": "ar", "message": "ما أكبر محيط في العالم؟", "expect": {"contains_any": ["الهادئ", "الهادي"], "excludes_any": ["الأطلسي"], "script": "arabic"}}
+{"id": "general-ar-currency", "locale": "ar", "message": "ما العملة الرسمية في المملكة العربية السعودية؟", "expect": {"contains_any": ["الريال", "ريال"], "excludes_any": ["الدرهم", "الدينار"], "script": "arabic"}}
+{"id": "general-ar-language", "locale": "ar", "message": "ما اللغة الرسمية في المملكة العربية السعودية؟", "expect": {"contains_any": ["العربية"], "script": "arabic"}}
+{"id": "general-ar-makkah", "locale": "ar", "message": "في أي مدينة تقع الكعبة المشرفة؟", "expect": {"contains_any": ["مكة"], "script": "arabic"}}
+{"id": "general-ar-redsea", "locale": "ar", "message": "ما البحر الذي يحد المملكة العربية السعودية من جهة الغرب؟", "expect": {"contains_any": ["الأحمر"], "script": "arabic"}}
+{"id": "general-ar-boiling", "locale": "ar", "message": "عند أي درجة حرارة يغلي الماء عند مستوى سطح البحر بمقياس سيلسيوس؟", "expect": {"contains_any": ["100", "١٠٠", "مئة", "مائة"], "script": "arabic"}}
+{"id": "general-ar-multiply", "locale": "ar", "message": "ما ناتج ضرب ٦ في ٧؟", "expect": {"contains_any": ["42", "٤٢", "اثنان وأربعون", "اثنين وأربعين"], "script": "arabic"}}
+{"id": "general-ar-jupiter", "locale": "ar", "message": "ما أكبر كوكب في المجموعة الشمسية؟", "expect": {"contains_any": ["المشتري", "مشتري"], "script": "arabic"}}
+{"id": "general-ar-sunrise", "locale": "ar", "message": "من أي جهة تشرق الشمس؟", "expect": {"contains_any": ["الشرق", "شرق"], "script": "arabic"}}
+{"id": "general-en-capital", "locale": "en", "message": "What is the capital of Saudi Arabia?", "expect": {"contains_any": ["Riyadh"], "script": "latin"}}
+{"id": "general-en-week", "locale": "en", "message": "How many days are there in a week?", "expect": {"contains_any": ["seven", "7"], "excludes_any": ["five"], "script": "latin"}}
 {"id": "general-en-planet", "locale": "en", "message": "Which planet is known as the Red Planet?", "expect": {"contains_any": ["Mars"], "script": "latin"}}
+{"id": "general-en-ocean", "locale": "en", "message": "Which is the largest ocean on Earth?", "expect": {"contains_any": ["Pacific"], "script": "latin"}}
+{"id": "general-en-currency", "locale": "en", "message": "What is the currency of Saudi Arabia?", "expect": {"contains_any": ["riyal", "rial"], "script": "latin"}}
+{"id": "general-en-boiling", "locale": "en", "message": "At what temperature in Celsius does water boil at sea level?", "expect": {"contains_any": ["100"], "script": "latin"}}
+{"id": "general-en-continents", "locale": "en", "message": "How many continents are there on Earth?", "expect": {"contains_any": ["seven", "7"], "script": "latin"}}
