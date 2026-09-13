@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-web eval smoke logs ps openapi
+.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -30,7 +30,7 @@ clean: ## Stop the stack and delete every volume
 seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot)
 	$(COMPOSE) run --rm minio-init
 
-test: test-agent test-gateway test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
+test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
 	$(COMPOSE) --profile test up -d --wait litellm-mock
@@ -41,6 +41,11 @@ test-agent: .env
 # --build-context config: role tier caps are read from config/models.yaml (ADR-0046).
 test-gateway:
 	docker build --target test --no-cache-filter test --build-context docs=docs --build-context config=config services/gateway
+
+# JDBC tests run as a container against the compose Postgres, not in the image build (ADR-0051).
+test-gateway-db: .env
+	$(COMPOSE) up -d --wait postgres
+	$(COMPOSE) --profile test run --rm --build gateway-db-tests
 
 test-web:
 	docker build --target test --no-cache-filter test services/web

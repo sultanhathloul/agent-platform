@@ -50,11 +50,29 @@ tasks.bootJar {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // JDBC tests need the compose Postgres; `make test-gateway-db` runs them (ADR-0051).
+        excludeTags("db")
+    }
     maxHeapSize = "768m"
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showStandardStreams = false
+    }
+}
+
+val dbTest by tasks.registering(Test::class) {
+    description = "JDBC tests against the compose Postgres (ADR-0051)."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("db")
+    }
+    outputs.upToDateWhen { false }
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }

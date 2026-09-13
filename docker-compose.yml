@@ -337,9 +337,27 @@ services:
       litellm-mock:
         condition: service_healthy
 
+  # JDBC tests of the gateway against this Postgres; an image build cannot reach it (ADR-0051).
+  gateway-db-tests:
+    profiles: [test]
+    build:
+      context: ./services/gateway
+      target: db-test
+    environment:
+      GATEWAY_TEST_DB_URL: jdbc:postgresql://postgres:5432/
+      GATEWAY_TEST_DB_USER: postgres
+      GATEWAY_TEST_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - gateway-gradle-cache:/home/gradle/.gradle
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   redisdata:
   miniodata:
   clickhouse-data:
   clickhouse-logs:
+  gateway-gradle-cache:
+    name: gateway-gradle-cache   # shared with `make openapi`
