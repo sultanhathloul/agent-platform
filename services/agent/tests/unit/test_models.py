@@ -28,9 +28,11 @@ async def test_role_default_without_capabilities(models_config):
 
 
 async def test_capability_floor_replaces_provisional_reasoning_tier(models_config):
-    general = CapabilityModelSpec(slug="general", min_tier="fast")
+    # A synthetic capability whose floor sits below the reasoning default;
+    # `general` itself moved to standard in ADR-0024.
+    on_fast = CapabilityModelSpec(slug="cap_on_fast", min_tier="fast")
     decision = await TierResolver(models_config, GuardEngine()).resolve(
-        "reasoning", step="answer", capabilities=[general]
+        "reasoning", step="answer", capabilities=[on_fast]
     )
     assert decision.requested == "standard"
     assert decision.final == "fast"

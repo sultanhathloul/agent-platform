@@ -19,7 +19,7 @@ def test_manifest_is_valid(models_config):
 
 async def test_subgraph_returns_empty_finding_and_keeps_its_state():
     graph = build()
-    package = ContextPackage(node="general", tier="fast", locale="ar", budget_limit=1000)
+    package = ContextPackage(node="general", tier="standard", locale="ar", budget_limit=1000)
     cap_input = CapabilityInput(
         message="ما عاصمة المملكة؟",
         context=package,
