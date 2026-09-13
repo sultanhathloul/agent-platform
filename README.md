@@ -8,7 +8,7 @@
 
 ## 0. One-paragraph summary
 
-A production-grade, self-hostable AI agent platform that runs on an air-gapped or restricted network. One LangGraph-based agent serves five use cases (Text-to-SQL over PostgreSQL, web search, chat-with-uploaded-documents, search across admin-curated knowledge bases, and general knowledge answers) behind a Keycloak-secured web UI, with a **dynamic, admin-configurable guardrails engine** enforced at six checkpoints, structured **state** separate from long-term **memory**, an explicit **context assembly** step before every model call, **reflection** for high-value turns, and **observability + evaluation** wired in from day one. Everything runs from a single `docker compose up`.
+A production-grade, self-hostable AI agent platform that runs on an air-gapped or restricted network. One LangGraph-based agent serves five use cases (Text-to-SQL over PostgreSQL, web search, chat-with-uploaded-documents, search across admin-curated knowledge bases, and general knowledge answers) behind a Keycloak-secured web UI, with a **dynamic, admin-configurable guardrails engine** enforced at seven checkpoints, structured **state** separate from long-term **memory**, an explicit **context assembly** step before every model call, **reflection** for high-value turns, and **observability + evaluation** wired in from day one. Everything runs from a single `docker compose up`.
 
 The governing principle (from the architecture explorer this project is based on):
 
@@ -348,9 +348,9 @@ No tools. Small context. Still passes input/output guards and validation. Router
 
 A **policy** = `{id, name, enabled, version, scope, checkpoints[], checker, config, action, severity, message_ar, message_en}`. Policies are stored in PostgreSQL (`guard_policies`), seeded from `config/policies/*.yaml`, cached in Redis, hot-reloaded on change (pub/sub). Every policy evaluation is recorded in `state.guard_events` and the trace.
 
-**Scope:** `global | tenant:{id} | role:{role} | kb:{slug} | tool:{name}` — narrower scopes override wider ones.
+**Scope:** `global | tenant:{id} | role:{role} | kb:{slug} | tool:{name}` — narrower scopes override wider ones. A scope says *what a policy applies to*; `tool:{name}` is not a permission name. Permissions are `cap:{slug}` and `kb:{slug}:read` (§11, ADR-0006).
 
-**Checkpoints (6):**
+**Checkpoints (7):**
 
 | # | Checkpoint | Sees | Typical policies |
 |---|-----------|------|------------------|
@@ -360,6 +360,7 @@ A **policy** = `{id, name, enabled, version, scope, checkpoints[], checker, conf
 | 4 | `POST_TOOL` | tool result | untrusted-content sanitization, PII detection in fetched/queried data, size truncation |
 | 5 | `OUTPUT` | draft answer + citations | banned topics, tone, refusal templates, citation policy |
 | 6 | `DATA` | any text leaving toward the user or memory | PII **redaction** (phone, national ID, IBAN, email…), secret patterns |
+| 7 | `MODEL_TIER` | the tier resolver's request (role, step, capability floor, escalations) | ceilings by role, tenant or quota (§19.3); a capped request is served at the ceiling and logged |
 
 **Actions:** `allow | block | redact | rewrite | warn | require_approval | log_only`. `block` returns the policy's `message_ar/en` to the user; `redact` replaces spans with `[REDACTED:{type}]`; `rewrite` asks the model to regenerate with the violation explained (max once).
 
@@ -452,7 +453,7 @@ Seed policies in `config/policies/`:
 
 1. **Skeleton & platform** — repo layout, compose with postgres/redis/keycloak/litellm/minio/langfuse, health checks, `make up`, seed users. Gateway validates JWT; web logs in; **capability registry + `run_capabilities` node** with the `general` capability only, full tracing. *Done when: a logged-in user gets a streamed answer with a Langfuse trace showing context blocks.*
 2. **State, Context Assembly, Memory** — full `AgentState`, checkpointer, assembler pipeline with budget logging, summarizer, memory write/retrieve + settings page, context debug endpoint.
-3. **Guardrails engine** — policy model, 6 checkpoints, `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge` checkers, admin policy UI, `guardrails.jsonl` evals.
+3. **Guardrails engine** — policy model, 7 checkpoints, `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge` checkers, admin policy UI, `guardrails.jsonl` evals.
 4. **UC3 documents** — ingestion pipeline, session collections, hybrid retrieval + rerank, citations UI.
 5. **UC4 KB plugins** — KB CRUD, dynamic Keycloak roles, plugin toggles, cross-KB retrieval, permission tests (a user must never retrieve from a KB without the role — test at gateway and agent).
 6. **UC2 web** — SearXNG, fetch/sanitize, loop node with limits, citation validation, domain policies.
@@ -564,7 +565,7 @@ class Capability(Protocol):
 | UI | `GET /v1/capabilities` returns manifests filtered by the principal; the composer renders them |
 | Context | Assembly builds a `ContextPackage` with only the blocks in `context.needs`, within `max_input_tokens` |
 | Model tier | `model.min_tier` and `model.steps` feed the tier resolver (§19); the capability calls `models.call(role=..., step=...)` and never a model name |
-| Guardrails | Policies with scope `tool:{slug}` are seeded from `policies/`; all six checkpoints wrap the capability without it knowing |
+| Guardrails | Policies with scope `tool:{slug}` are seeded from `policies/`; all seven checkpoints wrap the capability without it knowing |
 | Tools | `tools()` are registered into the shared registry; execution always goes through `broker.py` |
 | Observability | One span `capability.{slug}` per invocation with usage and events |
 | Evaluation | `evals/run_evals.py` globs `capabilities/*/evals/*.jsonl` and runs them under a suite named by slug |
@@ -635,7 +636,7 @@ Final tier = max(1–4) bounded by 5. Every decision is written to the trace as 
 ### 19.4 Rules of thumb baked into the seed config
 
 - Helper roles never leave `fast`. This alone removes most of the cost of a turn.
-- `general` capability: `min_tier: fast`, `on_overflow: compress`.
+- `general` capability: `min_tier: standard`, `on_overflow: compress`. The `fast` tier exists for instruction-following helper roles, not for world knowledge; a general-knowledge answer depends on what the model knows (ADR-0024).
 - `docs`, `kb`, `web`: `min_tier: standard`, `on_overflow: compress`.
 - `sql`: `steps: {generate: standard, fix_error: fast, interpret: fast}`.
 - `email_proofreader`: `min_tier: fast`.
@@ -665,3 +666,86 @@ Rules:
 - A prompt change is a PR that must show the eval delta (the CI job posts before/after scores).
 - Prompts are addressed by `id@version`; the trace records which version produced each call, so a regression can be tied to a prompt change.
 - No secrets and no environment-specific values in any of these folders; those live in `.env` / Vault.
+
+---
+
+## 21. Getting started on a new machine
+
+### 21.1 Prerequisites
+
+| Tool | Version | Why |
+|------|---------|-----|
+| Docker Desktop (or Docker Engine + Compose v2) | Compose v2; **12 GB of memory or more** for the Docker VM | The whole stack. `scripts/preflight.sh` warns below 12 GB; the stack itself uses about 6.5 GB, and builds need the headroom. |
+| Git | any | Clone the repository. |
+| `curl`, `jq`, `openssl` | any | `scripts/init_env.sh`, `preflight.sh`, `pull_models.sh`, `smoke.sh`. macOS ships all three; on Debian, `apt install curl jq openssl`. |
+| `uv` | ≥ 0.4 | `make eval` and `make smoke` run on the host. Everything else runs in containers. |
+| Ollama | ≥ 0.3 | **Optional.** Only if this machine also serves the models. Skip it when you point at a shared server (§21.4). |
+
+No JDK and no Node.js are needed: the gateway and web tests build inside Docker (ADR-0019).
+
+### 21.2 First run
+
+```bash
+git clone https://github.com/<org>/agent-platform.git
+cd agent-platform
+
+scripts/init_env.sh     # writes .env with fresh random secrets; never overwrites an existing one
+make models             # pulls the models named in infra/litellm/config.yaml (skip for a remote endpoint, §21.4)
+make up                 # builds, starts and waits for every health check (first run: ~10 minutes)
+make smoke              # end-to-end: login, permissions, a streamed Arabic answer, a Langfuse trace, one audit row
+```
+
+Then `make test` (unit + integration, offline through a mock LiteLLM) and `make eval` (golden suites against the live stack with real models).
+
+`make up` is safe to re-run; `make down` stops the stack and keeps the data, `make clean` deletes the volumes too.
+
+### 21.3 URLs and seed users
+
+| What | URL | Credentials |
+|------|-----|-------------|
+| Chat UI | http://localhost:3000 | the seed users below |
+| Gateway API | http://localhost:8080 | Bearer token from Keycloak |
+| Keycloak admin | http://localhost:8081 | `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` from `.env` |
+| Langfuse | http://localhost:3001 | `LANGFUSE_ADMIN_EMAIL` / `LANGFUSE_ADMIN_PASSWORD` from `.env` |
+
+Ports come from `WEB_PORT`, `GATEWAY_PORT`, `KEYCLOAK_PORT` and `LANGFUSE_PORT` in `.env`; change a port there and change the matching `*_PUBLIC_URL` with it, because the Keycloak URL is also the token issuer.
+
+Seed users in realm `agent` (password = username): `admin/admin` (admin console), `analyst/analyst` (`cap:sql`, `cap:kb`, `kb:moe:read`), `viewer/viewer` (general and docs only).
+
+### 21.4 Using a shared model server
+
+Nothing in the repository names a model except `infra/litellm/config.yaml`, and nothing names an endpoint except `.env`. To use models served elsewhere — a GPU box on the network, or a colleague's machine — leave the code alone and change those two files.
+
+**A remote Ollama server.** In `.env`:
+
+```
+OLLAMA_BASE_URL=http://models.internal:11434     # read by the litellm container
+```
+
+`host.docker.internal` (the default) means "the Docker host itself"; replace it with a hostname or IP the containers can reach. Two host-side scripts read shell variables instead, because they run outside compose and never parse `.env`:
+
+```bash
+OLLAMA_HOST=http://models.internal:11434 make models   # pull the models onto that server
+OLLAMA_HOST_URL=http://models.internal:11434 make up   # so preflight checks the right server
+```
+
+The remote server must accept non-local connections (`OLLAMA_HOST=0.0.0.0:11434` in its own environment).
+
+**An OpenAI-compatible endpoint** (vLLM, LiteLLM, TGI, or a shared gateway). In `.env`:
+
+```
+VLLM_BASE_URL=http://models.internal:8001/v1     # must end in /v1
+VLLM_API_KEY=<token, or empty when the server needs none>
+```
+
+Then point the alias at it in `infra/litellm/config.yaml`, keeping the alias name — the code only ever names `fast`, `standard`, `heavy`, `embed`:
+
+```yaml
+  - model_name: standard
+    litellm_params:
+      model: openai/Qwen2.5-14B-Instruct     # the name that server serves
+      api_base: os.environ/VLLM_BASE_URL
+      api_key: os.environ/VLLM_API_KEY
+```
+
+`num_ctx` is Ollama-only; on an OpenAI-compatible server the context length is the server's own setting, so keep the `window` values in `config/models.yaml` at or below it. Skip `make models` entirely — that target pulls into Ollama. Aliases may be mixed: one tier remote, another local.
