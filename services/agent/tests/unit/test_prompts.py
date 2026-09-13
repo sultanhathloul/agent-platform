@@ -16,8 +16,9 @@ def test_repo_prompts_load_in_both_locales(prompts):
 
 def test_answer_prompt_renders_arabic_without_optional_sections(prompts):
     rendered = prompts.render("answer.system", "ar", tools=[], has_evidence=False, policy_hints=[])
-    assert rendered.ref == "answer.system@1.1.0"
+    assert rendered.ref == "answer.system@1.2.0"
     assert "أجب بلغة رسالة المستخدم" in rendered.text
+    assert "بالحروف العربية" in rendered.text  # script rule (ADR-0027)
     assert "الأدلة" not in rendered.text and "الأدوات" not in rendered.text
     assert "{{" not in rendered.text and "{%" not in rendered.text
 
