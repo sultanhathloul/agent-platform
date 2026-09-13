@@ -63,6 +63,7 @@
     "unauthorized": "Your session has expired. Please sign in again.",
     "forbidden": "You do not have permission to perform this request.",
     "kb_forbidden": "You do not have access to one of the selected knowledge bases.",
+    "conversation_forbidden": "This conversation belongs to another user, so you cannot continue it.",
     "invalid_request": "The request could not be processed because it is invalid.",
     "agent_unavailable": "The assistant service is currently unavailable. Please try again shortly.",
     "agent_stream_interrupted": "The answer stream was interrupted before it finished. Please try again.",

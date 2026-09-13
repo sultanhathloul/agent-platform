@@ -1,5 +1,6 @@
 from langgraph.runtime import Runtime
 
+from app.errors import TurnError
 from app.graph.deps import TurnContext
 from app.graph.nodes import traced
 from app.graph.state import AgentState
@@ -9,8 +10,12 @@ from app.graph.state import AgentState
 async def load_identity_and_state(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     """Identity comes from the gateway's principal, never from the model or the
     request body. Per-turn fields reset; across-turn fields carry over from the
-    checkpoint."""
+    checkpoint. A thread that belongs to another user or tenant is refused before
+    anything from it is read (defense in depth behind the gateway, ADR-0041)."""
     principal = runtime.context.principal
+    owner = (state.get("user_id"), state.get("tenant_id"))
+    if owner[0] is not None and owner != (principal.user_id, principal.tenant_id):
+        raise TurnError("conversation_forbidden", detail="the thread belongs to another user or tenant")
     return {
         "user_id": principal.user_id,
         "tenant_id": principal.tenant_id,

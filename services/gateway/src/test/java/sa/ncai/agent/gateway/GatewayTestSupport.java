@@ -33,6 +33,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MockMvc;
 import sa.ncai.agent.gateway.audit.AuditRepository;
+import sa.ncai.agent.gateway.chat.ConversationRepository;
 
 /**
  * Shared context for gateway tests: a MockWebServer serves the JWKS, another plays the
@@ -80,6 +81,9 @@ public abstract class GatewayTestSupport {
     @TestBean(methodName = "inMemoryAudit")
     protected AuditRepository audit;
 
+    @TestBean(methodName = "inMemoryConversations")
+    protected ConversationRepository conversations;
+
     @Autowired
     protected MockMvc mvc;
 
@@ -87,9 +91,14 @@ public abstract class GatewayTestSupport {
         return new InMemoryAuditRepository();
     }
 
+    static ConversationRepository inMemoryConversations() {
+        return new InMemoryConversationRepository();
+    }
+
     @BeforeEach
     void resetSharedState() throws InterruptedException {
         auditLog().clear();
+        ((InMemoryConversationRepository) conversations).clear();
         while (AGENT.takeRequest(0, TimeUnit.MILLISECONDS) != null) {
             // drop requests left over from earlier tests
         }

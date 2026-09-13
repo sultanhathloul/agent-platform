@@ -114,6 +114,31 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(event.detail()).containsEntry("error_code", "kb_forbidden");
     }
 
+    @Test
+    void conversationOfAnotherUserOrTenantIsForbiddenAndAgentIsNotCalled() throws Exception {
+        AGENT.enqueue(sse(DONE_STREAM));
+        mvc.perform(chat(body("سؤال", List.of()))).andExpect(status().isOk()); // binds it to user-123 in tenant-a
+        auditLog().clear();
+        int before = AGENT.getRequestCount();
+
+        for (String intruder : List.of(token(c -> c.subject("user-999")), token(c -> c.claim("tenant_id", "tenant-b")))) {
+            mvc.perform(chat(body("ماذا سألتُ قبل قليل؟", List.of()), intruder))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.error.code").value("conversation_forbidden"))
+                    .andExpect(jsonPath("$.error.message_ar").isNotEmpty());
+        }
+
+        assertThat(AGENT.getRequestCount()).isEqualTo(before);
+        assertThat(auditLog().events()).hasSize(2).allSatisfy(event -> {
+            assertThat(event.status()).isEqualTo(AuditStatus.DENIED);
+            assertThat(event.detail()).containsEntry("error_code", "conversation_forbidden");
+        });
+
+        AGENT.enqueue(sse(DONE_STREAM));
+        mvc.perform(chat(body("سؤال آخر", List.of()))).andExpect(status().isOk()); // the owner continues
+        assertThat(AGENT.getRequestCount()).isEqualTo(before + 1);
+    }
+
     static Stream<String> invalidBodies() {
         String valid = "\"conversation_id\":\"" + CONVERSATION_ID + "\"";
         return Stream.of(
@@ -242,8 +267,13 @@ class ChatProxyTest extends GatewayTestSupport {
     }
 
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder chat(String body) {
+        return chat(body, token());
+    }
+
+    private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder chat(
+            String body, String token) {
         return post("/v1/chat/turns")
-                .header(HttpHeaders.AUTHORIZATION, bearer(token()))
+                .header(HttpHeaders.AUTHORIZATION, bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .characterEncoding(StandardCharsets.UTF_8)

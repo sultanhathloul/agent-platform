@@ -27,3 +27,6 @@ output_blocked:
 data_blocked:
   ar: "حُجبت الإجابة لأنها تتضمن بيانات محمية."
   en: "The answer was withheld because it contains protected data."
+conversation_forbidden:
+  ar: "هذه المحادثة تخص مستخدمًا آخر، فلا يمكنك متابعتها."
+  en: "This conversation belongs to another user, so you cannot continue it."

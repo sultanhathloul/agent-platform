@@ -57,14 +57,21 @@ public class ChatController {
     private final AgentClient agent;
     private final SseRelay relay;
     private final KbAccessPolicy kbAccess;
+    private final ConversationRepository conversations;
     private final AuditRepository audit;
     private final ErrorResponses errors;
 
     public ChatController(
-            AgentClient agent, SseRelay relay, KbAccessPolicy kbAccess, AuditRepository audit, ErrorResponses errors) {
+            AgentClient agent,
+            SseRelay relay,
+            KbAccessPolicy kbAccess,
+            ConversationRepository conversations,
+            AuditRepository audit,
+            ErrorResponses errors) {
         this.agent = agent;
         this.relay = relay;
         this.kbAccess = kbAccess;
+        this.conversations = conversations;
         this.audit = audit;
         this.errors = errors;
     }
@@ -87,7 +94,7 @@ public class ChatController {
                 @ApiResponse(responseCode = "401", description = "unauthorized",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "403", description = "kb_forbidden",
+                @ApiResponse(responseCode = "403", description = "kb_forbidden or conversation_forbidden",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "502", description = "agent_unavailable",
@@ -112,6 +119,14 @@ public class ChatController {
                 detail.put("denied_kbs", denied);
                 detail.put("error_code", ErrorCode.KB_FORBIDDEN.code());
                 errors.write(request, response, ErrorCode.KB_FORBIDDEN);
+                return;
+            }
+            // A new id is bound to the caller; an id owned by another user or tenant is refused (ADR-0041).
+            if (!conversations.bindOrGetOwner(body.conversationId(), principal.userId(), principal.tenantId())
+                    .is(principal.userId(), principal.tenantId())) {
+                status = AuditStatus.DENIED;
+                detail.put("error_code", ErrorCode.CONVERSATION_FORBIDDEN.code());
+                errors.write(request, response, ErrorCode.CONVERSATION_FORBIDDEN);
                 return;
             }
             RelayOutcome outcome = agent.streamTurn(agentRequest(body, principal), requestId, upstream -> {

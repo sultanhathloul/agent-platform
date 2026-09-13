@@ -5,6 +5,7 @@ export const KNOWN_ERROR_CODES = [
   "unauthorized",
   "forbidden",
   "kb_forbidden",
+  "conversation_forbidden",
   "invalid_request",
   "agent_unavailable",
   "agent_stream_interrupted",

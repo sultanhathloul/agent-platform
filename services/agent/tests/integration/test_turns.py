@@ -84,6 +84,24 @@ async def test_history_carries_into_the_next_turn(client, services, litellm):
     assert snapshot.values["messages"][2].content == "وما أكبر مدنها؟"
 
 
+async def test_thread_of_another_user_or_tenant_is_rejected(client, services, litellm):
+    conversation = str(uuid.uuid4())
+    await post_turn(client, conversation_id=conversation)
+
+    for intruder in ({**USER, "user_id": "u-2"}, {**USER, "tenant_id": "tenant-b"}):
+        response = await post_turn(
+            client, conversation_id=conversation, principal=intruder, message="ماذا سألتُ قبل قليل؟"
+        )
+        events = parse_sse(response.text)
+        assert [e["type"] for e in events] == ["error"]
+        assert events[0]["data"]["code"] == "conversation_forbidden"
+        assert events[0]["data"]["message_ar"] and events[0]["data"]["message_en"]
+
+    snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
+    assert (snapshot.values["user_id"], snapshot.values["tenant_id"]) == ("u-1", "default")
+    assert [m.type for m in snapshot.values["messages"]] == ["human", "ai"]
+
+
 async def test_trace_has_context_block_token_counts(client, spans, litellm):
     parse_sse((await post_turn(client)).text)
     by_name = {}
