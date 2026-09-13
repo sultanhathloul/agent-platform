@@ -5,13 +5,18 @@ CapabilityOutput (ADR-0038, ADR-0047).
 A capability sees only what its manifest grants (runtime guard, §18.4): a
 context package detached from AgentState, a copy of its own state namespace,
 the principal, `call_model`, the broker and an event writer that accepts
-CapabilityEvents only. Model usage is recorded once, by `call_model`."""
+CapabilityEvents only. Model usage is recorded once, by `call_model`.
+
+The subgraph runs as a top-level graph with a fresh LangGraph config, never the
+main graph's: no checkpointer, thread id, store or callbacks (ADR-0052)."""
 
 import asyncio
+import contextvars
 import copy
 from collections.abc import Sequence
 from typing import Any
 
+from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, ValidationError
 
@@ -179,6 +184,28 @@ def _output(cap: LoadedCapability, result: object) -> CapabilityOutput:
         ) from exc
 
 
+async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext) -> Any:
+    """Runs the capability subgraph outside the main graph's RunnableConfig (ADR-0052).
+
+    Invoked inside a main-graph node, LangGraph would hand the subgraph the main
+    graph's config through a context variable: its checkpointer (every
+    conversation's thread), thread id, store and callbacks, all reachable with
+    `get_config()`. The subgraph runs in a task whose context clears that
+    variable, so it starts a config of its own and reaches the core only through
+    `context`. The OpenTelemetry context is kept, so spans still nest under
+    `capability.{slug}`."""
+    graph = cap.graph
+    checkpointer = getattr(graph, "checkpointer", None)
+    if (checkpointer is not None and checkpointer is not False) or getattr(graph, "store", None) is not None:
+        raise CapabilityContractError(
+            f"capability {cap.slug}: its graph must compile without a checkpointer or store"
+        )
+    isolated = contextvars.copy_context()
+    isolated.run(var_child_runnable_config.set, None)
+    task = asyncio.create_task(graph.ainvoke({"input": cap_input}, context=context), context=isolated)
+    return await asyncio.wait_for(task, cap.manifest.limits.timeout_s)
+
+
 @traced("run_capabilities")
 async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
@@ -214,10 +241,7 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 stream_writer=_event_writer(runtime, cap),
             )
             try:
-                result = await asyncio.wait_for(
-                    cap.graph.ainvoke({"input": cap_input}, context=runtime_context),
-                    manifest.limits.timeout_s,
-                )
+                result = await _invoke_isolated(cap, cap_input, runtime_context)
             except TimeoutError as exc:
                 raise TurnError("turn_failed", retryable=True, detail=f"capability {slug} timed out") from exc
             except CapabilityContractError as exc:

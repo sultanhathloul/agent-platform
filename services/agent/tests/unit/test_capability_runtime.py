@@ -7,7 +7,11 @@ from types import SimpleNamespace
 from typing import Any, TypedDict
 
 import pytest
+from langchain_core.callbacks import AsyncCallbackHandler
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.config import get_config, get_store
 from langgraph.graph import END, START, StateGraph
+from langgraph.store.memory import InMemoryStore
 from pydantic import BaseModel, ValidationError
 
 from app.capabilities.contract import (
@@ -35,18 +39,18 @@ class _State(TypedDict, total=False):
     output: Any
 
 
-def _graph(run):
+def _graph(run, **compile_kwargs):
     graph = StateGraph(_State, context_schema=RuntimeContext)
     graph.add_node("run", run)
     graph.add_edge(START, "run")
     graph.add_edge("run", END)
-    return graph.compile()
+    return graph.compile(**compile_kwargs)
 
 
-def _runtime(services, run):
+def _runtime(services, run, **compile_kwargs):
     """The `general` manifest (needs: []) with a test subgraph in place of its own."""
     general = services.registry.get("general")
-    fake = LoadedCapability(manifest=general.manifest, graph=_graph(run), path=general.path)
+    fake = LoadedCapability(manifest=general.manifest, graph=_graph(run, **compile_kwargs), path=general.path)
     written: list[dict] = []
     context = TurnContext(
         services=dataclasses.replace(services, registry=CapabilityRegistry([fake])),
@@ -205,3 +209,59 @@ async def test_non_model_cost_is_added_once_without_tokens(services):
     await run_capabilities(_state(), runtime)
     usage = runtime.context.usage
     assert (usage.tokens_in, usage.tokens_out, usage.cost_usd) == (0, 0, 0.25)
+
+
+class _MainState(TypedDict, total=False):
+    ran: bool
+
+
+async def test_subgraph_gets_a_fresh_config_not_the_main_graphs(services):
+    """run_capabilities inside a main graph with a checkpointer, a store, a thread
+    id and a callback handler: none of them reaches the capability (ADR-0052)."""
+    seen = {}
+
+    async def run(state, runtime):
+        config = get_config()
+        callbacks = config.get("callbacks")
+        seen["configurable"] = dict(config.get("configurable") or {})
+        seen["handlers"] = callbacks.handlers if hasattr(callbacks, "handlers") else list(callbacks or [])
+        seen["store"] = get_store()
+        return {"output": CapabilityOutput(findings="", cap_state={})}
+
+    runtime, _ = _runtime(services, run)
+
+    async def node(state):
+        await run_capabilities(_state(), runtime)
+        return {"ran": True}
+
+    main = StateGraph(_MainState)
+    main.add_node("run_capabilities", node)
+    main.add_edge(START, "run_capabilities")
+    main.add_edge("run_capabilities", END)
+    handler = AsyncCallbackHandler()
+    await main.compile(checkpointer=InMemorySaver(), store=InMemoryStore()).ainvoke(
+        {}, config={"configurable": {"thread_id": "main-thread"}, "callbacks": [handler]}
+    )
+
+    configurable = seen["configurable"]
+    assert "thread_id" not in configurable and "main-thread" not in repr(configurable)
+    # LangGraph sets this key on every top-level run; it must hold no saver.
+    assert configurable.get("__pregel_checkpointer") is None
+    assert handler not in seen["handlers"]
+    assert seen["store"] is None
+
+
+@pytest.mark.parametrize(
+    "compile_kwargs",
+    [{"checkpointer": InMemorySaver()}, {"store": InMemoryStore()}],
+    ids=["checkpointer", "store"],
+)
+async def test_capability_graph_with_its_own_checkpointer_or_store_is_refused(services, compile_kwargs):
+    async def run(state, runtime):
+        raise AssertionError("the subgraph must not run")
+
+    runtime, _ = _runtime(services, run, **compile_kwargs)
+    with pytest.raises(TurnError) as info:
+        await run_capabilities(_state(), runtime)
+    assert info.value.code == "turn_failed"
+    assert "checkpointer or store" in str(info.value)
