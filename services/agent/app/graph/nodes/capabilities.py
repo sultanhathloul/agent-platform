@@ -13,19 +13,23 @@ runs behind an exception/return firewall: any escape a capability attempts —
 `ParentCommand`, `GraphInterrupt`, a returned `Command`, a timeout or any other
 exception — is caught at the task boundary and turned into a `capability_failed`
 result, so nothing a capability raises reaches the main graph's retry handler or
-its checkpoint (ADR-0053)."""
+its checkpoint (ADR-0053). The boundary is data-only: the output crosses as JSON
+text serialized inside the task, and a failure as its exception's type name, so
+no object the capability created reaches this node (ADR-0054)."""
 
 import asyncio
 import contextlib
 import contextvars
 import copy
+import json
 import logging
 from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.runtime import Runtime
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
+from pydantic_core import to_jsonable_python
 
 from app.api.events import validate_payload
 from app.capabilities.contract import (
@@ -195,20 +199,55 @@ class _Broker:
         )
 
 
-def _output(cap: LoadedCapability, result: object) -> CapabilityOutput:
-    raw = result.get("output") if isinstance(result, dict) else None
-    if isinstance(raw, BaseModel):
-        # Revalidate the fields as set: an instance built with model_construct may lack cap_state.
-        raw = dict(vars(raw))
+def _output(cap: LoadedCapability, payload: str) -> CapabilityOutput:
+    """Re-validates the JSON text that crossed the boundary into a CapabilityOutput
+    the core builds. An instance built with model_construct that lacks cap_state
+    serialized without it, so it fails here (ADR-0054)."""
     try:
-        return CapabilityOutput.model_validate(raw)
+        return CapabilityOutput.model_validate_json(payload)
     except ValidationError as exc:
         raise CapabilityFailed(cap.slug, f"returned an invalid output: {exc}") from exc
 
 
-async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext) -> Any:
+def _exception_name(exc: BaseException) -> str:
+    """The exception's type name and nothing else: never `str(exc)` or `repr`,
+    which run capability code. A metaclass can make even `__name__` raise or
+    return a str subclass, so both fall back to a fixed name (ADR-0054)."""
+    try:
+        name = type(exc).__name__
+    except BaseException:
+        return "an exception"
+    return name if type(name) is str else "an exception"
+
+
+async def _run_to_json(
+    cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext
+) -> tuple[bool, str]:
+    """The capability's side of the data-only boundary (ADR-0054). Everything that
+    touches an object the capability created runs here, inside the isolated task
+    and behind the catch-all: the subgraph, reading its output, and serializing it
+    with `model_dump(mode="json")`. What leaves is core-built data only:
+    `(True, json_text)` or `(False, reason)`. A cancellation is re-raised as a
+    fresh CancelledError outside the handler, so not even the exception object
+    crosses."""
+    try:
+        result = await cap.graph.ainvoke({"input": cap_input}, context=context)
+        raw = result.get("output") if isinstance(result, dict) else None
+        data = raw.model_dump(mode="json") if isinstance(raw, CapabilityOutput) else to_jsonable_python(raw)
+        return True, json.dumps(data, ensure_ascii=False)
+    except asyncio.CancelledError:
+        pass  # re-raised below, outside the handler
+    except BaseException as exc:
+        # ParentCommand, GraphInterrupt/GraphBubbleUp, a returned Command turned
+        # into ParentCommand, an unserializable output, or any other escape.
+        return False, f"raised {_exception_name(exc)}"
+    raise asyncio.CancelledError
+
+
+async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext) -> str:
     """Runs the capability subgraph outside the main graph's RunnableConfig, behind
-    an exception/return firewall (ADR-0052, ADR-0053).
+    an exception/return firewall and a data-only boundary (ADR-0052, ADR-0053,
+    ADR-0054). Returns the capability's output as JSON text.
 
     Invoked inside a main-graph node, LangGraph would hand the subgraph the main
     graph's config through a context variable: its checkpointer (every
@@ -223,9 +262,11 @@ async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, co
     `Command(graph=PARENT)` takes), `GraphInterrupt` — or any other exception. If
     that reached the main graph unhandled, its retry handler would apply the
     command to the main graph's state or leave the thread with a pending
-    interrupt, both written to the checkpoint. Awaiting the subgraph in a task
-    means every such escape surfaces here as the task's exception, where it
-    becomes `CapabilityFailed` and never propagates as a control-flow signal.
+    interrupt, both written to the checkpoint. `_run_to_json` catches every such
+    escape inside the task and returns data, never the exception or the output
+    object: core code here that formatted the exception or inspected the output
+    would run the capability's `__str__` or `__class__` in the main node, outside
+    the task, where a raised control-flow signal escapes again (ADR-0054).
     `CancelledError` (the turn was cancelled, e.g. a client disconnect) is the one
     exception that must not be swallowed: the subgraph task is cancelled and
     drained first, then it is re-raised so the runner ends the turn as cancelled."""
@@ -235,9 +276,9 @@ async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, co
         raise CapabilityFailed(cap.slug, "its graph must compile without a checkpointer or store")
     isolated = contextvars.copy_context()
     isolated.run(var_child_runnable_config.set, None)
-    task = asyncio.create_task(graph.ainvoke({"input": cap_input}, context=context), context=isolated)
+    task = asyncio.create_task(_run_to_json(cap, cap_input, context), context=isolated)
     try:
-        return await asyncio.wait_for(task, cap.manifest.limits.timeout_s)
+        ok, text = await asyncio.wait_for(task, cap.manifest.limits.timeout_s)
     except TimeoutError as exc:
         raise CapabilityFailed(cap.slug, "timed out", retryable=True) from exc
     except asyncio.CancelledError:
@@ -245,13 +286,9 @@ async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, co
         with contextlib.suppress(BaseException):
             await task
         raise
-    except CapabilityFailed:
-        raise
-    except BaseException as exc:
-        # ParentCommand, GraphInterrupt/GraphBubbleUp, a returned Command turned
-        # into ParentCommand, or any other escape. None of it may reach the main
-        # graph's retry handler or its checkpoint (ADR-0053).
-        raise CapabilityFailed(cap.slug, f"raised {type(exc).__name__}: {exc}") from exc
+    if not ok:
+        raise CapabilityFailed(cap.slug, text)
+    return text
 
 
 def _record_failure(span: Any, slug: str, reason: str) -> None:
@@ -301,8 +338,8 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 stream_writer=_event_writer(runtime, cap),
             )
             try:
-                result = await _invoke_isolated(cap, cap_input, runtime_context)
-                output = _output(cap, result)
+                payload = await _invoke_isolated(cap, cap_input, runtime_context)
+                output = _output(cap, payload)
                 # Events returned in the output rather than streamed arrive after the capability ends.
                 for event in output.events:
                     _emit_capability_event(runtime, cap, event)
