@@ -163,11 +163,30 @@ How to verify:
 Scope: the single finding of the third review of PR #1 (a capability subgraph inherited the main graph's LangGraph config, so `get_config()` reached the checkpointer and another conversation's thread); nothing else. Re-run `make test`, `make smoke`; push.
 
 Checklist:
-- [ ] `run_capabilities` invokes the capability subgraph with a fresh config: no checkpointer, no parent `configurable`, no inherited callbacks or store; only the `RuntimeContext`. Unit test: inside the subgraph `get_config()` holds no checkpointer and no parent `thread_id`
-- [ ] Integration test, victim and attacker in two conversations: a capability that calls `get_config()` and `aget_tuple` on another `thread_id` obtains no state; kept as the regression test for phase 02's Postgres checkpointer
-- [ ] Lint rule: code under `services/agent/app/capabilities/` must not import `langgraph.config.get_config`, `get_stream_writer`, `get_store` or any checkpointer class; runs in `make test`
-- [ ] ADR-0052; ADR-0047's enforcement caveat marked superseded
-- [ ] `make test`, `make smoke` green; push
+- [x] `run_capabilities` invokes the capability subgraph with a fresh config: no checkpointer, no parent `configurable`, no inherited callbacks or store; only the `RuntimeContext`. Unit test: inside the subgraph `get_config()` holds no checkpointer and no parent `thread_id`
+- [x] Integration test, victim and attacker in two conversations: a capability that calls `get_config()` and `aget_tuple` on another `thread_id` obtains no state; kept as the regression test for phase 02's Postgres checkpointer
+- [x] Lint rule: code under `services/agent/app/capabilities/` must not import `langgraph.config.get_config`, `get_stream_writer`, `get_store` or any checkpointer class; runs in `make test`
+- [x] ADR-0052; ADR-0047's enforcement caveat marked superseded
+- [x] `make test`, `make smoke` green; push
+
+Session result (2026-09-13):
+- **Fix:** `_invoke_isolated` in `services/agent/app/graph/nodes/capabilities.py` runs the subgraph in an asyncio task whose context clears `var_child_runnable_config`. A capability graph compiled with its own checkpointer or store ends the turn as `turn_failed`.
+- **Tests:** the new integration test failed before the fix (the attacker's capability read the victim's thread, message included) and passes after it. The new unit tests (fresh config under a main graph with checkpointer, store, thread id and callback handler; own checkpointer or store refused) failed on the pre-fix node and pass on the fixed one. `tests/unit/test_capability_lint.py` proves each ban fires under `app/capabilities/` only and lints that tree.
+- LangGraph always sets `__pregel_checkpointer` in a top-level run's `configurable` (value `None` without a checkpointer), so the tests assert it holds no saver rather than that the key is absent (ADR-0052).
+- **`make test`:** green (exit 0). Agent 124 passed (111 + 13 new). Gateway image `test` task and `gateway-db-tests` `dbTest` task both executed, BUILD SUCCESSFUL. Web 51 passed.
+- **`make up`:** green, agent rebuilt. **`make smoke`:** green, all phase 01 checks.
+- `make eval` not re-run this session, by instruction; no prompt, model or answer-path change.
+
+Left open (ADR-0052 consequences, not fixed by instruction):
+- `RuntimeContext`'s callables are core objects: plain attribute access still reaches the turn's services (`runtime.context.broker._ctx.services.graph`, `call_model.__closure__`), and from there any thread. Neither the fresh config nor the lint rule stops it.
+- Phase 08: a capability subgraph can no longer `interrupt()` the main graph; the HITL interrupt must be raised by the core.
+
+Human review needed (this session):
+- `services/agent/app/capabilities/ruff.toml`: the banned-api list.
+
+How to verify:
+- `make up && make test && make smoke`
+- Isolation tests alone: `cd services/agent && uv run pytest tests/integration/test_capability_isolation.py tests/unit/test_capability_runtime.py tests/unit/test_capability_lint.py` (mock LiteLLM running)
 
 ## Phase 02: State, Context Assembly, Memory
 
