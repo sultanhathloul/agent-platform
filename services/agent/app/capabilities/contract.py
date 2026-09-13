@@ -3,13 +3,17 @@ included, is a package under app/capabilities/<slug>/ with a manifest.yaml and
 a graph.py whose build() returns a compiled LangGraph subgraph. The subgraph's
 state holds `input: CapabilityInput` and returns `output: CapabilityOutput`."""
 
-from typing import Any, Literal
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.context.package import BlockName, ContextPackage
+from app.context.package import AssemblyRequest, BlockName, ContextPackage
 from app.identity import Principal
-from app.models.routing import CapabilityModelSpec
+from app.models.gateway import ModelResult
+from app.models.routing import CapabilityModelSpec, TierResolver
+from app.tools.spec import ToolResult
 
 
 class _Strict(BaseModel):
@@ -143,3 +147,39 @@ class CapabilityOutput(_Strict):
     events: list[CapabilityEvent] = []
     cap_state: dict[str, Any] = {}
     cost: Usage = Usage()
+
+
+# ------------------------------------------------------------------ runtime context (§18.3, ADR-0038)
+
+
+class CapabilityModels(Protocol):
+    """`models.call` for one capability. Resolves the tier for (role, step) against
+    the manifest, assembles context for that tier, calls LiteLLM and records usage.
+    `request` defaults to the capability's own assembly request (manifest needs)."""
+
+    async def call(
+        self, role: str, *, step: str | None = None, request: AssemblyRequest | None = None
+    ) -> ModelResult: ...
+
+
+class CapabilityBroker(Protocol):
+    """The shared tool broker, bound to this turn's principal and event stream."""
+
+    async def execute(self, name: str, args: dict[str, Any]) -> ToolResult: ...
+
+
+@dataclass(frozen=True)
+class RuntimeContext:
+    """The LangGraph runtime context of a capability subgraph (`Runtime[RuntimeContext]`).
+    Everything a capability may reach in the core travels here: model calls, the
+    tool broker, the event stream, the principal, its own state slice and the
+    tier resolver. Events written to `stream_writer` reach the client while the
+    capability is still running."""
+
+    slug: str
+    principal: Principal
+    cap_state: dict[str, Any]
+    models: CapabilityModels
+    broker: CapabilityBroker
+    resolver: TierResolver
+    stream_writer: Callable[[str, dict[str, Any]], None]

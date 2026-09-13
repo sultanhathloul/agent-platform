@@ -1,7 +1,8 @@
 """Token counting for context budgets.
 
 Counts use tiktoken's o200k_base encoding as a model-agnostic estimate; the
-served models have their own tokenizers, so budgets keep headroom. Billing-grade counts come from the model's usage in the response.
+served models have their own tokenizers, so budgets keep headroom.
+Billing-grade counts come from the model's usage in the response.
 The encoding file is baked into the image (TIKTOKEN_CACHE_DIR), so runtime
 works offline.
 """

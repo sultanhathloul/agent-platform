@@ -5,7 +5,9 @@ a bad file fails the container immediately instead of at the first turn."""
 
 import logging
 import uuid
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -33,9 +35,16 @@ from app.tools.registry import ToolRegistry
 CORE_PROMPTS = ("context.state_digest", "context.findings")
 
 
-def build_services(settings: Settings) -> Services:
+def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
+    """`extra_capabilities` adds (directory, import package) roots discovered beside
+    app/capabilities, e.g. the test-only capabilities under tests/fixtures."""
     models_config = load_models_config(settings.config_dir)
     registry = CapabilityRegistry.discover(models_config)
+    if extra_capabilities:
+        loaded = registry.all()
+        for root, package in extra_capabilities:
+            loaded += CapabilityRegistry.discover(models_config, root=root, package=package).all()
+        registry = CapabilityRegistry(loaded)
     prompts = PromptLibrary.load(settings.config_dir / "prompts", *registry.prompt_dirs())
     context_config = load_context_config(settings.config_dir)
 

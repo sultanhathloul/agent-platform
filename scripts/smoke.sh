@@ -83,8 +83,10 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 [[ -n "$found" ]] && ok "trace ingested with context.assemble and model.call" || fail "trace $TRACE_ID not in Langfuse"
-BLOCKS=$(jq -c '[.observations[] | select(.name == "context.assemble")][0].metadata
-  | (.block_tokens // .attributes["langfuse.observation.metadata.block_tokens"]) | if type == "string" then fromjson else . end' "$TMP/trace.json")
+# Capabilities assemble their own packages too (ADR-0038); the answer node's is the one with a system block.
+BLOCKS=$(jq -c '[.observations[] | select(.name == "context.assemble") | .metadata
+  | (.block_tokens // .attributes["langfuse.observation.metadata.block_tokens"]) | if type == "string" then fromjson else . end
+  | select(has("system"))][0]' "$TMP/trace.json")
 check "block token counts: $BLOCKS" jq -en --argjson b "$BLOCKS" '$b.system > 0 and $b.user_message > 0'
 check "model.call is a generation with usage" jq -e \
   '[.observations[] | select(.name == "model.call")][0] | .type == "GENERATION" and (.usageDetails.output // .usage.output // 0) > 0' "$TMP/trace.json"

@@ -94,6 +94,21 @@ def services(settings):
     return build_services(settings)
 
 
+PROBE_CAPABILITIES = (
+    Path(__file__).resolve().parent / "tests" / "fixtures" / "capabilities",
+    "tests.fixtures.capabilities",
+)
+
+
+@pytest.fixture(scope="session")
+def probe_services(settings):
+    """Services with the test-only `probe` capability discovered beside the real
+    ones; no core file names it (ADR-0038)."""
+    from app.main import build_services
+
+    return build_services(settings, extra_capabilities=[PROBE_CAPABILITIES])
+
+
 @pytest.fixture
 def spans():
     SPANS.clear()

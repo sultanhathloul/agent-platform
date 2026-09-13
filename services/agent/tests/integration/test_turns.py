@@ -94,7 +94,12 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
     assert turn.attributes["langfuse.trace.name"] == "turn"
     assert turn.attributes["langfuse.user.id"] != USER["user_id"]  # hashed
 
-    assemble = by_name["context.assemble"][0]
+    assembled = {s.attributes["context.node"]: s for s in by_name["context.assemble"]}
+    # general's own package goes through the resolver and gets a real budget (ADR-0038)
+    general = assembled["capability.general"]
+    assert general.attributes["context.tier"] == "standard" and general.attributes["context.budget_limit"] > 0
+
+    assemble = assembled["answer"]
     for block in ("system", "user_message"):
         assert assemble.attributes[f"context.block.{block}.tokens"] > 0
     block_tokens = json.loads(assemble.attributes["langfuse.observation.metadata.block_tokens"])

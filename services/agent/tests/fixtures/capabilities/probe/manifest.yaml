@@ -1,0 +1,34 @@
+# Test-only capability (ADR-0038). It lives outside app/capabilities and proves the
+# contract: a capability reaches models.call and the broker only through its
+# RuntimeContext, and no core file changes to run it.
+slug: probe
+version: 1.0.0
+name: {ar: "مسبار الاختبار", en: "Test probe"}
+description:
+  ar: "قدرة اختبار تستدعي أداة ونموذجًا عبر سياق التشغيل."
+  en: "Test capability that calls a tool and a model through its runtime context."
+icon: "flask"
+enabled_by_default: true
+permission: "cap:probe"
+risk: read
+ui:
+  mode: auto
+  order: 50
+routing_hints:
+  description:
+    ar: "رسائل الاختبار التي تذكر المسبار."
+    en: "Test messages that mention the probe."
+  keywords: {ar: ["مسبار"], en: ["probe-capability"]}
+  rules:
+    - when: keyword
+model:
+  min_tier: standard
+  steps: {draft: fast}               # a step override below the floor
+  on_overflow: compress
+context:
+  needs: [system, user_message]
+  max_input_tokens: 4000
+limits:
+  max_iterations: 1
+  timeout_s: 10
+state_namespace: "cap.probe"

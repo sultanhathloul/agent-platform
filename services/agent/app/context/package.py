@@ -44,7 +44,9 @@ class AssemblyRequest(BaseModel):
 
     node: str
     needs: list[BlockName]
-    system_prompt: str
+    system_prompt: str | None = Field(
+        default=None, description="Prompt id of the system block; None when the node needs no system block."
+    )
     locale: str
     state: dict[str, Any]
     tools: list[str] = Field(default=[], description="Descriptions of permitted tools this node may use.")
