@@ -18,15 +18,18 @@ import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
- * Model tier ceilings by realm role, from the {@code order} and {@code caps.role:<name>} entries of
- * config/models.yaml (README §19.1). The gateway turns the caller's roles into one
- * {@code principal.max_tier}; the agent never sees roles (ADR-0046).
+ * Model tier ceilings by realm role, from the {@code order}, {@code caps.default} and
+ * {@code caps.role:<name>} entries of config/models.yaml (README §19.1). The gateway turns the
+ * caller's roles into one {@code principal.max_tier}; the agent never sees roles (ADR-0046). Caps
+ * are ceilings: a role cap never exceeds {@code caps.default} (ADR-0049).
  */
 public final class TierCaps {
 
     private static final String ROLE_PREFIX = "role:";
+    private static final String DEFAULT = "default";
 
     private final List<String> order;
+    private final String defaultTier;
     private final Map<String, String> byRole;
 
     public TierCaps(List<String> order, Map<String, String> caps) {
@@ -40,6 +43,10 @@ public final class TierCaps {
                 roles.put(key.substring(ROLE_PREFIX.length()), tier);
             }
         });
+        this.defaultTier = caps.get(DEFAULT);
+        if (defaultTier == null) {
+            throw new IllegalArgumentException("caps.default is required: it bounds every role cap");
+        }
         this.byRole = Map.copyOf(roles);
     }
 
@@ -52,12 +59,17 @@ public final class TierCaps {
         }
     }
 
-    /** The strictest ceiling among the caller's roles; empty when none of them has one. */
+    /**
+     * The strictest ceiling among the caller's roles, never above {@code caps.default}; empty when
+     * none of the roles has a cap, and the agent applies {@code caps.default} itself.
+     */
     public Optional<String> maxTier(Collection<String> realmRoles) {
+        Comparator<String> rank = Comparator.comparingInt(order::indexOf);
         return realmRoles.stream()
                 .map(byRole::get)
                 .filter(Objects::nonNull)
-                .min(Comparator.comparingInt(order::indexOf));
+                .min(rank)
+                .map(tier -> rank.compare(tier, defaultTier) <= 0 ? tier : defaultTier);
     }
 
     private static List<String> strings(Object value, Path source) {

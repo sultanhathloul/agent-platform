@@ -195,6 +195,13 @@ async def test_invalid_body_returns_envelope(client):
     assert response.json()["error"]["code"] == "invalid_request"
 
 
+async def test_unknown_max_tier_is_a_contract_error(client):
+    # ADR-0049: principal.max_tier is an enum of the known tiers; nothing runs for an unknown one.
+    response = await post_turn(client, principal={**USER, "max_tier": "turbo"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+
+
 async def test_user_without_any_capability_gets_an_error_event(client):
     events = parse_sse((await post_turn(client, principal={**USER, "permissions": []})).text)
     assert [e["type"] for e in events] == ["error"]

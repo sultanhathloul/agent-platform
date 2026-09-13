@@ -340,7 +340,12 @@
           "max_tier": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "standard",
+                  "heavy"
+                ]
               },
               {
                 "type": "null"

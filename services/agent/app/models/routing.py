@@ -69,10 +69,11 @@ class TierResolver:
         self,
         role: str,
         *,
+        principal: Principal,
         step: str | None = None,
         capabilities: Sequence[CapabilityModelSpec] = (),
-        principal: Principal | None = None,
     ) -> TierDecision:
+        """Every call names the principal it runs for; there is no uncapped path (ADR-0049)."""
         if role not in self.config.roles:
             raise KeyError(f"unknown model role {role!r}")
         requested = self.config.roles[role]
@@ -91,8 +92,9 @@ class TierResolver:
         # 2–4. Router, context and validation escalation: phase 08.
         wanted = floor
 
-        # 5. Cap: the ceiling the gateway derived from the caller's roles (ADR-0046),
-        #    seen by the MODEL_TIER checkpoint (7th). Policies may lower it (phase 03).
+        # 5. Cap: caps.default, lowered by the ceiling the gateway derived from the
+        #    caller's roles (ADR-0046, ADR-0049), seen by the MODEL_TIER checkpoint
+        #    (7th). Policies may lower it further (phase 03).
         ceiling, source = self._ceiling(principal)
         outcome = await self.guard.evaluate(
             Checkpoint.MODEL_TIER,
@@ -112,12 +114,10 @@ class TierResolver:
             reason=reason + (f"; capped by {source}" if final != wanted else ""),
         )
 
-    def _ceiling(self, principal: Principal | None) -> tuple[str, str]:
-        """`principal.max_tier` when the gateway sent one, else `caps.default`."""
-        if principal is None or principal.max_tier is None:
-            return self.config.caps["default"], "caps.default"
-        if principal.max_tier not in self.config.tiers:
-            raise ValueError(
-                f"principal.max_tier: unknown tier {principal.max_tier!r}; known: {self.config.order}"
-            )
+    def _ceiling(self, principal: Principal) -> tuple[str, str]:
+        """Caps are ceilings: the lower of `caps.default` and `principal.max_tier`. A role
+        cap never raises the ceiling above the default (ADR-0049)."""
+        default = self.config.caps["default"]
+        if principal.max_tier is None or self.config.rank(principal.max_tier) >= self.config.rank(default):
+            return default, "caps.default"
         return principal.max_tier, "principal.max_tier"

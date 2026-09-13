@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/** Role tier caps become one max_tier; the strictest matching role wins (ADR-0046). */
+/** Role tier caps become one max_tier: the strictest matching role, never above caps.default (ADR-0046, ADR-0049). */
 class TierCapsTest {
 
     private static final List<String> ORDER = List.of("fast", "standard", "heavy");
@@ -24,6 +24,14 @@ class TierCapsTest {
     }
 
     @Test
+    void roleCapAboveTheDefaultIsBoundedByTheDefault() {
+        TierCaps caps = new TierCaps(ORDER, Map.of("default", "standard", "role:x", "heavy", "role:intern", "fast"));
+
+        assertThat(caps.maxTier(List.of("x"))).contains("standard");
+        assertThat(caps.maxTier(List.of("x", "intern"))).contains("fast");
+    }
+
+    @Test
     void callerWithoutACappedRoleGetsNoCeiling() {
         TierCaps caps = new TierCaps(ORDER, Map.of("default", "heavy", "role:viewer", "standard"));
 
@@ -32,9 +40,16 @@ class TierCapsTest {
 
     @Test
     void unknownTierIsRejected() {
-        assertThatThrownBy(() -> new TierCaps(ORDER, Map.of("role:viewer", "turbo")))
+        assertThatThrownBy(() -> new TierCaps(ORDER, Map.of("default", "heavy", "role:viewer", "turbo")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("caps.role:viewer");
+    }
+
+    @Test
+    void missingDefaultIsRejected() {
+        assertThatThrownBy(() -> new TierCaps(ORDER, Map.of("role:viewer", "standard")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("caps.default");
     }
 
     @Test

@@ -377,7 +377,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0046: The gateway sends `principal.max_tier`; the agent never sees roles
 - Date: 2026-09-13
 - Phase: 01 (fix session for PR #1)
-- Status: decided
+- Status: decided — Superseded by ADR-0049 on 2026-09-13 (ceiling arithmetic and the max_tier type only)
 - Context: ADR-0040 made `role:viewer: standard` take effect by forwarding filtered realm roles to the agent. The owner rejected that approach: README §11 makes the gateway the only place that interprets Keycloak roles and gives the agent only `permissions[]`, and forwarding roles would weaken that boundary.
 - Decision: The gateway reads `order` and the `caps.role:<name>` entries of `config/models.yaml` at startup (mounted read-only, path in `GATEWAY_MODELS_CONFIG`; an unknown tier fails startup) and turns the caller's realm roles into one `principal.max_tier`: the strictest matching ceiling, omitted when no role has one. The agent's `Principal` carries `max_tier` and no roles. `TierResolver` uses `principal.max_tier` as the ceiling, `caps.default` when it is absent, and refuses a tier it does not know. The `viewer` realm role from ADR-0040 stays. README §11 is unchanged.
 - Consequences: Roles stay inside the gateway; the agent receives the decision, not its inputs. `config/models.yaml` stays the single place caps are written, now read by two services: the gateway reads the `role:` entries, the agent reads `default`, so changing a role cap needs a gateway restart. The gateway's test image receives `config/models.yaml` through the named build context `config`, which `make test-gateway` passes. The agent request contract changes from `principal.roles` to `principal.max_tier`; the agent OpenAPI version stays 1.1.0, because 1.1.0 has not left this unmerged PR (ADR-0044).
@@ -406,3 +406,15 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - The web client clears streamed text on every `error` event, when a stream closes without a terminal event (`agent_stream_interrupted`), and on any other error it records, not only after `retract`.
   - This supersedes only ADR-0039's persistence line ("`persist_state` appends the exchange with the text the user saw"); the `retract` event and the phase 03 buffering plan stand.
 - Consequences: Redacted data no longer re-enters model context through history, though it did reach the browser before phase 03's buffer, as ADR-0039 says. An audit-failed reply disappears from the agent's context when the retract call succeeds; if the agent is unreachable at that moment the reply stays in history and the log records it. The agent OpenAPI version stays 1.1.0, for the reason given in ADR-0046. A user who saw partial text followed by an error now sees only the error.
+
+### ADR-0049: Caps are ceilings bounded by `caps.default`; every tier resolution names a principal
+- Date: 2026-09-13
+- Phase: 01 (second fix session for PR #1)
+- Status: decided
+- Context: Under ADR-0046 the gateway turned role caps into `principal.max_tier` without looking at `caps.default`, and the agent used `max_tier` *instead of* the default. A role cap looser than the default (`role:x: heavy` under `default: standard`) therefore raised the ceiling, although README §19.1 calls caps ceilings. `TierResolver.resolve` took an optional principal and fell back to `caps.default` without one, so any future call site that forgot it (router, summarizer, judge) would silently ignore the caller's ceiling. `principal.max_tier` was any string; an unknown value passed the API and failed inside the graph as `turn_failed`.
+- Decision:
+  - Effective ceiling = min(`caps.default`, role cap). The gateway's `TierCaps` requires `caps.default` and never returns a `max_tier` above it; it still omits `max_tier` when no role has a cap. The agent takes the lower of `caps.default` and `principal.max_tier`, and names `caps.default` in a capped decision's reason when the default is the binding ceiling.
+  - `TierResolver.resolve(role, *, principal, ...)` requires the principal; there is no uncapped path.
+  - The tier names are a `Literal` in `app/models/config.py` (`fast`, `standard`, `heavy`, the names of README §19.1). `principal.max_tier` is that enum in the agent API schema, so an unknown value is a 400 `invalid_request` before a turn starts. `config/models.yaml` must define exactly these tiers and a `caps.default`, or the agent fails at startup.
+  - This supersedes ADR-0046's ceiling rule ("`principal.max_tier` as the ceiling, `caps.default` when it is absent") and its untyped `max_tier`; the rest of ADR-0046 stands.
+- Consequences: A cap entry can only lower a ceiling; raising one role above the default remains a MODEL_TIER policy (phase 03). Adding a fourth tier is a code change to the `Literal` as well as to the config, which is deliberate: it changes the agent API. The agent OpenAPI version stays 1.1.0, for the reason given in ADR-0046.

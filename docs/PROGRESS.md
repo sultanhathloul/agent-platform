@@ -103,7 +103,7 @@ Checklist:
 - [x] 1. Conversation ownership: `gateway.conversations`, 403 `conversation_forbidden` at the gateway, the agent rejects a thread owned by another user or tenant; negative tests on both sides (ADR-0041)
 - [x] 2. Capability runtime context: `run_capabilities` passes a `RuntimeContext` (models.call, broker, stream writer, principal, cap_state, resolver); events stream while the capability runs; `_context_for` resolves the tier and assembles a real budget; step overrides accepted; `general` on the same path; a test-only fake capability uses models.call and the broker (ADR-0038)
 - [x] 3. `retract` event when validate, OUTPUT or DATA fail after tokens streamed; the web replaces the shown text with the error; `persist_state` stores what the user saw plus the post-guard draft; ADR-0031 superseded by ADR-0039
-- [x] 4. Tier caps by principal role (`role:viewer: standard` takes effect), tested (ADR-0040)
+- [x] 4. Tier caps by principal role (`role:viewer: standard` takes effect), tested. First done by forwarding roles to the agent (ADR-0040); replaced in the same session by the gateway sending `principal.max_tier` (ADR-0046), later bounded by `caps.default` (ADR-0049)
 - [x] 5. Audit fail-closed, tested (ADR-0042)
 - [x] 6. `make test` runs gateway and web tests every time (no cached test layer) (ADR-0043)
 - [x] 7. Capability-neutral answer prompt (Latin ban removed, version bump); no model name in the prompt changelog or `tokens.py`; stale `general/graph.py` docstring fixed (ADR-0037)

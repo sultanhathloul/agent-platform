@@ -2,7 +2,8 @@
 
 Identity is set by the gateway, never by the model. The agent only sees
 `permissions` (ADR-0006); it never interprets Keycloak roles. `max_tier` is the
-model tier ceiling the gateway derived from the caller's roles (ADR-0046).
+model tier ceiling the gateway derived from the caller's roles (ADR-0046); it is
+one of the known tier names, so an unknown value is a 400 (ADR-0049).
 """
 
 import hashlib
@@ -10,6 +11,8 @@ import hmac
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.config import TierName
 
 Locale = Literal["ar", "en"]
 
@@ -20,7 +23,7 @@ class Principal(BaseModel):
     user_id: str = Field(min_length=1)
     tenant_id: str = Field(default="default", min_length=1)
     permissions: tuple[str, ...] = ()
-    max_tier: str | None = None
+    max_tier: TierName | None = None
     display_name: str = ""
     locale: Locale = "ar"
 

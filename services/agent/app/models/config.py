@@ -1,10 +1,15 @@
 """config/models.yaml: tiers, roles, escalation and caps (README §19.1)."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, model_validator
+
+# The tier names of README §19.1. config/models.yaml must define exactly these, and
+# principal.max_tier accepts only these, so the agent API schema lists them (ADR-0049).
+TierName = Literal["fast", "standard", "heavy"]
+TIER_NAMES: tuple[str, ...] = get_args(TierName)
 
 
 class _Strict(BaseModel):
@@ -37,8 +42,12 @@ class ModelsConfig(_Strict):
 
     @model_validator(mode="after")
     def _references_resolve(self) -> "ModelsConfig":
+        if sorted(self.tiers) != sorted(TIER_NAMES):
+            raise ValueError(f"tiers must be exactly {list(TIER_NAMES)} (README §19.1, ADR-0049)")
         if sorted(self.order) != sorted(self.tiers):
             raise ValueError("order must list every tier exactly once")
+        if "default" not in self.caps:
+            raise ValueError("caps.default is required: it bounds every other cap (ADR-0049)")
         refs = [
             *((f"roles.{k}", v) for k, v in self.roles.items()),
             *((f"caps.{k}", v) for k, v in self.caps.items()),
