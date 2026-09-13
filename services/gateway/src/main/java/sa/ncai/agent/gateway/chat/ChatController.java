@@ -32,6 +32,8 @@ import sa.ncai.agent.gateway.audit.AuditEvent;
 import sa.ncai.agent.gateway.audit.AuditRepository;
 import sa.ncai.agent.gateway.audit.AuditStatus;
 import sa.ncai.agent.gateway.auth.GatewayPrincipal;
+import sa.ncai.agent.gateway.auth.KeycloakRoles;
+import sa.ncai.agent.gateway.auth.TierCaps;
 import sa.ncai.agent.gateway.authz.KbAccessPolicy;
 import sa.ncai.agent.gateway.proxy.AgentClient;
 import sa.ncai.agent.gateway.proxy.AgentTurnRequest;
@@ -61,6 +63,7 @@ public class ChatController {
     private final SseRelay relay;
     private final KbAccessPolicy kbAccess;
     private final ConversationRepository conversations;
+    private final TierCaps tierCaps;
     private final AuditRepository audit;
     private final ErrorResponses errors;
 
@@ -69,12 +72,14 @@ public class ChatController {
             SseRelay relay,
             KbAccessPolicy kbAccess,
             ConversationRepository conversations,
+            TierCaps tierCaps,
             AuditRepository audit,
             ErrorResponses errors) {
         this.agent = agent;
         this.relay = relay;
         this.kbAccess = kbAccess;
         this.conversations = conversations;
+        this.tierCaps = tierCaps;
         this.audit = audit;
         this.errors = errors;
     }
@@ -141,7 +146,9 @@ public class ChatController {
                         auditEvent(requestId, principal, body, AuditStatus.DENIED, detail, started), audited);
                 return;
             }
-            agent.streamTurn(agentRequest(body, principal), requestId, upstream -> {
+            // Roles are read here and only here; the agent gets the resulting ceiling (ADR-0046).
+            String maxTier = tierCaps.maxTier(KeycloakRoles.realmRoles(jwt)).orElse(null);
+            agent.streamTurn(agentRequest(body, principal, maxTier), requestId, upstream -> {
                 openStream(response);
                 // The terminal event leaves only after this record is written (ADR-0042).
                 return relay.relay(upstream, response.getOutputStream(), requestId, outcome -> {
@@ -181,11 +188,11 @@ public class ChatController {
         }
     }
 
-    private static AgentTurnRequest agentRequest(ChatTurnRequest body, GatewayPrincipal principal) {
+    private static AgentTurnRequest agentRequest(ChatTurnRequest body, GatewayPrincipal principal, String maxTier) {
         return new AgentTurnRequest(
                 body.conversationId(),
                 new AgentTurnRequest.Principal(principal.userId(), principal.tenantId(), principal.permissions(),
-                        principal.roles(), principal.displayName(), body.locale()),
+                        maxTier, principal.displayName(), body.locale()),
                 body.message(),
                 body.attachments(),
                 body.selectedKbs(),

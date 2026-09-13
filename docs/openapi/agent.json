@@ -221,13 +221,16 @@
             "title": "Permissions",
             "default": []
           },
-          "roles": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Roles",
-            "default": []
+          "max_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tier"
           },
           "display_name": {
             "type": "string",

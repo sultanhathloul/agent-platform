@@ -15,7 +15,8 @@ import org.springframework.validation.annotation.Validated;
 public record GatewayProperties(
         @Valid @NotNull Keycloak keycloak,
         @Valid @NotNull Agent agent,
-        @Valid @NotNull Cors cors) {
+        @Valid @NotNull Cors cors,
+        @Valid @NotNull Models models) {
 
     /**
      * @param issuer   browser-facing issuer the tokens carry (validated, never fetched)
@@ -31,4 +32,7 @@ public record GatewayProperties(
             @NotNull Duration responseTimeout) {}
 
     public record Cors(@NotEmpty List<String> allowedOrigins) {}
+
+    /** @param config path of config/models.yaml, whose {@code caps.role:*} entries become {@code max_tier} */
+    public record Models(@NotBlank String config) {}
 }

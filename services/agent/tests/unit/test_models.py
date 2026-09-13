@@ -88,26 +88,27 @@ async def test_cap_bounds_the_final_tier(models_config):
     )
 
 
-async def test_role_cap_applies_to_the_principal(models_config):
-    # config/models.yaml seeds `role:viewer: standard` (README §19.1, ADR-0040).
+async def test_principal_max_tier_caps_the_final_tier(models_config):
+    # The gateway sends the strictest role ceiling as principal.max_tier (ADR-0046).
     deep = CapabilityModelSpec(slug="deep", min_tier="heavy")
     resolver = TierResolver(models_config, GuardEngine())
 
-    viewer = Principal(user_id="v", roles=("user", "viewer"))
+    viewer = Principal(user_id="v", max_tier="standard")
     capped = await resolver.resolve("reasoning", capabilities=[deep], principal=viewer)
     assert (capped.cap, capped.final, capped.capped) == ("standard", "standard", True)
-    assert "caps.role:viewer" in capped.reason
+    assert "principal.max_tier" in capped.reason
 
-    # a permission is never read as a role
-    analyst = Principal(user_id="a", roles=("user",), permissions=("cap:viewer",))
-    uncapped = await resolver.resolve("reasoning", capabilities=[deep], principal=analyst)
+    uncapped = await resolver.resolve("reasoning", capabilities=[deep], principal=Principal(user_id="a"))
     assert (uncapped.cap, uncapped.final, uncapped.capped) == ("heavy", "heavy", False)
 
 
-async def test_tightest_matching_role_cap_wins(models_config):
-    raw = models_config.model_dump()
-    raw["caps"]["role:admin"] = "heavy"
-    resolver = TierResolver(ModelsConfig.model_validate(raw), GuardEngine())
-    deep = CapabilityModelSpec(slug="deep", min_tier="heavy")
-    both = Principal(user_id="x", roles=("admin", "viewer"))
-    assert (await resolver.resolve("reasoning", capabilities=[deep], principal=both)).final == "standard"
+async def test_unknown_max_tier_is_refused(models_config):
+    with pytest.raises(ValueError, match="max_tier"):
+        await TierResolver(models_config, GuardEngine()).resolve(
+            "reasoning", principal=Principal(user_id="x", max_tier="turbo")
+        )
+
+
+def test_agent_principal_carries_no_roles():
+    with pytest.raises(ValidationError):
+        Principal.model_validate({"user_id": "x", "roles": ["viewer"]})

@@ -36,8 +36,8 @@ escalation:
   max_escalations_per_turn: 2
 
 caps:                        # ceilings; also expressible as MODEL_TIER guard policies
-  default: heavy
-  role:viewer: standard
+  default: heavy             # applied by the agent when the principal carries no max_tier
+  role:viewer: standard      # role entries are read by the gateway, which sends principal.max_tier (ADR-0046)
 
 embedding:
   alias: embed

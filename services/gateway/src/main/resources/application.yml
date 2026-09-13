@@ -38,6 +38,9 @@ gateway:
     response-timeout: 60s
   cors:
     allowed-origins: http://localhost:3000
+  models:
+    # Role tier caps (ADR-0046); compose mounts the file and sets GATEWAY_MODELS_CONFIG.
+    config: ../../config/models.yaml
 
 management:
   endpoints:

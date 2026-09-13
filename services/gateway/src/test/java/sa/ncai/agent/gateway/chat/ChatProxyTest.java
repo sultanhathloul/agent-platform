@@ -80,8 +80,9 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(principal.path("user_id").asText()).isEqualTo("user-123");
         assertThat(principal.path("tenant_id").asText()).isEqualTo("tenant-a");
         assertThat(principal.path("permissions").toString()).isEqualTo("[\"cap:general\",\"kb:moe:read\"]");
-        // default-roles-agent and offline_access are Keycloak built-ins; permissions are not roles (ADR-0040)
-        assertThat(principal.path("roles").toString()).isEqualTo("[\"user\"]");
+        // roles never reach the agent; this caller holds no role with a tier cap (ADR-0046)
+        assertThat(principal.has("roles")).isFalse();
+        assertThat(principal.has("max_tier")).isFalse();
         assertThat(principal.path("display_name").asText()).isEqualTo("سارة المحللة");
         assertThat(principal.path("locale").asText()).isEqualTo("ar");
 
@@ -97,6 +98,21 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(event.detail()).containsEntry("guard_events", 0);
         assertThat(event.detail()).containsEntry("selected_kbs", List.of("moe"));
         assertThat(event.detail()).containsKey("latency_ms");
+    }
+
+    @Test
+    void viewerRoleReachesTheAgentAsMaxTierOnly() throws Exception {
+        AGENT.enqueue(sse(DONE_STREAM));
+        String viewer = token(c -> c.claim("realm_access",
+                java.util.Map.of("roles", List.of("default-roles-agent", "user", "viewer", "cap:general"))));
+
+        mvc.perform(chat(body("سؤال", List.of()), viewer)).andExpect(status().isOk());
+
+        RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(upstream).isNotNull();
+        JsonNode principal = mapper.readTree(upstream.getBody().readUtf8()).path("principal");
+        assertThat(principal.path("max_tier").asText()).isEqualTo("standard"); // config/models.yaml caps.role:viewer
+        assertThat(principal.has("roles")).isFalse();
     }
 
     @Test
@@ -221,7 +237,9 @@ class ChatProxyTest extends GatewayTestSupport {
 
     @Test
     void unreachableAgentBecomesAgentUnavailable() throws Exception {
-        AGENT.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
+        // DISCONNECT_AT_START only applies to a new socket; on a keep-alive connection reused from the
+        // previous test MockWebServer would answer 200. Dropping after the request fails on both.
+        AGENT.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
 
         mvc.perform(chat(body("سؤال", List.of())))
                 .andExpect(status().isBadGateway())

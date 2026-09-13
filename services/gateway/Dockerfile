@@ -15,6 +15,9 @@ FROM build AS test
 # passes the repo's docs/ as the named build context `docs` (ADR-0044).
 COPY --from=docs openapi/gateway.json /docs/openapi/gateway.json
 ENV GATEWAY_OPENAPI_DOC=/docs/openapi/gateway.json
+# Role tier caps come from the repo's config/models.yaml, passed as the build context `config` (ADR-0046).
+COPY --from=config models.yaml /config/models.yaml
+ENV GATEWAY_MODELS_CONFIG=/config/models.yaml
 # Gradle's build cache lives in the cache mount; without --no-build-cache `test` is restored FROM-CACHE (ADR-0043).
 RUN --mount=type=cache,target=/home/gradle/.gradle \
     gradle cleanTest test --no-daemon --no-build-cache

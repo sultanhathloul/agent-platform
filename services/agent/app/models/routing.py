@@ -91,8 +91,8 @@ class TierResolver:
         # 2–4. Router, context and validation escalation: phase 08.
         wanted = floor
 
-        # 5. Cap: the ceiling for the principal's roles (ADR-0040), seen by the
-        #    MODEL_TIER checkpoint (7th). Policies may lower it (phase 03).
+        # 5. Cap: the ceiling the gateway derived from the caller's roles (ADR-0046),
+        #    seen by the MODEL_TIER checkpoint (7th). Policies may lower it (phase 03).
         ceiling, source = self._ceiling(principal)
         outcome = await self.guard.evaluate(
             Checkpoint.MODEL_TIER,
@@ -113,14 +113,11 @@ class TierResolver:
         )
 
     def _ceiling(self, principal: Principal | None) -> tuple[str, str]:
-        """The tightest `caps.role:<name>` entry among the principal's roles, else `caps.default`."""
-        roles = set(principal.roles) if principal else set()
-        matched = {
-            key: tier
-            for key, tier in self.config.caps.items()
-            if key.startswith("role:") and key.removeprefix("role:") in roles
-        }
-        if not matched:
+        """`principal.max_tier` when the gateway sent one, else `caps.default`."""
+        if principal is None or principal.max_tier is None:
             return self.config.caps["default"], "caps.default"
-        key = min(matched, key=lambda k: self.config.rank(matched[k]))
-        return matched[key], f"caps.{key}"
+        if principal.max_tier not in self.config.tiers:
+            raise ValueError(
+                f"principal.max_tier: unknown tier {principal.max_tier!r}; known: {self.config.order}"
+            )
+        return principal.max_tier, "principal.max_tier"

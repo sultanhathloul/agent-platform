@@ -12,12 +12,16 @@ public record AgentTurnRequest(
         List<String> selectedKbs,
         String locale) {
 
-    /** Identity set by the gateway, never by the model. {@code roles} only select tier ceilings (ADR-0040). */
+    /**
+     * Identity set by the gateway, never by the model. {@code maxTier} is the model tier ceiling
+     * derived from the caller's roles, null when no role caps it; roles themselves never leave
+     * the gateway (ADR-0046).
+     */
     public record Principal(
             String userId,
             String tenantId,
             List<String> permissions,
-            List<String> roles,
+            String maxTier,
             String displayName,
             String locale) {}
 }

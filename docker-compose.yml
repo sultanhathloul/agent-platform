@@ -267,7 +267,10 @@ services:
       GATEWAY_AGENT_BASE_URL: http://agent:8000
       GATEWAY_AGENT_INTERNAL_TOKEN: ${AGENT_INTERNAL_TOKEN}
       GATEWAY_CORS_ALLOWED_ORIGINS: ${WEB_PUBLIC_URL}
+      GATEWAY_MODELS_CONFIG: /srv/config/models.yaml
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+    volumes:
+      - ./config/models.yaml:/srv/config/models.yaml:ro   # role tier caps (ADR-0046)
     ports:
       - "${GATEWAY_PORT}:8080"
     depends_on:

@@ -38,8 +38,9 @@ test-agent: .env
 
 # --no-cache-filter test: the test stage runs on every call, never from a cached layer (ADR-0043).
 # --build-context docs: the contract drift test compares docs/openapi/gateway.json (ADR-0044).
+# --build-context config: role tier caps are read from config/models.yaml (ADR-0046).
 test-gateway:
-	docker build --target test --no-cache-filter test --build-context docs=docs services/gateway
+	docker build --target test --no-cache-filter test --build-context docs=docs --build-context config=config services/gateway
 
 test-web:
 	docker build --target test --no-cache-filter test services/web
