@@ -15,6 +15,7 @@ export type AgentEvent =
   | ToolStartEvent
   | ToolEndEvent
   | CitationEvent
+  | ProgressEvent
   | DoneEvent
   | ErrorEvent
   | RetractEvent;
@@ -95,7 +96,21 @@ export type TurnId6 = string | null;
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
 export type Seq6 = number;
-export type Type6 = "done";
+export type Type6 = "progress";
+export type Capability2 = string;
+/**
+ * Machine-readable step name inside the capability, e.g. search or fetch.
+ */
+export type Step1 = string;
+export type Current = number | null;
+export type Total = number | null;
+export type RequestId7 = string;
+export type TurnId7 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq7 = number;
+export type Type7 = "done";
 export type Answer = string;
 export type Citations = Citation[];
 export type TokensIn = number;
@@ -108,24 +123,24 @@ export type Turn = number;
  */
 export type Capabilities = string[];
 export type TraceId = string | null;
-export type RequestId7 = string;
-export type TurnId7 = string | null;
-/**
- * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
- */
-export type Seq7 = number;
-export type Type7 = "error";
-export type Code = string;
-export type MessageAr = string;
-export type MessageEn = string;
-export type Retryable = boolean;
 export type RequestId8 = string;
 export type TurnId8 = string | null;
 /**
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
 export type Seq8 = number;
-export type Type8 = "retract";
+export type Type8 = "error";
+export type Code = string;
+export type MessageAr = string;
+export type MessageEn = string;
+export type Retryable = boolean;
+export type RequestId9 = string;
+export type TurnId9 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq9 = number;
+export type Type9 = "retract";
 /**
  * Error code of the check that withdrew the streamed text (ADR-0039).
  */
@@ -208,11 +223,27 @@ export interface Citation {
   kb?: Kb;
   locator?: Locator;
 }
-export interface DoneEvent {
+/**
+ * A capability reports how far it got (ADR-0047).
+ */
+export interface ProgressEvent {
   request_id: RequestId6;
   turn_id: TurnId6;
   seq: Seq6;
   type: Type6;
+  data: ProgressData;
+}
+export interface ProgressData {
+  capability: Capability2;
+  step: Step1;
+  current?: Current;
+  total?: Total;
+}
+export interface DoneEvent {
+  request_id: RequestId7;
+  turn_id: TurnId7;
+  seq: Seq7;
+  type: Type7;
   data: DoneData;
 }
 export interface DoneData {
@@ -233,10 +264,10 @@ export interface StateDigest {
   capabilities: Capabilities;
 }
 export interface ErrorEvent {
-  request_id: RequestId7;
-  turn_id: TurnId7;
-  seq: Seq7;
-  type: Type7;
+  request_id: RequestId8;
+  turn_id: TurnId8;
+  seq: Seq8;
+  type: Type8;
   data: ErrorData;
 }
 export interface ErrorData {
@@ -249,10 +280,10 @@ export interface ErrorData {
  * Withdraws every answer token streamed so far in this turn.
  */
 export interface RetractEvent {
-  request_id: RequestId8;
-  turn_id: TurnId8;
-  seq: Seq8;
-  type: Type8;
+  request_id: RequestId9;
+  turn_id: TurnId9;
+  seq: Seq9;
+  type: Type9;
   data: RetractData;
 }
 export interface RetractData {

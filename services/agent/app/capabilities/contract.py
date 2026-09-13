@@ -3,16 +3,16 @@ included, is a package under app/capabilities/<slug>/ with a manifest.yaml and
 a graph.py whose build() returns a compiled LangGraph subgraph. The subgraph's
 state holds `input: CapabilityInput` and returns `output: CapabilityOutput`."""
 
-from collections.abc import Callable
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.context.package import AssemblyRequest, BlockName, ContextPackage
+from app.context.package import Block, BlockName, ContextPackage
 from app.identity import Principal
 from app.models.gateway import ModelResult
-from app.models.routing import CapabilityModelSpec, TierResolver
+from app.models.routing import CapabilityModelSpec
 from app.tools.spec import ToolResult
 
 
@@ -120,9 +120,21 @@ class Artifact(_Strict):
     data: dict[str, Any] = {}
 
 
+CapabilityEventType = Literal["tool_start", "tool_end", "citation", "progress"]
+CAPABILITY_EVENT_TYPES: frozenset[str] = frozenset(get_args(CapabilityEventType))
+
+
 class CapabilityEvent(_Strict):
-    type: Literal["tool_start", "tool_end", "citation"]
+    """The only events a capability may stream or return. `token`, `tier`, `guard`,
+    `done`, `error` and `retract` belong to the core (ADR-0047)."""
+
+    type: CapabilityEventType
     data: dict[str, Any]
+
+
+class CapabilityContractError(TypeError):
+    """A capability broke the runtime contract (README §18.3, ADR-0047). Uncaught,
+    it ends the turn as `turn_failed`."""
 
 
 class Usage(_Strict):
@@ -133,9 +145,9 @@ class Usage(_Strict):
 
 class CapabilityInput(_Strict):
     message: str
-    context: ContextPackage
+    context: ContextPackage  # detached: blocks only, no reference to AgentState (ADR-0047)
     principal: Principal
-    cap_state: dict[str, Any]
+    cap_state: dict[str, Any]  # a copy of this capability's own namespace
     attachments: list[dict[str, Any]] = []
     locale: str
 
@@ -145,20 +157,29 @@ class CapabilityOutput(_Strict):
     sources: list[Source] = []
     artifacts: list[Artifact] = []
     events: list[CapabilityEvent] = []
-    cap_state: dict[str, Any] = {}
+    cap_state: dict[str, Any]  # required: persisted back into the namespace as returned
+    # Non-model cost only (e.g. a paid lookup). Model usage is recorded once, by
+    # call_model, so tokens here would be counted twice (ADR-0047).
     cost: Usage = Usage()
 
+    @model_validator(mode="after")
+    def _no_model_tokens_in_cost(self) -> "CapabilityOutput":
+        if self.cost.tokens_in or self.cost.tokens_out:
+            raise ValueError("cost carries non-model cost only; call_model records model tokens (ADR-0047)")
+        return self
 
-# ------------------------------------------------------------------ runtime context (§18.3, ADR-0038)
+
+# ------------------------------------------------------------------ runtime context (§18.3, ADR-0047)
 
 
-class CapabilityModels(Protocol):
-    """`models.call` for one capability. Resolves the tier for (role, step) against
-    the manifest, assembles context for that tier, calls LiteLLM and records usage.
-    `request` defaults to the capability's own assembly request (manifest needs)."""
+class ModelCaller(Protocol):
+    """Calls a model for this capability. The core resolves the tier for (role,
+    step) against the manifest, assembles context through `context.needs`, calls
+    LiteLLM and records usage. `extra_blocks` are findings the capability produced
+    (Block name `findings`); they need `findings` in `context.needs`."""
 
-    async def call(
-        self, role: str, *, step: str | None = None, request: AssemblyRequest | None = None
+    async def __call__(
+        self, role: str, *, step: str | None = None, extra_blocks: Sequence[Block] = ()
     ) -> ModelResult: ...
 
 
@@ -168,18 +189,23 @@ class CapabilityBroker(Protocol):
     async def execute(self, name: str, args: dict[str, Any]) -> ToolResult: ...
 
 
+class EventWriter(Protocol):
+    """Streams one CapabilityEvent to the client while the capability runs; any
+    other value raises CapabilityContractError."""
+
+    def __call__(self, event: CapabilityEvent) -> None: ...
+
+
 @dataclass(frozen=True)
 class RuntimeContext:
     """The LangGraph runtime context of a capability subgraph (`Runtime[RuntimeContext]`).
-    Everything a capability may reach in the core travels here: model calls, the
-    tool broker, the event stream, the principal, its own state slice and the
-    tier resolver. Events written to `stream_writer` reach the client while the
-    capability is still running."""
+    This is the whole surface a capability has into the core: its slug, the
+    principal, a copy of its own state slice, `call_model`, the broker and the
+    event writer. No resolver, guard engine, model config or AgentState (ADR-0047)."""
 
     slug: str
     principal: Principal
     cap_state: dict[str, Any]
-    models: CapabilityModels
+    call_model: ModelCaller
     broker: CapabilityBroker
-    resolver: TierResolver
-    stream_writer: Callable[[str, dict[str, Any]], None]
+    stream_writer: EventWriter

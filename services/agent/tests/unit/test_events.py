@@ -6,7 +6,18 @@ from pydantic import ValidationError
 from app.api.events import build_event, to_sse
 from app.api.export import events_schema
 
-EVENT_TYPES = {"token", "tier", "guard", "tool_start", "tool_end", "citation", "done", "error", "retract"}
+EVENT_TYPES = {
+    "token",
+    "tier",
+    "guard",
+    "tool_start",
+    "tool_end",
+    "citation",
+    "progress",
+    "done",
+    "error",
+    "retract",
+}
 
 
 def test_sse_block_format_keeps_arabic_unescaped():

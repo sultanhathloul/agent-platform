@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 PROBE = importlib.import_module("tests.fixtures.capabilities.probe.graph")
 
 
-async def test_probe_uses_models_and_broker_and_streams_while_running(probe_services, litellm):
+async def test_probe_uses_models_and_broker_and_streams_while_running(probe_services, litellm, spans):
     request = TurnRequest(
         conversation_id=str(uuid.uuid4()),
         principal=Principal(user_id="u-probe", permissions=("cap:general", "cap:probe")),
@@ -46,6 +46,12 @@ async def test_probe_uses_models_and_broker_and_streams_while_running(probe_serv
     done = events[-1].data
     assert done.state_digest.capabilities == ["probe"]
     assert done.usage.tokens_out > 0
+
+    # Usage is recorded once per model call (ADR-0047): the probe's draft call and the answer.
+    calls = [s for s in spans.get_finished_spans() if s.name == "model.call"]
+    assert [s.attributes["model.step"] for s in calls] == ["draft", "answer"]
+    assert done.usage.tokens_in == sum(s.attributes["gen_ai.usage.input_tokens"] for s in calls)
+    assert done.usage.tokens_out == sum(s.attributes["gen_ai.usage.output_tokens"] for s in calls)
 
     snapshot = await probe_services.graph.aget_state({"configurable": {"thread_id": request.conversation_id}})
     assert snapshot.values["cap_state"]["cap.probe"] == {"runs": 1}

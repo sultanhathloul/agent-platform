@@ -356,6 +356,95 @@
       "title": "GuardEvent",
       "type": "object"
     },
+    "ProgressData": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "step": {
+          "description": "Machine-readable step name inside the capability, e.g. search or fetch.",
+          "title": "Step",
+          "type": "string"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total"
+        }
+      },
+      "required": [
+        "capability",
+        "step"
+      ],
+      "title": "ProgressData",
+      "type": "object"
+    },
+    "ProgressEvent": {
+      "additionalProperties": false,
+      "description": "A capability reports how far it got (ADR-0047).",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "progress",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ProgressData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ProgressEvent",
+      "type": "object"
+    },
     "RetractData": {
       "additionalProperties": false,
       "properties": {
@@ -748,6 +837,7 @@
       "done": "#/$defs/DoneEvent",
       "error": "#/$defs/ErrorEvent",
       "guard": "#/$defs/GuardEvent",
+      "progress": "#/$defs/ProgressEvent",
       "retract": "#/$defs/RetractEvent",
       "tier": "#/$defs/TierEvent",
       "token": "#/$defs/TokenEvent",
@@ -774,6 +864,9 @@
     },
     {
       "$ref": "#/$defs/CitationEvent"
+    },
+    {
+      "$ref": "#/$defs/ProgressEvent"
     },
     {
       "$ref": "#/$defs/DoneEvent"

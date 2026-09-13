@@ -96,6 +96,13 @@ class RetractData(_Model):
     reason: str = Field(description="Error code of the check that withdrew the streamed text (ADR-0039).")
 
 
+class ProgressData(_Model):
+    capability: str
+    step: str = Field(description="Machine-readable step name inside the capability, e.g. search or fetch.")
+    current: int | None = Field(default=None, ge=0)
+    total: int | None = Field(default=None, ge=0)
+
+
 # ------------------------------------------------------------------ envelope
 
 
@@ -154,6 +161,13 @@ class RetractEvent(_Envelope):
     data: RetractData
 
 
+class ProgressEvent(_Envelope):
+    """A capability reports how far it got (ADR-0047)."""
+
+    type: Literal["progress"]
+    data: ProgressData
+
+
 AgentEvent = Annotated[
     TokenEvent
     | TierEvent
@@ -161,6 +175,7 @@ AgentEvent = Annotated[
     | ToolStartEvent
     | ToolEndEvent
     | CitationEvent
+    | ProgressEvent
     | DoneEvent
     | ErrorEvent
     | RetractEvent,
@@ -176,14 +191,20 @@ _PAYLOADS: dict[str, type[_Model]] = {
     "tool_start": ToolStartData,
     "tool_end": ToolEndData,
     "citation": Citation,
+    "progress": ProgressData,
     "done": DoneData,
     "error": ErrorData,
     "retract": RetractData,
 }
 
 EventType = Literal[
-    "token", "tier", "guard", "tool_start", "tool_end", "citation", "done", "error", "retract"
+    "token", "tier", "guard", "tool_start", "tool_end", "citation", "progress", "done", "error", "retract"
 ]
+
+
+def validate_payload(type_: EventType, data: dict) -> dict:
+    """The payload of an event of `type_`, validated; raises pydantic.ValidationError."""
+    return _PAYLOADS[type_].model_validate(data).model_dump()
 
 
 def build_event(type_: EventType, data: dict | _Model, *, request_id: str, turn_id: str | None, seq: int):

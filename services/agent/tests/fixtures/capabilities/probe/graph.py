@@ -24,7 +24,7 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     looked_up = await rt.broker.execute("probe_lookup", {"text": state["input"].message})
     if GATE is not None:
         await asyncio.wait_for(GATE.wait(), timeout=5)
-    draft = await rt.models.call("reasoning", step="draft")
+    draft = await rt.call_model("reasoning", step="draft")
     return {
         "output": CapabilityOutput(
             findings=f"{looked_up.content}\n{draft.text}",

@@ -101,7 +101,7 @@ describe("applyEvent", () => {
 
   it("ignores unknown event types", () => {
     const before = run([token("x")]);
-    const after = applyEvent(before, { ...meta, seq: 99, type: "progress", data: {} } as unknown as StreamEvent);
+    const after = applyEvent(before, { ...meta, seq: 99, type: "from_a_newer_server", data: {} } as unknown as StreamEvent);
     expect(after).toBe(before);
   });
 });
