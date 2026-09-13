@@ -91,6 +91,9 @@ Owner notes:
 - **Reranker:** `bge-reranker-v2-m3` is not in the Ollama library, and Ollama has no rerank API. How to serve it is a phase 04 decision (ADR-0008).
 - **Open for phase 03:** ADR-0030 (measure a stronger `fast` model on helper-role work) and ADR-0031 (where the `OUTPUT` and `DATA` guards run relative to streaming).
 
+Known gaps (not decisions):
+- DATA redaction does not retract; streamed PII is visible until the phase 03 sentence buffer (ADR-0039).
+
 ### Fix session: PR #1 review findings (2026-09-13)
 
 Scope: apply the owner's review of PR #1 and nothing else; re-run `make test`, `make eval`, `make smoke`; push.
@@ -121,7 +124,8 @@ Human review needed (this session):
 - `config/prompts/answer/system.ar.md.j2` (1.3.0), `config/messages/errors.yaml` (`output_blocked`, `data_blocked`, `conversation_forbidden`).
 - `docker-compose.yml`: `docs/` mounted read-only into `agent-tests`.
 - `services/gateway/src/main/resources/db/migration/V2__conversations.sql`.
-- README §11 still says the agent sees only `permissions[]`; it now also receives `roles`, for tier ceilings only (ADR-0040). The README sentence is the owner's to change.
+- README §11 stays as written: roles never leave the gateway; the agent receives `principal.max_tier` (ADR-0046, superseding ADR-0040).
+- `config/models.yaml` is now also mounted read-only into the gateway, which reads the `caps.role:*` entries (ADR-0046).
 
 ## Phase 02: State, Context Assembly, Memory
 
