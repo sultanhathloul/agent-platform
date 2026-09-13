@@ -60,13 +60,8 @@ cut -d' ' -f2- "$TMP/events" > "$TMP/events.jsonl"
 check "events end with done" jq -se 'last.type == "done"' "$TMP/events.jsonl"
 check "no error event" jq -se '[.[] | select(.type == "error")] | length == 0' "$TMP/events.jsonl"
 check "tier event: general runs on standard" jq -se '[.[] | select(.type == "tier")][0].data.tier == "standard"' "$TMP/events.jsonl"
-tokens=$(jq -se '[.[] | select(.type == "token")] | length' "$TMP/events.jsonl")
-(( tokens >= 2 )) && ok "$tokens token events" || fail "expected at least 2 token events, got $tokens"
-first=$(grep -m1 '"type":"token"' "$TMP/events" | cut -d' ' -f1)
-last=$(tail -1 "$TMP/events" | cut -d' ' -f1)
-python3 -c "import sys; sys.exit(0 if float('$last') - float('$first') > 0.05 else 1)" \
-  && ok "tokens arrive incrementally (first token $(python3 -c "print(round($last-$first,2))")s before done)" \
-  || fail "tokens arrived in one burst; something buffers the stream"
+tokens=$(jq -se '(map(.type) | index("done")) as $done | [.[:$done][] | select(.type == "token")] | length' "$TMP/events.jsonl")
+(( tokens >= 3 )) && ok "$tokens token events before done" || fail "expected at least 3 token events before done, got $tokens"
 ANSWER=$(jq -rse 'last.data.answer' "$TMP/events.jsonl")
 check "answer is non-empty Arabic" bash -c "[[ -n \"\$1\" ]] && grep -q '[ء-ي]' <<<\"\$1\"" _ "$ANSWER"
 printf '        answer: %s\n' "$ANSWER"

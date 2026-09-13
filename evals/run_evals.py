@@ -7,8 +7,10 @@ gateway, with real models.
 
 Suites are evals/golden/*.jsonl plus services/agent/app/capabilities/*/evals/*.jsonl
 (README §18.4); the suite name is the file stem. Every suite needs a threshold
-in evals/thresholds.yaml, and a suite without one fails the run. Each case
-result is pushed to Langfuse as an `eval_pass` score on the turn's trace.
+in evals/thresholds.yaml, and a suite without one fails the run. Each suite is
+a Langfuse dataset with one item per case; every run creates a dataset run
+(`make-eval-<UTC time>`) linking each case to its turn's trace, and pushes an
+`eval_pass` score on that trace (README §12, ADR-0045).
 
 Case checks so far: contains_any (answer contains one of the strings, compared
 after Arabic normalization), excludes_any (answer contains none of them; catches
@@ -21,6 +23,7 @@ import re
 import sys
 import unicodedata
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -71,6 +74,11 @@ def run_turn(http: httpx.Client, gateway: str, token: str, case: dict) -> dict:
     return last
 
 
+def langfuse(http: httpx.Client, cfg: dict, auth: tuple[str, str], path: str, body: dict) -> None:
+    response = http.post(f"{cfg['LANGFUSE_PUBLIC_URL']}/api/public/{path}", auth=auth, json=body)
+    response.raise_for_status()
+
+
 def suites() -> dict[str, Path]:
     files = sorted((REPO / "evals" / "golden").glob("*.jsonl"))
     files += sorted((REPO / "services" / "agent" / "app" / "capabilities").glob("*/evals/*.jsonl"))
@@ -86,13 +94,23 @@ def main() -> int:
         return 1
     token = login(*EVAL_USER)["access_token"]
     auth = (cfg["LANGFUSE_PUBLIC_KEY"], cfg["LANGFUSE_SECRET_KEY"])
+    run_name = f"make-eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
     rows, failed = [], False
 
     with httpx.Client(timeout=300) as http:
         for name, path in found.items():
             cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            # One Langfuse dataset per suite, one item per case, one run per `make eval` (README §12).
+            langfuse(http, cfg, auth, "v2/datasets", {"name": name, "description": f"{path.relative_to(REPO)}"})
             passed = 0
             for case in cases:
+                item_id = f"{name}:{case['id']}"
+                langfuse(
+                    http, cfg, auth, "dataset-items",
+                    {"datasetName": name, "id": item_id,
+                     "input": {"message": case["message"], "locale": case.get("locale", "ar")},
+                     "expectedOutput": case.get("expect", {})},
+                )
                 event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
                 if event.get("type") == "done":
                     answer = event["data"]["answer"]
@@ -104,11 +122,15 @@ def main() -> int:
                 mark = "pass" if not problems else "FAIL"
                 print(f"  {mark}  {name}/{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
                 if trace_id:
-                    http.post(
-                        f"{cfg['LANGFUSE_PUBLIC_URL']}/api/public/scores",
-                        auth=auth,
-                        json={"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
-                              "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
+                    langfuse(
+                        http, cfg, auth, "dataset-run-items",
+                        {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
+                         "metadata": {"passed": not problems, "problems": problems}},
+                    )
+                    langfuse(
+                        http, cfg, auth, "scores",
+                        {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                         "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
                     )
             rate = passed / len(cases)
             threshold = thresholds.get(name)
@@ -120,6 +142,7 @@ def main() -> int:
     for name, passed, total, rate, threshold, ok in rows:
         shown = "missing" if threshold is None else f"{threshold:.2f}"
         print(f"{name:<14}{passed:>4}/{total:<4}{rate:>8.2f}{shown:>11}  {'PASS' if ok else 'FAIL'}")
+    print(f"\nLangfuse dataset run: {run_name}")
     return 1 if failed else 0
 
 
