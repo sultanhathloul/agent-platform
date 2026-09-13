@@ -8,11 +8,18 @@ the principal, `call_model`, the broker and an event writer that accepts
 CapabilityEvents only. Model usage is recorded once, by `call_model`.
 
 The subgraph runs as a top-level graph with a fresh LangGraph config, never the
-main graph's: no checkpointer, thread id, store or callbacks (ADR-0052)."""
+main graph's: no checkpointer, thread id, store or callbacks (ADR-0052). It also
+runs behind an exception/return firewall: any escape a capability attempts —
+`ParentCommand`, `GraphInterrupt`, a returned `Command`, a timeout or any other
+exception — is caught at the task boundary and turned into a `capability_failed`
+result, so nothing a capability raises reaches the main graph's retry handler or
+its checkpoint (ADR-0053)."""
 
 import asyncio
+import contextlib
 import contextvars
 import copy
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -40,6 +47,23 @@ from app.models.gateway import ModelResult, ModelUnavailable
 from app.models.routing import TierDecision
 from app.observability.otel import tracer
 from app.tools.spec import ToolResult
+
+log = logging.getLogger(__name__)
+
+
+class CapabilityFailed(Exception):
+    """A capability failed to produce a clean CapabilityOutput: it raised or
+    returned an escape (ParentCommand, GraphInterrupt, a Command), timed out,
+    compiled its own checkpointer or store, or returned an invalid output. The
+    core turns it into the `capability_failed` turn error (ADR-0053). `reason`
+    is short and safe to log and put on the span; it never carries capability
+    output."""
+
+    def __init__(self, slug: str, reason: str, *, retryable: bool = False):
+        super().__init__(f"capability {slug}: {reason}")
+        self.slug = slug
+        self.reason = reason
+        self.retryable = retryable
 
 # The AgentState keys each block's step reads. A capability's assembly request
 # carries only the keys its `context.needs` names; never `cap_state`, identity,
@@ -179,13 +203,12 @@ def _output(cap: LoadedCapability, result: object) -> CapabilityOutput:
     try:
         return CapabilityOutput.model_validate(raw)
     except ValidationError as exc:
-        raise TurnError(
-            "turn_failed", detail=f"capability {cap.slug} returned an invalid output: {exc}"
-        ) from exc
+        raise CapabilityFailed(cap.slug, f"returned an invalid output: {exc}") from exc
 
 
 async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext) -> Any:
-    """Runs the capability subgraph outside the main graph's RunnableConfig (ADR-0052).
+    """Runs the capability subgraph outside the main graph's RunnableConfig, behind
+    an exception/return firewall (ADR-0052, ADR-0053).
 
     Invoked inside a main-graph node, LangGraph would hand the subgraph the main
     graph's config through a context variable: its checkpointer (every
@@ -193,17 +216,54 @@ async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, co
     `get_config()`. The subgraph runs in a task whose context clears that
     variable, so it starts a config of its own and reaches the core only through
     `context`. The OpenTelemetry context is kept, so spans still nest under
-    `capability.{slug}`."""
+    `capability.{slug}`.
+
+    The task boundary is also a firewall. A capability node can raise a LangGraph
+    control-flow signal — `ParentCommand` (also the shape a returned
+    `Command(graph=PARENT)` takes), `GraphInterrupt` — or any other exception. If
+    that reached the main graph unhandled, its retry handler would apply the
+    command to the main graph's state or leave the thread with a pending
+    interrupt, both written to the checkpoint. Awaiting the subgraph in a task
+    means every such escape surfaces here as the task's exception, where it
+    becomes `CapabilityFailed` and never propagates as a control-flow signal.
+    `CancelledError` (the turn was cancelled, e.g. a client disconnect) is the one
+    exception that must not be swallowed: the subgraph task is cancelled and
+    drained first, then it is re-raised so the runner ends the turn as cancelled."""
     graph = cap.graph
     checkpointer = getattr(graph, "checkpointer", None)
     if (checkpointer is not None and checkpointer is not False) or getattr(graph, "store", None) is not None:
-        raise CapabilityContractError(
-            f"capability {cap.slug}: its graph must compile without a checkpointer or store"
-        )
+        raise CapabilityFailed(cap.slug, "its graph must compile without a checkpointer or store")
     isolated = contextvars.copy_context()
     isolated.run(var_child_runnable_config.set, None)
     task = asyncio.create_task(graph.ainvoke({"input": cap_input}, context=context), context=isolated)
-    return await asyncio.wait_for(task, cap.manifest.limits.timeout_s)
+    try:
+        return await asyncio.wait_for(task, cap.manifest.limits.timeout_s)
+    except TimeoutError as exc:
+        raise CapabilityFailed(cap.slug, "timed out", retryable=True) from exc
+    except asyncio.CancelledError:
+        task.cancel()
+        with contextlib.suppress(BaseException):
+            await task
+        raise
+    except CapabilityFailed:
+        raise
+    except BaseException as exc:
+        # ParentCommand, GraphInterrupt/GraphBubbleUp, a returned Command turned
+        # into ParentCommand, or any other escape. None of it may reach the main
+        # graph's retry handler or its checkpoint (ADR-0053).
+        raise CapabilityFailed(cap.slug, f"raised {type(exc).__name__}: {exc}") from exc
+
+
+def _record_failure(span: Any, slug: str, reason: str) -> None:
+    """Records a capability failure on its span — the trace channel that carries
+    tool and guard events (§12) — as a `capability_failed` event with a ToolCall
+    shape, and logs it. The turn then ends per the existing rule (a capability
+    that produced no valid output ends the turn), so this is not written to the
+    checkpoint: an errored turn persists nothing (ADR-0053)."""
+    record = {"tool": f"capability:{slug}", "status": "error", "error": reason}
+    span.set_attribute("capability.status", "error")
+    span.add_event("capability_failed", record)
+    log.warning("capability %s failed: %s", slug, reason)
 
 
 @traced("run_capabilities")
@@ -242,17 +302,14 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
             )
             try:
                 result = await _invoke_isolated(cap, cap_input, runtime_context)
-            except TimeoutError as exc:
-                raise TurnError("turn_failed", retryable=True, detail=f"capability {slug} timed out") from exc
-            except CapabilityContractError as exc:
-                raise TurnError("turn_failed", detail=str(exc)) from exc
-            output = _output(cap, result)
-            # Events returned in the output rather than streamed arrive after the capability ends.
-            try:
+                output = _output(cap, result)
+                # Events returned in the output rather than streamed arrive after the capability ends.
                 for event in output.events:
                     _emit_capability_event(runtime, cap, event)
-            except CapabilityContractError as exc:
-                raise TurnError("turn_failed", detail=str(exc)) from exc
+            except (CapabilityFailed, CapabilityContractError) as exc:
+                retryable = isinstance(exc, CapabilityFailed) and exc.retryable
+                _record_failure(span, slug, str(exc))
+                raise TurnError("capability_failed", retryable=retryable, detail=str(exc)) from exc
             cap_state[manifest.state_namespace] = output.cap_state
             # Model tokens were recorded by call_model; the output adds non-model cost only.
             ctx.usage.add(0, 0, output.cost.cost_usd)
