@@ -59,7 +59,7 @@ REQUEST_ID=$(awk -F': ' 'tolower($1) == "x-request-id" {print $2}' "$TMP/headers
 cut -d' ' -f2- "$TMP/events" > "$TMP/events.jsonl"
 check "events end with done" jq -se 'last.type == "done"' "$TMP/events.jsonl"
 check "no error event" jq -se '[.[] | select(.type == "error")] | length == 0' "$TMP/events.jsonl"
-check "tier event: general runs on fast" jq -se '[.[] | select(.type == "tier")][0].data.tier == "fast"' "$TMP/events.jsonl"
+check "tier event: general runs on standard" jq -se '[.[] | select(.type == "tier")][0].data.tier == "standard"' "$TMP/events.jsonl"
 tokens=$(jq -se '[.[] | select(.type == "token")] | length' "$TMP/events.jsonl")
 (( tokens >= 2 )) && ok "$tokens token events" || fail "expected at least 2 token events, got $tokens"
 first=$(grep -m1 '"type":"token"' "$TMP/events" | cut -d' ' -f1)
