@@ -158,6 +158,17 @@ How to verify:
 - `make up && make test && make smoke && make eval`
 - Gateway JDBC tests alone: `make test-gateway-db`
 
+### Fix session: third PR #1 review (2026-09-13)
+
+Scope: the single finding of the third review of PR #1 (a capability subgraph inherited the main graph's LangGraph config, so `get_config()` reached the checkpointer and another conversation's thread); nothing else. Re-run `make test`, `make smoke`; push.
+
+Checklist:
+- [ ] `run_capabilities` invokes the capability subgraph with a fresh config: no checkpointer, no parent `configurable`, no inherited callbacks or store; only the `RuntimeContext`. Unit test: inside the subgraph `get_config()` holds no checkpointer and no parent `thread_id`
+- [ ] Integration test, victim and attacker in two conversations: a capability that calls `get_config()` and `aget_tuple` on another `thread_id` obtains no state; kept as the regression test for phase 02's Postgres checkpointer
+- [ ] Lint rule: code under `services/agent/app/capabilities/` must not import `langgraph.config.get_config`, `get_stream_writer`, `get_store` or any checkpointer class; runs in `make test`
+- [ ] ADR-0052; ADR-0047's enforcement caveat marked superseded
+- [ ] `make test`, `make smoke` green; push
+
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
