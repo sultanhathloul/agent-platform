@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env up down clean seed test test-agent test-gateway test-web eval smoke logs ps openapi
+.PHONY: help env models up down clean seed test test-agent test-gateway test-web eval smoke logs ps openapi
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -13,6 +13,9 @@ env: .env ## Create .env with generated secrets (never overwrites)
 
 .env:
 	@scripts/init_env.sh
+
+models: ## Pull the models named in infra/litellm/config.yaml into Ollama
+	@scripts/pull_models.sh
 
 up: .env ## Build and start the full stack, seeded, and wait until healthy
 	@scripts/preflight.sh

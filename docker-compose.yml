@@ -139,6 +139,7 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
       VLLM_BASE_URL: ${VLLM_BASE_URL}
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
