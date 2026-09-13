@@ -1,7 +1,17 @@
+from pathlib import Path
+
 import pytest
 import yaml
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
-from app.capabilities.registry import CapabilityRegistry, ManifestError, load_manifest
+from app.capabilities.contract import RuntimeContext
+from app.capabilities.registry import (
+    CapabilityRegistry,
+    ManifestError,
+    _compile_capability,
+    load_manifest,
+)
 from app.identity import Principal
 
 VALID = {
@@ -64,3 +74,38 @@ def test_discovers_general_and_filters_by_permission(models_config):
     without = Principal(user_id="u", permissions=("kb:moe:read",))
     assert [c.slug for c in registry.available_for(with_role)] == ["general"]
     assert registry.available_for(without) == []
+
+
+def _state_graph() -> StateGraph:
+    graph = StateGraph(dict, context_schema=RuntimeContext)
+    graph.add_node("run", lambda state: {})
+    graph.add_edge(START, "run")
+    graph.add_edge("run", END)
+    return graph
+
+
+def test_core_compiles_a_capability_state_graph():
+    compiled = _compile_capability(_state_graph(), Path("demo"))
+    assert isinstance(compiled, CompiledStateGraph)
+
+
+class _AlreadyCompiled:
+    """What build() must no longer return: a graph-like object the core did not
+    compile (a compiled graph, or any object with an ainvoke). The core owns
+    compilation, so anything but a StateGraph is refused (ADR-0053)."""
+
+    checkpointer = None
+    store = None
+
+    async def ainvoke(self, *args, **kwargs):
+        raise AssertionError("must never be invoked")
+
+
+@pytest.mark.parametrize(
+    "built",
+    [_state_graph().compile(), _AlreadyCompiled(), object(), None],
+    ids=["compiled_graph", "fake_graph", "plain_object", "none"],
+)
+def test_build_must_return_a_state_graph(built):
+    with pytest.raises(ManifestError, match="must return a StateGraph"):
+        _compile_capability(built, Path("demo"))

@@ -176,7 +176,7 @@ async def test_uncaught_contract_violation_ends_the_turn(services):
     runtime, written = _runtime(services, run)
     with pytest.raises(TurnError) as info:
         await run_capabilities(_state(), runtime)
-    assert info.value.code == "turn_failed"
+    assert info.value.code == "capability_failed"
     assert written == []
 
 
@@ -192,7 +192,7 @@ async def test_output_without_cap_state_is_rejected(services, output):
     runtime, _ = _runtime(services, run)
     with pytest.raises(TurnError) as info:
         await run_capabilities(_state(), runtime)
-    assert info.value.code == "turn_failed"
+    assert info.value.code == "capability_failed"
     assert "cap_state" in str(info.value)
 
 
@@ -263,5 +263,35 @@ async def test_capability_graph_with_its_own_checkpointer_or_store_is_refused(se
     runtime, _ = _runtime(services, run, **compile_kwargs)
     with pytest.raises(TurnError) as info:
         await run_capabilities(_state(), runtime)
-    assert info.value.code == "turn_failed"
+    assert info.value.code == "capability_failed"
     assert "checkpointer or store" in str(info.value)
+
+
+async def test_arbitrary_exception_yields_capability_failed_and_an_untouched_checkpoint(services):
+    """A capability that raises an unexpected exception ends the turn as
+    capability_failed, and nothing of the failed node reaches the main graph's
+    checkpoint: no partial writes, no pending interrupt (ADR-0053)."""
+
+    async def run(state, runtime):
+        raise ValueError("boom inside the capability")
+
+    runtime, _ = _runtime(services, run)
+
+    async def node(state):
+        await run_capabilities(_state(), runtime)
+        return {"ran": True}
+
+    main = StateGraph(_MainState)
+    main.add_node("run_capabilities", node)
+    main.add_edge(START, "run_capabilities")
+    main.add_edge("run_capabilities", END)
+    compiled = main.compile(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "main-thread"}}
+
+    with pytest.raises(TurnError) as info:
+        await compiled.ainvoke({}, config=config)
+    assert info.value.code == "capability_failed"
+
+    snapshot = await compiled.aget_state(config)
+    assert snapshot.values.get("ran") is not True  # the node never completed
+    assert snapshot.interrupts == ()  # no forged interrupt left pending
