@@ -132,7 +132,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0019: Test harness layout
 - Date: 2026-09-10
 - Phase: 01
-- Status: assumed — Accepted on 2026-09-13
+- Status: assumed — Accepted on 2026-09-13; Superseded by ADR-0043 on 2026-09-13 (gateway and web test caching only)
 - Context: ADR-0007 requires tests to go through LiteLLM, and the host has no JDK 21.
 - Decision: `litellm-mock` (same image, `infra/litellm/config.mock.yaml`) and `agent-tests` run under the compose `test` profile. Gateway and web tests run in the `test` target of their Dockerfiles. Locally, `uv run pytest` reaches the mock on port 4001. Integration tests fail, never skip, when the mock is unreachable. A test tracer provider with an in-memory exporter asserts span attributes, including the context block token counts.
 - Consequences: `make test` needs Docker only; no host JDK or Node is required.
@@ -349,3 +349,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: README §16 requires one audit record per turn. `ChatController` wrote the record after the stream ended and only logged a failed write (ADR-0013), so a turn could complete, answer included, with no record.
 - Decision: Before anything else, the gateway checks that the audit log can take a record (`AuditRepository.check()`, a zero-row query on `gateway.audit_events`); if it cannot, the turn is answered with 503 `audit_unavailable` and the agent is never called. The single record per turn is still written when the outcome is known, but a streamed turn's record is written before its terminal event leaves: `SseRelay` forwards the agent's bytes unchanged one complete event block at a time, holds the `done` or `error` event (or the injected `agent_stream_interrupted` error) until the record is written, and when that write fails sends `retract` (ADR-0039) and an `audit_unavailable` error in its place. A refusal (`kb_forbidden`, `conversation_forbidden`, `agent_unavailable`) whose record cannot be written is answered with 503 `audit_unavailable` instead. A client that disconnects is still recorded as `aborted` on a best-effort basis, since nobody is left to refuse.
 - Consequences: A database outage stops chat instead of silently losing audit records. If the log fails between the check and the final write, the answer's tokens have already reached the browser and are withdrawn by `retract`, the same residual exposure as ADR-0039. Each turn adds one short query. The gateway contract documents a new 503 code, so the gateway OpenAPI version is bumped with this session's contract drift fix. Supersedes only ADR-0013's handling of audit writes; the rest of ADR-0013 stands.
+
+### ADR-0043: `make test` runs the gateway and web tests on every call
+- Date: 2026-09-13
+- Phase: 01 (fix session for PR #1)
+- Status: decided
+- Context: ADR-0019 runs the gateway and web tests in the `test` stage of their Dockerfiles. Docker caches that `RUN` layer, and the gateway's Gradle build cache (`org.gradle.caching=true`, kept in the cache mount) restores `:test FROM-CACHE`, so `make test` could report green without running either suite; PROGRESS had to re-run them by hand.
+- Decision: `make test-gateway` and `make test-web` build their `test` target with `--no-cache-filter test`, so BuildKit always re-executes that stage while dependency and build stages stay cached. The gateway's test stage runs `gradle cleanTest test --no-build-cache`, so Gradle cannot restore results either. Supersedes only ADR-0019's test caching; the harness layout stands.
+- Consequences: Every `make test` pays the full gateway and web test time (about a minute each on the development host). The result is proof that the suites ran against the current source.

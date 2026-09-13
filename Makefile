@@ -36,11 +36,12 @@ test-agent: .env
 	$(COMPOSE) --profile test up -d --wait litellm-mock
 	$(COMPOSE) --profile test run --rm --build agent-tests
 
+# --no-cache-filter test: the test stage runs on every call, never from a cached layer (ADR-0043).
 test-gateway:
-	docker build --target test services/gateway
+	docker build --target test --no-cache-filter test services/gateway
 
 test-web:
-	docker build --target test services/web
+	docker build --target test --no-cache-filter test services/web
 
 eval: .env ## Golden suites against the live stack (real models)
 	uv run evals/run_evals.py

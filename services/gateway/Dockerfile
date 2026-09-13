@@ -11,8 +11,9 @@ RUN --mount=type=cache,target=/home/gradle/.gradle \
     gradle bootJar --no-daemon -x test
 
 FROM build AS test
+# Gradle's build cache lives in the cache mount; without --no-build-cache `test` is restored FROM-CACHE (ADR-0043).
 RUN --mount=type=cache,target=/home/gradle/.gradle \
-    gradle test --no-daemon
+    gradle cleanTest test --no-daemon --no-build-cache
 
 FROM eclipse-temurin:21.0.12_8-jre AS runtime
 RUN apt-get update \
