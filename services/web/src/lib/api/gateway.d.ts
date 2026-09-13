@@ -157,7 +157,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
-            /** @description kb_forbidden */
+            /** @description kb_forbidden or conversation_forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -168,6 +168,15 @@ export interface operations {
             };
             /** @description agent_unavailable */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

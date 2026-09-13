@@ -326,8 +326,10 @@ services:
     environment:
       <<: *agent-env
       LITELLM_BASE_URL: http://litellm-mock:4000
+      DOCS_DIR: /srv/docs
     volumes:
       - ./config:/srv/config:ro
+      - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
     depends_on:
       litellm-mock:
         condition: service_healthy

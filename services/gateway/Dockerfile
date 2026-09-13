@@ -11,6 +11,10 @@ RUN --mount=type=cache,target=/home/gradle/.gradle \
     gradle bootJar --no-daemon -x test
 
 FROM build AS test
+# The contract drift test compares the generated spec with the committed one; `make test-gateway`
+# passes the repo's docs/ as the named build context `docs` (ADR-0044).
+COPY --from=docs openapi/gateway.json /docs/openapi/gateway.json
+ENV GATEWAY_OPENAPI_DOC=/docs/openapi/gateway.json
 # Gradle's build cache lives in the cache mount; without --no-build-cache `test` is restored FROM-CACHE (ADR-0043).
 RUN --mount=type=cache,target=/home/gradle/.gradle \
     gradle cleanTest test --no-daemon --no-build-cache

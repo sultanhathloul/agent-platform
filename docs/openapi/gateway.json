@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "1.0.0"
+    "version" : "1.1.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -65,7 +65,7 @@
                 }
               }
             },
-            "description" : "kb_forbidden"
+            "description" : "kb_forbidden or conversation_forbidden"
           },
           "502" : {
             "content" : {
@@ -76,6 +76,16 @@
               }
             },
             "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
           }
         },
         "summary" : "Run one chat turn",

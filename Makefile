@@ -37,8 +37,9 @@ test-agent: .env
 	$(COMPOSE) --profile test run --rm --build agent-tests
 
 # --no-cache-filter test: the test stage runs on every call, never from a cached layer (ADR-0043).
+# --build-context docs: the contract drift test compares docs/openapi/gateway.json (ADR-0044).
 test-gateway:
-	docker build --target test --no-cache-filter test services/gateway
+	docker build --target test --no-cache-filter test --build-context docs=docs services/gateway
 
 test-web:
 	docker build --target test --no-cache-filter test services/web
@@ -58,6 +59,6 @@ ps: ## Service status and health
 openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web's API types
 	cd services/agent && uv run python -m app.api.export
 	docker run --rm -v "$(CURDIR)/services/gateway":/w -v gateway-gradle-cache:/home/gradle/.gradle -w /w \
-		gradle:9.7.1-jdk21 gradle test --no-daemon --tests '*OpenApiExportTest'
+		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api

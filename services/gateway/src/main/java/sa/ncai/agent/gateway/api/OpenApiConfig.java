@@ -16,8 +16,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class OpenApiConfig {
 
-    /** Bump on any contract change; a spec diff without a bump fails CI (phase 09). */
-    static final String API_VERSION = "1.0.0";
+    /** Bump on any contract change; OpenApiExportTest fails when docs/openapi/gateway.json drifts (ADR-0044). */
+    static final String API_VERSION = "1.1.0";
 
     @Bean
     OpenAPI gatewayOpenApi() {

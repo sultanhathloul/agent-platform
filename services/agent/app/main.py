@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api.messages import ErrorMessages
@@ -33,6 +34,9 @@ from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
 
 CORE_PROMPTS = ("context.state_digest", "context.findings")
+
+# Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
+API_VERSION = "1.1.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -93,10 +97,11 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
 
     app = FastAPI(
         title="Agent Platform Agent API (internal)",
-        version="1.0.0",
+        version=API_VERSION,
         description="Internal API called only by the gateway (README §6.2).",
         lifespan=lifespan,
     )
+    app.openapi = lambda: _openapi(app)
     app.state.services = services
     app.state.runner = TurnRunner(services)
     app.include_router(router)
@@ -108,3 +113,19 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
         return JSONResponse(envelope.model_dump(), status_code=400)
 
     return app
+
+
+def _openapi(app: FastAPI) -> dict:
+    """FastAPI documents a 422 validation error on every operation with a body;
+    this service answers invalid requests with the 400 error envelope instead."""
+    if app.openapi_schema is None:
+        schema = get_openapi(
+            title=app.title, version=app.version, description=app.description, routes=app.routes
+        )
+        for operations in schema.get("paths", {}).values():
+            for operation in operations.values():
+                operation.get("responses", {}).pop("422", None)
+        for unused in ("HTTPValidationError", "ValidationError"):
+            schema.get("components", {}).get("schemas", {}).pop(unused, None)
+        app.openapi_schema = schema
+    return app.openapi_schema
