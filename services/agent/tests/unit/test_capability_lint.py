@@ -20,6 +20,14 @@ BANNED = [
     "from langgraph.checkpoint.base import BaseCheckpointSaver",
     "import langgraph.checkpoint.memory",
     "import langgraph.config\n\nlanggraph.config.get_config()",
+    # Control-flow escapes the core's firewall converts to capability_failed (ADR-0053).
+    "from langgraph.errors import ParentCommand",
+    "from langgraph.errors import GraphInterrupt",
+    "import langgraph.errors",
+    "from langgraph.types import Command",
+    "from langgraph.types import interrupt",
+    "import langgraph.pregel",
+    "from langgraph.pregel.main import Pregel",
 ]
 
 
