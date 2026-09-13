@@ -96,24 +96,47 @@ Owner notes:
 Scope: apply the owner's review of PR #1 and nothing else; re-run `make test`, `make eval`, `make smoke`; push.
 
 Checklist:
-- [ ] A. ADR-0034: an ADR's text is immutable, only its Status line changes; CLAUDE.md rule 10 amended; ADR-0011–0024, ADR-0031 and ADR-0032 restored to their original text; later changes become ADR-0035 and ADR-0036
-- [ ] 1. Conversation ownership: `gateway.conversations`, 403 `conversation_forbidden` at the gateway, the agent rejects a thread owned by another user or tenant; negative tests on both sides
-- [ ] 2. Capability runtime context: `run_capabilities` passes a `RuntimeContext` (models.call, broker, stream writer, principal, cap_state, resolver); events stream while the capability runs; `_context_for` resolves the tier and assembles a real budget; step overrides accepted; `general` on the same path; a test-only fake capability uses models.call and the broker
-- [ ] 3. `retract` event when validate, OUTPUT or DATA fail after tokens streamed; the web replaces the shown text with the error; `persist_state` stores what the user saw plus the post-guard draft; ADR-0031 superseded by a decided entry
-- [ ] 4. Tier caps by principal role (`role:viewer: standard` takes effect), tested
-- [ ] 5. Audit fail-closed, tested
-- [ ] 6. `make test` runs gateway and web tests every time (no cached test layer)
-- [ ] 7. Capability-neutral answer prompt (Latin ban removed, version bump); no model name in the prompt changelog or `tokens.py`; stale `general/graph.py` docstring fixed
-- [ ] 8. Contract drift tests (agent OpenAPI, events schema, gateway OpenAPI); the documented 422 becomes the actual 400
-- [ ] 9. Smoke requires ≥3 token events before `done`; `run_evals.py` creates a Langfuse dataset run
-- [ ] Tech debt for phase 02 recorded below
-- [ ] `make test`, `make eval`, `make smoke` green; push
+- [x] A. ADR-0034: an ADR's text is immutable, only its Status line changes; CLAUDE.md rule 10 amended; ADR-0011–0024, ADR-0031 and ADR-0032 restored to their original text; later changes become ADR-0035 and ADR-0036
+- [x] 1. Conversation ownership: `gateway.conversations`, 403 `conversation_forbidden` at the gateway, the agent rejects a thread owned by another user or tenant; negative tests on both sides (ADR-0041)
+- [x] 2. Capability runtime context: `run_capabilities` passes a `RuntimeContext` (models.call, broker, stream writer, principal, cap_state, resolver); events stream while the capability runs; `_context_for` resolves the tier and assembles a real budget; step overrides accepted; `general` on the same path; a test-only fake capability uses models.call and the broker (ADR-0038)
+- [x] 3. `retract` event when validate, OUTPUT or DATA fail after tokens streamed; the web replaces the shown text with the error; `persist_state` stores what the user saw plus the post-guard draft; ADR-0031 superseded by ADR-0039
+- [x] 4. Tier caps by principal role (`role:viewer: standard` takes effect), tested (ADR-0040)
+- [x] 5. Audit fail-closed, tested (ADR-0042)
+- [x] 6. `make test` runs gateway and web tests every time (no cached test layer) (ADR-0043)
+- [x] 7. Capability-neutral answer prompt (Latin ban removed, version bump); no model name in the prompt changelog or `tokens.py`; stale `general/graph.py` docstring fixed (ADR-0037)
+- [x] 8. Contract drift tests (agent OpenAPI, events schema, gateway OpenAPI); the documented 422 becomes the actual 400 (ADR-0044)
+- [x] 9. Smoke requires ≥3 token events before `done`; `run_evals.py` creates a Langfuse dataset run (ADR-0045)
+- [x] Tech debt for phase 02 recorded below
+- [x] `make test`, `make eval`, `make smoke` green; push
+
+Session result (2026-09-13):
+- **`make up`:** green after a rebuild; Flyway applied `V2 conversations` on the existing database.
+- **`make test`:** green. Agent 84 passed. Gateway 42 passed; the test stage ran for real (`--no-cache-filter test`, `cleanTest test --no-build-cache`), including the drift, conversation-ownership and audit-failure tests. Web 47 passed with typecheck and lint.
+- **`make smoke`:** green; 9 token events before `done`, block token counts `{"system":58,"user_message":13}`, audit row `ok`.
+- **`make eval`:** green, one run on `answer.system@1.3.0`: **18/20 (0.90)** against 0.85. Failures: the currency answer `"…هي الريyal السعودي"` (Latin spliced into an Arabic word; ADR-0033, phase 02) and the sunrise answer, which `validate` stopped as `validation_failed` (now retracted in the UI). Langfuse dataset run `make-eval-20260913T115102Z`.
+- API versions: agent and gateway OpenAPI 1.1.0 (ADR-0044); `docs/events.schema.json` gains `retract` (additive, still `events.v1`).
+
+Human review needed (this session):
+- `infra/keycloak/realm-export.json`: new `viewer` realm role, assigned to the seed user `viewer` (ADR-0040). An existing Keycloak volume keeps the realm from its first import, so the running dev stack gets the role only after `make clean && make up` or through the admin console; `role:viewer: standard` has no effect there until then.
+- `config/prompts/answer/system.ar.md.j2` (1.3.0), `config/messages/errors.yaml` (`output_blocked`, `data_blocked`, `conversation_forbidden`).
+- `docker-compose.yml`: `docs/` mounted read-only into `agent-tests`.
+- `services/gateway/src/main/resources/db/migration/V2__conversations.sql`.
+- README §11 still says the agent sees only `permissions[]`; it now also receives `roles`, for tier ceilings only (ADR-0040). The README sentence is the owner's to change.
 
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
 - Status: not started
 - Done when: `AgentState` checkpointed; assembler pipeline with budget logging and `NeedsMore`; summarizer kicks in past 8k tokens; memory write/retrieve; `/settings/memory`; `/v1/debug/context`.
+
+Tech debt carried from the PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
+- [ ] Replace snapshot tests with behaviour tests. These assert config and prompt values and are edited in lockstep with every config change: `services/agent/app/capabilities/general/tests/test_general.py::test_manifest_is_valid`, `services/agent/tests/unit/test_models.py` (`test_repo_models_config_pins_helper_roles_to_fast`, `test_repo_models_config_makes_helper_roles_deterministic`), `services/agent/tests/unit/test_prompts.py::test_answer_prompt_renders_arabic_without_optional_sections`, and the `prompt_refs` version assertions in `services/agent/tests/unit/test_assembler.py`.
+- [ ] Cover the untested paths:
+  - `validation_failed`, `context_overflow` and `model_unavailable` through the API (`POST /v1/turns`), not only at node level.
+  - A capability that exceeds `limits.timeout_s` (`app/graph/nodes/capabilities.py`).
+  - `cap_state` isolation between two capabilities in one turn.
+  - Client disconnect mid-turn (`app/api/runner.py` task cancellation).
+- [ ] Add the lint rule README §18.4 requires: a capability must not read or write another capability's `cap_state` namespace. Today only the runtime slice exists.
 
 ## Phase 03: Guardrails engine
 
