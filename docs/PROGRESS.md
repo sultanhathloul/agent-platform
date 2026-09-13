@@ -127,6 +127,20 @@ Human review needed (this session):
 - README §11 stays as written: roles never leave the gateway; the agent receives `principal.max_tier` (ADR-0046, superseding ADR-0040).
 - `config/models.yaml` is now also mounted read-only into the gateway, which reads the `caps.role:*` entries (ADR-0046).
 
+### Fix session: second PR #1 review (2026-09-13)
+
+Scope: apply the second review of PR #1 (violations 1–6, residual risks 1–6 and 8–13); record residual risk 7 as phase 02/08 tech debt; nothing else. Re-run `make test`, `make eval`, `make smoke`; push.
+
+Checklist:
+- [ ] Capability contract (ADR-0047): the capability's `ContextPackage` is detached from `AgentState` (manifest-needed blocks only, a copy of its own `cap_state` slice, the principal); `RuntimeContext` exposes `call_model(role, step, extra_blocks)` (findings blocks only, assembled through `context.needs`), the broker and `stream_writer`, and no resolver, guard engine or model config; `stream_writer` takes only `CapabilityEvent` (`tool_start`, `tool_end`, `citation`, new `progress`), refused at the type level and at runtime; `CapabilityOutput.cap_state` required; `CapabilityOutput.cost` is non-model cost only, model usage is recorded once by `call_model`; tests for each
+- [ ] Retract / persist (ADR-0048): history stores the post-guard text, the streamed text goes to `additional_kwargs` for audit; agent `POST /v1/conversations/{id}/turns/{turn_id}/retract` marks the persisted reply retracted and Context Assembly skips it; the gateway calls it when the audit write of a finished turn fails; the web clears streamed text on every error and on `agent_stream_interrupted`; tests
+- [ ] Tier caps (ADR-0049): effective ceiling = min(`caps.default`, role cap) in the gateway and the agent; `TierResolver.resolve` requires a principal; `principal.max_tier` is an enum of the known tiers and an unknown value is a 400; tests (`role:x: heavy` under `default: standard` → `standard`)
+- [ ] Ownership (ADR-0050): the agent runner binds an unowned thread to its first caller atomically and refuses another owner before anything is written; the identity node keeps its check; the gateway lower-cases `conversation_id` before binding and forwarding; the agent requires a lower-case UUID; tests
+- [ ] Gateway JDBC tests (ADR-0051): `JdbcConversationRepository` (`ON CONFLICT` path, concurrent first binds) and the V2 migration against the compose Postgres under the `test` profile, run by `make test`
+- [ ] `scripts/smoke.sh`: the viewer's turn runs on `standard`; the viewer reusing the analyst's `conversation_id` gets 403 `conversation_forbidden`
+- [ ] PROGRESS: stale ADR-0040 item fixed; residual risk 7 recorded as tech debt
+- [ ] `make test`, `make eval`, `make smoke` green; push
+
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
