@@ -196,6 +196,21 @@ async def test_output_without_cap_state_is_rejected(services, output):
     assert "cap_state" in str(info.value)
 
 
+async def test_non_serializable_output_yields_capability_failed(services):
+    """The output crosses into run_capabilities only as JSON serialized inside the
+    isolated task; a value with no JSON form ends the turn as capability_failed,
+    reported by exception type name only (ADR-0054)."""
+
+    async def run(state, runtime):
+        return {"output": CapabilityOutput(findings="", cap_state={"handle": object()})}
+
+    runtime, _ = _runtime(services, run)
+    with pytest.raises(TurnError) as info:
+        await run_capabilities(_state(), runtime)
+    assert info.value.code == "capability_failed"
+    assert "raised PydanticSerializationError" in str(info.value)
+
+
 def test_output_cost_is_non_model_cost_only():
     with pytest.raises(ValidationError, match="non-model cost"):
         CapabilityOutput(findings="", cap_state={}, cost=Usage(tokens_in=10, tokens_out=2))
