@@ -30,6 +30,7 @@ class ModelsConfig(_Strict):
     tiers: dict[str, TierSpec]
     order: list[str]
     roles: dict[str, str]
+    temperature: dict[str, float]
     escalation: Escalation
     caps: dict[str, str]
     embedding: dict[str, str]
@@ -47,6 +48,12 @@ class ModelsConfig(_Strict):
         for where, tier in refs:
             if tier not in self.tiers:
                 raise ValueError(f"{where}: unknown tier {tier!r}")
+        # Every role decodes at a declared temperature; no code-side default (ADR-0032).
+        if sorted(self.temperature) != sorted(self.roles):
+            raise ValueError("temperature must name every role in `roles` exactly once")
+        for role, value in self.temperature.items():
+            if not 0.0 <= value <= 2.0:
+                raise ValueError(f"temperature.{role}: {value} is outside 0.0–2.0")
         return self
 
     def rank(self, tier: str) -> int:

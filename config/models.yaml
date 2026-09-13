@@ -17,6 +17,17 @@ roles:                      # helper roles are pinned to fast
   reflection: standard
   reasoning:  standard      # provisional; capability floors and escalation apply (§19.3)
 
+# Decoding temperature per role (ADR-0032). Every role in `roles` needs one, and
+# startup fails without it. Helper roles decode greedily so their output is
+# comparable between runs; the answer keeps a little sampling.
+temperature:
+  router:     0.0
+  summarizer: 0.0
+  judge:      0.0
+  extractor:  0.0
+  reflection: 0.2
+  reasoning:  0.2
+
 escalation:
   complexity_high: heavy
   risk_high: standard

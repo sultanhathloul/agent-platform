@@ -104,6 +104,7 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
     generation = by_name["model.call"][0]
     assert generation.attributes["langfuse.observation.type"] == "generation"
     assert json.loads(generation.attributes["model.tier_decision"])["final"] == "standard"  # ADR-0024
+    assert generation.attributes["model.temperature"] == 0.2  # reasoning role (ADR-0032)
     assert {f"node.{n}" for n in ("route", "run_capabilities", "answer", "validate")} <= set(by_name)
     assert "capability.general" in by_name
     checkpoints = {s.attributes["guard.checkpoint"] for s in by_name["guard.check"]}

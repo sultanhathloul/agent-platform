@@ -50,18 +50,20 @@ class ModelGateway:
         context: ContextPackage,
         *,
         on_token: Callable[[str], None] | None = None,
-        temperature: float = 0.2,
     ) -> ModelResult:
         if context.tier != decision.final:
             raise ValueError(
                 f"context was assembled for tier {context.tier}, call resolved to {decision.final}"
             )
         tier = self._config.tiers[decision.final]
+        # Decoding temperature belongs to the role, not to the call site (ADR-0032).
+        temperature = self._config.temperature[decision.role]
         messages = context.to_messages()
 
         with tracer.start_as_current_span("model.call") as span:
             decision.record(span)
             span.set_attribute("model.alias", tier.alias)
+            span.set_attribute("model.temperature", temperature)
             set_metadata(
                 span,
                 {

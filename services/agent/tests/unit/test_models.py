@@ -46,6 +46,33 @@ async def test_highest_floor_and_step_override_win(models_config):
     assert (await resolver.resolve("reasoning", step="fix_error", capabilities=[sql, kb])).final == "standard"
 
 
+def test_repo_models_config_makes_helper_roles_deterministic(models_config):
+    # ADR-0032: helper roles decode greedily, the answer keeps a little sampling.
+    for role in ("router", "summarizer", "judge", "extractor"):
+        assert models_config.temperature[role] == 0.0
+    assert models_config.temperature["reasoning"] == 0.2
+    assert models_config.temperature["reflection"] == 0.2
+
+
+def test_every_role_needs_a_temperature(models_config):
+    raw = models_config.model_dump()
+    del raw["temperature"]["judge"]
+    with pytest.raises(ValidationError, match="temperature must name every role"):
+        ModelsConfig.model_validate(raw)
+
+    raw = models_config.model_dump()
+    raw["temperature"]["spare"] = 0.0
+    with pytest.raises(ValidationError, match="temperature must name every role"):
+        ModelsConfig.model_validate(raw)
+
+
+def test_temperature_out_of_range_is_rejected(models_config):
+    raw = models_config.model_dump()
+    raw["temperature"]["reasoning"] = 2.5
+    with pytest.raises(ValidationError, match="temperature.reasoning"):
+        ModelsConfig.model_validate(raw)
+
+
 async def test_cap_bounds_the_final_tier(models_config):
     raw = models_config.model_dump()
     raw["caps"]["default"] = "standard"
