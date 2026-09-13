@@ -216,6 +216,17 @@ Human review needed (this session):
 - README §18.1/§18.3 now describe `build()` as returning a compiled subgraph; ADR-0053 moves compilation into the core (`build()` returns a `StateGraph`). README text left unchanged this session; the owner may want to patch those two lines to match, like ADR-0026 did.
 - `config/messages/errors.yaml`, `services/web/src/i18n/{ar,en}.json`, `services/web/src/lib/errors.ts`: the new `capability_failed` code and its ar/en text.
 
+### Fix session: fifth PR #1 review (2026-09-13)
+
+Scope: the single finding of the fifth review — ADR-0053's firewall caught what the capability task raised, but core code in `run_capabilities` then touched capability-created objects outside the task: `f"{exc}"` ran a poisoned `__str__`, and `_output`'s `isinstance`/`vars` ran a poisoned `__class__`, both in the main node, so a `ParentCommand` raised there forged identity, permissions, another namespace and messages into the checkpoint. Nothing else. Re-run `make test`, `make smoke`; push.
+
+Checklist:
+- [ ] 1. Data-only boundary: inside the isolated task, behind the catch-all, serialize the capability's output with `model_dump(mode="json")` to JSON text; the main node receives only that text (or a failure reason) and re-validates it into `CapabilityOutput`. Exception reporting inside the firewall uses `type(exc).__name__` only.
+- [ ] 2. Remove `_output`'s `isinstance`/`vars` path on capability-returned objects.
+- [ ] 3. Tests: the `__str__` poison and `__class__` poison reproductions as permanent integration tests; a unit test that a non-serializable output yields `capability_failed`.
+- [ ] 4. ADR-0054 (threat model): v1 capabilities are trusted first-party code; the firewall, data-only boundary, core compilation and lint protect against bugs and accidental coupling, not a deliberately malicious capability; process-level isolation is the phase-09 option required before any third-party capability. ADR-0053's open reflection/frames item is covered by this threat model (Status-line note on ADR-0053, ADR-0034).
+- [ ] `make test`, `make smoke` green; push. (`make eval` not re-run: no prompt, model or answer-path change.)
+
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
