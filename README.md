@@ -677,8 +677,8 @@ Rules:
 |------|---------|-----|
 | Docker Desktop (or Docker Engine + Compose v2) | Compose v2; **12 GB of memory or more** for the Docker VM | The whole stack. `scripts/preflight.sh` warns below 12 GB; the stack itself uses about 6.5 GB, and builds need the headroom. |
 | Git | any | Clone the repository. |
-| `curl`, `jq`, `openssl` | any | `scripts/init_env.sh`, `preflight.sh`, `pull_models.sh`, `smoke.sh`. macOS ships all three; on Debian, `apt install curl jq openssl`. |
-| `uv` | ≥ 0.4 | `make eval` and `make smoke` run on the host. Everything else runs in containers. |
+| `curl`, `jq`, `openssl`, `python3` | any | `scripts/init_env.sh`, `preflight.sh`, `pull_models.sh`, `smoke.sh`. macOS ships all four; on Debian, `apt install curl jq openssl python3`. |
+| `uv` | ≥ 0.4 | `make eval` and `make smoke` run on the host (`uv run` fetches their dependencies). Everything else runs in containers. |
 | Ollama | ≥ 0.3 | **Optional.** Only if this machine also serves the models. Skip it when you point at a shared server (§21.4). |
 
 No JDK and no Node.js are needed: the gateway and web tests build inside Docker (ADR-0019).
