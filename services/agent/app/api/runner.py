@@ -10,6 +10,7 @@ import itertools
 import logging
 import uuid
 from collections.abc import AsyncIterator
+from typing import Literal
 
 from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
@@ -18,7 +19,7 @@ from app.api.events import DoneData, StateDigest, Usage, build_event
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
 from app.graph.deps import Services, TurnContext
-from app.identity import hash_user_id
+from app.identity import Principal, hash_user_id
 from app.observability.langfuse import set_trace_attributes
 from app.observability.otel import current_trace_id, tracer
 
@@ -26,10 +27,43 @@ log = logging.getLogger(__name__)
 
 _END = object()
 
+RetractOutcome = Literal["retracted", "forbidden", "not_found"]
+
 
 class TurnRunner:
     def __init__(self, services: Services):
         self.services = services
+
+    async def retract(
+        self, conversation_id: str, turn_id: str, principal: Principal, reason: str
+    ) -> RetractOutcome:
+        """Marks the reply `turn_id` persisted as retracted, so Context Assembly skips
+        it from now on (ADR-0048). Idempotent. The gateway calls this when a finished
+        turn's audit record cannot be written and the client was told the reply is
+        withdrawn."""
+        graph = self.services.graph
+        config = {"configurable": {"thread_id": conversation_id}}
+        with tracer.start_as_current_span("turn.retract") as span:
+            span.set_attribute("conversation_id", conversation_id)
+            span.set_attribute("turn_id", turn_id)
+            span.set_attribute("retract.reason", reason)
+            values = (await graph.aget_state(config)).values or {}
+            if values.get("user_id") is None:
+                return "not_found"
+            if (values["user_id"], values.get("tenant_id")) != (principal.user_id, principal.tenant_id):
+                return "forbidden"
+            for message in reversed(values.get("messages") or []):
+                kwargs = message.additional_kwargs
+                if message.type != "ai" or kwargs.get("turn_id") != turn_id:
+                    continue
+                if not kwargs.get("retracted"):
+                    marked = message.model_copy(
+                        update={"additional_kwargs": {**kwargs, "retracted": True, "retract_reason": reason}}
+                    )
+                    # Same message id: add_messages replaces the reply in place.
+                    await graph.aupdate_state(config, {"messages": [marked]}, as_node="persist_state")
+                return "retracted"
+            return "not_found"
 
     async def stream(self, req: TurnRequest, request_id: str, parent: Context | None = None) -> AsyncIterator:
         turn_id = uuid.uuid4().hex

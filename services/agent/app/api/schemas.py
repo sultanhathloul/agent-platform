@@ -5,6 +5,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.events import ErrorData
 from app.identity import Locale, Principal
 
+# A conversation id is a UUID in canonical lower-case form; the gateway normalises it (ADR-0050).
+CONVERSATION_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+# A turn id is the runner's uuid4().hex.
+TURN_ID_PATTERN = r"^[0-9a-f]{32}$"
+
+
+class RetractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    principal: Principal
+    reason: str = Field(pattern=r"^[a-z_]{1,64}$", description="Error code that withdrew the reply.")
+
 
 class AttachmentRef(BaseModel):
     model_config = ConfigDict(extra="forbid")

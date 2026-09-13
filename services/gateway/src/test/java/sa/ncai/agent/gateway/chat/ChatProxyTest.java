@@ -173,6 +173,8 @@ class ChatProxyTest extends GatewayTestSupport {
     void failedAuditWriteReplacesTheAnswerWithAnError() throws Exception {
         auditLog().setMode(InMemoryAuditRepository.Mode.WRITES_FAIL);
         AGENT.enqueue(sse(DONE_STREAM));
+        // The gateway also retracts the persisted reply (ADR-0048); an unanswered call would take a later test's response.
+        AGENT.enqueue(new MockResponse().setResponseCode(204));
 
         String content = mvc.perform(chat(body("سؤال", List.of())))
                 .andExpect(status().isOk())
@@ -186,6 +188,56 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(content.substring(retract)).contains("\"reason\":\"audit_unavailable\"");
         assertThat(content.substring(error)).contains("\"code\":\"audit_unavailable\"");
         assertThat(auditLog().events()).isEmpty();
+    }
+
+    @Test
+    void failedAuditWriteOfAFinishedTurnRetractsThePersistedReply() throws Exception {
+        auditLog().setMode(InMemoryAuditRepository.Mode.WRITES_FAIL);
+        AGENT.enqueue(sse(DONE_STREAM));
+        AGENT.enqueue(new MockResponse().setResponseCode(204));
+
+        mvc.perform(chat(body("سؤال", List.of()))).andExpect(status().isOk());
+
+        assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath()).isEqualTo("/v1/turns");
+        RecordedRequest retract = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(retract).isNotNull();
+        assertThat(retract.getPath()).isEqualTo("/v1/conversations/" + CONVERSATION_ID + "/turns/t/retract");
+        assertThat(retract.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+        JsonNode sent = mapper.readTree(retract.getBody().readUtf8());
+        assertThat(sent.path("reason").asText()).isEqualTo("audit_unavailable");
+        assertThat(sent.path("principal").path("user_id").asText()).isEqualTo("user-123");
+        assertThat(sent.path("principal").path("tenant_id").asText()).isEqualTo("tenant-a");
+    }
+
+    @Test
+    void failedRetractStillWithdrawsTheAnswerFromTheClient() throws Exception {
+        auditLog().setMode(InMemoryAuditRepository.Mode.WRITES_FAIL);
+        AGENT.enqueue(sse(DONE_STREAM));
+        AGENT.enqueue(new MockResponse().setResponseCode(500));
+
+        String content = mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(content).doesNotContain("event: done").contains("\"code\":\"audit_unavailable\"");
+        assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath()).isEqualTo("/v1/turns");
+        assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath()).endsWith("/turns/t/retract");
+    }
+
+    @Test
+    void failedAuditWriteOfAnErrorTurnRetractsNothing() throws Exception {
+        auditLog().setMode(InMemoryAuditRepository.Mode.WRITES_FAIL);
+        AGENT.enqueue(sse("""
+                event: error
+                id: 1
+                data: {"type":"error","request_id":"r","turn_id":"t","seq":1,"data":{"code":"model_unavailable","message_ar":"خطأ","message_en":"error","retryable":true}}
+
+                """));
+        int before = AGENT.getRequestCount();
+
+        mvc.perform(chat(body("سؤال", List.of()))).andExpect(status().isOk());
+
+        assertThat(AGENT.getRequestCount()).isEqualTo(before + 1); // the turn only: nothing was persisted
     }
 
     @Test

@@ -5,9 +5,10 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 
 /**
  * How a relayed turn ended. {@code data} is the terminal event's {@code data} object
- * ({@code done} or {@code error}); missing for {@link Kind#INTERRUPTED}.
+ * ({@code done} or {@code error}); missing for {@link Kind#INTERRUPTED}. {@code turnId} is the
+ * terminal event's {@code turn_id}, null when absent (ADR-0048).
  */
-public record RelayOutcome(Kind kind, JsonNode data) {
+public record RelayOutcome(Kind kind, JsonNode data, String turnId) {
 
     public enum Kind {
         /** The agent sent {@code done}. */
@@ -19,6 +20,6 @@ public record RelayOutcome(Kind kind, JsonNode data) {
     }
 
     static RelayOutcome interrupted() {
-        return new RelayOutcome(Kind.INTERRUPTED, MissingNode.getInstance());
+        return new RelayOutcome(Kind.INTERRUPTED, MissingNode.getInstance(), null);
     }
 }

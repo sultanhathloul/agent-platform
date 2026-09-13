@@ -1,4 +1,5 @@
 import pytest
+from langgraph.graph.message import add_messages
 
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.budget import Budget, NeedsMore
@@ -72,6 +73,22 @@ async def test_window_keeps_only_the_last_n_messages(assembler):
     package = await assembler.assemble(_request(state), _budget(100_000))
     window = [b.content for b in package.blocks if b.name == "window"]
     assert window == [f"رسالة رقم {i}" for i in range(4, 10)]
+
+
+async def test_window_skips_retracted_replies(assembler):
+    # ADR-0048: a reply withdrawn after its turn never reaches a model again.
+    plain = [
+        {"role": "user", "content": "سؤال أول"},
+        {"role": "assistant", "content": "إجابة مسحوبة", "retracted": True},
+        {"role": "user", "content": "سؤال ثانٍ"},
+        {"role": "assistant", "content": "إجابة سليمة"},
+    ]
+    # Checkpointed messages carry the flag in additional_kwargs; plain dicts at the top level.
+    for messages in (add_messages([], plain), plain):
+        state = {"turn": 3, "user_message": "سؤال", "messages": messages}
+        package = await assembler.assemble(_request(state), _budget(100_000))
+        window = [b.content for b in package.blocks if b.name == "window"]
+        assert window == ["سؤال أول", "سؤال ثانٍ", "إجابة سليمة"]
 
 
 async def test_findings_block_only_with_evidence(assembler):

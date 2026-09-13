@@ -1,10 +1,12 @@
 """Streaming before guards, interim (ADR-0039): when validate, OUTPUT or DATA fail
 after tokens were streamed, the node emits `retract` before the turn ends in an
-error, and persist_state stores what the user saw."""
+error. persist_state stores the post-guard text and keeps the streamed text for
+audit only (ADR-0048)."""
 
 from types import SimpleNamespace
 
 import pytest
+from langgraph.graph.message import add_messages
 
 from app.errors import TurnError
 from app.graph.nodes.guard import guard_data, guard_output
@@ -36,6 +38,7 @@ def _state(answer: str) -> dict:
     return {
         "user_message": "ما عاصمة المملكة؟",
         "locale": "ar",
+        "turn_id": "turn-1",
         "draft_answer": answer,
         "shown_answer": answer,
         "capability_outputs": [],
@@ -69,7 +72,7 @@ async def test_blocking_guard_after_streaming_retracts_then_fails(node, code):
     assert written[1]["data"] == {"reason": code}
 
 
-async def test_redaction_keeps_the_stream_and_persists_both_texts():
+async def test_redaction_persists_the_post_guard_text_and_keeps_the_shown_text_for_audit():
     shown = "رقم الجوال هو 0501234567"
     redacted = "رقم الجوال هو [REDACTED:phone]"
     runtime, written = _runtime(_Engine("redact", payload=redacted))
@@ -80,10 +83,19 @@ async def test_redaction_keeps_the_stream_and_persists_both_texts():
     persisted = await persist_state({**state, **update}, runtime)
     user, assistant = persisted["messages"]
     assert user == {"role": "user", "content": "ما عاصمة المملكة؟"}
-    assert assistant == {"role": "assistant", "content": shown, "post_guard_draft": redacted}
+    assert assistant == {"role": "assistant", "content": redacted, "turn_id": "turn-1", "shown_answer": shown}
+
+    # In the checkpointed history the redacted text is the content; the shown text is audit metadata.
+    _, reply = add_messages([], persisted["messages"])
+    assert reply.content == redacted
+    assert reply.additional_kwargs == {"turn_id": "turn-1", "shown_answer": shown}
 
 
 async def test_unchanged_answer_is_persisted_once():
     runtime, _ = _runtime()
     persisted = await persist_state(_state("العاصمة هي الرياض."), runtime)
-    assert persisted["messages"][1] == {"role": "assistant", "content": "العاصمة هي الرياض."}
+    assert persisted["messages"][1] == {
+        "role": "assistant",
+        "content": "العاصمة هي الرياض.",
+        "turn_id": "turn-1",
+    }

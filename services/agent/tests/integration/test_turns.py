@@ -102,6 +102,54 @@ async def test_thread_of_another_user_or_tenant_is_rejected(client, services, li
     assert [m.type for m in snapshot.values["messages"]] == ["human", "ai"]
 
 
+async def retract(client, conversation_id, turn_id, *, principal=USER, headers=TOKEN):
+    return await client.post(
+        f"/v1/conversations/{conversation_id}/turns/{turn_id}/retract",
+        json={"principal": principal, "reason": "audit_unavailable"},
+        headers=headers,
+    )
+
+
+async def test_retracted_reply_is_skipped_by_the_next_turn(client, services, spans, litellm):
+    conversation = str(uuid.uuid4())
+    first = parse_sse((await post_turn(client, conversation_id=conversation)).text)
+    turn_id = first[-1]["turn_id"]
+
+    assert (await retract(client, conversation, turn_id)).status_code == 204
+    assert (await retract(client, conversation, turn_id)).status_code == 204  # idempotent
+    snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
+    reply = snapshot.values["messages"][1]
+    assert reply.additional_kwargs["retracted"] is True
+    assert reply.additional_kwargs["retract_reason"] == "audit_unavailable"
+
+    spans.clear()
+    await post_turn(client, conversation_id=conversation, message="وما أكبر مدنها؟")
+    answer_contexts = [
+        json.loads(s.attributes["langfuse.observation.metadata.context"])
+        for s in spans.get_finished_spans()
+        if s.name == "context.assemble" and s.attributes.get("context.node") == "answer"
+    ]
+    assert len(answer_contexts) == 1
+    window = [b for b in answer_contexts[0]["blocks"] if b["name"] == "window"]
+    assert window == [
+        {"name": "window", "tokens": window[0]["tokens"], "count": 1}
+    ]  # the question, not the reply
+
+
+async def test_retract_is_refused_for_another_owner_an_unknown_turn_or_no_token(client, litellm):
+    conversation = str(uuid.uuid4())
+    turn_id = parse_sse((await post_turn(client, conversation_id=conversation)).text)[-1]["turn_id"]
+
+    other = await retract(client, conversation, turn_id, principal={**USER, "user_id": "u-2"})
+    assert (other.status_code, other.json()["error"]["code"]) == (403, "conversation_forbidden")
+    unknown = await retract(client, conversation, "0" * 32)
+    assert (unknown.status_code, unknown.json()["error"]["code"]) == (404, "turn_not_found")
+    assert (await retract(client, str(uuid.uuid4()), turn_id)).status_code == 404
+    assert (await retract(client, conversation, turn_id, headers={})).status_code == 401
+    assert (await retract(client, conversation.upper(), turn_id)).status_code == 400
+    assert (await retract(client, conversation, "not-a-turn")).status_code == 400
+
+
 async def test_trace_has_context_block_token_counts(client, spans, litellm):
     parse_sse((await post_turn(client)).text)
     by_name = {}

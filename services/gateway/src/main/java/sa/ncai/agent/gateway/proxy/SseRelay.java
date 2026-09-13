@@ -120,14 +120,15 @@ public class SseRelay {
         } else {
             return null;
         }
-        JsonNode payload;
+        JsonNode envelope;
         try {
-            payload = mapper.readTree(data.toString()).path("data");
+            envelope = mapper.readTree(data.toString());
         } catch (JsonProcessingException e) {
             log.warn("unparseable {} event from agent", eventType);
-            payload = mapper.missingNode();
+            envelope = mapper.missingNode();
         }
-        return new RelayOutcome(kind, payload);
+        JsonNode turnId = envelope.path("turn_id");
+        return new RelayOutcome(kind, envelope.path("data"), turnId.isTextual() ? turnId.asText() : null);
     }
 
     /** Withdraws any streamed text, then reports that the turn could not be audited. */

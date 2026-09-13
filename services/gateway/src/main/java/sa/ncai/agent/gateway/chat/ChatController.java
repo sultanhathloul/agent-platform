@@ -36,6 +36,7 @@ import sa.ncai.agent.gateway.auth.KeycloakRoles;
 import sa.ncai.agent.gateway.auth.TierCaps;
 import sa.ncai.agent.gateway.authz.KbAccessPolicy;
 import sa.ncai.agent.gateway.proxy.AgentClient;
+import sa.ncai.agent.gateway.proxy.AgentRetractRequest;
 import sa.ncai.agent.gateway.proxy.AgentTurnRequest;
 import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
 import sa.ncai.agent.gateway.proxy.ClientGoneException;
@@ -148,7 +149,8 @@ public class ChatController {
             }
             // Roles are read here and only here; the agent gets the resulting ceiling (ADR-0046).
             String maxTier = tierCaps.maxTier(KeycloakRoles.realmRoles(jwt)).orElse(null);
-            agent.streamTurn(agentRequest(body, principal, maxTier), requestId, upstream -> {
+            AgentTurnRequest turn = agentRequest(body, principal, maxTier);
+            agent.streamTurn(turn, requestId, upstream -> {
                 openStream(response);
                 // The terminal event leaves only after this record is written (ADR-0042).
                 return relay.relay(upstream, response.getOutputStream(), requestId, outcome -> {
@@ -157,7 +159,12 @@ public class ChatController {
                     ended.putAll(outcomeDetail(outcome));
                     AuditStatus endStatus =
                             outcome.kind() == RelayOutcome.Kind.DONE ? AuditStatus.OK : AuditStatus.ERROR;
-                    return append(auditEvent(requestId, principal, body, endStatus, ended, started));
+                    boolean recorded = append(auditEvent(requestId, principal, body, endStatus, ended, started));
+                    if (!recorded && outcome.kind() == RelayOutcome.Kind.DONE) {
+                        // The agent persisted the reply; the client is about to be told it was withdrawn.
+                        withdrawPersistedReply(turn, outcome.turnId(), requestId);
+                    }
+                    return recorded;
                 });
             });
         } catch (AgentUnavailableException e) {
@@ -249,6 +256,26 @@ public class ChatController {
         } catch (RuntimeException e) {
             log.error("audit log unreachable; refusing the turn", e);
             return false;
+        }
+    }
+
+    /**
+     * A finished turn whose audit record failed is withdrawn from the client by {@code retract}; its
+     * reply is withdrawn from the agent's history too, so no later model call sees it (ADR-0048).
+     * Best effort: the client is refused either way.
+     */
+    private void withdrawPersistedReply(AgentTurnRequest turn, String turnId, String requestId) {
+        if (turnId == null) {
+            log.error("audit write failed for request {} and its done event has no turn_id; "
+                    + "the reply stays in the agent's history", requestId);
+            return;
+        }
+        try {
+            agent.retractTurn(turn.conversationId(), turnId,
+                    new AgentRetractRequest(turn.principal(), ErrorCode.AUDIT_UNAVAILABLE.code()), requestId);
+        } catch (RuntimeException e) {
+            log.error("could not retract the reply of turn {} for request {}; it stays in the agent's history: {}",
+                    turnId, requestId, e.getMessage());
         }
     }
 

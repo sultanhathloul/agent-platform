@@ -67,4 +67,30 @@ public class AgentClient {
             throw new AgentUnavailableException("agent unreachable: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Marks the reply a finished turn persisted as retracted, so the agent's Context Assembly
+     * skips it (ADR-0048).
+     *
+     * @throws AgentUnavailableException if the agent is unreachable or answers non-2xx
+     */
+    public void retractTurn(String conversationId, String turnId, AgentRetractRequest request, String requestId) {
+        try {
+            client.post()
+                    .uri("/v1/conversations/{conversationId}/turns/{turnId}/retract", conversationId, turnId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header(INTERNAL_TOKEN_HEADER, internalToken)
+                    .header(RequestIdFilter.HEADER, requestId)
+                    .body(request)
+                    .exchange((clientRequest, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new AgentUnavailableException(
+                                    "agent answered " + response.getStatusCode().value() + " to retract");
+                        }
+                        return null;
+                    });
+        } catch (ResourceAccessException e) {
+            throw new AgentUnavailableException("agent unreachable: " + e.getMessage(), e);
+        }
+    }
 }
