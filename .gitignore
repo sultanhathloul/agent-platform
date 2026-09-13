@@ -1,0 +1,44 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# node / next
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+
+# jvm
+.gradle/
+build/
+
+# generic build output
+dist/
+
+# model weights
+*.gguf
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# logs and os noise
+*.log
+.DS_Store
+
+# editors
+.idea/
+.vscode/

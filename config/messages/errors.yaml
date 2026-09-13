@@ -1,0 +1,38 @@
+# Fallback texts for error codes the agent streams in `error` events.
+# The web app renders its own i18n strings by code; these serve API consumers.
+unauthorized:
+  ar: "الطلب الداخلي غير مصرح به."
+  en: "The internal request is not authorized."
+invalid_request:
+  ar: "الطلب غير صالح."
+  en: "The request is invalid."
+no_capability_available:
+  ar: "لا تتوفر لك أي قدرة لمعالجة هذا الطلب."
+  en: "No capability is available to handle this request."
+context_overflow:
+  ar: "الطلب أطول من أن تتسع له ذاكرة النموذج."
+  en: "The request does not fit in the model context."
+model_unavailable:
+  ar: "خدمة النموذج غير متاحة حاليًا. حاول مرة أخرى لاحقًا."
+  en: "The model service is unavailable. Please try again later."
+validation_failed:
+  ar: "لم تجتز الإجابة التحقق، فلم تُعرض."
+  en: "The answer failed validation and was not shown."
+turn_failed:
+  ar: "تعذّر إكمال الطلب."
+  en: "The request could not be completed."
+capability_failed:
+  ar: "تعذّر إكمال إحدى القدرات المطلوبة، فلم تكتمل الإجابة."
+  en: "A capability could not complete, so the answer was not produced."
+output_blocked:
+  ar: "حُجبت الإجابة بموجب سياسة المحتوى."
+  en: "The answer was withheld by a content policy."
+data_blocked:
+  ar: "حُجبت الإجابة لأنها تتضمن بيانات محمية."
+  en: "The answer was withheld because it contains protected data."
+conversation_forbidden:
+  ar: "هذه المحادثة تخص مستخدمًا آخر، فلا يمكنك متابعتها."
+  en: "This conversation belongs to another user, so you cannot continue it."
+turn_not_found:
+  ar: "لم يُعثر على هذه الإجابة في المحادثة."
+  en: "This reply was not found in the conversation."

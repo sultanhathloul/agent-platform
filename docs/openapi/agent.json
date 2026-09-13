@@ -1,0 +1,452 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agent Platform Agent API (internal)",
+    "description": "Internal API called only by the gateway (README §6.2).",
+    "version": "1.1.0"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/turns": {
+      "post": {
+        "summary": "Create Turn",
+        "operationId": "create_turn_v1_turns_post",
+        "parameters": [
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-sent events; each `data` is an AgentEvent (docs/events.schema.json).",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/conversations/{conversation_id}/turns/{turn_id}/retract": {
+      "post": {
+        "summary": "Retract Turn",
+        "description": "Withdraws a persisted reply from the history (ADR-0048). Called by the gateway\nwhen a finished turn's audit record cannot be written.",
+        "operationId": "retract_turn_v1_conversations__conversation_id__turns__turn_id__retract_post",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Turn Id"
+            }
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetractRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The reply is marked retracted; Context Assembly no longer includes it."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "conversation_forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "turn_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message_ar": {
+            "type": "string",
+            "title": "Message Ar"
+          },
+          "message_en": {
+            "type": "string",
+            "title": "Message En"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message_ar",
+          "message_en"
+        ],
+        "title": "ApiError"
+      },
+      "AttachmentRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "mime",
+          "size"
+        ],
+        "title": "AttachmentRef"
+      },
+      "ErrorEnvelope": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "error"
+        ],
+        "title": "ErrorEnvelope"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "capabilities"
+        ],
+        "title": "HealthResponse"
+      },
+      "Principal": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "User Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id",
+            "default": "default"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions",
+            "default": []
+          },
+          "max_tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "standard",
+                  "heavy"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tier"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name",
+            "default": ""
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "ar",
+              "en"
+            ],
+            "title": "Locale",
+            "default": "ar"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "title": "Principal"
+      },
+      "RetractRequest": {
+        "properties": {
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          },
+          "reason": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,64}$",
+            "title": "Reason",
+            "description": "Error code that withdrew the reply."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "principal",
+          "reason"
+        ],
+        "title": "RetractRequest"
+      },
+      "TurnRequest": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Conversation Id",
+            "description": "UUID, lower-case; the gateway normalises it (ADR-0050)."
+          },
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/AttachmentRef"
+            },
+            "type": "array",
+            "title": "Attachments",
+            "default": []
+          },
+          "selected_kbs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Kbs",
+            "default": []
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "ar",
+              "en"
+            ],
+            "title": "Locale",
+            "default": "ar"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "principal",
+          "message"
+        ],
+        "title": "TurnRequest"
+      }
+    }
+  }
+}

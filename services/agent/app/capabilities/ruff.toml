@@ -1,0 +1,20 @@
+# Capability code never reaches the main graph's LangGraph runtime (README §18.4, §18.5; ADR-0052).
+# The core runs each capability subgraph in a fresh config; this ban keeps capability code from
+# reaching for these APIs at all. tests/unit/test_capability_lint.py runs it in `make test`.
+# Every other setting comes from services/agent/pyproject.toml.
+extend = "../../pyproject.toml"
+
+[lint]
+extend-select = ["TID251"]
+
+[lint.flake8-tidy-imports.banned-api]
+"langgraph.config.get_config".msg = "a capability gets only its RuntimeContext (ADR-0052)"
+"langgraph.config.get_stream_writer".msg = "stream through runtime.context.stream_writer (ADR-0047, ADR-0052)"
+"langgraph.config.get_store".msg = "a capability gets no store (ADR-0052)"
+"langgraph.checkpoint".msg = "a capability never touches a checkpointer (ADR-0052)"
+# Control-flow escapes the core's firewall converts to capability_failed; a
+# capability must not reach for them at all (ADR-0053).
+"langgraph.errors".msg = "the core owns control flow; a capability raises none of these (ADR-0053)"
+"langgraph.types.Command".msg = "a capability returns a CapabilityOutput, never a Command (ADR-0053)"
+"langgraph.types.interrupt".msg = "HITL is raised by the core, not from a capability subgraph (ADR-0052, ADR-0053)"
+"langgraph.pregel".msg = "a capability never touches the pregel runtime (ADR-0053)"

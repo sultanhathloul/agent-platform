@@ -1,0 +1,881 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.local/schemas/events.v1.json",
+  "title": "AgentEvent",
+  "description": "One SSE event streamed by POST /v1/turns (agent) and POST /v1/chat/turns (gateway).",
+  "$defs": {
+    "Citation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "source": {
+          "description": "Kind of source, e.g. web, doc, kb, sql.",
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "kb": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kb"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Page, section or row range inside the source.",
+          "title": "Locator"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "source"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "CitationEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "citation",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/Citation"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "CitationEvent",
+      "type": "object"
+    },
+    "DoneData": {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "title": "Answer",
+          "type": "string"
+        },
+        "citations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        },
+        "guard_events": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GuardData"
+          },
+          "title": "Guard Events",
+          "type": "array"
+        },
+        "state_digest": {
+          "$ref": "#/$defs/StateDigest"
+        },
+        "trace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Id"
+        }
+      },
+      "required": [
+        "answer",
+        "usage",
+        "state_digest"
+      ],
+      "title": "DoneData",
+      "type": "object"
+    },
+    "DoneEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "done",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/DoneData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "DoneEvent",
+      "type": "object"
+    },
+    "ErrorData": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message_ar": {
+          "title": "Message Ar",
+          "type": "string"
+        },
+        "message_en": {
+          "title": "Message En",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message_ar",
+        "message_en"
+      ],
+      "title": "ErrorData",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "error",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ErrorData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "GuardData": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint": {
+          "title": "Checkpoint",
+          "type": "string"
+        },
+        "policy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Id"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        }
+      },
+      "required": [
+        "checkpoint",
+        "action"
+      ],
+      "title": "GuardData",
+      "type": "object"
+    },
+    "GuardEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "guard",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/GuardData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "GuardEvent",
+      "type": "object"
+    },
+    "ProgressData": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "step": {
+          "description": "Machine-readable step name inside the capability, e.g. search or fetch.",
+          "title": "Step",
+          "type": "string"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total"
+        }
+      },
+      "required": [
+        "capability",
+        "step"
+      ],
+      "title": "ProgressData",
+      "type": "object"
+    },
+    "ProgressEvent": {
+      "additionalProperties": false,
+      "description": "A capability reports how far it got (ADR-0047).",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "progress",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ProgressData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ProgressEvent",
+      "type": "object"
+    },
+    "RetractData": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "Error code of the check that withdrew the streamed text (ADR-0039).",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "RetractData",
+      "type": "object"
+    },
+    "RetractEvent": {
+      "additionalProperties": false,
+      "description": "Withdraws every answer token streamed so far in this turn.",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "retract",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/RetractData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "RetractEvent",
+      "type": "object"
+    },
+    "StateDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "turn": {
+          "title": "Turn",
+          "type": "integer"
+        },
+        "capabilities": {
+          "description": "Capability slugs that ran this turn, in order.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        }
+      },
+      "required": [
+        "turn",
+        "capabilities"
+      ],
+      "title": "StateDigest",
+      "type": "object"
+    },
+    "TierData": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "tier": {
+          "title": "Tier",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "tier",
+        "reason"
+      ],
+      "title": "TierData",
+      "type": "object"
+    },
+    "TierEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tier",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/TierData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "TierEvent",
+      "type": "object"
+    },
+    "TokenData": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TokenData",
+      "type": "object"
+    },
+    "TokenEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "token",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/TokenData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "TokenEvent",
+      "type": "object"
+    },
+    "ToolEndData": {
+      "additionalProperties": false,
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "denied",
+            "pending_approval"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "latency_ms": {
+          "title": "Latency Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "capability",
+        "status",
+        "latency_ms"
+      ],
+      "title": "ToolEndData",
+      "type": "object"
+    },
+    "ToolEndEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_end",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ToolEndData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ToolEndEvent",
+      "type": "object"
+    },
+    "ToolStartData": {
+      "additionalProperties": false,
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "capability"
+      ],
+      "title": "ToolStartData",
+      "type": "object"
+    },
+    "ToolStartEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_start",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ToolStartData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ToolStartEvent",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "properties": {
+        "tokens_in": {
+          "default": 0,
+          "title": "Tokens In",
+          "type": "integer"
+        },
+        "tokens_out": {
+          "default": 0,
+          "title": "Tokens Out",
+          "type": "integer"
+        },
+        "cost_usd": {
+          "default": 0.0,
+          "title": "Cost Usd",
+          "type": "number"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "citation": "#/$defs/CitationEvent",
+      "done": "#/$defs/DoneEvent",
+      "error": "#/$defs/ErrorEvent",
+      "guard": "#/$defs/GuardEvent",
+      "progress": "#/$defs/ProgressEvent",
+      "retract": "#/$defs/RetractEvent",
+      "tier": "#/$defs/TierEvent",
+      "token": "#/$defs/TokenEvent",
+      "tool_end": "#/$defs/ToolEndEvent",
+      "tool_start": "#/$defs/ToolStartEvent"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/TokenEvent"
+    },
+    {
+      "$ref": "#/$defs/TierEvent"
+    },
+    {
+      "$ref": "#/$defs/GuardEvent"
+    },
+    {
+      "$ref": "#/$defs/ToolStartEvent"
+    },
+    {
+      "$ref": "#/$defs/ToolEndEvent"
+    },
+    {
+      "$ref": "#/$defs/CitationEvent"
+    },
+    {
+      "$ref": "#/$defs/ProgressEvent"
+    },
+    {
+      "$ref": "#/$defs/DoneEvent"
+    },
+    {
+      "$ref": "#/$defs/ErrorEvent"
+    },
+    {
+      "$ref": "#/$defs/RetractEvent"
+    }
+  ]
+}

@@ -8,7 +8,7 @@
 
 ## 0. One-paragraph summary
 
-A production-grade, self-hostable AI agent platform that runs on an air-gapped or restricted network. One LangGraph-based agent serves five use cases (Text-to-SQL over PostgreSQL, web search, chat-with-uploaded-documents, search across admin-curated knowledge bases, and general knowledge answers) behind a Keycloak-secured web UI, with a **dynamic, admin-configurable guardrails engine** enforced at six checkpoints, structured **state** separate from long-term **memory**, an explicit **context assembly** step before every model call, **reflection** for high-value turns, and **observability + evaluation** wired in from day one. Everything runs from a single `docker compose up`.
+A production-grade, self-hostable AI agent platform that runs on an air-gapped or restricted network. One LangGraph-based agent serves five use cases (Text-to-SQL over PostgreSQL, web search, chat-with-uploaded-documents, search across admin-curated knowledge bases, and general knowledge answers) behind a Keycloak-secured web UI, with a **dynamic, admin-configurable guardrails engine** enforced at seven checkpoints, structured **state** separate from long-term **memory**, an explicit **context assembly** step before every model call, **reflection** for high-value turns, and **observability + evaluation** wired in from day one. Everything runs from a single `docker compose up`.
 
 The governing principle (from the architecture explorer this project is based on):
 
@@ -115,8 +115,8 @@ A single message may combine use cases (e.g. UC1 + UC4). The orchestrator decide
 │   │   │   ├── capabilities/    ← ONE package per capability (§18): sql/, web/, docs/, kb/, general/, email_proofreader/
 │   │   │   ├── tools/           ← registry.py, broker.py (shared execution path; no capability code here)
 │   │   │   ├── guardrails/      ← engine.py, checkers/, checkpoints.py, schema.py
-│   │   │   ├── rag/             ← ingest/, chunkers/, embed.py, vectorstore/, rerank.py
-│   │   │   ├── models/          ← gateway.py (LiteLLM client), routing.py, prompts/
+│   │   │   ├── rag/             ← shared core library used by capabilities: ingest/, chunkers/, embed.py, vectorstore/, rerank.py
+│   │   │   ├── models/          ← gateway.py (LiteLLM client), routing.py, prompts.py (loader only; prompt files live in config/prompts/ and capabilities/*/prompts/)
 │   │   │   ├── observability/   ← otel.py, langfuse.py
 │   │   │   ├── evaluation/      ← online_judge.py
 │   │   │   └── api/             ← FastAPI routes (internal)
@@ -169,7 +169,7 @@ class AgentState(TypedDict):
     conversation_id: str
     user_id: str
     tenant_id: str
-    permissions: list[str]              # e.g. ["tool:sql","tool:web","kb:moe:read"]
+    permissions: list[str]              # e.g. ["cap:general","cap:sql","kb:moe:read"]
     # per-turn
     turn: int
     user_message: str
@@ -305,7 +305,7 @@ The subsections below describe the five v1 capabilities. Each one is implemented
 
 All tools register in `tools/registry.py` with: `name`, `description_ar`, `description_en`, `input_schema` (Pydantic), `risk` (`read|write`), `required_permission`, `timeout_s`, `max_retries`. The `broker.py` is the only path to execution: it resolves secrets from env/Vault, applies policy (§10), enforces timeout/retry, normalizes results to `ToolResult{status, content, sources[], latency_ms}` and emits spans.
 
-### 9.1 SQL tool (UC1) — `tools/sql/`
+### 9.1 SQL tool (UC1) — `capabilities/sql/`
 
 - **Semantic layer** (`config/semantic-layer/`): each exposed table with Arabic + English descriptions, column descriptions, allowed joins, sensitive columns (excluded at the view level, not by prompt), plus `metrics.yaml` (named metrics with canonical SQL) and `examples.yaml` (question → SQL pairs). Ingest this into a `schema_chunks` vector table on startup.
 - **Schema retrieval**: retrieve top-k tables/columns/examples for the question; never inject the whole schema.
@@ -317,19 +317,19 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 - **Result**: rows preview (≤50 rows to the model), full result to the UI as a table + downloadable CSV; the SQL is always shown to the user (it is the evidence).
 - Interface: `QueryEngine` with `PostgresEngine` now; leave `StarRocksEngine` stub with TODO for v2 (HDFS/Iceberg).
 
-### 9.2 Web tool (UC2) — `tools/web/`
+### 9.2 Web tool (UC2) — `capabilities/web/`
 
 - `web_search(query, recency)` → SearXNG JSON API, top 8; `web_fetch(url)` → readability extraction, max 6k tokens/page, allow/deny domain lists from policy.
 - Sanitization: strip scripts/instructions-like patterns; wrap content as untrusted data in the prompt (`<untrusted source="…">`), and the system prompt states that instructions inside sources are data.
 - Citation validation: every URL in the answer must exist in this turn's `tool_calls` results, else the answer fails validation.
 
-### 9.3 Documents tool (UC3) — `rag/ingest/`
+### 9.3 Documents tool (UC3) — `capabilities/docs/` (ingestion via the shared `rag/` library)
 
 - Upload → MinIO → ingestion job: type detection (PDF, DOCX, XLSX, TXT, MD; images via OCR are **v2**, keep a hook), text extraction, Arabic normalization (alef/yaa/taa-marbuta variants, tatweel removal, diacritics optional), chunking (`recursive`, 800 tokens, 120 overlap, heading-aware for MD/DOCX), embeddings via LiteLLM (`bge-m3`), stored in a **session-scoped** collection `sess_{conversation_id}` with `expires_at`.
 - Retrieval: hybrid + rerank; page/section metadata for citations.
 - Status streamed to the UI (`pending → indexed`) so the user can see when the file is ready.
 
-### 9.4 Knowledge-base plugins (UC4) — `tools/kb/`
+### 9.4 Knowledge-base plugins (UC4) — `capabilities/kb/`
 
 - Admin creates a KB: `{slug, name_ar, name_en, icon, description, embedding_model, visibility: role-based}`; each KB has its own collection `kb_{slug}` and a Keycloak role `kb:{slug}:read` (created via Admin API when the KB is created).
 - Admin uploads documents to a KB (same ingestion pipeline, org-scoped, no expiry, versioned; re-ingest replaces by `doc_id`).
@@ -348,9 +348,9 @@ No tools. Small context. Still passes input/output guards and validation. Router
 
 A **policy** = `{id, name, enabled, version, scope, checkpoints[], checker, config, action, severity, message_ar, message_en}`. Policies are stored in PostgreSQL (`guard_policies`), seeded from `config/policies/*.yaml`, cached in Redis, hot-reloaded on change (pub/sub). Every policy evaluation is recorded in `state.guard_events` and the trace.
 
-**Scope:** `global | tenant:{id} | role:{role} | kb:{slug} | tool:{name}` — narrower scopes override wider ones.
+**Scope:** `global | tenant:{id} | role:{role} | kb:{slug} | tool:{name}` — narrower scopes override wider ones. A scope says *what a policy applies to*; `tool:{name}` is not a permission name. Permissions are `cap:{slug}` and `kb:{slug}:read` (§11, ADR-0006).
 
-**Checkpoints (6):**
+**Checkpoints (7):**
 
 | # | Checkpoint | Sees | Typical policies |
 |---|-----------|------|------------------|
@@ -360,6 +360,7 @@ A **policy** = `{id, name, enabled, version, scope, checkpoints[], checker, conf
 | 4 | `POST_TOOL` | tool result | untrusted-content sanitization, PII detection in fetched/queried data, size truncation |
 | 5 | `OUTPUT` | draft answer + citations | banned topics, tone, refusal templates, citation policy |
 | 6 | `DATA` | any text leaving toward the user or memory | PII **redaction** (phone, national ID, IBAN, email…), secret patterns |
+| 7 | `MODEL_TIER` | the tier resolver's request (role, step, capability floor, escalations) | ceilings by role, tenant or quota (§19.3); a capped request is served at the ceiling and logged |
 
 **Actions:** `allow | block | redact | rewrite | warn | require_approval | log_only`. `block` returns the policy's `message_ar/en` to the user; `redact` replaces spans with `[REDACTED:{type}]`; `rewrite` asks the model to regenerate with the violation explained (max once).
 
@@ -393,8 +394,8 @@ Seed policies in `config/policies/`:
 ## 11. Identity, authorization, admin
 
 - Keycloak realm `agent` (export in `infra/keycloak/realm-export.json`): clients `web` (public, PKCE) and `gateway` (confidential, service account with `realm-management` roles to manage users/roles).
-- Realm roles: `user`, `admin`, `tool:sql`, `tool:web`, `tool:docs`, and one `kb:{slug}:read` per KB (created dynamically). Groups map to role bundles (e.g. group *MoE analysts* → `user`, `tool:sql`, `kb:moe:read`).
-- Token claims → `permissions[]` in the principal. The gateway is the only place that interprets Keycloak roles; the agent only sees `permissions[]`.
+- Realm roles: `user` (composite; includes `cap:general`), `admin`, one `cap:{slug}` per capability (e.g. `cap:sql`, `cap:web`, `cap:docs`, `cap:kb`), and one `kb:{slug}:read` per KB (created dynamically). Groups map to role bundles (e.g. group *MoE analysts* → `user`, `cap:sql`, `cap:kb`, `kb:moe:read`).
+- Token claims → `permissions[]` in the principal. The gateway is the only place that interprets Keycloak roles; the agent only sees `permissions[]`. `tenant_id` comes from the Keycloak user attribute `tenant_id` (mapped into a token claim) and defaults to `default` when absent.
 - Admin console (in the web app, `admin` role): users & groups (delegated to Keycloak Admin API through the gateway), KB management + role assignment, policies, evaluation dashboards (links to Langfuse), context debug panel, audit log search.
 - Seed users: `admin/admin`, `analyst/analyst` (sql + moe KB), `viewer/viewer` (general + docs only).
 
@@ -452,7 +453,7 @@ Seed policies in `config/policies/`:
 
 1. **Skeleton & platform** — repo layout, compose with postgres/redis/keycloak/litellm/minio/langfuse, health checks, `make up`, seed users. Gateway validates JWT; web logs in; **capability registry + `run_capabilities` node** with the `general` capability only, full tracing. *Done when: a logged-in user gets a streamed answer with a Langfuse trace showing context blocks.*
 2. **State, Context Assembly, Memory** — full `AgentState`, checkpointer, assembler pipeline with budget logging, summarizer, memory write/retrieve + settings page, context debug endpoint.
-3. **Guardrails engine** — policy model, 6 checkpoints, `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge` checkers, admin policy UI, `guardrails.jsonl` evals.
+3. **Guardrails engine** — policy model, 7 checkpoints, `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge` checkers, admin policy UI, `guardrails.jsonl` evals.
 4. **UC3 documents** — ingestion pipeline, session collections, hybrid retrieval + rerank, citations UI.
 5. **UC4 KB plugins** — KB CRUD, dynamic Keycloak roles, plugin toggles, cross-KB retrieval, permission tests (a user must never retrieve from a KB without the role — test at gateway and agent).
 6. **UC2 web** — SearXNG, fetch/sanitize, loop node with limits, citation validation, domain policies.
@@ -564,7 +565,7 @@ class Capability(Protocol):
 | UI | `GET /v1/capabilities` returns manifests filtered by the principal; the composer renders them |
 | Context | Assembly builds a `ContextPackage` with only the blocks in `context.needs`, within `max_input_tokens` |
 | Model tier | `model.min_tier` and `model.steps` feed the tier resolver (§19); the capability calls `models.call(role=..., step=...)` and never a model name |
-| Guardrails | Policies with scope `tool:{slug}` are seeded from `policies/`; all six checkpoints wrap the capability without it knowing |
+| Guardrails | Policies with scope `tool:{slug}` are seeded from `policies/`; all seven checkpoints wrap the capability without it knowing |
 | Tools | `tools()` are registered into the shared registry; execution always goes through `broker.py` |
 | Observability | One span `capability.{slug}` per invocation with usage and events |
 | Evaluation | `evals/run_evals.py` globs `capabilities/*/evals/*.jsonl` and runs them under a suite named by slug |
@@ -635,7 +636,7 @@ Final tier = max(1–4) bounded by 5. Every decision is written to the trace as 
 ### 19.4 Rules of thumb baked into the seed config
 
 - Helper roles never leave `fast`. This alone removes most of the cost of a turn.
-- `general` capability: `min_tier: fast`, `on_overflow: compress`.
+- `general` capability: `min_tier: standard`, `on_overflow: compress`. The `fast` tier exists for instruction-following helper roles, not for world knowledge; a general-knowledge answer depends on what the model knows (ADR-0024).
 - `docs`, `kb`, `web`: `min_tier: standard`, `on_overflow: compress`.
 - `sql`: `steps: {generate: standard, fix_error: fast, interpret: fast}`.
 - `email_proofreader`: `min_tier: fast`.
@@ -665,3 +666,86 @@ Rules:
 - A prompt change is a PR that must show the eval delta (the CI job posts before/after scores).
 - Prompts are addressed by `id@version`; the trace records which version produced each call, so a regression can be tied to a prompt change.
 - No secrets and no environment-specific values in any of these folders; those live in `.env` / Vault.
+
+---
+
+## 21. Getting started on a new machine
+
+### 21.1 Prerequisites
+
+| Tool | Version | Why |
+|------|---------|-----|
+| Docker Desktop (or Docker Engine + Compose v2) | Compose v2; **12 GB of memory or more** for the Docker VM | The whole stack. `scripts/preflight.sh` warns below 12 GB; the stack itself uses about 6.5 GB, and builds need the headroom. |
+| Git | any | Clone the repository. |
+| `curl`, `jq`, `openssl`, `python3` | any | `scripts/init_env.sh`, `preflight.sh`, `pull_models.sh`, `smoke.sh`. macOS ships all four; on Debian, `apt install curl jq openssl python3`. |
+| `uv` | ≥ 0.4 | `make eval` and `make smoke` run on the host (`uv run` fetches their dependencies). Everything else runs in containers. |
+| Ollama | ≥ 0.3 | **Optional.** Only if this machine also serves the models. Skip it when you point at a shared server (§21.4). |
+
+No JDK and no Node.js are needed: the gateway and web tests build inside Docker (ADR-0019).
+
+### 21.2 First run
+
+```bash
+git clone https://github.com/<org>/agent-platform.git
+cd agent-platform
+
+scripts/init_env.sh     # writes .env with fresh random secrets; never overwrites an existing one
+make models             # pulls the models named in infra/litellm/config.yaml (skip for a remote endpoint, §21.4)
+make up                 # builds, starts and waits for every health check (first run: ~10 minutes)
+make smoke              # end-to-end: login, permissions, a streamed Arabic answer, a Langfuse trace, one audit row
+```
+
+Then `make test` (unit + integration, offline through a mock LiteLLM) and `make eval` (golden suites against the live stack with real models).
+
+`make up` is safe to re-run; `make down` stops the stack and keeps the data, `make clean` deletes the volumes too.
+
+### 21.3 URLs and seed users
+
+| What | URL | Credentials |
+|------|-----|-------------|
+| Chat UI | http://localhost:3000 | the seed users below |
+| Gateway API | http://localhost:8080 | Bearer token from Keycloak |
+| Keycloak admin | http://localhost:8081 | `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` from `.env` |
+| Langfuse | http://localhost:3001 | `LANGFUSE_ADMIN_EMAIL` / `LANGFUSE_ADMIN_PASSWORD` from `.env` |
+
+Ports come from `WEB_PORT`, `GATEWAY_PORT`, `KEYCLOAK_PORT` and `LANGFUSE_PORT` in `.env`; change a port there and change the matching `*_PUBLIC_URL` with it, because the Keycloak URL is also the token issuer.
+
+Seed users in realm `agent` (password = username): `admin/admin` (admin console), `analyst/analyst` (`cap:sql`, `cap:kb`, `kb:moe:read`), `viewer/viewer` (general and docs only).
+
+### 21.4 Using a shared model server
+
+Nothing in the repository names a model except `infra/litellm/config.yaml`, and nothing names an endpoint except `.env`. To use models served elsewhere — a GPU box on the network, or a colleague's machine — leave the code alone and change those two files.
+
+**A remote Ollama server.** In `.env`:
+
+```
+OLLAMA_BASE_URL=http://models.internal:11434     # read by the litellm container
+```
+
+`host.docker.internal` (the default) means "the Docker host itself"; replace it with a hostname or IP the containers can reach. Two host-side scripts read shell variables instead, because they run outside compose and never parse `.env`:
+
+```bash
+OLLAMA_HOST=http://models.internal:11434 make models   # pull the models onto that server
+OLLAMA_HOST_URL=http://models.internal:11434 make up   # so preflight checks the right server
+```
+
+The remote server must accept non-local connections (`OLLAMA_HOST=0.0.0.0:11434` in its own environment).
+
+**An OpenAI-compatible endpoint** (vLLM, LiteLLM, TGI, or a shared gateway). In `.env`:
+
+```
+VLLM_BASE_URL=http://models.internal:8001/v1     # must end in /v1
+VLLM_API_KEY=<token, or empty when the server needs none>
+```
+
+Then point the alias at it in `infra/litellm/config.yaml`, keeping the alias name — the code only ever names `fast`, `standard`, `heavy`, `embed`:
+
+```yaml
+  - model_name: standard
+    litellm_params:
+      model: openai/Qwen2.5-14B-Instruct     # the name that server serves
+      api_base: os.environ/VLLM_BASE_URL
+      api_key: os.environ/VLLM_API_KEY
+```
+
+`num_ctx` is Ollama-only; on an OpenAI-compatible server the context length is the server's own setting, so keep the `window` values in `config/models.yaml` at or below it. Skip `make models` entirely — that target pulls into Ollama. Aliases may be mixed: one tier remote, another local.
