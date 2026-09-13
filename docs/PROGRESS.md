@@ -221,11 +221,27 @@ Human review needed (this session):
 Scope: the single finding of the fifth review — ADR-0053's firewall caught what the capability task raised, but core code in `run_capabilities` then touched capability-created objects outside the task: `f"{exc}"` ran a poisoned `__str__`, and `_output`'s `isinstance`/`vars` ran a poisoned `__class__`, both in the main node, so a `ParentCommand` raised there forged identity, permissions, another namespace and messages into the checkpoint. Nothing else. Re-run `make test`, `make smoke`; push.
 
 Checklist:
-- [ ] 1. Data-only boundary: inside the isolated task, behind the catch-all, serialize the capability's output with `model_dump(mode="json")` to JSON text; the main node receives only that text (or a failure reason) and re-validates it into `CapabilityOutput`. Exception reporting inside the firewall uses `type(exc).__name__` only.
-- [ ] 2. Remove `_output`'s `isinstance`/`vars` path on capability-returned objects.
-- [ ] 3. Tests: the `__str__` poison and `__class__` poison reproductions as permanent integration tests; a unit test that a non-serializable output yields `capability_failed`.
-- [ ] 4. ADR-0054 (threat model): v1 capabilities are trusted first-party code; the firewall, data-only boundary, core compilation and lint protect against bugs and accidental coupling, not a deliberately malicious capability; process-level isolation is the phase-09 option required before any third-party capability. ADR-0053's open reflection/frames item is covered by this threat model (Status-line note on ADR-0053, ADR-0034).
-- [ ] `make test`, `make smoke` green; push. (`make eval` not re-run: no prompt, model or answer-path change.)
+- [x] 1. Data-only boundary: inside the isolated task, behind the catch-all, serialize the capability's output with `model_dump(mode="json")` to JSON text; the main node receives only that text (or a failure reason) and re-validates it into `CapabilityOutput`. Exception reporting inside the firewall uses `type(exc).__name__` only.
+- [x] 2. Remove `_output`'s `isinstance`/`vars` path on capability-returned objects.
+- [x] 3. Tests: the `__str__` poison and `__class__` poison reproductions as permanent integration tests; a unit test that a non-serializable output yields `capability_failed`.
+- [x] 4. ADR-0054 (threat model): v1 capabilities are trusted first-party code; the firewall, data-only boundary, core compilation and lint protect against bugs and accidental coupling, not a deliberately malicious capability; process-level isolation is the phase-09 option required before any third-party capability. ADR-0053's open reflection/frames item is covered by this threat model (Status-line note on ADR-0053, ADR-0034).
+- [x] `make test`, `make smoke` green; push. (`make eval` not re-run: no prompt, model or answer-path change.)
+
+Session result (2026-09-13):
+- **Fix.** `app/graph/nodes/capabilities.py`: the isolated task now runs `_run_to_json`, which invokes the subgraph, reads `output` and serializes it (`model_dump(mode="json")`, or `to_jsonable_python` for a dict or other value) to JSON text behind the catch-all, and returns only `(True, json_text)` or `(False, "raised <TypeName>")`. A cancellation leaves the task as a fresh `CancelledError` raised outside the handler. `_invoke_isolated` returns the JSON text; `_output` re-validates it with `CapabilityOutput.model_validate_json`. The `isinstance`/`vars` path and the `str(exc)` in the firewall are gone; the outer catch-all is no longer needed, since the task returns data or a fresh `CancelledError` only. Timeout, cancellation and the own-checkpointer/store check are unchanged.
+- **Tests.** `tests/integration/test_capability_isolation.py`: the `__str__` poison and `__class__` poison, each arming a `ParentCommand` with the forged update only when run back in the main node; both assert the poison never fired, the turn ends `capability_failed`, and identity, permissions, other namespaces, messages and interrupts are untouched. `tests/unit/test_capability_runtime.py`: a non-serializable output yields `capability_failed` with reason `raised PydanticSerializationError`. All three failed against the pre-fix node (both poisons fired; the unserializable output did not end as `capability_failed`) and pass on the fix. The existing `model_construct`-without-`cap_state` test still passes through the JSON re-validation.
+- **`make test`:** green (exit 0). Agent 142 passed (139 + 3 new). Gateway image `test` task and `gateway-db-tests` both BUILD SUCCESSFUL. Web 51 passed.
+- **`make up`:** green (agent rebuilt). **`make smoke`:** green (exit 0), all phase 01 checks.
+- `make eval` not re-run, by instruction: no prompt, model or answer-path change.
+- ADR-0054 records the data-only boundary and the threat model. ADR-0053's body is unchanged (ADR-0034); its Status line gained `Superseded by ADR-0054 on 2026-09-13 (the open attribute-reflection item only)`, following the partial-supersession note used on earlier entries.
+- `ruff format --check` flags a missing blank line before `_STATE_KEYS_BY_BLOCK` in `capabilities.py`; it predates this session and is left as is (`ruff check` passes; `make test` does not run the formatter check).
+
+Human review needed (this session):
+- `docs/DECISIONS.md` ADR-0054: the threat model (first-party trust, process isolation required before any third-party capability) and the Status-line note on ADR-0053.
+
+How to verify:
+- `make up && make test && make smoke`
+- Boundary tests alone: `cd services/agent && uv run pytest tests/integration/test_capability_isolation.py tests/unit/test_capability_runtime.py` (mock LiteLLM running)
 
 ## Phase 02: State, Context Assembly, Memory
 
