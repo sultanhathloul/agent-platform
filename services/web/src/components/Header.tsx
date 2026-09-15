@@ -21,6 +21,9 @@ export function Header() {
             <Link href="/chat/new" className="rounded-md px-2.5 py-1.5 text-slate-700 hover:bg-slate-100">
               {t("header.newChat")}
             </Link>
+            <Link href="/settings/memory" className="rounded-md px-2.5 py-1.5 text-slate-700 hover:bg-slate-100">
+              {t("header.memory")}
+            </Link>
             <span dir="auto" className="px-1 text-slate-600">
               {auth.displayName}
             </span>
