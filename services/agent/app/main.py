@@ -3,6 +3,7 @@
 Everything is loaded and validated at startup (config, prompts, manifests), so
 a bad file fails the container immediately instead of at the first turn."""
 
+import dataclasses
 import logging
 import uuid
 from collections.abc import Sequence
@@ -13,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
@@ -22,6 +24,7 @@ from app.api.schemas import ErrorEnvelope
 from app.capabilities.registry import CapabilityRegistry, ManifestError
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.tokens import default_counter
+from app.db import Database
 from app.graph.build import build_graph
 from app.graph.deps import Services
 from app.guardrails.engine import GuardEngine
@@ -69,6 +72,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         for spec in cap.tools:
             tools.register(spec, cap.slug)
 
+    db = Database(settings.database_url)
     return Services(
         settings=settings,
         models_config=models_config,
@@ -81,9 +85,25 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         tools=tools,
         broker=ToolBroker(tools, guard),
         messages=ErrorMessages.load(settings.config_dir),
-        owners=ConversationOwners(),
-        graph=build_graph(),
+        db=db,
+        owners=ConversationOwners(db),
     )
+
+
+async def start_services(services: Services) -> Services:
+    """Opens the database, applies the agent's migrations and the checkpointer's, and
+    compiles the main graph on the Postgres checkpointer (ADR-0055). The saver binds
+    to the running event loop, so this runs inside it rather than in build_services."""
+    if services.graph is not None:
+        return services
+    await services.db.open()
+    checkpointer = AsyncPostgresSaver(services.db.pool)
+    await checkpointer.setup()
+    return dataclasses.replace(services, graph=build_graph(checkpointer))
+
+
+async def stop_services(services: Services) -> None:
+    await services.db.close()
 
 
 def create_app(*, start_background: bool = True, services: Services | None = None) -> FastAPI:
@@ -92,9 +112,16 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     services = services or build_services(settings)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(app: FastAPI):
         setup_tracing(enabled=start_background and not settings.otel_sdk_disabled)
+        # Services handed in already started (tests) stay owned by their caller.
+        owned = app.state.services.graph is None
+        started = await start_services(app.state.services)
+        app.state.services = started
+        app.state.runner = TurnRunner(started)
         yield
+        if owned:
+            await stop_services(started)
         shutdown_tracing()
 
     app = FastAPI(

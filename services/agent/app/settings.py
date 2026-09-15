@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     observability_capture_content: bool = True
     otel_sdk_disabled: bool = False
     model_timeout_s: float = 300.0
+    # libpq connection string of the `app` database (ADR-0055); compose builds it from APP_DB_PASSWORD.
+    database_url: str = ""
+    # GET /v1/debug/context/{turn_id}, and recording the packages it returns (ADR-0059). Off by default.
+    debug_context_enabled: bool = False
 
 
 @lru_cache

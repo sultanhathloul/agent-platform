@@ -1,13 +1,22 @@
 """Shared fixtures. Integration tests go through LiteLLM with mock aliases
 (ADR-0007): `make test` starts `litellm-mock`; locally, run
 `docker compose --profile test up -d litellm-mock` and pytest reaches it on
-http://localhost:4001 with the master key from the repo .env."""
+http://localhost:4001 with the master key from the repo .env.
+
+State lives in Postgres (ADR-0055): each test session creates a throwaway
+database as the Postgres superuser and drops it at the end, as the gateway's
+JDBC tests do (ADR-0051). `make test` passes AGENT_TEST_DATABASE_ADMIN_URL;
+locally, the dev overlay publishes Postgres on port 5433."""
 
 import os
+import uuid
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import httpx
+import psycopg
 import pytest
+from psycopg.conninfo import make_conninfo
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -87,11 +96,47 @@ def litellm(settings) -> str:
     return settings.litellm_base_url
 
 
-@pytest.fixture(scope="session")
-def services(settings):
-    from app.main import build_services
+def _admin_database_url() -> str:
+    if url := os.environ.get("AGENT_TEST_DATABASE_ADMIN_URL"):
+        return url
+    return f"postgresql://postgres:{_dotenv('POSTGRES_PASSWORD') or ''}@localhost:5433/postgres"
 
-    return build_services(settings)
+
+@pytest.fixture(scope="session")
+def database_url() -> Iterator[str]:
+    """A throwaway database with the vector extension, dropped after the session.
+    Fails (never skips) when Postgres is unreachable."""
+    admin = _admin_database_url()
+    name = f"agent_test_{uuid.uuid4().hex[:12]}"
+    try:
+        with psycopg.connect(admin, autocommit=True, connect_timeout=5) as conn:
+            conn.execute(f'CREATE DATABASE "{name}"')
+    except psycopg.OperationalError as exc:
+        hint = "docker compose up -d --wait postgres (and set AGENT_TEST_DATABASE_ADMIN_URL)"
+        pytest.fail(f"Postgres not reachable for the test database ({exc}); run: {hint}")
+    url = make_conninfo(admin, dbname=name)
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    yield url
+    with psycopg.connect(admin, autocommit=True) as conn:
+        conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
+async def _started(settings: Settings, database_url: str, **kwargs):
+    from app.main import build_services, start_services
+
+    return await start_services(
+        build_services(settings.model_copy(update={"database_url": database_url}), **kwargs)
+    )
+
+
+@pytest.fixture(scope="session")
+async def services(settings, database_url) -> AsyncIterator:
+    from app.main import stop_services
+
+    started = await _started(settings, database_url)
+    yield started
+    await stop_services(started)
 
 
 PROBE_CAPABILITIES = (
@@ -101,12 +146,14 @@ PROBE_CAPABILITIES = (
 
 
 @pytest.fixture(scope="session")
-def probe_services(settings):
+async def probe_services(settings, database_url) -> AsyncIterator:
     """Services with the test-only `probe` capability discovered beside the real
     ones; no core file names it (ADR-0038)."""
-    from app.main import build_services
+    from app.main import stop_services
 
-    return build_services(settings, extra_capabilities=[PROBE_CAPABILITIES])
+    started = await _started(settings, database_url, extra_capabilities=[PROBE_CAPABILITIES])
+    yield started
+    await stop_services(started)
 
 
 @pytest.fixture

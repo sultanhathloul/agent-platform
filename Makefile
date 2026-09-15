@@ -33,6 +33,7 @@ seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot
 test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
+	$(COMPOSE) up -d --wait postgres
 	$(COMPOSE) --profile test up -d --wait litellm-mock
 	$(COMPOSE) --profile test run --rm --build agent-tests
 

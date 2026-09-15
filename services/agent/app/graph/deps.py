@@ -8,6 +8,7 @@ from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
 from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
+from app.db import Database
 from app.guardrails.engine import GuardEngine
 from app.identity import Principal
 from app.models.config import ModelsConfig
@@ -32,8 +33,11 @@ class Services:
     tools: ToolRegistry
     broker: ToolBroker
     messages: ErrorMessages
+    db: Database
     owners: ConversationOwners
-    graph: Any  # compiled main graph
+    # The compiled main graph, set by app.main.start_services once the database is open:
+    # the Postgres checkpointer binds to the running event loop (ADR-0055).
+    graph: Any = None
 
 
 @dataclass

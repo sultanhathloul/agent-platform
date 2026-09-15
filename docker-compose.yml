@@ -239,11 +239,16 @@ services:
     environment:
       <<: *agent-env
       LITELLM_BASE_URL: http://litellm:4000
+      # State, owners and memory in database `app`, schema `agent` (ADR-0055).
+      DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/app
+      DEBUG_CONTEXT_ENABLED: ${DEBUG_CONTEXT_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: agent
     volumes:
       - ./config:/srv/config:ro
     depends_on:
+      postgres:
+        condition: service_healthy
       litellm:
         condition: service_healthy
       otel-collector:
@@ -330,10 +335,14 @@ services:
       <<: *agent-env
       LITELLM_BASE_URL: http://litellm-mock:4000
       DOCS_DIR: /srv/docs
+      # A throwaway database per test session is created and dropped as the superuser (ADR-0055).
+      AGENT_TEST_DATABASE_ADMIN_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
     volumes:
       - ./config:/srv/config:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
     depends_on:
+      postgres:
+        condition: service_healthy
       litellm-mock:
         condition: service_healthy
 
