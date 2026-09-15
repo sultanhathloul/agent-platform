@@ -42,7 +42,7 @@ Checklist:
 - [x] Wrap-up: PROGRESS done/left/verify; list of `config/` and `infra/` files for human review
 
 Session result (2026-09-13), closing the phase:
-- **`make up`:** green. 13 long-running services are up, every one with a healthcheck is healthy, and `minio-init` completed. The OTel collector image is distroless, so it has no healthcheck.
+- **`make up`:** green. 12 long-running services are up, plus one one-shot (`minio-init`), which completed; every one with a healthcheck is healthy. The OTel collector image is distroless, so it has no healthcheck.
 - **`make test`:** green.
   - agent: 70 passed (58 before, plus `test_validate.py` and the per-role temperature tests).
   - gateway: 37 tests, 0 failed, 0 skipped. `make test` serves this layer from cache, so it was re-run for real with `gradle cleanTest test --no-build-cache`; a plain `cleanTest test` still restores `:test FROM-CACHE` and proves nothing.
@@ -80,7 +80,7 @@ Human review needed:
 - `infra/keycloak/realm-export.json`: roles, groups, the gateway service account's `realm-management` roles, and the user-profile `tenant_id` attribute.
 - `infra/litellm/config.yaml`: aliases, `num_ctx` per alias, and the `heavy → standard` fallback.
 - `config/models.yaml`: the dev heavy window of 65536, and the `temperature` block (ADR-0032).
-- `config/prompts/**`: `answer.system@1.2.0` (ar) and `@1.1.0` (en), `context.state_digest@1.1.0`, `context.findings@1.0.0`. The ar and en versions differ on purpose: only the Arabic prompt needed the script rule.
+- `config/prompts/**`: `answer.system@1.3.0` (ar) and `@1.1.0` (en), `context.state_digest@1.1.0`, `context.findings@1.0.0`. The ar and en versions differ on purpose: only the Arabic prompt needed the script rule.
 - `config/context.yaml`, `config/messages/errors.yaml`.
 - `evals/thresholds.yaml` and `services/agent/app/capabilities/general/evals/general.jsonl` (the 20 cases and their ground truths).
 - `infra/otel/collector.yaml`, `infra/postgres/init/00-databases.sh`.
@@ -246,8 +246,34 @@ How to verify:
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
-- Status: not started
+- Status: in progress
 - Done when: `AgentState` checkpointed; assembler pipeline with budget logging and `NeedsMore`; summarizer kicks in past 8k tokens; memory write/retrieve; `/settings/memory`; `/v1/debug/context`.
+
+Scope restated (session 2026-09-15):
+1. State: the LangGraph Postgres checkpointer in database `app` replaces `InMemorySaver`, and `ConversationOwners` becomes a Postgres table beside it; both survive `make down && make up`, and `test_capability_isolation.py` passes unchanged on Postgres.
+2. Context Assembly: the full §7 pipeline behind `ContextAssembler`, driven by `config/context.yaml` (per-block budgets, drop order, `NeedsMore` → compress or escalate, one re-assembly), block token counts on `context.assemble`; a rolling summary by the `summarizer` role past 8k history tokens, checkpointed in `summary`.
+3. Memory (§8): write (graph node after `persist_state`, `extractor` role, post-guard content only) and retrieve (top-k by embedding), scoped by (tenant_id, user_id), with a per-user enable flag; list/delete/toggle APIs in agent and gateway (audited), and `/settings/memory` in the web.
+4. `GET /v1/debug/context/{turn_id}` (internal token, own ownership check, off unless enabled); script validation per a new ADR superseding ADR-0033, with one temperature-0 retry; the §18.4 cross-namespace `cap_state` lint rule; agent and gateway OpenAPI 1.2.0.
+5. Done = the checks above, the tests of scope item 8, `make test` green, `make smoke` green with the restart and memory-isolation checks, and `make eval` run three times with every suite ≥ 0.85.
+
+Checklist:
+- [ ] Docs first: this checklist; documentation corrections (PROGRESS service count and prompt version, README §18.1/§18.3 `build()` wording)
+- [ ] State: Postgres checkpointer (`agent` schema in database `app`), pool opened in the app lifespan; durable `ConversationOwners`; agent SQL migrations; compose/Makefile wiring for the agent and `agent-tests`
+- [ ] Tests on Postgres: a throwaway database per test session; `test_capability_isolation.py` unchanged and green; restart persistence (checkpoint, owners, memory) with a fresh service instance on the same database
+- [ ] Context Assembly: per-block budgets and drop order from `config/context.yaml`; summary, memory, retrieval and tool-result steps; `NeedsMore` → compress/escalate with one re-assembly; one helper for resolve → budget → assemble → call used by every model call site; drops logged
+- [ ] Summarizer: trigger past `summary.trigger_tokens`, `summarizer` role through Context Assembly, checkpointed `summary` and cursor, window = summary + recent messages, retracted messages skipped; trigger and non-trigger tests
+- [ ] Memory: `memory_items` and per-user settings tables, embeddings through LiteLLM (`embed` alias, mock in tests), extractor node after `persist_state` (post-guard `content` only), policy (kinds, confidence, dedupe ≥ 0.92, skip guard-flagged turns), retrieval step scoped by (tenant, user); latency on the turn span; disabled path; victim/attacker isolation test
+- [ ] Agent APIs: `GET /v1/debug/context/{turn_id}` (flag, ownership check, tests); `GET /v1/memory`, `DELETE /v1/memory/{id}`, `PUT /v1/memory/settings`
+- [ ] Gateway: memory proxy endpoints with the caller's identity, audited fail-closed (ADR-0042); tests
+- [ ] Web: `/settings/memory` (list, delete, enable/disable), header link, every string in `ar.json` and `en.json`
+- [ ] Script validation: new ADR superseding ADR-0033; allow-list in `config/`; Arabic test cases (three measured samples, pure Cyrillic); answer retry at temperature 0.0 with `answer.retry` on the span; retry succeeds / fails tests
+- [ ] Lint: capability code must not read or write another capability's `cap_state` namespace; runs in `make test`
+- [ ] Tests: `context_overflow` through `POST /v1/turns`; ownership on the debug endpoint; memory disabled path
+- [ ] Contracts: agent and gateway OpenAPI 1.2.0; `docs/openapi/*` and web types regenerated
+- [ ] Evals: 6–8 Arabic proper-noun cases in the `general` suite; scores before and after the retry; `make eval` three times
+- [ ] Smoke: second turn after `docker compose restart agent` continues the conversation; a memory row for the analyst, invisible to the viewer
+- [ ] README: new config keys; `.env.example`; three Arabic summary samples in PROGRESS; ADRs from ADR-0055
+- [ ] `make up`, `make test`, `make smoke`, `make eval` ×3 green; PROGRESS done/left/verify; human-review list
 
 Tech debt carried from the PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
 - [ ] Replace snapshot tests with behaviour tests. These assert config and prompt values and are edited in lockstep with every config change: `services/agent/app/capabilities/general/tests/test_general.py::test_manifest_is_valid`, `services/agent/tests/unit/test_models.py` (`test_repo_models_config_pins_helper_roles_to_fast`, `test_repo_models_config_makes_helper_roles_deterministic`), `services/agent/tests/unit/test_prompts.py::test_answer_prompt_renders_arabic_without_optional_sections`, and the `prompt_refs` version assertions in `services/agent/tests/unit/test_assembler.py`.

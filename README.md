@@ -488,7 +488,7 @@ Multi-agent supervision, OCR for scanned PDFs, StarRocks/Trino engine, Milvus ad
 ```
 services/agent/app/capabilities/email_proofreader/
 ├── manifest.yaml
-├── graph.py          ← builds a compiled LangGraph subgraph: CapabilityInput → CapabilityOutput
+├── graph.py          ← build() returns an uncompiled StateGraph (the core compiles it): CapabilityInput → CapabilityOutput
 ├── tools.py          ← optional ToolSpecs (registered into the shared registry at startup)
 ├── policies/         ← default guard policies, scope: tool:email_proofreader (seeded, admin-editable)
 ├── prompts/          ← versioned prompt files
@@ -550,7 +550,7 @@ class CapabilityOutput(BaseModel):
 
 class Capability(Protocol):
     manifest: Manifest
-    def build(self) -> CompiledGraph      # subgraph consuming CapabilityInput, producing CapabilityOutput
+    def build(self) -> StateGraph         # uncompiled subgraph consuming CapabilityInput, producing CapabilityOutput; the core compiles it
     def tools(self) -> list[ToolSpec]: ...
 ```
 
