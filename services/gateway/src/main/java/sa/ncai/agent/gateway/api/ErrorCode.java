@@ -8,6 +8,7 @@ public enum ErrorCode {
     CONVERSATION_FORBIDDEN("conversation_forbidden", 403),
     INVALID_REQUEST("invalid_request", 400),
     NOT_FOUND("not_found", 404),
+    MEMORY_NOT_FOUND("memory_not_found", 404),
     AGENT_UNAVAILABLE("agent_unavailable", 502),
     AGENT_STREAM_INTERRUPTED("agent_stream_interrupted", 502),
     AUDIT_UNAVAILABLE("audit_unavailable", 503),

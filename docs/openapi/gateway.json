@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "1.1.0"
+    "version" : "1.2.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -130,6 +130,194 @@
         "summary" : "Current user, tenant and permissions",
         "tags" : [ "identity" ]
       }
+    },
+    "/v1/memory" : {
+      "get" : {
+        "operationId" : "list",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeMemoryList"
+                }
+              }
+            },
+            "description" : "The caller's memory"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The caller's memory items and memory switch",
+        "tags" : [ "memory" ]
+      }
+    },
+    "/v1/memory/settings" : {
+      "put" : {
+        "operationId" : "settings",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MemorySettings"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeMemorySettings"
+                }
+              }
+            },
+            "description" : "The caller's memory switch as saved"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Turns the caller's memory on or off",
+        "tags" : [ "memory" ]
+      }
+    },
+    "/v1/memory/{itemId}" : {
+      "delete" : {
+        "operationId" : "delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "itemId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "The item is deleted"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "memory_not_found, also for another user's item"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Deletes one of the caller's memory items",
+        "tags" : [ "memory" ]
+      }
     }
   },
   "components" : {
@@ -138,6 +326,34 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/MeResponse"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeMemoryList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/MemoryList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeMemorySettings" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/MemorySettings"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -265,6 +481,57 @@
           }
         },
         "required" : [ "is_admin", "permissions", "tenant_id", "user_id" ]
+      },
+      "MemoryItem" : {
+        "properties" : {
+          "confidence" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "expires_at" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "Absent while the item has no expiry."
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string",
+            "description" : "preference | fact_about_user | project_context | decision"
+          },
+          "text" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "confidence", "created_at", "id", "kind", "text" ]
+      },
+      "MemoryList" : {
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean",
+            "description" : "Whether memory is written and retrieved for the caller."
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MemoryItem"
+            }
+          }
+        },
+        "required" : [ "enabled", "items" ]
+      },
+      "MemorySettings" : {
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "enabled" ]
       }
     },
     "securitySchemes" : {
