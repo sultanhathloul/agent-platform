@@ -667,6 +667,20 @@ Rules:
 - Prompts are addressed by `id@version`; the trace records which version produced each call, so a regression can be tied to a prompt change.
 - No secrets and no environment-specific values in any of these folders; those live in `.env` / Vault.
 
+### 20.1 Configuration keys added in phase 02
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/context.yaml` | `blocks.<block>.max_tokens`, `blocks.memory.top_k`, `blocks.retrieval.top_k` | Token budget of each Context Assembly block (§7) and how many memory items and chunks are taken |
+| | `drop_order` | Order in which the budget guard drops over the tier budget: `window`, `retrieval`, `memory`, then `summary` (shortened) |
+| | `compress.*` | The harder pass when `NeedsMore` resolves to `compress`: window size, memory and retrieval `top_k`, summary and tool-result budgets |
+| | `summary.trigger_tokens` | History size (summary + unsummarized messages) past which older messages are folded into `state.summary` |
+| | `nodes.<node>.request_prompt`, `.forms`, `.blocks` | A helper node's request prompt; evidence form `full`, `summary` or `reference` (§7 step 8); the node's own block budgets |
+| `config/memory.yaml` | `enabled_by_default`, `kinds`, `min_confidence`, `max_items_per_turn`, `dedupe_similarity`, `min_similarity`, `max_text_chars`, `ttl_days` | Memory policy (§8): default switch, what is kept, deduplication, retrieval floor, expiry |
+| `config/validation.yaml` | `scripts.<locale>.letters`, `scripts.<locale>.mixed_token_allowlist` | Writing scripts an answer in that locale may use, and tokens allowed to mix two scripts |
+| | `retry.issues`, `retry.attempts`, `retry.temperature` | The answer's single retry after a script failure |
+| `.env` | `DEBUG_CONTEXT_ENABLED` | Records context packages and serves `GET /v1/debug/context/{turn_id}` on the agent; `false` by default |
+
 ---
 
 ## 21. Getting started on a new machine

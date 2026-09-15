@@ -222,7 +222,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0027: `validate` rejects an Arabic answer that contains CJK characters
 - Date: 2026-09-13
 - Phase: 01
-- Status: decided
+- Status: decided — Superseded by ADR-0060 on 2026-09-15 (the CJK-only check)
 - Context: The drift into Chinese measured in ADR-0024 is a wrong answer, not a phrasing problem. The eval suite's `script` check catches it offline, but at runtime nothing stopped such an answer from reaching the user.
 - Decision: `app/text/script.py` provides `contains_cjk` (CJK ideographs and extension A, compatibility ideographs, kana, hangul). `validation_issues` takes the turn `locale` and adds the issue `cjk_in_arabic_answer` when `locale == "ar"` and the answer holds a CJK character. Deterministic, no model call. Only the Arabic locale is checked, because an English or mixed answer may legitimately quote CJK. Covered by `tests/unit/test_validate.py`.
 - Consequences: Such a turn ends as `validation_failed` instead of showing mixed-script text. From phase 08 this failure is what escalates a tier and retries once, which is the right response to script drift. Other locales need their own rule when they are added.
@@ -273,7 +273,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0033: `validate` gains a word-level mixed-script rule in phase 02
 - Date: 2026-09-13
 - Phase: 02 (decided in phase 01, deliberately not implemented yet)
-- Status: decided
+- Status: decided — Superseded by ADR-0060 on 2026-09-15
 - Context: The CJK check (ADR-0027) catches an Arabic answer that drifts into Chinese, Japanese or Korean, but it does not catch Latin spliced inside an Arabic word. The measured example is `"العملة الرسمية … هي الريyal السعودي"`, which passes every guard today and would reach a user as broken text.
 - Decision: In phase 02, extend the script check in `app/text/script.py` and `validation_issues` with a **word-level rule**: any whitespace-delimited token that contains both Arabic and Latin letters fails validation. A small configurable allow-list covers tokens that are legitimately mixed; it lives in configuration, not in code (§20).
 - Consequences: A whole-token rule stays deterministic and cheap, and it leaves ordinary mixed *sentences* alone — an Arabic answer may still quote a Latin term as its own word, e.g. `الرياض (Riyadh)`. The allow-list is the escape hatch for real mixed tokens, and it needs Arabic test cases like every other checker (CLAUDE.md rule 7). Not implemented in phase 01, so `"الريyal"` still reaches the user until phase 02.
@@ -477,3 +477,100 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - **Third-party capabilities.** Process-level isolation — each capability subgraph in a separate worker process, with its input, `RuntimeContext` calls and output marshalled as JSON over IPC — is the phase-09 hardening option and is required before any third-party capability is loaded. This boundary is shaped for that move: only JSON already crosses it.
   - ADR-0053's open item (`RuntimeContext`'s callables are core objects, so attribute reflection reaches the turn's services; process isolation recorded as the option for third-party code) is covered by this threat model: accepted for first-party code, not a defect to fix in-process. The rest of ADR-0053 stands.
 - Consequences: An output costs one JSON serialization and one validation per capability call; v1 outputs are small. A capability output must be JSON-serializable, which `CapabilityOutput`'s fields already implied (it is streamed and checkpointed). A failure's span and log record carry the exception type only, so debugging a capability exception means reproducing it in the capability's own tests rather than reading the message from the trace. Code review remains the control against a capability that means harm, until the phase-09 worker exists. No API, event or error-code change.
+
+### ADR-0055: State, conversation owners and memory live in schema `agent` of database `app`
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §2 puts state in the LangGraph Postgres checkpointer, ADR-0016 kept `InMemorySaver` until phase 02, and ADR-0050 recorded that the conversation-owner registry must become durable beside the checkpointer. The spec names the database (`app`) but not the schema, the connection handling, the agent's own tables or how tests reach Postgres.
+- Decision:
+  - The agent connects to database `app` as its owner role with one `psycopg` async pool whose connections set `search_path=agent,public` (`public` holds the `vector` extension). `AsyncPostgresSaver` runs on that pool and creates its tables in schema `agent`; the gateway keeps schema `gateway`.
+  - The agent's own tables (`conversation_owners`, `memory_items`, `memory_settings`, `context_packages`) come from SQL files in `app/db/migrations/`, applied once each, in name order, under a Postgres advisory lock, recorded in `agent.schema_migrations`. The checkpointer applies its own migrations beside them.
+  - `ConversationOwners` keeps its interface (ADR-0050) on the table: the binding is an `INSERT … ON CONFLICT DO NOTHING` followed by a read, so concurrent first turns agree on one owner; an owner the checkpoint records still wins when the row is missing.
+  - `AsyncPostgresSaver` binds to the running event loop, so `build_services` stays synchronous and connects nothing; `start_services` (the app lifespan, or a test fixture) opens the pool, runs both migrations and compiles the main graph. `DATABASE_URL` is set by compose from `APP_DB_PASSWORD`.
+  - Tests use a throwaway database per session, created and dropped as the Postgres superuser like the gateway's JDBC tests (ADR-0051); `make test` passes `AGENT_TEST_DATABASE_ADMIN_URL` and starts Postgres. `test_capability_isolation.py` runs unchanged on the Postgres checkpointer. A restart test builds a second set of services, pool and checkpointer on the same database.
+- Consequences: A conversation, its owner binding and the user's memory survive `docker compose restart agent` and `make down && make up`; `make clean` deletes them. The agent now starts only after Postgres is healthy. The `app` role owns every table in both schemas, as ADR-0013 already noted for audit. `make test` needs Postgres as well as the mock LiteLLM.
+
+### ADR-0056: Context Assembly is configured per block, and every model call takes one path
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §7 lists nine steps, a drop order and a `NeedsMore` that the tier resolver resolves "per config" by compressing or escalating, then assembling "once more". It gives no per-block budgets, no definition of the harder pass, and no place where the resolution happens. Phase 01 raised `context_overflow` on the first `NeedsMore` and each call site repeated resolve → budget → assemble → call.
+- Decision:
+  - `config/context.yaml` names the pipeline (system, state digest, rolling summary, sliding window, memory, semantic retrieval, tool results, findings, user message, budget guard), a token budget per block, the `drop_order`, the `compress` pass (a shorter window, smaller memory and retrieval `top_k`, shorter summary and tool results), the summary trigger and the core nodes (`answer`, `summarizer`, `memory_writer`) with their prompts, evidence forms (`full | summary | reference`) and per-node block budgets. Each step keeps its own block within its budget and records every cut as a `Drop`; the budget guard enforces the tier budget in `drop_order`: window messages oldest first, chunks lowest score first, the memory block, then the summary shortened from its oldest end. System instructions and the user message are never dropped. Over-budget chunks, tool results and findings are compressed extractively (sentences sharing the most words with the question, after Arabic normalization).
+  - `app/graph/calls.py` is the one path for every model call: `prepare_call` resolves the tier, assembles for that tier's budget and resolves a `NeedsMore` once — one tier up (`TierResolver.escalate`, bounded by the same cap and by `max_escalations_per_turn`, recorded in `escalations`) when the overflow action is `escalate` and a higher tier is allowed, otherwise the compress pass — and ends the turn as `context_overflow` if the package still does not fit. `call_model` sends it through the model gateway and records usage once. The answer node, a capability's input package and `call_model`, the summarizer and the memory extractor all use it. The overflow action is the manifest's `on_overflow` (`escalate` wins among several capabilities), else `escalation.context_overflow_default`. This is step 3 of README §19.3; router and validation escalation stay phase 08.
+  - Only the calls a user sees produce a `tier` event (the answer and capability calls). The summarizer and the extractor are helper calls: their tier decision is on the span, not in the stream.
+  - Semantic retrieval and tool-result steps exist now and render what a request carries; no capability produces chunks or tool results until phases 04–07.
+- Consequences: Adding a block budget or changing the drop order is a config change. A capability with `on_overflow: escalate` can move a call one tier up; `general` compresses. A package that fits neither pass ends the turn before any model call, so nothing is persisted. The smoke check that every tier event of the viewer's turn is `standard` still holds, because helper calls stream no tier event.
+
+### ADR-0057: The rolling summary folds what leaves the window once the history passes the trigger
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §7 step 4 summarizes messages older than the window incrementally, with the trigger "history > 8k tokens". Taken literally, a history that fell back under the trigger after a first summary would leave messages that are neither in the summary nor in the window.
+- Decision:
+  - History is the summary plus the unsummarized, unretracted messages. When it exceeds `summary.trigger_tokens` (8000), every message older than the window and not yet summarized is folded; once a summary exists, every later turn folds the messages that left the window. `summary_cursor` (AgentState addition) counts the messages the summary covers, and the sliding window reads only messages after it.
+  - The fold runs in `assemble_context`, before routing, through `prepare_call` with the `summarizer` role (tier and temperature from `config/models.yaml`). The request holds the old summary in the `summary` block, the messages being folded in the `window` block (their own budget in `nodes.summarizer.blocks`), and the versioned `summarizer.request` prompt as the user block. Retracted messages are never folded (ADR-0048). `summary` and `summary_cursor` are checkpointed.
+  - An empty summary keeps the cursor, so the same messages are folded next turn; a model failure ends the turn like any other call.
+- Consequences: A long conversation costs one `fast` call per turn once it passes the trigger, and none before. A reply retracted after it was already folded stays in the summary; retraction happens right after a turn, while the reply is still in the window. Summary quality on `fast` is measured with the Arabic samples recorded in PROGRESS (material for ADR-0030).
+
+### ADR-0058: Memory write, retrieval and policy
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §8 fixes the table, the kinds, the similarity dedupe and the rule never to store what a guard flagged, and describes an asynchronous writer. The owner scoped phase 02 to a synchronous graph node after `persist_state` that reads post-guard content and calls the `extractor` role. Defaults, failure handling and the embedding path were open.
+- Decision:
+  - `agent.memory_items` carries README §8's columns plus `id`; `embedding` is an untyped `vector`, and similarity (cosine) is computed only against vectors of the query's dimension, so the embedding model can change without a migration. Every statement names `(tenant_id, user_id)`; no store method crosses it. `agent.memory_settings` holds the per-user switch; without a row, `enabled_by_default` (true) applies.
+  - Embeddings go through LiteLLM's `embed` alias (`config/models.yaml`), one text per call. An embedding is not a chat call, so it has no ContextPackage.
+  - `write_memory` runs after `persist_state` and reads the two messages that turn persisted, role and `content` only — never `shown_answer`. It writes nothing when the user's memory is off, or when any guard event of the turn has an action other than `allow` or `log_only`. The extractor (`memory.extractor` prompt) answers with a JSON array; candidates of the configured kinds, at or above `min_confidence`, up to `max_items_per_turn`, are embedded and stored unless a live item of the same scope is at least `dedupe_similarity` similar. A malformed answer stores nothing. Its latency is `memory.write_ms` on the turn span. Any failure is recorded on the span and never fails the turn, since the reply is already persisted.
+  - Retrieval is the `memory` block for the request's `memory_scope`, set by core code from the principal: the top `blocks.memory.top_k` items by similarity to the user message, at least `min_similarity`. A user with memory off gets nothing; an embedding failure degrades to no memory for that call, recorded on the span. The prompt marks memory as data, not instructions.
+  - All values live in `config/memory.yaml`. The mock LiteLLM returns one fixed embedding and a valid extraction on `fast`, so tests exercise the write, dedupe and retrieval paths.
+- Consequences: A general turn costs one more `fast` call and two embeddings when memory is on. Retrieval uses the message alone, not the intent, which the router does not produce yet. PII categories are excluded only by the extractor prompt until phase 03 puts memory text through guards; memory extracted from a reply that is later retracted stays until its user deletes it; the write moves to an asynchronous worker in phase 09. There is no ANN index; per-user scans are small in v1.
+
+### ADR-0059: Endpoints without a body name the caller in headers; memory is proxied and audited; the debug endpoint checks ownership itself
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: The memory list/delete/switch and `GET /v1/debug/context/{turn_id}` have no request body in which to carry a principal, unlike `POST /v1/turns`. README §8 says users manage their own memory and admins cannot read it; README §7 calls the debug endpoint admin-only; residual risk 7 requires it to check conversation ownership itself. Debugging is environment-specific, which §20 keeps out of `config/`.
+- Decision:
+  - Agent endpoints without a body take the caller from `X-User-Id` and `X-Tenant-Id`, beside `X-Internal-Token`. Only the gateway sets them, from the verified token; a client's own headers of that name are never forwarded.
+  - Agent: `GET /v1/memory` (switch and items), `DELETE /v1/memory/{id}` (204, or 404 `memory_not_found` for an id the caller does not have, another user's included), `PUT /v1/memory/settings`. Gateway: the same three paths, answered in the envelope and audited like turns (ADR-0042): refused with 503 `audit_unavailable` before the agent is called when the log is unreachable, and answered only once the record (`memory.list`, `memory.delete`, `memory.settings`) is written. A delete of an item the caller does not have is audited as `denied`; a malformed id is rejected by validation and not audited (ADR-0013). There is no endpoint that reads another user's memory, for any role.
+  - `GET /v1/debug/context/{turn_id}` is served, and packages are recorded in `agent.context_packages` by `prepare_call`, only while `DEBUG_CONTEXT_ENABLED` is true (`.env`, default false); otherwise it answers 404 `not_found`. It resolves the turn's conversation, reads that conversation's owner (`TurnRunner.owner_of`) and answers 403 `conversation_forbidden` to anyone else, before returning the exact packages in assembly order. Phase 02 does not proxy it through the gateway; the admin panel of README §13 decides who may call it there.
+- Consequences: An admin reads context packages only for conversations they own until the gateway proxy defines admin access, which is stricter than README §7. Recorded packages hold user content and have no retention yet, so the flag stays off outside development. A delete that succeeds in the agent but whose audit record then fails is answered 503 although the item is gone, the same residual as a turn (ADR-0042). CORS allows `PUT` and `DELETE`.
+
+### ADR-0060: Writing-script rule for Arabic answers; supersedes ADR-0033 and ADR-0027's CJK check
+- Date: 2026-09-15
+- Phase: 02
+- Status: decided
+- Context: ADR-0033 decided a word-level Arabic–Latin rule for phase 02. The owner widened it when scoping the phase: ADR-0027 caught only CJK, and the measured drifts include `الريyal`, `البرتugal` and `لисboa`, where Cyrillic also appears.
+- Decision:
+  - For an Arabic-locale answer the allowed scripts are Arabic, Latin, digits and punctuation. Latin is allowed only as whole tokens: any whitespace-delimited token that mixes letters of two scripts fails (`mixed_script_token`), and a letter of any other script (Cyrillic, Greek, CJK, …) fails anywhere (`disallowed_script`). These codes replace `cjk_in_arabic_answer`.
+  - `config/validation.yaml` holds, per locale, the allowed letter scripts and `mixed_token_allowlist` (tokens compared after trimming punctuation at their ends). A locale without an entry is not script-checked, as English was not under ADR-0027.
+  - A character's script is the first word of its Unicode name for letters and marks; digits, punctuation, symbols, separators, format characters and combining or modifier marks carry none. Deterministic and model-free, in `app/text/script.py`; tests cover the three measured samples and a pure-Cyrillic token.
+- Consequences: `الرياض (Riyadh)`, URLs, SQL and Arabic-Indic digits pass; `الـAPI` fails unless allowlisted. The answer node retries a failure once before `validate` ends the turn (ADR-0061).
+
+### ADR-0061: A script failure is retried once on the same package; the retry replaces the streamed text
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: The owner asked the answer node to retry a script-validation failure once at temperature 0.0 through the same Context Assembly → models.call path, record `answer.retry` on the span, and retract only if the retry also fails. Tokens of the first attempt have already streamed by the time its text can be checked, so the client needs a way to replace them, and ADR-0036 keeps temperatures out of code.
+- Decision:
+  - After the answer streams, the answer node applies the locale's script policy. When an issue listed in `retry.issues` is found and `retry.attempts` is 1, it emits `retract` with reason `answer_retry`, calls the model again on the same prepared package and tier at `retry.temperature` (0.0, `config/validation.yaml`, passed to the model gateway in place of the role's temperature), and streams the retry in place of the first text. The span records `answer.retry`, `answer.retry.issues` and `answer.retry.passed`. `validate` then checks the retry; if it fails too, it retracts with `validation_failed` and ends the turn as before. `attempts: 0` turns the retry off.
+  - The web client already clears streamed text on `retract` and appends later tokens, so no client or event-schema change is needed; the turn's `error` still follows only a failed retry.
+- Consequences: A retracted first attempt does not end the turn: the `retract` event now also marks a replacement. A retried turn costs a second answer call on the same tier; escalating a tier on validation failure stays phase 08. Scores with and without the retry are recorded in PROGRESS.
+
+### ADR-0062: The cross-namespace `cap_state` rule is an AST check in `make test`
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §18.4 enforces "each capability reads/writes only `state[state_namespace]`" by a runtime guard and a lint rule. The runtime slice exists (ADR-0047); ruff has no rule for string keys.
+- Decision: `tests/unit/test_cap_state_lint.py` parses every Python file of every capability package (`app/capabilities/*`, and the test-only capabilities under `tests/fixtures/capabilities/*`) and fails on a string constant that is another capability's namespace (`cap.<slug>` other than the manifest's own `state_namespace`) or the AgentState key `cap_state`. A capability uses `runtime.context.cap_state` and returns `CapabilityOutput(cap_state=...)`, neither of which is a string key. Tests prove the rule fires on the forbidden shapes and passes on the allowed ones.
+- Consequences: Building a namespace name dynamically escapes the rule, like any lint; the runtime slice (ADR-0047) still hands a capability its own namespace only, and first-party code review remains the control (ADR-0054).
+
+### ADR-0063: Agent and gateway API versions move to 1.2.0
+- Date: 2026-09-15
+- Phase: 02
+- Status: decided
+- Context: ADR-0046 kept 1.1.0 while its changes had not left the unmerged PR #1. PR #1 is merged, so 1.1.0 is published and phase 02's additions need a new version.
+- Decision: Agent OpenAPI 1.2.0 adds `GET /v1/memory`, `DELETE /v1/memory/{item_id}`, `PUT /v1/memory/settings` and `GET /v1/debug/context/{turn_id}`; gateway OpenAPI 1.2.0 adds the three memory endpoints and the `memory_not_found` code. Every change is additive, so the URL prefix stays `/v1`. `docs/openapi/*` and the web's generated types are regenerated; `docs/events.schema.json` is unchanged (`events.v1`).
+- Consequences: The drift tests (ADR-0044) pin both documents at 1.2.0.
