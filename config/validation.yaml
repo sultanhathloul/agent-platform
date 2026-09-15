@@ -1,0 +1,19 @@
+# Deterministic answer validation (README §5.2).
+
+# Writing scripts per answer locale (ADR-0060, superseding ADR-0033). Letters may come
+# only from `letters` (Unicode script names); digits, punctuation, symbols and
+# whitespace are always allowed. A whitespace-delimited token that mixes letters of
+# two scripts fails, unless it appears in `mixed_token_allowlist` (compared after
+# trimming punctuation at its ends). A locale without an entry is not script-checked.
+scripts:
+  ar:
+    letters: [ARABIC, LATIN]
+    mixed_token_allowlist: []
+
+# When the answer fails one of these checks, the answer node retries it once at this
+# temperature on the same context package; validate fails the turn only if the retry
+# fails too (ADR-0061). attempts: 0 turns the retry off.
+retry:
+  issues: [disallowed_script, mixed_script_token]
+  attempts: 1
+  temperature: 0.0

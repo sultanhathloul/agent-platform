@@ -1,47 +1,109 @@
+"""Answer validation (README §5.2): citations, length, and the writing scripts an
+answer may use, from config/validation.yaml (ADR-0060)."""
+
+import pytest
+from pydantic import ValidationError
+
 from app.graph.nodes.validate import MAX_ANSWER_CHARS, validation_issues
-from app.text.script import contains_cjk
+from app.text.script import (
+    DISALLOWED_SCRIPT,
+    MIXED_SCRIPT_TOKEN,
+    ScriptPolicy,
+    ValidationConfig,
+    load_validation_config,
+    script_issues,
+    script_of,
+)
 
 SOURCES = [{"id": "s1"}]
 
 
-def test_arabic_answer_is_fine_without_cjk():
-    assert validation_issues("عاصمة المملكة العربية السعودية هي الرياض.", [], [], locale="ar") == []
+@pytest.fixture(scope="module")
+def arabic(config_dir) -> ScriptPolicy:
+    policy = load_validation_config(config_dir).scripts_for("ar")
+    assert policy is not None
+    return policy
 
 
-def test_arabic_answer_with_chinese_fails():
-    assert validation_issues("العاصمة هي الرياض 北京 وهي مدينة كبيرة.", [], [], locale="ar") == [
-        "cjk_in_arabic_answer"
-    ]
+def test_arabic_answer_passes(arabic):
+    assert validation_issues("عاصمة المملكة العربية السعودية هي الرياض.", [], [], scripts=arabic) == []
 
 
-def test_arabic_answer_with_kana_or_hangul_fails():
-    assert validation_issues("الجواب هو ですね", [], [], locale="ar") == ["cjk_in_arabic_answer"]
-    assert validation_issues("الجواب هو 안녕하세요", [], [], locale="ar") == ["cjk_in_arabic_answer"]
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "الرياض (Riyadh) هي العاصمة.",
+        "العملة الرسمية هي الريال السعودي (SAR).",
+        "بلغ عدد السكان 32 مليونًا عام 2022م.",
+        "النسبة ٤٥٪ تقريبًا، أي أقل من النصف.",
+        "افتح الرابط https://www.my.gov.sa للمزيد.",
+        "الاستعلام المنفذ: SELECT count(*) FROM sales;",
+        "عاصمة البرتغال هي لشبونة (Lisbon)، وعملتها اليورو (€).",
+        "مُحَمَّدٌ رَسُولُ اللَّهِ",
+    ],
+    ids=["latin-word", "latin-code", "digits", "arabic-digits", "url", "sql", "symbols", "diacritics"],
+)
+def test_latin_whole_tokens_digits_and_punctuation_pass(arabic, answer):
+    assert script_issues(answer, arabic) == []
 
 
-def test_english_locale_keeps_cjk():
-    # Only the Arabic locale is script-checked; an English turn may quote CJK.
-    assert validation_issues("The Chinese word for Beijing is 北京.", [], [], locale="en") == []
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        # The three samples measured on the standard tier in phase 01 (ADR-0033, ADR-0060).
+        ("العملة الرسمية في المملكة العربية السعودية هي الريyal السعودي.", [MIXED_SCRIPT_TOKEN]),
+        ("عاصمة البرتugal هي لشبونة.", [MIXED_SCRIPT_TOKEN]),
+        ("عاصمة البرتغال هي لисboa.", [DISALLOWED_SCRIPT, MIXED_SCRIPT_TOKEN]),
+        # A token entirely in another script fails anywhere.
+        ("عاصمة روسيا هي Москва.", [DISALLOWED_SCRIPT]),
+        ("عاصمة اليونان هي Αθήνα.", [DISALLOWED_SCRIPT]),
+        ("العاصمة هي الرياض 北京 وهي مدينة كبيرة.", [DISALLOWED_SCRIPT]),
+        ("الجواب هو ですね", [DISALLOWED_SCRIPT]),
+        ("الجواب هو 안녕하세요", [DISALLOWED_SCRIPT]),
+    ],
+    ids=["riyal", "portugal", "lisboa", "cyrillic", "greek", "chinese", "kana", "hangul"],
+)
+def test_script_failures_in_arabic_answers(arabic, answer, expected):
+    assert script_issues(answer, arabic) == expected
+    assert validation_issues(answer, [], [], scripts=arabic) == expected
 
 
-def test_latin_inside_an_arabic_answer_is_allowed():
-    assert validation_issues("الرياض (Riyadh) هي العاصمة.", [], [], locale="ar") == []
+def test_a_mixed_token_passes_only_when_allowlisted(arabic):
+    answer = "يمكنك استخدام (الـAPI) مباشرة."
+    assert script_issues(answer, arabic) == [MIXED_SCRIPT_TOKEN]
+    allowlisted = arabic.model_copy(update={"mixed_token_allowlist": ["الـAPI"]})
+    assert script_issues(answer, allowlisted) == []  # compared after trimming the parentheses
+    assert script_issues("يمكنك استخدام الـAPIs.", allowlisted) == [MIXED_SCRIPT_TOKEN]
 
 
-def test_empty_answer_is_reported_once():
-    assert validation_issues("   ", [], [], locale="ar") == ["empty_answer"]
+def test_script_of_classifies_letters_and_leaves_the_rest_neutral():
+    assert [script_of(c) for c in "عaжα中"] == ["ARABIC", "LATIN", "CYRILLIC", "GREEK", "CJK"]
+    assert script_of("َ") == "ARABIC"  # fatha belongs to the Arabic script
+    for neutral in ("٣", "7", "،", "؟", "%", "€", " ", "‌", "́"):
+        assert script_of(neutral) is None, repr(neutral)
 
 
-def test_long_arabic_answer_with_cjk_reports_both():
-    answer = "ا" * (MAX_ANSWER_CHARS + 1) + "北"
-    assert validation_issues(answer, [], [], locale="ar") == ["answer_too_long", "cjk_in_arabic_answer"]
+def test_a_locale_without_a_policy_is_not_script_checked(config_dir):
+    assert load_validation_config(config_dir).scripts_for("en") is None
+    assert validation_issues("The Chinese word for Beijing is 北京.", [], [], scripts=None) == []
 
 
-def test_citation_must_come_from_a_source():
-    assert validation_issues("نص", [{"id": "s2"}], SOURCES, locale="ar") == ["citation_not_in_sources"]
-    assert validation_issues("نص", [{"id": "s1"}], SOURCES, locale="ar") == []
+def test_retry_names_only_script_issues():
+    with pytest.raises(ValidationError):
+        ValidationConfig.model_validate(
+            {"retry": {"issues": ["empty_answer"], "attempts": 1, "temperature": 0}}
+        )
 
 
-def test_contains_cjk_ignores_arabic_and_latin():
-    assert not contains_cjk("مرحبا Riyadh 123")
-    assert contains_cjk("中")
+def test_empty_answer_is_reported_once(arabic):
+    assert validation_issues("   ", [], [], scripts=arabic) == ["empty_answer"]
+
+
+def test_long_arabic_answer_with_cjk_reports_both(arabic):
+    answer = "ا" * (MAX_ANSWER_CHARS + 1) + " 北"
+    assert validation_issues(answer, [], [], scripts=arabic) == ["answer_too_long", DISALLOWED_SCRIPT]
+
+
+def test_citation_must_come_from_a_source(arabic):
+    assert validation_issues("نص", [{"id": "s2"}], SOURCES, scripts=arabic) == ["citation_not_in_sources"]
+    assert validation_issues("نص", [{"id": "s1"}], SOURCES, scripts=arabic) == []

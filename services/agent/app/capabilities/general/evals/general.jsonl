@@ -11,6 +11,14 @@
 {"id": "general-ar-multiply", "locale": "ar", "message": "ما ناتج ضرب ٦ في ٧؟", "expect": {"contains_any": ["42", "٤٢", "اثنان وأربعون", "اثنين وأربعين"], "script": "arabic"}}
 {"id": "general-ar-jupiter", "locale": "ar", "message": "ما أكبر كوكب في المجموعة الشمسية؟", "expect": {"contains_any": ["المشتري", "مشتري"], "script": "arabic"}}
 {"id": "general-ar-sunrise", "locale": "ar", "message": "من أي جهة تشرق الشمس؟", "expect": {"contains_any": ["الشرق", "شرق"], "script": "arabic"}}
+{"id": "general-ar-portugal-capital", "locale": "ar", "message": "ما عاصمة البرتغال؟", "expect": {"contains_any": ["لشبونة", "لشبونه"], "script": "arabic"}}
+{"id": "general-ar-canada-capital", "locale": "ar", "message": "ما عاصمة كندا؟", "expect": {"contains_any": ["أوتاوا", "أوتاوة", "اوتاوا"], "script": "arabic"}}
+{"id": "general-ar-australia-capital", "locale": "ar", "message": "ما عاصمة أستراليا؟", "expect": {"contains_any": ["كانبرا", "كانبيرا"], "script": "arabic"}}
+{"id": "general-ar-japan-currency", "locale": "ar", "message": "ما العملة الرسمية في اليابان؟", "expect": {"contains_any": ["الين"], "script": "arabic"}}
+{"id": "general-ar-uk-currency", "locale": "ar", "message": "ما العملة الرسمية في المملكة المتحدة؟", "expect": {"contains_any": ["الجنيه", "جنيه"], "script": "arabic"}}
+{"id": "general-ar-switzerland-currency", "locale": "ar", "message": "ما العملة الرسمية في سويسرا؟", "expect": {"contains_any": ["الفرنك", "فرنك"], "script": "arabic"}}
+{"id": "general-ar-shakespeare", "locale": "ar", "message": "من كتب مسرحية روميو وجولييت؟", "expect": {"contains_any": ["شكسبير", "شيكسبير"], "script": "arabic"}}
+{"id": "general-ar-einstein", "locale": "ar", "message": "من العالم الذي وضع النظرية النسبية؟", "expect": {"contains_any": ["أينشتاين", "آينشتاين", "أينشتين", "آينشتين"], "script": "arabic"}}
 {"id": "general-en-capital", "locale": "en", "message": "What is the capital of Saudi Arabia?", "expect": {"contains_any": ["Riyadh"], "script": "latin"}}
 {"id": "general-en-week", "locale": "en", "message": "How many days are there in a week?", "expect": {"contains_any": ["seven", "7"], "excludes_any": ["five"], "script": "latin"}}
 {"id": "general-en-planet", "locale": "en", "message": "Which planet is known as the Red Planet?", "expect": {"contains_any": ["Mars"], "script": "latin"}}

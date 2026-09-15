@@ -14,6 +14,12 @@ from app.graph.nodes.persist import persist_state
 from app.graph.nodes.validate import validate
 from app.guardrails.schema import GuardEventRecord, GuardOutcome
 from app.identity import Principal
+from app.text.script import RetryPolicy, ScriptPolicy, ValidationConfig
+
+VALIDATION = ValidationConfig(
+    scripts={"ar": ScriptPolicy(letters=["ARABIC", "LATIN"])},
+    retry=RetryPolicy(issues=[], attempts=0, temperature=0.0),
+)
 
 
 class _Engine:
@@ -30,7 +36,8 @@ class _Engine:
 
 def _runtime(engine=None):
     written: list[dict] = []
-    context = SimpleNamespace(services=SimpleNamespace(guard=engine), principal=Principal(user_id="u"))
+    services = SimpleNamespace(guard=engine, validation=VALIDATION)
+    context = SimpleNamespace(services=services, principal=Principal(user_id="u"))
     return SimpleNamespace(context=context, stream_writer=written.append), written
 
 
