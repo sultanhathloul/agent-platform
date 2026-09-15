@@ -246,7 +246,7 @@ How to verify:
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
-- Status: in progress
+- Status: **done, awaiting review.** `make up`, `make test`, `make smoke` and `make eval` (three runs, all ≥ 0.85) are green.
 - Done when: `AgentState` checkpointed; assembler pipeline with budget logging and `NeedsMore`; summarizer kicks in past 8k tokens; memory write/retrieve; `/settings/memory`; `/v1/debug/context`.
 
 Scope restated (session 2026-09-15):
@@ -257,36 +257,97 @@ Scope restated (session 2026-09-15):
 5. Done = the checks above, the tests of scope item 8, `make test` green, `make smoke` green with the restart and memory-isolation checks, and `make eval` run three times with every suite ≥ 0.85.
 
 Checklist:
-- [ ] Docs first: this checklist; documentation corrections (PROGRESS service count and prompt version, README §18.1/§18.3 `build()` wording)
-- [ ] State: Postgres checkpointer (`agent` schema in database `app`), pool opened in the app lifespan; durable `ConversationOwners`; agent SQL migrations; compose/Makefile wiring for the agent and `agent-tests`
-- [ ] Tests on Postgres: a throwaway database per test session; `test_capability_isolation.py` unchanged and green; restart persistence (checkpoint, owners, memory) with a fresh service instance on the same database
-- [ ] Context Assembly: per-block budgets and drop order from `config/context.yaml`; summary, memory, retrieval and tool-result steps; `NeedsMore` → compress/escalate with one re-assembly; one helper for resolve → budget → assemble → call used by every model call site; drops logged
-- [ ] Summarizer: trigger past `summary.trigger_tokens`, `summarizer` role through Context Assembly, checkpointed `summary` and cursor, window = summary + recent messages, retracted messages skipped; trigger and non-trigger tests
-- [ ] Memory: `memory_items` and per-user settings tables, embeddings through LiteLLM (`embed` alias, mock in tests), extractor node after `persist_state` (post-guard `content` only), policy (kinds, confidence, dedupe ≥ 0.92, skip guard-flagged turns), retrieval step scoped by (tenant, user); latency on the turn span; disabled path; victim/attacker isolation test
-- [ ] Agent APIs: `GET /v1/debug/context/{turn_id}` (flag, ownership check, tests); `GET /v1/memory`, `DELETE /v1/memory/{id}`, `PUT /v1/memory/settings`
-- [ ] Gateway: memory proxy endpoints with the caller's identity, audited fail-closed (ADR-0042); tests
-- [ ] Web: `/settings/memory` (list, delete, enable/disable), header link, every string in `ar.json` and `en.json`
-- [ ] Script validation: new ADR superseding ADR-0033; allow-list in `config/`; Arabic test cases (three measured samples, pure Cyrillic); answer retry at temperature 0.0 with `answer.retry` on the span; retry succeeds / fails tests
-- [ ] Lint: capability code must not read or write another capability's `cap_state` namespace; runs in `make test`
-- [ ] Tests: `context_overflow` through `POST /v1/turns`; ownership on the debug endpoint; memory disabled path
-- [ ] Contracts: agent and gateway OpenAPI 1.2.0; `docs/openapi/*` and web types regenerated
-- [ ] Evals: 6–8 Arabic proper-noun cases in the `general` suite; scores before and after the retry; `make eval` three times
-- [ ] Smoke: second turn after `docker compose restart agent` continues the conversation; a memory row for the analyst, invisible to the viewer
-- [ ] README: new config keys; `.env.example`; three Arabic summary samples in PROGRESS; ADRs from ADR-0055
-- [ ] `make up`, `make test`, `make smoke`, `make eval` ×3 green; PROGRESS done/left/verify; human-review list
+- [x] Docs first: this checklist; documentation corrections (PROGRESS service count and prompt version, README §18.1/§18.3 `build()` wording)
+- [x] State: Postgres checkpointer (`agent` schema in database `app`), pool opened in the app lifespan; durable `ConversationOwners`; agent SQL migrations; compose/Makefile wiring for the agent and `agent-tests`
+- [x] Tests on Postgres: a throwaway database per test session; `test_capability_isolation.py` unchanged and green; restart persistence (checkpoint, owners, memory) with a fresh service instance on the same database
+- [x] Context Assembly: per-block budgets and drop order from `config/context.yaml`; summary, memory, retrieval and tool-result steps; `NeedsMore` → compress/escalate with one re-assembly; one helper for resolve → budget → assemble → call used by every model call site; drops logged
+- [x] Summarizer: trigger past `summary.trigger_tokens`, `summarizer` role through Context Assembly, checkpointed `summary` and cursor, window = summary + recent messages, retracted messages skipped; trigger and non-trigger tests
+- [x] Memory: `memory_items` and per-user settings tables, embeddings through LiteLLM (`embed` alias, mock in tests), extractor node after `persist_state` (post-guard `content` only), policy (kinds, confidence, dedupe ≥ 0.92, skip guard-flagged turns), retrieval step scoped by (tenant, user); latency on the turn span; disabled path; victim/attacker isolation test
+- [x] Agent APIs: `GET /v1/debug/context/{turn_id}` (flag, ownership check, tests); `GET /v1/memory`, `DELETE /v1/memory/{id}`, `PUT /v1/memory/settings`
+- [x] Gateway: memory proxy endpoints with the caller's identity, audited fail-closed (ADR-0042); tests
+- [x] Web: `/settings/memory` (list, delete, enable/disable), header link, every string in `ar.json` and `en.json`
+- [x] Script validation: new ADR superseding ADR-0033; allow-list in `config/`; Arabic test cases (three measured samples, pure Cyrillic); answer retry at temperature 0.0 with `answer.retry` on the span; retry succeeds / fails tests
+- [x] Lint: capability code must not read or write another capability's `cap_state` namespace; runs in `make test`
+- [x] Tests: `context_overflow` through `POST /v1/turns`; ownership on the debug endpoint; memory disabled path
+- [x] Contracts: agent and gateway OpenAPI 1.2.0; `docs/openapi/*` and web types regenerated
+- [x] Evals: 6–8 Arabic proper-noun cases in the `general` suite; scores before and after the retry; `make eval` three times
+- [x] Smoke: second turn after `docker compose restart agent` continues the conversation; a memory row for the analyst, invisible to the viewer
+- [x] README: new config keys; `.env.example`; three Arabic summary samples in PROGRESS; ADRs from ADR-0055
+- [x] `make up`, `make test`, `make smoke`, `make eval` ×3 green; PROGRESS done/left/verify; human-review list
+
+Session result (2026-09-15):
+- **`make up`:** green; the agent applied `0001_state_and_memory.sql` and the checkpointer migrations into schema `agent` of database `app`.
+- **`make test`:** green (exit 0). Agent 218 passed (142 before), on the Postgres checkpointer in a throwaway database, `test_capability_isolation.py` unchanged. Gateway image `test` stage BUILD SUCCESSFUL (63 tests, 10 of them the new `MemoryProxyTest`) plus 5 `gateway-db-tests`. Web 56 passed across 5 files, with typecheck and lint.
+- **`make smoke`:** green, all phase 01 checks plus the phase 02 checks: a second turn after `docker compose restart agent` continues the conversation at turn 2; a memory row is written for the analyst ("المستخدم يفضل أن تكون الإجابات مختصرة."), the viewer's `GET /v1/memory` does not contain it, the viewer's `DELETE` of it is 404 `memory_not_found`, the row is still stored, and the refused delete is audited as `denied`. Two smoke fixes on the way: the block-count check now selects the answer node's package by name (the memory writer assembles one too), and the Langfuse wait also waits for the trace's session id, because the root span now ends after the memory write.
+- **`make eval`:** the `general` suite has 28 cases (21 Arabic, 8 of them new proper-noun cases). Threshold 0.85.
+  - Retry off (`retry.attempts: 0`), one run: **24/28 (0.86)**. Failures, all `validation_failed` by the new script rule: `general-ar-currency` (`mixed_script_token`, the `الريyal` class), `general-ar-sunrise`, `general-ar-portugal-capital`, `general-ar-shakespeare` (`disallowed_script` / `mixed_script_token`). Dataset run `make-eval-20260915T121945Z`.
+  - Retry on, three consecutive runs: **25/28 (0.89), 24/28 (0.86), 24/28 (0.86)**. Failures: currency, sunrise and Shakespeare in every run, Portugal in runs 2 and 3; all `validation_failed`. Dataset runs `make-eval-20260915T122104Z`, `…122145Z`, `…122224Z`.
+  - Langfuse over the three retry runs: 84 answers, 11 retried (`answer.retry = true`), **0 retries passed**. At temperature 0.0 on the same package the `standard` model reproduces its drift, so the retry costs a second call and rarely changes the outcome; the one extra pass in run 1 is Portugal not drifting on the first attempt. What the new rule changes is that these answers are now withheld instead of shown as `الريyal`. Options for the owner: a retry one tier up (validation escalation, phase 08), or a retry that tells the model which token failed.
+  - Analyst memory rows before each run: 4, 16, 18, 19; memory retrieved into these answers is part of what the answer model sees.
+- **Summary samples** for ADR-0030 are below.
+
+Measurement material for ADR-0030 (the `fast` model on helper-role work), recorded 2026-09-15:
+
+Rolling summary, `summarizer.system@1.0.0` + `summarizer.request@1.0.0`, `fast` tier (`qwen2.5:3b`), temperature 0.0. Each sample folds a ten-message Arabic conversation through `prepare_call` → `call_model` inside the running agent, the exact request `assemble_context` builds (harness: a scratch script run with `docker compose exec -T agent python -`; the conversations are an education dashboard project, a passport renewal and a diabetes awareness campaign). Verbatim:
+
+1. Education dashboard (844 tokens in, 124 out):
+   > أقترح البدء بمؤشرات: متوسط الدرجات لكل منطقة، نسبة الطلاب فوق مستوى الإتقان (مع تعديل معيار 2023 إلى 65)، الفجوة بين البنين والبنات، والتغير عن العام الماضي. سيتم حساب الأعوام السابقة بمعيار 65. الموعد المستهدف لإطلاق النسخة الأولى نهاية نوفمبر. قررنا استخدام أداة جاهزة أو بناء اللوحة داخليًا، وسنقيم التكلفة والمتطلبات قبل اتخاذ القرار.
+2. Passport renewal (775 tokens in, 70 out):
+   > تم تجديد جواز السفري هذا الأسبوع. موعد تجديد جواز ابنك في فرع النرجس يوم 12 نوفمبر، مع اختيار مدة خمس سنوات. زوجتك لا تحتاج إلى تجديد جوازها حالياً، فهو صالح حتى 2027.
+3. Diabetes campaign (814 tokens in, 170 out):
+   > تم تصميم حملة توعية بمرض السكري للفئة العمرية من 35 إلى 60 عامًا في الأحساء على ثلاثة محاور: الفحص المبكر، والتثقيف بالتغذية والنشاط البدني، ومتابعة الحالات. تم تحديد 10 آلاف فحص و12 مركزًا صحيًا مشاركًا مع تركيز على الأسواق العامة وأماكن العمل. المؤشرات الرئيسية للنجاح: عدد المفحوصين، نسبة اكتشاف ما قبل السكري، ونسبة حضور المتابعة، وتغير المعرفة بالمرض. سيتم تقييم الحملة من خلال فريق التسويق الداخلي أو التعاقد مع شركة إعلام خارجية.
+
+Observed errors, for the helper-role suite: sample 1 writes in the assistant's voice ("أقترح") and states an open choice as decided ("قررنا استخدام أداة جاهزة أو بناء…"); sample 2 turns a planned renewal into a done one ("تم تجديد") with a grammar slip ("جواز السفري") and switches person ("ابنك", "زوجتك"); sample 3 renames "فريق التواصل" to "فريق التسويق" and presents the open media decision as how the campaign "will be evaluated". The numbers, dates and names are all kept.
+
+Memory extraction, `memory.extractor@1.0.0`, `fast`, temperature 0.0, four Arabic exchanges (smoke message; a general question only; a preference only; a project), before the ADR-0064 filters and after:
+- Prompt without examples: `[]` for the smoke message, which states a role and a preference.
+- Prompt with two examples: the smoke message extracted correctly; the general question produced an inferred fact ("المستخدم يرغب في الحصول على معلومة تاريخية حول عاصمة بلد معين"); the preference became "المستخدم معرف بجامعة الملك سعود"; the project drifted into mixed script ("ي.work على مشروع…"). A later run returned the answer itself as a fact ("عاصمة البرتغال هي لشبونة.").
+- Final prompt (three examples, "ابدأ كل text بكلمة «المستخدم»") with the filters: smoke → both items kept; general question → the model copied example 2 ("المستخدم يرغب في الإجابات بلغة بسيطة."), dropped as ungrounded; preference → kept with the wrong kind (`fact_about_user`); project → the project kept, plus a marginal "المستخدم يركز على المؤشرات المناسبة لمشروعه." (grounded in the question's words).
 
 Tech debt carried from the PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
 - [ ] Replace snapshot tests with behaviour tests. These assert config and prompt values and are edited in lockstep with every config change: `services/agent/app/capabilities/general/tests/test_general.py::test_manifest_is_valid`, `services/agent/tests/unit/test_models.py` (`test_repo_models_config_pins_helper_roles_to_fast`, `test_repo_models_config_makes_helper_roles_deterministic`), `services/agent/tests/unit/test_prompts.py::test_answer_prompt_renders_arabic_without_optional_sections`, and the `prompt_refs` version assertions in `services/agent/tests/unit/test_assembler.py`.
 - [ ] Cover the untested paths:
-  - `validation_failed`, `context_overflow` and `model_unavailable` through the API (`POST /v1/turns`), not only at node level.
-  - A capability that exceeds `limits.timeout_s` (`app/graph/nodes/capabilities.py`).
-  - `cap_state` isolation between two capabilities in one turn.
-  - Client disconnect mid-turn (`app/api/runner.py` task cancellation).
-- [ ] Add the lint rule README §18.4 requires: a capability must not read or write another capability's `cap_state` namespace. Today only the runtime slice exists.
+  - [x] `context_overflow` through the API (`POST /v1/turns`): `tests/integration/test_context_turns.py` (phase 02).
+  - [ ] `validation_failed` and `model_unavailable` through `POST /v1/turns`. `validation_failed` is now exercised through `TurnRunner` by `tests/integration/test_answer_retry.py`, not over HTTP.
+  - [ ] A capability that exceeds `limits.timeout_s` (`app/graph/nodes/capabilities.py`). Out of scope for phase 02.
+  - [ ] `cap_state` isolation between two capabilities in one turn (runtime). Out of scope for phase 02.
+  - [ ] Client disconnect mid-turn (`app/api/runner.py` task cancellation). Out of scope for phase 02.
+- [x] Add the lint rule README §18.4 requires: a capability must not read or write another capability's `cap_state` namespace (`tests/unit/test_cap_state_lint.py`, ADR-0062).
 
 Tech debt carried from the second PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
 - [ ] Residual risk 7: `GET /v1/debug/context/{turn_id}` (phase 02) and `POST /v1/turns/{id}/approve` (phase 08) must each perform the conversation ownership check themselves. Both reach a thread without running `load_identity_and_state` (a debug read, and a resume from an interrupt in the middle of the graph), and neither goes through the turn runner's binding (ADR-0050).
-- [ ] `ConversationOwners` (ADR-0050) is in memory, like the phase 01 checkpointer; make it durable in Postgres together with the checkpointer, so a restart keeps both.
+  - [x] `GET /v1/debug/context/{turn_id}` checks ownership itself (ADR-0059; `test_the_debug_endpoint_returns_a_turns_packages_to_its_owner_only`).
+  - [ ] `POST /v1/turns/{id}/approve`: phase 08.
+- [x] `ConversationOwners` (ADR-0050) is durable in Postgres beside the checkpointer (ADR-0055); `tests/integration/test_restart.py` and the smoke restart check.
+
+Tech debt recorded in phase 02 (2026-09-15; not implemented, by instruction or out of scope):
+- [ ] Guards on memory content (phase 03): the DATA checkpoint over memory text and PII categories. Today PII is kept out only by the extractor prompt (ADR-0058).
+- [ ] Asynchronous memory writing (phase 09): `write_memory` is a synchronous node, so a turn's `done` waits for one `fast` call and up to `max_items_per_turn + 1` embeddings.
+- [ ] Quantization experiment on the `standard` model: the owner runs it after merge.
+- [ ] Extraction precision on `fast`: the ADR-0064 filters stop inferred facts, restated answers and drifted script, but not a question restated as a fact about the user. The live stack stored "المستخدم يسأل عن أكبر مدن المملكة العربية السعودية من حيث عدد السكان." for the analyst. Material for ADR-0030's helper-role suite.
+- [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059).
+- [ ] `memory_items.embedding` has no ANN index; retrieval scans one user's items (ADR-0058).
+- [ ] A memory extracted from a reply that is retracted afterwards stays until its user deletes it; a reply retracted after it was folded stays in the summary (ADR-0057, ADR-0058).
+- [ ] README §7 still describes the debug endpoint as admin-only; the agent endpoint is owner-only until the gateway proxy exists (ADR-0059). README text left unchanged, by instruction.
+
+Human review needed (phase 02):
+- `config/context.yaml`: block budgets, `drop_order`, the `compress` pass, `summary.trigger_tokens`, the three core nodes (ADR-0056, ADR-0057).
+- `config/memory.yaml`: `enabled_by_default: true`, `min_confidence`, `dedupe_similarity`, `min_similarity: 0.5`, `min_grounding`, `grounding_ignore`, `subject_words` (ADR-0058, ADR-0064).
+- `config/validation.yaml`: the Arabic script policy and the retry (ADR-0060, ADR-0061).
+- `config/prompts/**` (all 1.0.0): `context.summary`, `context.memory`, `context.retrieval`, `context.tool_result`, `summarizer.system`, `summarizer.request`, `memory.extractor`, `memory.extract_request`, in ar and en.
+- `config/messages/errors.yaml`: `not_found`, `memory_not_found`; the gateway's `messages_{ar,en}.properties` and the web catalogs gain `memory_not_found` and the `memory.*` strings.
+- `services/agent/app/db/migrations/0001_state_and_memory.sql`: the `agent` schema tables.
+- `docker-compose.yml`: the agent's `DATABASE_URL` and `DEBUG_CONTEXT_ENABLED`; `agent-tests` connects as the Postgres superuser to create a throwaway database. `.env.example`: `DEBUG_CONTEXT_ENABLED`.
+- `infra/litellm/config.mock.yaml`: the `embed` mock and the `fast` mock answer (a memory extraction).
+- `services/agent/app/capabilities/general/evals/general.jsonl`: the eight proper-noun cases and their ground truths.
+- `Makefile`: `make test` starts Postgres for the agent tests; `make openapi` mounts `config/models.yaml` for the gateway export (it failed without it since ADR-0046).
+
+How to verify (phase 02):
+- `make up && make test && make smoke && make eval`
+- Agent tests alone, against the compose Postgres and mock LiteLLM: `make test-agent`
+- Restart persistence by hand: a turn in the web UI, `docker compose restart agent`, a second turn in the same conversation.
+- Memory: http://localhost:3000/settings/memory as `analyst` after a turn that states a preference ("أفضّل أن تكون الإجابات مختصرة"); `viewer` sees none of it.
+- Debug context: set `DEBUG_CONTEXT_ENABLED=true` in `.env`, `docker compose up -d agent`, then `GET /v1/debug/context/{turn_id}` on the agent with `X-Internal-Token`, `X-User-Id` and `X-Tenant-Id` of the conversation's owner.
 
 ## Phase 03: Guardrails engine
 
