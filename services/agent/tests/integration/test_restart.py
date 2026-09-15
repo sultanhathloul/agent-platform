@@ -17,9 +17,9 @@ pytestmark = pytest.mark.integration
 
 async def test_checkpoint_owners_and_memory_survive_a_restart(services, litellm):
     owner = Principal(user_id=f"u-{uuid.uuid4().hex[:8]}", permissions=("cap:general",))
-    first = TurnRequest(
-        conversation_id=str(uuid.uuid4()), principal=owner, message="ما عاصمة المملكة؟", locale="ar"
-    )
+    # The message holds the words of the mock extraction, so the item is grounded and stored (ADR-0064).
+    message = "أفضّل الإجابات المختصرة. ما عاصمة المملكة؟"
+    first = TurnRequest(conversation_id=str(uuid.uuid4()), principal=owner, message=message, locale="ar")
     assert [e.type async for e in TurnRunner(services).stream(first, "req-before")][-1] == "done"
     remembered = [item.id for item in await services.memory.store.list_items(MemoryScope.of(owner))]
     assert remembered

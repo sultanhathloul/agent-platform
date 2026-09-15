@@ -7,3 +7,10 @@ dedupe_similarity: 0.92       # a candidate at least this similar to a stored it
 min_similarity: 0.5           # retrieval ignores items less similar than this to the message
 max_text_chars: 500
 ttl_days: null                # null: an item stays until its user deletes it
+# A candidate is kept only when at least this share of its content words (3+ letters,
+# Arabic-normalized, light clitics stripped) appears in the user's own message, so the
+# extractor cannot store what it inferred from the topic of a question (ADR-0064).
+min_grounding: 0.5
+grounding_ignore: [المستخدم, user, the, and]   # words the extractor's phrasing adds to every candidate
+# A candidate must name its subject: memory is about the user, not about the topic asked (ADR-0064).
+subject_words: [المستخدم, user]

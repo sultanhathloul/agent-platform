@@ -31,6 +31,21 @@ def normalize(text: str, *, keep_diacritics: bool = False) -> str:
     return _WHITESPACE.sub(" ", text).strip()
 
 
+# Proclitic combinations light stemming strips, longest first: conjunctions, prepositions, the article.
+_PROCLITICS = ("وبال", "وال", "بال", "كال", "فال", "لل", "ال", "و", "ب", "ل", "ف", "ك")
+
+
+def light_stems(word: str) -> set[str]:
+    """The normalized word, and what remains after stripping one proclitic combination
+    (و، ب، ل، ف، ك، ال) when at least three letters are left. No suffixes, no roots."""
+    word = normalize(word)
+    stems = {word}
+    for prefix in _PROCLITICS:
+        if word.startswith(prefix) and len(word) - len(prefix) >= 3:
+            stems.add(word[len(prefix) :])
+    return stems
+
+
 def contains_keyword(text: str, keyword: str) -> bool:
     """Substring match on normalized forms, so Arabic prefixes (ال، و، ب) still match."""
     needle = normalize(keyword)

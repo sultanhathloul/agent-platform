@@ -20,6 +20,9 @@ class MemoryConfig(BaseModel):
     min_similarity: float = Field(ge=-1, le=1)
     max_text_chars: int = Field(gt=0)
     ttl_days: int | None = Field(default=None, gt=0)
+    min_grounding: float = Field(ge=0, le=1)
+    grounding_ignore: list[str] = []
+    subject_words: list[str] = []
 
     @model_validator(mode="after")
     def _known_kinds(self) -> "MemoryConfig":

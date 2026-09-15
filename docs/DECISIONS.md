@@ -574,3 +574,15 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: ADR-0046 kept 1.1.0 while its changes had not left the unmerged PR #1. PR #1 is merged, so 1.1.0 is published and phase 02's additions need a new version.
 - Decision: Agent OpenAPI 1.2.0 adds `GET /v1/memory`, `DELETE /v1/memory/{item_id}`, `PUT /v1/memory/settings` and `GET /v1/debug/context/{turn_id}`; gateway OpenAPI 1.2.0 adds the three memory endpoints and the `memory_not_found` code. Every change is additive, so the URL prefix stays `/v1`. `docs/openapi/*` and the web's generated types are regenerated; `docs/events.schema.json` is unchanged (`events.v1`).
 - Consequences: The drift tests (ADR-0044) pin both documents at 1.2.0.
+
+### ADR-0064: A memory candidate must name the user, be grounded in the user's message and keep to the locale's scripts
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: ADR-0058 keeps candidates by kind, confidence and similarity. Probed on the live stack with four exchanges (PROGRESS), the `fast` extractor (temperature 0) answered `[]` even for an explicit role and preference until the prompt carried worked examples. With examples it extracted the smoke message, but it also produced an inferred fact for a pure general-knowledge question ("المستخدم يرغب في الحصول على معلومة تاريخية حول عاصمة بلد معين"), later the answer itself as a fact ("عاصمة البرتغال هي لشبونة."), turned a formatting preference into "المستخدم معرف بجامعة الملك سعود", and drifted into mixed script ("ي.work على مشروع…"). Every stored item is retrieved into later answers. README §2 keeps the policy over what is worth remembering in our code.
+- Decision: `parse_candidates` keeps a candidate only when, in addition to ADR-0058's rules:
+  - its text names its subject, one of `subject_words` (`المستخدم`, `user`): memory is about the user, not about the topic asked;
+  - its text passes the conversation locale's script policy (`config/validation.yaml`, ADR-0060);
+  - at least `min_grounding` (0.5) of its content words appear in the user's own message of that exchange. Content words have at least three letters, are compared after Arabic normalization with light proclitics (`و`, `ب`, `ل`, `ف`, `ك`, `ال` and their combinations) stripped, and exclude `grounding_ignore`, the words the extractor's phrasing adds to every candidate. The light stemmer lives in `app/text/arabic.py` beside normalization, for the phase 03 keyword checker too.
+  The extractor prompt carries three worked examples (facts, a preference only, a question only), asks that every text start with "المستخدم" / "The user", and that a question alone yield `[]`.
+- Consequences: Inferences, restated answers and drifted text are not stored; a faithful paraphrase whose verbs change person (`أعمل` → `يعمل`) still passes on its nouns. A candidate about the user's project that does not name the user is dropped, a false negative accepted over a false memory. A misattribution built from the user's own words can still pass; that is extractor capacity, recorded as material for ADR-0030. Tests whose mock extraction must be stored send a message containing its words.

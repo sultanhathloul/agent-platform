@@ -62,7 +62,12 @@ async def _write(state: AgentState, ctx: TurnContext) -> tuple[str, int, int]:
         window_messages=len(exchange),
     )
     result = await call_model(ctx, await prepare_call(ctx, request, role="extractor"))
-    candidates = parse_candidates(result.text, memory.config)
+    candidates = parse_candidates(
+        result.text,
+        memory.config,
+        source=exchange[0]["content"],
+        scripts=ctx.services.validation.scripts_for(state["locale"]),
+    )
     stored = await memory.writer.store_candidates(scope, candidates, source_turn=ctx.turn_id)
     span = trace.get_current_span()
     span.set_attribute("memory.candidates", len(candidates))
