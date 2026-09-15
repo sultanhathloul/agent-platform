@@ -1,0 +1,9 @@
+# Long-term memory (README §8, ADR-0058). What is worth remembering is policy, so it lives here.
+enabled_by_default: true      # a user who never changed the switch has memory on
+kinds: [preference, fact_about_user, project_context, decision]
+min_confidence: 0.6           # candidates the extractor is less sure of are not stored
+max_items_per_turn: 3
+dedupe_similarity: 0.92       # a candidate at least this similar to a stored item is not stored again
+min_similarity: 0.5           # retrieval ignores items less similar than this to the message
+max_text_chars: 500
+ttl_days: null                # null: an item stays until its user deletes it

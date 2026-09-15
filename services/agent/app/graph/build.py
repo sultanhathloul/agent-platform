@@ -11,6 +11,7 @@ from app.graph.nodes.assemble import assemble_context
 from app.graph.nodes.capabilities import run_capabilities
 from app.graph.nodes.guard import guard_data, guard_input, guard_output, guard_tool_list
 from app.graph.nodes.identity import load_identity_and_state
+from app.graph.nodes.memory import write_memory
 from app.graph.nodes.persist import persist_state
 from app.graph.nodes.route import route
 from app.graph.nodes.validate import validate
@@ -28,6 +29,7 @@ PIPELINE = [
     ("guard_output", guard_output),  # checkpoint 5
     ("guard_data", guard_data),  # checkpoint 6
     ("persist_state", persist_state),
+    ("write_memory", write_memory),  # synchronous in phase 02 (ADR-0058)
 ]
 
 
