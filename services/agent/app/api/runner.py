@@ -54,6 +54,11 @@ class TurnRunner:
 
         return read
 
+    async def owner_of(self, conversation_id: str) -> Owner | None:
+        """The conversation's owner without binding anyone. Endpoints that reach a thread
+        outside a turn check it themselves (ADR-0048, ADR-0059)."""
+        return await self.services.owners.owner_of(conversation_id, self._stored_owner(conversation_id))
+
     async def retract(
         self, conversation_id: str, turn_id: str, principal: Principal, reason: str
     ) -> RetractOutcome:
@@ -67,7 +72,7 @@ class TurnRunner:
             span.set_attribute("conversation_id", conversation_id)
             span.set_attribute("turn_id", turn_id)
             span.set_attribute("retract.reason", reason)
-            owner = await self.services.owners.owner_of(conversation_id, self._stored_owner(conversation_id))
+            owner = await self.owner_of(conversation_id)
             if owner is None:
                 return "not_found"
             if owner != Owner(principal.user_id, principal.tenant_id):
@@ -81,8 +86,9 @@ class TurnRunner:
                     marked = message.model_copy(
                         update={"additional_kwargs": {**kwargs, "retracted": True, "retract_reason": reason}}
                     )
-                    # Same message id: add_messages replaces the reply in place.
-                    await graph.aupdate_state(config, {"messages": [marked]}, as_node="persist_state")
+                    # Same message id: add_messages replaces the reply in place. As the graph's
+                    # last node, so the thread is left with no pending task.
+                    await graph.aupdate_state(config, {"messages": [marked]}, as_node="write_memory")
                 return "retracted"
             return "not_found"
 
@@ -105,7 +111,13 @@ class TurnRunner:
     async def _run(self, req: TurnRequest, request_id: str, turn_id: str, parent, emit, queue) -> None:
         settings = self.services.settings
         principal = req.principal
-        ctx = TurnContext(services=self.services, principal=principal, request_id=request_id, turn_id=turn_id)
+        ctx = TurnContext(
+            services=self.services,
+            principal=principal,
+            request_id=request_id,
+            turn_id=turn_id,
+            conversation_id=req.conversation_id,
+        )
         graph_input = {
             "conversation_id": req.conversation_id,
             "user_message": req.message,
@@ -146,6 +158,9 @@ class TurnRunner:
                         emit(chunk["type"], chunk["data"])
                     else:
                         final = chunk
+                # e.g. memory.write_ms: the synchronous memory write's latency (ADR-0058)
+                for name, milliseconds in ctx.timings.items():
+                    span.set_attribute(name, milliseconds)
                 done = DoneData(
                     answer=final["draft_answer"],
                     citations=final.get("citations") or [],

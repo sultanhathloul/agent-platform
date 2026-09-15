@@ -66,7 +66,9 @@ class Database:
                     f"CREATE TABLE IF NOT EXISTS {SCHEMA}.schema_migrations ("
                     "version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
                 )
-                rows = await (await conn.execute(f"SELECT version FROM {SCHEMA}.schema_migrations")).fetchall()
+                rows = await (
+                    await conn.execute(f"SELECT version FROM {SCHEMA}.schema_migrations")
+                ).fetchall()
                 applied = {row["version"] for row in rows}
                 for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
                     if path.stem in applied:

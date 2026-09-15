@@ -16,11 +16,11 @@ from pathlib import Path
 import httpx
 import psycopg
 import pytest
-from psycopg.conninfo import make_conninfo
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from psycopg.conninfo import make_conninfo
 
 from app.settings import Settings, _default_config_dir
 
