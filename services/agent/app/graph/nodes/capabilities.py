@@ -41,14 +41,14 @@ from app.capabilities.contract import (
     RuntimeContext,
 )
 from app.capabilities.registry import LoadedCapability
-from app.context.budget import NeedsMore
 from app.context.package import AssemblyRequest, Block, BlockName, ContextPackage
 from app.errors import TurnError
+from app.graph import calls
 from app.graph.deps import TurnContext
 from app.graph.nodes import emit, traced
 from app.graph.state import AgentState
-from app.models.gateway import ModelResult, ModelUnavailable
-from app.models.routing import TierDecision
+from app.memory.types import MemoryScope
+from app.models.gateway import ModelResult
 from app.observability.otel import tracer
 from app.tools.spec import ToolResult
 
@@ -69,12 +69,15 @@ class CapabilityFailed(Exception):
         self.reason = reason
         self.retryable = retryable
 
+
 # The AgentState keys each block's step reads. A capability's assembly request
 # carries only the keys its `context.needs` names; never `cap_state`, identity,
-# permissions or other capabilities' outputs.
+# permissions or other capabilities' outputs. The memory block reads no state:
+# its scope is the principal, set below (ADR-0047, ADR-0058).
 _STATE_KEYS_BY_BLOCK: dict[BlockName, tuple[str, ...]] = {
     "state_digest": ("selected_kbs", "decisions", "open_threads", "artifacts"),
-    "window": ("messages",),
+    "summary": ("summary",),
+    "window": ("messages", "summary_cursor"),
 }
 
 
@@ -82,7 +85,7 @@ def _state_for(needs: Sequence[BlockName], state: AgentState) -> dict[str, Any]:
     view: dict[str, Any] = {"user_message": state["user_message"]}
     for block in needs:
         for key in _STATE_KEYS_BY_BLOCK.get(block, ()):
-            view[key] = copy.deepcopy(state.get(key) or [])
+            view[key] = copy.deepcopy(state.get(key))
     return view
 
 
@@ -101,23 +104,23 @@ def _request_for(cap: LoadedCapability, state: AgentState, ctx: TurnContext) -> 
             for spec in cap.tools
             if ctx.principal.has(spec.required_permission)
         ],
+        memory_scope=MemoryScope.of(ctx.principal) if "memory" in manifest.context.needs else None,
     )
 
 
-async def _assemble(
-    cap: LoadedCapability, request: AssemblyRequest, decision: TierDecision, ctx: TurnContext
-) -> ContextPackage:
-    """Assembles for the tier the resolver chose, within the manifest's input cap."""
-    services = ctx.services
-    budget = services.assembler.budget(
-        decision.final,
-        services.models_config.tiers[decision.final],
+async def _prepare(
+    cap: LoadedCapability, request: AssemblyRequest, ctx: TurnContext, *, role: str, step: str | None = None
+) -> calls.PreparedCall:
+    """Assembled for the tier (role, step) resolves to against this manifest, within
+    its input cap, on the one model-call path (ADR-0056)."""
+    return await calls.prepare_call(
+        ctx,
+        request,
+        role=role,
+        step=step,
+        capabilities=[cap],
         max_input=cap.manifest.context.max_input_tokens,
     )
-    package = await services.assembler.assemble(request, budget)
-    if isinstance(package, NeedsMore):
-        raise TurnError("context_overflow")
-    return package
 
 
 def _detached(package: ContextPackage) -> ContextPackage:
@@ -145,24 +148,11 @@ def _model_caller(
         role: str, *, step: str | None = None, extra_blocks: Sequence[Block] = ()
     ) -> ModelResult:
         request = base.model_copy(update={"findings": _findings(cap, extra_blocks)})
-        services = ctx.services
-        decision = await services.resolver.resolve(
-            role, step=step, capabilities=[cap.model_spec()], principal=ctx.principal
-        )
-        emit(
-            runtime,
-            "tier",
-            {"role": decision.role, "step": decision.step, "tier": decision.final, "reason": decision.reason},
-        )
         # Assembled for the tier this (role, step) resolved to, so a step override
         # gets a package that fits it and passes the gateway's tier check.
-        package = await _assemble(cap, request, decision, ctx)
-        try:
-            result = await services.gateway.call(decision, package)
-        except ModelUnavailable as exc:
-            raise TurnError("model_unavailable", retryable=True, detail=str(exc)) from exc
-        ctx.usage.add(result.tokens_in, result.tokens_out)
-        return result
+        prepared = await _prepare(cap, request, ctx, role=role, step=step)
+        emit(runtime, "tier", calls.tier_event(prepared.decision))
+        return await calls.call_model(ctx, prepared)
 
     return call_model
 
@@ -317,13 +307,11 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
             request = _request_for(cap, state, ctx)
             # The input package goes through the resolver at the capability's floor
             # (no step) and gets that tier's real budget.
-            decision = await services.resolver.resolve(
-                "reasoning", capabilities=[cap.model_spec()], principal=ctx.principal
-            )
+            prepared = await _prepare(cap, request, ctx, role="reasoning")
             own_state = cap_state.get(manifest.state_namespace) or {}
             cap_input = CapabilityInput(
                 message=state["user_message"],
-                context=_detached(await _assemble(cap, request, decision, ctx)),
+                context=_detached(prepared.package),
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 attachments=copy.deepcopy(list(state.get("attachments") or [])),

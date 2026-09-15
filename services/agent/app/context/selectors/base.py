@@ -1,18 +1,31 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Protocol
 
 from app.context.budget import Budget, NeedsMore
-from app.context.package import PROTECTED_BLOCKS, AssemblyRequest, Block, BlockName, ContextPackage
+from app.context.config import BlockBudget, ContextConfig
+from app.context.package import PROTECTED_BLOCKS, AssemblyRequest, Block, BlockName, ContextPackage, Drop
 from app.context.tokens import TokenCounter
+from app.memory.types import MemoryHit, MemoryScope
 from app.models.prompts import PromptLibrary
+
+log = logging.getLogger(__name__)
+
+
+class MemoryReader(Protocol):
+    """Top-k memory items of one (tenant, user) by similarity to `query` (README §8).
+    Returns nothing when that user's memory is disabled."""
+
+    async def retrieve(self, scope: MemoryScope, query: str, top_k: int) -> list[MemoryHit]: ...
 
 
 @dataclass(frozen=True)
 class StepDeps:
     prompts: PromptLibrary
     counter: TokenCounter
-    window_messages: int
+    config: ContextConfig
+    memory: MemoryReader | None = None
 
 
 class Step(ABC):
@@ -37,6 +50,14 @@ class Step(ABC):
         return Block(
             name=name, role=role, content=content, tokens=self.deps.counter.count(content), meta=meta
         )
+
+    def budget_for(self, package: ContextPackage, block: BlockName | None = None) -> BlockBudget:
+        return self.deps.config.block_budget(package.node, block or self.block)
+
+    def drop(self, package: ContextPackage, block: BlockName, tokens: int, reason: str) -> None:
+        """Every cut is recorded on the package (and so on the span) and logged (README §7 step 9)."""
+        package.drops.append(Drop(block=block, tokens=tokens, reason=reason))
+        log.info("context drop node=%s block=%s tokens=%d reason=%s", package.node, block, tokens, reason)
 
     @abstractmethod
     async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage | NeedsMore: ...

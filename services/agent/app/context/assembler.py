@@ -2,57 +2,39 @@
 ContextPackage with per-block token accounting, logged on the
 `context.assemble` span.
 
-Phase 01 ships the minimal pipeline behind the full interface (ADR-0009);
-phase 02 adds summary, memory and the NeedsMore → compress/escalate decision.
-"""
-
-from pathlib import Path
-
-import yaml
-from pydantic import BaseModel, ConfigDict, model_validator
+The pipeline, per-block budgets, drop order and compress pass come from
+config/context.yaml (ADR-0056). A package that cannot fit is returned as
+NeedsMore; the caller resolves it as compress or escalate, once
+(app/graph/calls.py)."""
 
 from app.context.budget import Budget, NeedsMore
-from app.context.package import AssemblyRequest, BlockName, ContextPackage
-from app.context.selectors import STEPS, StepDeps
+from app.context.config import ContextConfig, NodeContext, load_context_config
+from app.context.package import AssemblyRequest, ContextPackage
+from app.context.selectors import STEPS, MemoryReader, StepDeps
 from app.context.tokens import TokenCounter
 from app.models.config import TierSpec
 from app.models.prompts import PromptLibrary
 from app.observability.langfuse import set_metadata
 from app.observability.otel import tracer
 
-
-class NodeContext(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    system_prompt: str
-    needs: list[BlockName]
-
-
-class ContextConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    pipeline: list[str]
-    window_messages: int
-    reserved_loop_headroom_tokens: int
-    nodes: dict[str, NodeContext]
-
-    @model_validator(mode="after")
-    def _known_steps(self) -> "ContextConfig":
-        unknown = [name for name in self.pipeline if name not in STEPS]
-        if unknown:
-            raise ValueError(f"unknown context steps: {unknown}; known: {sorted(STEPS)}")
-        return self
-
-
-def load_context_config(config_dir: Path) -> ContextConfig:
-    raw = yaml.safe_load((config_dir / "context.yaml").read_text(encoding="utf-8"))
-    return ContextConfig.model_validate(raw)
+__all__ = ["ContextAssembler", "ContextConfig", "NodeContext", "load_context_config"]
 
 
 class ContextAssembler:
-    def __init__(self, config: ContextConfig, prompts: PromptLibrary, counter: TokenCounter):
+    def __init__(
+        self,
+        config: ContextConfig,
+        prompts: PromptLibrary,
+        counter: TokenCounter,
+        *,
+        memory: MemoryReader | None = None,
+    ):
+        unknown = [name for name in config.pipeline if name not in STEPS]
+        if unknown:
+            raise ValueError(f"unknown context steps: {unknown}; known: {sorted(STEPS)}")
         self.config = config
-        deps = StepDeps(prompts=prompts, counter=counter, window_messages=config.window_messages)
+        self.counter = counter
+        deps = StepDeps(prompts=prompts, counter=counter, config=config, memory=memory)
         self.steps = [STEPS[name](deps) for name in config.pipeline]
 
     def node(self, name: str) -> NodeContext:
@@ -70,6 +52,7 @@ class ContextAssembler:
                 tier=budget.tier,
                 locale=request.locale,
                 budget_limit=budget.limit,
+                compressed=request.compress,
                 request=request,
             )
             for step in self.steps:
@@ -89,6 +72,7 @@ def _record(span, package: ContextPackage, deficit: int | None = None) -> None:
     span.set_attribute("context.node", package.node)
     span.set_attribute("context.tier", package.tier)
     span.set_attribute("context.budget_limit", package.budget_limit)
+    span.set_attribute("context.compressed", package.compressed)
     span.set_attribute("context.total_tokens", accounting["total_tokens"])
     for block in accounting["blocks"]:
         span.set_attribute(f"context.block.{block['name']}.tokens", block["tokens"])

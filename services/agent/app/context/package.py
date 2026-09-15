@@ -4,6 +4,8 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.memory.types import MemoryScope
+
 BlockName = Literal[
     "system",
     "state_digest",
@@ -47,11 +49,30 @@ class AssemblyRequest(BaseModel):
     system_prompt: str | None = Field(
         default=None, description="Prompt id of the system block; None when the node needs no system block."
     )
+    user_prompt: str | None = Field(
+        default=None,
+        description="Prompt id rendered as the user block in place of state.user_message (helper nodes).",
+    )
     locale: str
     state: dict[str, Any]
     tools: list[str] = Field(default=[], description="Descriptions of permitted tools this node may use.")
     findings: list[dict[str, str]] = Field(default=[], description="[{capability, findings}] from this turn.")
+    retrieved: list[dict[str, Any]] = Field(
+        default=[], description="Chunks {id, source, score, text, kb?, locator?} for docs, kb and sql nodes."
+    )
+    tool_results: list[dict[str, Any]] = Field(
+        default=[], description="This turn's tool results {tool, content, sources?}, already sanitized."
+    )
     policy_hints: list[str] = []
+    memory_scope: MemoryScope | None = Field(
+        default=None, description="Whose memory the memory step reads; set by core code from the principal."
+    )
+    window_messages: int | None = Field(
+        default=None, ge=0, description="Overrides the configured window size for this request."
+    )
+    compress: bool = Field(
+        default=False, description="The harder pass after NeedsMore resolved to compress (README §19.3)."
+    )
 
 
 class ContextPackage(BaseModel):
@@ -61,6 +82,7 @@ class ContextPackage(BaseModel):
     tier: str
     locale: str
     budget_limit: int
+    compressed: bool = False
     blocks: list[Block] = []
     drops: list[Drop] = []
     prompt_refs: list[str] = []
@@ -84,6 +106,7 @@ class ContextPackage(BaseModel):
             "node": self.node,
             "tier": self.tier,
             "budget_limit": self.budget_limit,
+            "compressed": self.compressed,
             "total_tokens": self.total_tokens(),
             "blocks": [
                 {"name": name, "tokens": tokens, "count": counts[name]}

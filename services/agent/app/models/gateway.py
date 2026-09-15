@@ -50,14 +50,18 @@ class ModelGateway:
         context: ContextPackage,
         *,
         on_token: Callable[[str], None] | None = None,
+        temperature: float | None = None,
     ) -> ModelResult:
+        """`temperature` overrides the role's only for a retry whose temperature comes
+        from config/validation.yaml (ADR-0061); no call site passes a literal."""
         if context.tier != decision.final:
             raise ValueError(
                 f"context was assembled for tier {context.tier}, call resolved to {decision.final}"
             )
         tier = self._config.tiers[decision.final]
         # Decoding temperature belongs to the role, not to the call site (ADR-0032).
-        temperature = self._config.temperature[decision.role]
+        if temperature is None:
+            temperature = self._config.temperature[decision.role]
         messages = context.to_messages()
 
         with tracer.start_as_current_span("model.call") as span:

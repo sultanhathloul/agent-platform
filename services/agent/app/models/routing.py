@@ -1,13 +1,15 @@
 """Tier resolver (README §19.3). Maps (role, step, capabilities) to a tier and
 records why on the span as `model.tier_decision`.
 
-Phase 01 applies the floor and the cap. Router, context and validation
-escalation (steps 2–4) join in phase 08 without changing this interface.
+The floor (step 1), the context escalation of a NeedsMore (step 3, `escalate`,
+ADR-0056) and the cap (step 5) are applied. Router and validation escalation
+(steps 2 and 4) join in phase 08 without changing this interface.
 """
 
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Literal
 
 from opentelemetry.trace import Span
 from pydantic import BaseModel
@@ -89,7 +91,7 @@ class TierResolver:
             floor = requested
             reason = f"role default {role}={requested}"
 
-        # 2–4. Router, context and validation escalation: phase 08.
+        # 2, 4. Router and validation escalation: phase 08. 3. Context escalation: `escalate`.
         wanted = floor
 
         # 5. Cap: caps.default, lowered by the ceiling the gateway derived from the
@@ -112,6 +114,41 @@ class TierResolver:
             final=final,
             capped=final != wanted,
             reason=reason + (f"; capped by {source}" if final != wanted else ""),
+        )
+
+    def overflow_action(self, capabilities: Sequence[CapabilityModelSpec]) -> Literal["compress", "escalate"]:
+        """What a NeedsMore resolves to (README §19.3 step 3): a capability's manifest
+        `on_overflow` wins over `escalation.context_overflow_default`; when several
+        capabilities declare one, `escalate` wins, since one of them needs the room."""
+        declared = {c.on_overflow for c in capabilities if c.on_overflow}
+        if declared:
+            return "escalate" if "escalate" in declared else "compress"
+        return self.config.escalation.context_overflow_default
+
+    async def escalate(self, decision: TierDecision, *, principal: Principal, reason: str) -> TierDecision:
+        """One tier above `decision.final` for `reason`, bounded by the same cap and seen
+        by the MODEL_TIER checkpoint. The decision is unchanged at the top tier."""
+        rank = self.config.rank(decision.final)
+        if rank + 1 >= len(self.config.order):
+            return decision
+        wanted = self.config.order[rank + 1]
+        ceiling, source = self._ceiling(principal)
+        outcome = await self.guard.evaluate(
+            Checkpoint.MODEL_TIER,
+            {"role": decision.role, "step": decision.step, "tier": wanted, "cap": ceiling},
+            principal=principal,
+        )
+        cap = outcome.payload["cap"]
+        final = self.config.lowest(wanted, cap)
+        return decision.model_copy(
+            update={
+                "escalations": [*decision.escalations, f"{reason}:{wanted}"],
+                "cap": cap,
+                "final": final,
+                "capped": final != wanted,
+                "reason": f"{decision.reason}; escalated for {reason}"
+                + (f"; capped by {source}" if final != wanted else ""),
+            }
         )
 
     def _ceiling(self, principal: Principal) -> tuple[str, str]:
