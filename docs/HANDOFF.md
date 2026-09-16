@@ -76,6 +76,8 @@ Review branch phase/NN (PR #K), restricted to: <the fixed areas>. Threat model: 
 - If the Keycloak realm file changed: `make clean && make up`.
 - Docker Desktop memory ≥ 12 GB.
 - After any model swap: `make eval` three times, record the scores.
+- Once per phase before merge: `make smoke` on the offline profile (ADR-0065): `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml make up smoke`, then `make up` to return to OpenRouter. Needs the four Ollama models in `infra/litellm/config.local.yaml` pulled.
+- While the dev tiers are on OpenRouter: no real or ministry data in dev (ADR-0065).
 - After merge: update "Current status" here and the phase summary in `docs/`.
 
 ## Current status (update by hand)

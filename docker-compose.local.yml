@@ -1,0 +1,8 @@
+# Offline profile overlay (ADR-0065): LiteLLM serves the tier aliases from local
+# Ollama (infra/litellm/config.local.yaml) instead of OpenRouter.
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml make up smoke
+# `make up` without COMPOSE_FILE switches back.
+services:
+  litellm:
+    volumes:
+      - ./infra/litellm/config.local.yaml:/app/config.yaml:ro

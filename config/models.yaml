@@ -1,10 +1,12 @@
 # Tiers, roles, escalation and caps (README §19.1). Aliases resolve to concrete
 # models in infra/litellm/config.yaml. Code names roles and steps, never models.
-# `window` must not exceed the num_ctx configured for the alias in LiteLLM.
+# `window` and `max_output` must not exceed what the alias's model accepts. Dev
+# aliases run on OpenRouter without a pinned provider, so both are the smallest
+# context and completion limit among the model's OpenRouter providers (ADR-0065).
 tiers:
-  fast:     {alias: fast,     window: 32000, max_output: 2000, cost_weight: 1}
-  standard: {alias: standard, window: 32000, max_output: 4000, cost_weight: 5}
-  heavy:    {alias: heavy,    window: 65536, max_output: 8000, cost_weight: 20}   # dev host limit; spec example is 131072
+  fast:     {alias: fast,     window: 131072,  max_output: 8192,  cost_weight: 1}
+  standard: {alias: standard, window: 256000,  max_output: 65536, cost_weight: 5}
+  heavy:    {alias: heavy,    window: 1000000, max_output: 32768, cost_weight: 20}
 
 # Lowest to highest; "one tier up" follows this order.
 order: [fast, standard, heavy]

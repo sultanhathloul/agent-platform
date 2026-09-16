@@ -92,7 +92,7 @@ def main() -> int:
     if not found:
         print("no eval suites found")
         return 1
-    token = login(*EVAL_USER)["access_token"]
+    login(*EVAL_USER)  # fail before any Langfuse write when the user cannot log in
     auth = (cfg["LANGFUSE_PUBLIC_KEY"], cfg["LANGFUSE_SECRET_KEY"])
     run_name = f"make-eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
     rows, failed = [], False
@@ -111,6 +111,8 @@ def main() -> int:
                      "input": {"message": case["message"], "locale": case.get("locale", "ar")},
                      "expectedOutput": case.get("expect", {})},
                 )
+                # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
+                token = login(*EVAL_USER)["access_token"]
                 event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
                 if event.get("type") == "done":
                     answer = event["data"]["answer"]

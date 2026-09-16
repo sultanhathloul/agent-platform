@@ -12,8 +12,9 @@ scripts:
 
 # When the answer fails one of these checks, the answer node retries it once at this
 # temperature on the same context package; validate fails the turn only if the retry
-# fails too (ADR-0061). attempts: 0 turns the retry off.
+# fails too (ADR-0061). attempts: 0 turns the retry off. Off since ADR-0065: on the
+# earlier standard model, 0 of 11 retries rescued an answer (PROGRESS, phase 02).
 retry:
   issues: [disallowed_script, mixed_script_token]
-  attempts: 1
+  attempts: 0
   temperature: 0.0

@@ -126,9 +126,10 @@ async def test_needs_more_when_protected_blocks_cannot_fit(assembler):
 
 
 def test_budget_limit_reserves_output_and_headroom(models_config):
-    budget = Budget.for_tier("fast", models_config.tiers["fast"], headroom=1000)
-    assert budget.limit == 32000 - 2000 - 1000
-    assert Budget.for_tier("fast", models_config.tiers["fast"], headroom=1000, max_input=6000).limit == 6000
+    fast = models_config.tiers["fast"]
+    budget = Budget.for_tier("fast", fast, headroom=1000)
+    assert budget.limit == fast.window - fast.max_output - 1000
+    assert Budget.for_tier("fast", fast, headroom=1000, max_input=6000).limit == 6000
 
 
 def test_real_counter_handles_arabic():

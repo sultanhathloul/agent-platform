@@ -141,6 +141,7 @@ services:
       VLLM_BASE_URL: ${VLLM_BASE_URL}
       VLLM_API_KEY: ${VLLM_API_KEY:-}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
     extra_hosts:

@@ -61,9 +61,8 @@ async def test_compress_is_the_second_pass(services):
 def _roomy(services):
     """Findings may be large, so only the tier budget bounds the package."""
     config = services.assembler.config
-    roomy = config.model_copy(
-        update={"blocks": {**config.blocks, "findings": BlockBudget(max_tokens=100_000)}}
-    )
+    heavy = services.models_config.tiers["heavy"].window
+    roomy = config.model_copy(update={"blocks": {**config.blocks, "findings": BlockBudget(max_tokens=heavy)}})
     return dataclasses.replace(
         services, assembler=ContextAssembler(roomy, services.prompts, services.assembler.counter)
     )

@@ -304,6 +304,133 @@ Memory extraction, `memory.extractor@1.0.0`, `fast`, temperature 0.0, four Arabi
 - Prompt with two examples: the smoke message extracted correctly; the general question produced an inferred fact ("المستخدم يرغب في الحصول على معلومة تاريخية حول عاصمة بلد معين"); the preference became "المستخدم معرف بجامعة الملك سعود"; the project drifted into mixed script ("ي.work على مشروع…"). A later run returned the answer itself as a fact ("عاصمة البرتغال هي لشبونة.").
 - Final prompt (three examples, "ابدأ كل text بكلمة «المستخدم»") with the filters: smoke → both items kept; general question → the model copied example 2 ("المستخدم يرغب في الإجابات بلغة بسيطة."), dropped as ungrounded; preference → kept with the wrong kind (`fact_about_user`); project → the project kept, plus a marginal "المستخدم يركز على المؤشرات المناسبة لمشروعه." (grounded in the question's words).
 
+### Dev tiers on OpenRouter (2026-09-16, ADR-0065)
+
+The owner moved `fast`, `standard` and `heavy` to open-weight models on OpenRouter (`infra/litellm/config.yaml`); `embed` stays on Ollama. This section re-runs the phase 02 measurements on the new models, next to the earlier ones above.
+
+Changes in this commit:
+- [x] Offline profile: the previous Ollama aliases in `infra/litellm/config.local.yaml`, selected by `docker-compose.local.yml`: `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml make up smoke`, then `make up` to return (HANDOFF owner checklist).
+- [x] `OPENROUTER_API_KEY=` in `.env.example`.
+- [x] `config/models.yaml`: window / max_output = the smallest context and completion limit among each model's OpenRouter providers (no provider is pinned): `fast` 131072 / 8192, `standard` 256000 / 65536, `heavy` 1000000 / 32768 (were 32000/2000, 32000/4000, 65536/8000). LiteLLM recreated; agent and gateway restarted.
+- [x] `config/validation.yaml`: `retry.attempts: 0` (the loader needs a mapping, so the documented off switch replaces a literal `retry: false`). The code path stays; `test_answer_retry.py` now sets `attempts` itself.
+- [x] Tests that pinned the old windows derive them from `config/models.yaml`: `test_budget_limit_reserves_output_and_headroom`, and the "roomy" findings budget in `test_model_calls.py` (100 000 tokens was below an over-`standard` package of about 191 000).
+- [x] `evals/run_evals.py` logs in before each case (owner-approved): a run now takes about 8 minutes and the realm's access token lives 300 s, so every run ended in 401 at case 26.
+- [x] ADR-0065 (assumed); ADR-0030 status: superseded.
+
+Rolling summary, same harness, conversations and prompts as above (`summarizer.system@1.0.0` + `summarizer.request@1.0.0`), `fast` tier on OpenRouter, temperature 0.0. Run three times; the verbatim text is run 1. The passport sample was identical in runs 1 and 2, the diabetes sample in all three; the education sample differed between runs by a few clauses (whether school access is deferred, and the cost and hosting criteria).
+
+1. Education dashboard (742 tokens in, 314 out):
+   > يرغب مستخدم يعمل في إدارة التخطيط بوزارة التعليم في بناء لوحة مؤشرات لنتائج اختبارات الرياضيات للصف السادس في مناطق الرياض ومكة المكرمة والشرقية، بناءً على بيانات متوفرة للأعوام من 2021 إلى 2024. تم الاتفاق على اعتماد أربعة مؤشرات رئيسية وهي: متوسط الدرجات لكل منطقة، ونسبة الطلاب فوق مستوى الإتقان، والفجوة بين البنين والبنات، والتغير عن العام الماضي، مع استبعاد مؤشر توزيع الدرجات حسب المدرسة في المرحلة الأولى لخصوصية البيانات. ونظرًا لتغير معيار الإتقان في عام 2023 من 60 إلى 65 درجة، تقرر إعادة حساب جميع الأعوام باستخدام معيار 65 لضمان اتساق المقارنة الزمنية باستخدام الدرجات الخام المتوفرة. أما فيما يخص صلاحيات الوصول، فقد تم الاتفاق على أن يطّلع مديرو المناطق على بيانات مناطقهم فقط، مع توفير لوحة وطنية مجمعة لقيادة الوزارة، مع إرجاء تحديد صلاحيات المدارس لاحقًا. والموعد المستهدف لإطلاق النسخة الأولى هو نهاية شهر نوفمبر، بينما لا تزال مسألة اختيار وسيلة التنفيذ قائمة، حيث لم يُحسم بعد ما إذا كان سيتم استخدام أداة جاهزة أم بناء اللوحة داخليًا، مع مراعاة متطلبات التكلفة واستضافة البيانات على خوادم الوزارة.
+2. Passport renewal (676 tokens in, 193 out):
+   > يرغب المستخدم في تجديد جواز سفره وجواز ابنه البالغ من العمر تسع سنوات استعداداً للسفر إلى ماليزيا في منتصف ديسمبر. قرر المستخدم تجديد جوازه هذا الأسبوع نظراً لأن صلاحيته تنتهي في يناير، حيث تشترط العديد من الدول أن يكون الجواز صالحاً لمدة لا تقل عن ستة أشهر. أما بالنسبة لابنه، فقد حجز المستخدم موعداً في فرع الجوازات بحي النرجس بتاريخ 12 نوفمبر، وقد استقر القرار على اختيار مدة صلاحية خمس سنوات للجواز الجديد، مع العلم أن الرسوم تختلف بحسب المدة المختارة ولا تختلف باختلاف العمر. كما استفسر المستخدم عن وضع جواز سفر زوجته، وتبين أن جوازها صالح حتى عام 2027 ولا يحتاج لتجديد، لكن عليها التأكد من متطلبات التأشيرة في حال قررت السفر معهم.
+3. Diabetes campaign (736 tokens in, 236 out):
+   > يخطط تجمع صحي لإطلاق حملة توعية بمرض السكري في محافظة الأحساء تستهدف الفئة العمرية من 35 إلى 60 عامًا، وذلك خلال ثلاثة أشهر تبدأ في شهر فبراير. تبلغ ميزانية الحملة 400 ألف ريال، وتشارك فيها 12 مركزًا صحيًا مع 6 فرق متنقلة. تم الاتفاق على استهداف 10 آلاف شخص للفحص، مع التركيز على التواجد في الأسواق والمساجد وأماكن العمل لضمان الوصول لأكبر شريحة ممكنة. اعتمد التجمع أربعة مؤشرات لقياس نجاح الحملة وهي: عدد المفحوصين مقارنة بالهدف، ونسبة من اكتُشفت لديهم مؤشرات ما قبل السكري، ونسبة من حضروا موعد المتابعة بعد الإحالة، وتغير مستوى المعرفة بالمرض قبل الحملة وبعدها عبر استبيان قصير. ولم يُحسم بعد قرار التعاقد مع شركة إعلام خارجية أو إسناد مهمة إعداد المواد التوعوية لفريق التواصل داخل التجمع.
+
+Earlier defects, checked in all three runs:
+- Sample 1, assistant's voice ("أقترح"): **does not reproduce**; the summary reports the user's project in the third person.
+- Sample 1, open choice stated as decided ("قررنا استخدام أداة جاهزة أو بناء…"): **does not reproduce**; "لم يُحسم بعد ما إذا كان سيتم استخدام أداة جاهزة أم بناء اللوحة داخليًا".
+- Sample 2, planned renewal stated as done ("تم تجديد"): **does not reproduce**; "قرر المستخدم تجديد جوازه هذا الأسبوع".
+- Sample 2, grammar slip ("جواز السفري") and person switch ("ابنك", "زوجتك"): **do not reproduce**; "ابنه", "زوجته".
+- Sample 3, "فريق التواصل" renamed "فريق التسويق": **does not reproduce**.
+- Sample 3, open media decision presented as how the campaign will be evaluated: **does not reproduce**; "لم يُحسم بعد قرار التعاقد مع شركة إعلام خارجية أو إسناد مهمة إعداد المواد التوعوية لفريق التواصل".
+- Numbers, dates and names are kept, as before. The summaries are two to three times longer (193–314 tokens out, against 70–170), within the 1200-token summary budget.
+
+Memory extraction, same probe (`memory.extractor@1.0.0`, the committed prompt with three examples), `fast` on OpenRouter, temperature 0.0, the four exchanges above plus a fifth: the smoke follow-up question that phase 02 stored as a fact ("وما أكبر مدنها من حيث عدد السكان؟ أجب بجملة واحدة."). Raw output of run 1, verbatim (runs 2 and 3 returned the same text for every exchange), and what the ADR-0064 filters keep:
+
+- `smoke`, raw:
+  ````
+  ```json
+  [
+    {
+      "kind": "fact_about_user",
+      "text": "المستخدم يعمل محللًا للبيانات في وزارة التعليم.",
+      "confidence": 1.0
+    },
+    {
+      "kind": "preference",
+      "text": "المستخدم يفضل أن تكون الإجابات مختصرة.",
+      "confidence": 1.0
+    }
+  ]
+  ```
+  ````
+  kept: ["المستخدم يعمل محللًا للبيانات في وزارة التعليم.", "المستخدم يفضل أن تكون الإجابات مختصرة."]
+- `general-only`, raw:
+  ````
+  []
+  ````
+  kept: []
+- `preference-only`, raw:
+  ````
+  ```json
+  [
+    {
+      "kind": "preference",
+      "text": "المستخدم يريد الإجابات دائمًا باللغة العربية الفصحى ومع ذكر المصدر.",
+      "confidence": 1.0
+    }
+  ]
+  ```
+  ````
+  kept: ["المستخدم يريد الإجابات دائمًا باللغة العربية الفصحى ومع ذكر المصدر."]
+- `project`, raw:
+  ````
+  ```json
+  [
+    {
+      "kind": "project_context",
+      "text": "المستخدم يعمل على مشروع لتقليل زمن انتظار المراجعين في المستشفيات الحكومية.",
+      "confidence": 1.0
+    },
+    {
+      "kind": "decision",
+      "text": "المستخدم قرر البدء بمستشفيين في جدة.",
+      "confidence": 1.0
+    }
+  ]
+  ```
+  ````
+  kept: ["المستخدم يعمل على مشروع لتقليل زمن انتظار المراجعين في المستشفيات الحكومية.", "المستخدم قرر البدء بمستشفيين في جدة."]
+- `question-restated`, raw:
+  ````
+  []
+  ````
+  kept: []
+
+The model wraps its array in a ```` ```json ```` fence; `parse_candidates` already accepts it.
+
+Earlier extractor defects:
+- `[]` for an explicit role and preference (prompt without examples): not re-run; that prompt was never committed. With the committed prompt the smoke message yields both items, in all three runs.
+- Inferred fact for a general question ("المستخدم يرغب في الحصول على معلومة تاريخية…"), and the answer restated as a fact ("عاصمة البرتغال هي لشبونة."): **do not reproduce**; `general-only` returns `[]`. These came from the unpublished two-example prompt; the check here is the same exchange on the committed prompt, before filters.
+- Preference turned into "المستخدم معرف بجامعة الملك سعود": **does not reproduce**; the preference is extracted as stated.
+- Mixed script ("ي.work على مشروع…"): **does not reproduce**.
+- Final-prompt defects (phase 02): example 2 copied for the general question (**does not reproduce**), the preference labelled `fact_about_user` (**does not reproduce**, now `preference`), the marginal "المستخدم يركز على المؤشرات المناسبة لمشروعه." (**does not reproduce**; the project now yields `project_context` and a `decision`, both grounded).
+- Question restated as a fact about the user (tech debt below): **does not reproduce** on this exchange; `[]`.
+
+`make eval` (`general`, 28 cases, threshold 0.85), retry off, three consecutive runs:
+- **28/28 (1.00), 28/28 (1.00), 28/28 (1.00).** Dataset runs `make-eval-20260916T112253Z`, `make-eval-20260916T113106Z`, `make-eval-20260916T113834Z`, 28 run items each (84); the dataset keeps its 28 items. Each run took 7.5–8.5 minutes. Analyst memory rows before each run: 19, 19, 19.
+- Earlier on the old models: 24–25/28 with the retry on, 24/28 with it off (above). The four script failures (currency, sunrise, Portugal, Shakespeare) all pass: "الريال السعودي", "لشبونة", "ويليام شكسبير".
+- Invalid attempts, not counted: three runs at 0/28 with every turn `model_unavailable` (OpenRouter 402: the account credit could not cover `max_tokens` 65536 on `standard`; the owner added credit), which left no run items, and one run that ended in 401 after 26 cases (25 passed; Portugal answered "ليسبون"), which left 26 run items, before the runner fix.
+
+Turn latency breakdown, one `general` turn (Langfuse trace `b83da1a91482530fbe5eabf70a9cef9b`, turn 7 of a conversation whose six earlier user messages hold about 1 700 tokens each, so the rolling summary folds in this turn). Durations are the spans of the `turn` span:
+
+| Part | Span | Duration | Tokens in / out |
+|---|---|---|---|
+| Summarizer (`fast`) | `model.call` step `summarizer`, inside `node.assemble_context` (4.16 s) | 4.15 s | 4492 / 87 |
+| Memory retrieval embedding | `model.embed` inside `node.answer` | 0.14 s | — |
+| Answer call (`standard`) | `model.call` step `answer` | 12.42 s | 5889 / 376 |
+| Memory write (`memory.write_ms` on the turn span) | `node.write_memory` | 7.91 s (7914 ms) | — |
+| — extractor (`fast`) | `model.call` step `extractor` | 7.78 s | 591 / 55 |
+| — candidate embedding | `model.embed` | 0.14 s | — |
+| Everything else (guards, assembly, routing, persistence) | | < 0.05 s | — |
+| **Turn** | `turn` | **24.64 s** (client 24.70 s) | usage 10972 / 518 |
+
+The answer was "أكبر مدن المملكة العربية السعودية من حيث عدد السكان هي الرياض."; the extractor's candidate was a duplicate, so no row was written. The same turn without a fold (turn 5 of a shorter conversation, trace `f6cc41414a7daff5ea1a051ef94e10d3`): answer 18.06 s, memory write 2.16 s (extractor 1.93 s), turn 20.37 s. The answer model reasons before it answers (345 reasoning tokens for a one-word reply in a direct call), which is most of its latency; the extractor on `fast` varied from 1.9 s to 7.8 s between the two turns. `done.usage.cost_usd` is 0.0: LiteLLM's local cost map has no price for these models.
+
+Verification: `make test` green (agent 218 passed; gateway BUILD SUCCESSFUL plus `gateway-db-tests`; web 56 passed); `make smoke` green on OpenRouter (all phase 01 and 02 checks; answer "عاصمة المملكة العربية السعودية هي الرياض."); `make eval` three times as above. `make smoke` on `config.local.yaml` was not run in this session; it is the owner's once-per-phase check before merge.
+
+Human review (this commit): `infra/litellm/config.yaml` (the owner's), `infra/litellm/config.local.yaml`, `docker-compose.local.yml`, `config/models.yaml` (windows and `max_output`), `config/validation.yaml` (retry off), `.env.example`, `evals/run_evals.py`.
+
 Tech debt carried from the PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
 - [ ] Replace snapshot tests with behaviour tests. These assert config and prompt values and are edited in lockstep with every config change: `services/agent/app/capabilities/general/tests/test_general.py::test_manifest_is_valid`, `services/agent/tests/unit/test_models.py` (`test_repo_models_config_pins_helper_roles_to_fast`, `test_repo_models_config_makes_helper_roles_deterministic`), `services/agent/tests/unit/test_prompts.py::test_answer_prompt_renders_arabic_without_optional_sections`, and the `prompt_refs` version assertions in `services/agent/tests/unit/test_assembler.py`.
 - [ ] Cover the untested paths:

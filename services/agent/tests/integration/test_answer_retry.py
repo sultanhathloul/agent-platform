@@ -59,6 +59,11 @@ async def _turn(services, drafts, *, locale="ar"):
     return events, snapshot, gateway
 
 
+def _with_retry(services, attempts):
+    retry = services.validation.retry.model_copy(update={"attempts": attempts})
+    return dataclasses.replace(services, validation=services.validation.model_copy(update={"retry": retry}))
+
+
 def _answer_node(spans):
     return next(s for s in spans.get_finished_spans() if s.name == "node.answer")
 
@@ -68,7 +73,7 @@ def _text(events) -> str:
 
 
 async def test_a_failed_script_check_is_retried_once_and_the_passing_retry_is_kept(services, spans, litellm):
-    events, snapshot, gateway = await _turn(services, [RIYAL, None])
+    events, snapshot, gateway = await _turn(_with_retry(services, 1), [RIYAL, None])
 
     types = [e.type for e in events]
     retract = types.index("retract")
@@ -92,7 +97,7 @@ async def test_a_failed_script_check_is_retried_once_and_the_passing_retry_is_ke
 
 
 async def test_a_retry_that_fails_too_ends_the_turn_as_validation_failed(services, spans, litellm):
-    events, snapshot, gateway = await _turn(services, [RIYAL, LISBOA])
+    events, snapshot, gateway = await _turn(_with_retry(services, 1), [RIYAL, LISBOA])
 
     assert [e.data.reason for e in events if e.type == "retract"] == ["answer_retry", "validation_failed"]
     assert events[-1].type == "error" and events[-1].data.code == "validation_failed"
@@ -104,11 +109,7 @@ async def test_a_retry_that_fails_too_ends_the_turn_as_validation_failed(service
 
 
 async def test_with_the_retry_off_a_script_failure_ends_the_turn(services, spans, litellm):
-    retry = services.validation.retry.model_copy(update={"attempts": 0})
-    no_retry = dataclasses.replace(
-        services, validation=services.validation.model_copy(update={"retry": retry})
-    )
-    events, _, gateway = await _turn(no_retry, [RIYAL])
+    events, _, gateway = await _turn(_with_retry(services, 0), [RIYAL])
     assert gateway.temperatures == [None]
     assert [e.data.reason for e in events if e.type == "retract"] == ["validation_failed"]
     assert events[-1].data.code == "validation_failed"
@@ -116,6 +117,7 @@ async def test_with_the_retry_off_a_script_failure_ends_the_turn(services, spans
 
 
 async def test_a_locale_without_a_script_policy_is_not_retried(services, litellm):
-    events, _, gateway = await _turn(services, ["The capital of Russia is Москва."], locale="en")
+    drafts = ["The capital of Russia is Москва."]
+    events, _, gateway = await _turn(_with_retry(services, 1), drafts, locale="en")
     assert gateway.temperatures == [None]
     assert [e.type for e in events if e.type in {"retract", "error", "done"}] == ["done"]
