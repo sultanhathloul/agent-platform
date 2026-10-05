@@ -104,6 +104,15 @@ class MemoryStore:
             )
             return cursor.rowcount == 1
 
+    async def delete_from_turn(self, scope: MemoryScope, source_turn: str, *, conn) -> int:
+        """Deletes the scope's items extracted from `source_turn`, on the caller's
+        connection, so a retract removes them in its own transaction (ADR-0071)."""
+        cursor = await conn.execute(
+            "DELETE FROM agent.memory_items WHERE tenant_id = %s AND user_id = %s AND source_turn = %s",
+            (scope.tenant_id, scope.user_id, source_turn),
+        )
+        return cursor.rowcount
+
     async def search(
         self, scope: MemoryScope, embedding: Sequence[float], *, limit: int, min_similarity: float
     ) -> list[MemoryHit]:

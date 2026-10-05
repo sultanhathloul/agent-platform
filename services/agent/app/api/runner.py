@@ -16,6 +16,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Literal
 
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
@@ -25,6 +26,7 @@ from app.api.schemas import TurnRequest
 from app.errors import TurnError
 from app.graph.deps import Services, TurnContext
 from app.identity import Principal, hash_user_id
+from app.memory.types import MemoryScope
 from app.observability.langfuse import set_trace_attributes
 from app.observability.otel import current_trace_id, tracer
 
@@ -63,10 +65,11 @@ class TurnRunner:
         self, conversation_id: str, turn_id: str, principal: Principal, reason: str
     ) -> RetractOutcome:
         """Marks the reply `turn_id` persisted as retracted, so Context Assembly skips
-        it from now on (ADR-0048). Idempotent. The gateway calls this when a finished
-        turn's audit record cannot be written and the client was told the reply is
-        withdrawn."""
-        graph = self.services.graph
+        it from now on (ADR-0048), and deletes the memory items extracted from that
+        turn, in one transaction with the flag (ADR-0071). Idempotent. The gateway
+        calls this when a finished turn's audit record cannot be written and the
+        client was told the reply is withdrawn."""
+        services = self.services
         config = _thread(conversation_id)
         with tracer.start_as_current_span("turn.retract") as span:
             span.set_attribute("conversation_id", conversation_id)
@@ -77,20 +80,34 @@ class TurnRunner:
                 return "not_found"
             if owner != Owner(principal.user_id, principal.tenant_id):
                 return "forbidden"
-            values = (await graph.aget_state(config)).values or {}
-            for message in reversed(values.get("messages") or []):
-                kwargs = message.additional_kwargs
-                if message.type != "ai" or kwargs.get("turn_id") != turn_id:
-                    continue
+            values = (await services.graph.aget_state(config)).values or {}
+            reply = next(
+                (
+                    m
+                    for m in reversed(values.get("messages") or [])
+                    if m.type == "ai" and m.additional_kwargs.get("turn_id") == turn_id
+                ),
+                None,
+            )
+            if reply is None:
+                return "not_found"
+            async with services.db.connection() as conn, conn.transaction():
+                # The flag goes through a checkpointer on this transaction's connection, so
+                # the flag and the memory delete commit or roll back together.
+                graph = services.graph.copy(update={"checkpointer": AsyncPostgresSaver(conn)})
+                kwargs = reply.additional_kwargs
                 if not kwargs.get("retracted"):
-                    marked = message.model_copy(
+                    marked = reply.model_copy(
                         update={"additional_kwargs": {**kwargs, "retracted": True, "retract_reason": reason}}
                     )
                     # Same message id: add_messages replaces the reply in place. As the graph's
                     # last node, so the thread is left with no pending task.
                     await graph.aupdate_state(config, {"messages": [marked]}, as_node="write_memory")
-                return "retracted"
-            return "not_found"
+                deleted = await services.memory.store.delete_from_turn(
+                    MemoryScope(tenant_id=owner.tenant_id, user_id=owner.user_id), turn_id, conn=conn
+                )
+            span.set_attribute("retract.memory_deleted", deleted)
+            return "retracted"
 
     async def stream(self, req: TurnRequest, request_id: str, parent: Context | None = None) -> AsyncIterator:
         turn_id = uuid.uuid4().hex

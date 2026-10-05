@@ -172,3 +172,89 @@ async def test_a_user_deletes_their_own_item_and_the_api_checks_token_and_identi
     assert (await client.delete("/v1/memory/not-a-uuid", headers=headers)).status_code == 400
     invalid = await client.put("/v1/memory/settings", json={"enabled": "not a boolean"}, headers=headers)
     assert (invalid.status_code, invalid.json()["error"]["code"]) == (400, "invalid_request")
+
+
+async def _retract(client, conversation: str, turn_id: str, principal: dict):
+    return await client.post(
+        f"/v1/conversations/{conversation}/turns/{turn_id}/retract",
+        json={"principal": principal, "reason": "audit_unavailable"},
+        headers={"X-Internal-Token": TOKEN},
+    )
+
+
+async def _source_turns(services, scope: MemoryScope) -> list[str]:
+    async with services.db.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT source_turn FROM agent.memory_items "
+            "WHERE tenant_id = %s AND user_id = %s ORDER BY source_turn",
+            (scope.tenant_id, scope.user_id),
+        )
+        return [row["source_turn"] for row in await cursor.fetchall()]
+
+
+async def _reply_retracted(services, conversation: str) -> bool:
+    values = (await services.graph.aget_state({"configurable": {"thread_id": conversation}})).values
+    return bool(values["messages"][-1].additional_kwargs.get("retracted"))
+
+
+async def test_retracting_a_reply_deletes_the_memory_that_turn_wrote(client, services, litellm):
+    """A withdrawn reply leaves no memory behind (ADR-0071): the retract deletes the
+    turn's items, only that turn's and only the owner's."""
+    principal, conversation = _principal(), str(uuid.uuid4())
+    scope = _scope(principal)
+    older = await services.memory.store.add(
+        scope,
+        kind="preference",
+        text="المستخدم يفضّل الجداول.",
+        confidence=0.9,
+        embedding=[0.0, 1.0],
+        source_turn="earlier-turn",
+    )
+    events = await post_turn(
+        client, conversation_id=conversation, principal=principal, message="أفضّل أن تكون الإجابات مختصرة."
+    )
+    turn_id = events[-1]["turn_id"]
+    other = _principal()
+    await services.memory.store.add(
+        _scope(other),
+        kind="preference",
+        text="المستخدم يفضّل الإيجاز.",
+        confidence=0.9,
+        embedding=[1.0, 0.0],
+        source_turn=turn_id,
+    )
+    assert await _source_turns(services, scope) == sorted(["earlier-turn", turn_id])
+
+    assert (await _retract(client, conversation, turn_id, principal)).status_code == 204
+    assert await _reply_retracted(services, conversation)
+    assert await _source_turns(services, scope) == ["earlier-turn"]
+    assert [i.id for i in await services.memory.store.list_items(scope)] == [older]
+    assert await _source_turns(services, _scope(other)) == [turn_id]  # another user's row is untouched
+    assert (await _retract(client, conversation, turn_id, principal)).status_code == 204  # idempotent
+
+
+async def test_the_retract_flag_and_the_memory_delete_commit_together(client, services, litellm, monkeypatch):
+    principal, conversation = _principal(), str(uuid.uuid4())
+    events = await post_turn(
+        client, conversation_id=conversation, principal=principal, message="أفضّل أن تكون الإجابات مختصرة."
+    )
+    turn_id = events[-1]["turn_id"]
+    assert await _source_turns(services, _scope(principal)) == [turn_id]
+
+    store = services.memory.store
+    delete = store.delete_from_turn
+
+    async def failing(scope, source_turn, *, conn):
+        await delete(scope, source_turn, conn=conn)
+        raise RuntimeError("the connection dropped after the delete")
+
+    monkeypatch.setattr(store, "delete_from_turn", failing)
+    with pytest.raises(RuntimeError):
+        await TurnRunner(services).retract(conversation, turn_id, Principal(**principal), "audit_unavailable")
+    assert not await _reply_retracted(services, conversation)  # the flag rolled back with the delete
+    assert await _source_turns(services, _scope(principal)) == [turn_id]
+
+    monkeypatch.setattr(store, "delete_from_turn", delete)
+    assert (await _retract(client, conversation, turn_id, principal)).status_code == 204
+    assert await _reply_retracted(services, conversation)
+    assert await _source_turns(services, _scope(principal)) == []
