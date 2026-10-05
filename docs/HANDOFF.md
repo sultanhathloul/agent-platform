@@ -76,7 +76,10 @@ Review branch phase/NN (PR #K), restricted to: <the fixed areas>. Threat model: 
 - If the Keycloak realm file changed: `make clean && make up`.
 - Docker Desktop memory ≥ 12 GB.
 - After any model swap: `make eval` three times, record the scores.
-- Once per phase before merge: `make smoke` on the offline profile (ADR-0065): `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml make up smoke`, then `make up` to return to OpenRouter. Needs the four Ollama models in `infra/litellm/config.local.yaml` pulled.
+- Once per phase before merge: `make smoke` on the offline profile (ADR-0065, ADR-0066). One LiteLLM config reads the models from `.env`; the profile is the `.env` values, not a file:
+  - Offline: the `.env.example` values (`FAST_MODEL=ollama_chat/qwen2.5:3b`, `STANDARD_MODEL=ollama_chat/qwen2.5:14b-instruct`, `HEAVY_MODEL=ollama_chat/gemma4:31b`, `MODEL_API_BASE=http://host.docker.internal:11434`, `MODEL_API_KEY=`), `make models`, then `make up smoke`.
+  - OpenRouter (development only): replace those five lines with the block in README §21.4 (three `openrouter/...` models, `MODEL_API_BASE=https://openrouter.ai/api/v1`, `MODEL_API_KEY=<key>`), then `make up`.
+- Evals run as the seed user `evaluator`, with memory switched off by `run_evals.py` (ADR-0074); the analyst's memory is smoke's.
 - While the dev tiers are on OpenRouter: no real or ministry data in dev (ADR-0065).
 - After merge: update "Current status" here and the phase summary in `docs/`.
 

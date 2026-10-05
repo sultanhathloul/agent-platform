@@ -454,8 +454,15 @@ Tech debt recorded in phase 02 (2026-09-15; not implemented, by instruction or o
 - [ ] Extraction precision on `fast`: the ADR-0064 filters stop inferred facts, restated answers and drifted script, but not a question restated as a fact about the user. The live stack stored "المستخدم يسأل عن أكبر مدن المملكة العربية السعودية من حيث عدد السكان." for the analyst. Material for ADR-0030's helper-role suite.
 - [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059).
 - [ ] `memory_items.embedding` has no ANN index; retrieval scans one user's items (ADR-0058).
-- [ ] A memory extracted from a reply that is retracted afterwards stays until its user deletes it; a reply retracted after it was folded stays in the summary (ADR-0057, ADR-0058).
-- [ ] README §7 still describes the debug endpoint as admin-only; the agent endpoint is owner-only until the gateway proxy exists (ADR-0059). README text left unchanged, by instruction.
+- [ ] A memory extracted from a reply that is retracted afterwards stays until its user deletes it; a reply retracted after it was folded stays in the summary (ADR-0057, ADR-0058). The memory part is fixed by ADR-0071 (PR #2 fix session); the summary part stays.
+- [x] README §7 still describes the debug endpoint as admin-only; the agent endpoint is owner-only until the gateway proxy exists (ADR-0059). Amendment note added under §7 in the PR #2 fix session.
+
+Tech debt recorded in the PR #2 fix session (2026-10-05; not implemented, by instruction):
+- [ ] **Phase 03, first item of scope:** a DATA guard on memory candidates and on the rolling summary before they are stored, plus a one-time rescan and purge of the `memory_items` rows and `summary` values stored before it exists.
+- [ ] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item.
+- [ ] Phase 09: asynchronous memory writing; a turn's `done` waits for the memory write (7.9 s measured, above).
+
+Accepted interpretation of CLAUDE.md rule 6 (ADR-0075): a test may let a real call go through Context Assembly and LiteLLM and then replace the returned text, to simulate a non-deterministic model defect (`tests/integration/test_answer_retry.py`).
 
 Human review needed (phase 02):
 - `config/context.yaml`: block budgets, `drop_order`, the `compress` pass, `summary.trigger_tokens`, the three core nodes (ADR-0056, ADR-0057).
@@ -475,6 +482,47 @@ How to verify (phase 02):
 - Restart persistence by hand: a turn in the web UI, `docker compose restart agent`, a second turn in the same conversation.
 - Memory: http://localhost:3000/settings/memory as `analyst` after a turn that states a preference ("أفضّل أن تكون الإجابات مختصرة"); `viewer` sees none of it.
 - Debug context: set `DEBUG_CONTEXT_ENABLED=true` in `.env`, `docker compose up -d agent`, then `GET /v1/debug/context/{turn_id}` on the agent with `X-Internal-Token`, `X-User-Id` and `X-Tenant-Id` of the conversation's owner.
+
+### Fix session: PR #2 review decisions (2026-10-05)
+
+Scope: apply the owner's twelve decisions on PR #2 and nothing else; record the deferred items as tech debt. Re-run `make test`, `make eval` three times on the OpenRouter profile, and `make smoke` on both profiles; push.
+
+Checklist:
+- [x] 1. One LiteLLM config, values from the environment (`FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `MODEL_API_KEY`, `EMBED_API_BASE`, provider params); `.env.example` holds the offline defaults; `config.local.yaml` and `docker-compose.local.yml` deleted; compose passes the variables; `preflight.sh` and `pull_models.sh` read `.env`; README §21 and HANDOFF document the switch to OpenRouter; `os.environ/` in the `model` field verified
+- [x] 2. Tier values back to README §19.1 (`max_output` 2000/4000/8000, `window` 32768/32768/65536); one test that `NeedsMore` fires against the real budget
+- [x] 3. README amendment notes (§2 ADR-0065, §7 ADR-0059, §14 and §21 the two profiles); ADR-0065 Status: decided by the owner, with the per-case eval login as a status note
+- [x] 4. Summary and memory blocks as a delimited user-role data block, not system; ADR
+- [x] 5. `runner.retract` deletes the turn's `memory_items` in the same transaction as the retract flag; test; status note on ADR-0058
+- [x] 6. Memory store tests with hand-built vectors against Postgres (`dedupe_similarity`, `min_similarity`, ranking, `vector_dims`); smoke asserts this turn's memory delta
+- [x] 7. One test asserts `prompts`, `tier_reason` and `gen_ai.response.model` on `model.call`; the upstream served model recorded when LiteLLM exposes it, else the alias with `model.served_known=false`
+- [x] 8. Evals run as a dedicated eval user with memory disabled (realm seed + `run_evals.py`)
+- [x] 9. The summarizer fold runs at the end of the turn (after `persist_state`, before `write_memory`); the lazy fold stays as the fallback when the threshold is already exceeded at turn start
+- [x] 10. The migration runner stores a checksum per file and fails on a mismatch
+- [x] 11. Agent integration tests connect as the app role to a database provisioned by `infra/postgres/init`; the fixture truncates instead of creating databases
+- [x] 12. `summary.ini` ignored as a tool artefact (a pasted Claude Code transcript; left on disk, added to `.gitignore`)
+- [x] Tech debt and the rule 6 interpretation recorded below
+- [x] `make test`; `make eval` ×3 (OpenRouter); `make smoke` on both profiles; push
+
+Session result (2026-10-05):
+- **Item 1, verification.** On LiteLLM v1.100.0 with a capturing upstream: `os.environ/` resolves in `model`, `api_base`, `api_key` and nested `extra_body`, and `false` arrives as a boolean, so the one-file layout holds. A number arrives as a string, and Ollama rejects `"num_ctx": "32768"` (`option "num_ctx" must be of type integer`), so `num_ctx` stays a literal per alias, equal to the tier windows; OpenRouter receives it as an extra field and the OpenRouter smoke passed with it (ADR-0066). The switch to OpenRouter is **five** `.env` lines (three models, base URL, key), not three.
+- **`make test`:** green (exit 0). Agent 229 passed in the `agent-tests` container as the `app` role on `agent_test` (218 before; +11: real-budget NeedsMore, user-role blocks, two retract-memory tests, four memory-store tests, served model, migration checksum, lazy fold). Gateway image `test` stage BUILD SUCCESSFUL plus `gateway-db-tests`. Web 56 passed.
+- **`make smoke`, offline profile** (`.env.example` values, Ollama `qwen2.5:3b` / `qwen2.5:14b-instruct` / `gemma4:31b`, `bge-m3`): green, all phase 01 and 02 checks; the memory turn wrote 2 rows, all with this turn's `source_turn`, and the list holds exactly those.
+- **`make smoke`, OpenRouter profile:** green, same checks; memory turn wrote 2 rows, and only it. Langfuse shows `gen_ai.response.model` `openrouter/qwen/qwen3.6-27b` (answer) and `openrouter/google/gemma-4-26b-a4b-it` (extractor), `model.served_known=true`.
+- **`make eval`, OpenRouter, as `evaluator` with memory off, three consecutive runs:** **26/28 (0.93), 28/28 (1.00), 28/28 (1.00)**, threshold 0.85. Run 1's two failures were `model_unavailable` at the first two cases: OpenRouter 429 (`qwen/qwen3.6-27b is temporarily rate-limited upstream`), not answers. Dataset runs `make-eval-20261005T145808Z`, `…145909Z`, `…150010Z`. A run takes about one minute (7.5–8.5 minutes before): hidden reasoning is off and `max_output` is 4000.
+- The running Keycloak volume predates the `evaluator` user, so for these runs it was added to the live realm with `kcadm` (same username, password and base role; `tenant_id` resolves to `default`). The realm file is the source of truth: **`make clean && make up`** gives a stack seeded from it.
+- The local `.env` gained the model variables (appended; nothing removed) and is left on the OpenRouter profile, as before this session.
+
+Human review needed (this session):
+- `infra/litellm/config.yaml` (env-driven aliases, literal `num_ctx`), `.env.example` (offline defaults, OpenRouter block), `docker-compose.yml` (litellm variables; `agent-tests` as the app role), `scripts/models_env.sh`, `preflight.sh`, `pull_models.sh`.
+- `config/models.yaml`: windows 32768/32768/65536, `max_output` 2000/4000/8000 (ADR-0067).
+- `config/prompts/context/{summary,memory}.{ar,en}.md.j2` 1.1.0 (delimited user-role data, ADR-0068).
+- `infra/keycloak/realm-export.json`: new seed user `evaluator` (**realm changed: `make clean && make up`**).
+- `infra/postgres/init/10-agent-test.sh`: the `agent_test` database owned by `app`.
+- README amendment notes under §2, §7, §14, §21 and §21.4; `docs/HANDOFF.md` owner checklist; ADR-0065's Status line; ADR-0066–0075.
+
+How to verify (this session):
+- `make test`; `make up smoke` with the `.env.example` model values; `make up smoke eval` with the OpenRouter block of README §21.4.
+
 
 ## Phase 03: Guardrails engine
 
