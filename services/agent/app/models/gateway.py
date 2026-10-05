@@ -18,6 +18,10 @@ from app.observability.langfuse import set_generation, set_metadata
 from app.observability.otel import tracer
 from app.settings import Settings
 
+# The deployment LiteLLM routed the alias to (its `model` in infra/litellm/config.yaml,
+# resolved from the environment). Stream chunks carry the alias only (ADR-0072).
+SERVED_MODEL_HEADER = "x-litellm-model-name"
+
 
 class ModelUnavailable(RuntimeError):
     pass
@@ -78,9 +82,8 @@ class ModelGateway:
             )
             parts: list[str] = []
             usage = None
-            served: str | None = None
             try:
-                stream = await self._client.chat.completions.create(
+                raw = await self._client.chat.completions.with_raw_response.create(
                     model=tier.alias,
                     messages=messages,
                     stream=True,
@@ -88,8 +91,9 @@ class ModelGateway:
                     max_tokens=tier.max_output,
                     temperature=temperature,
                 )
+                served = raw.headers.get(SERVED_MODEL_HEADER) or None
+                stream = raw.parse()
                 async for chunk in stream:
-                    served = served or chunk.model
                     if chunk.usage:
                         usage = chunk.usage
                     for choice in chunk.choices:
@@ -107,9 +111,11 @@ class ModelGateway:
             tokens_in = usage.prompt_tokens if usage else context.total_tokens()
             tokens_out = usage.completion_tokens if usage else self._counter.count(text)
             span.set_attribute("model.usage_reported", usage is not None)
+            # The upstream model when LiteLLM names it; otherwise the alias, marked unknown.
+            span.set_attribute("model.served_known", served is not None)
             set_generation(
                 span,
-                model=served,
+                model=served or tier.alias,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 input_messages=messages if self._capture else None,
