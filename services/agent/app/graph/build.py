@@ -7,7 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.graph.deps import TurnContext
 from app.graph.nodes.answer import answer
-from app.graph.nodes.assemble import assemble_context
+from app.graph.nodes.assemble import assemble_context, fold_summary
 from app.graph.nodes.capabilities import run_capabilities
 from app.graph.nodes.guard import guard_data, guard_input, guard_output, guard_tool_list
 from app.graph.nodes.identity import load_identity_and_state
@@ -29,6 +29,7 @@ PIPELINE = [
     ("guard_output", guard_output),  # checkpoint 5
     ("guard_data", guard_data),  # checkpoint 6
     ("persist_state", persist_state),
+    ("fold_summary", fold_summary),  # rolling summary after the reply, never before the first token
     ("write_memory", write_memory),  # synchronous in phase 02 (ADR-0058)
 ]
 

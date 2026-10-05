@@ -14,7 +14,7 @@ from tests.fixtures.http import TOKEN, identity, post_turn
 pytestmark = pytest.mark.integration
 
 # A long Arabic paragraph (a turn takes at most 8,000 characters); tests cut it to a token count.
-LONG =("تقع المملكة العربية السعودية في جنوب غرب آسيا، وتبلغ مساحتها نحو مليوني كيلومتر مربع. " * 120)[:8000]
+LONG = ("تقع المملكة العربية السعودية في جنوب غرب آسيا، وتبلغ مساحتها نحو مليوني كيلومتر مربع. " * 120)[:8000]
 
 
 def _principal(tenant_id: str = "default") -> dict:
@@ -64,6 +64,11 @@ async def test_the_summarizer_does_not_run_below_the_trigger(client, services, s
     assert all(_count(context, "summary") == 0 for context in _contexts(spans, "answer"))
 
 
+def _model_call(spans, role: str):
+    [call] = _calls(spans, role)
+    return call
+
+
 async def test_the_summarizer_folds_older_messages_past_the_trigger(client, services, spans, litellm):
     counter, trigger = services.assembler.counter, services.assembler.config.summary.trigger_tokens
     message = truncate(LONG, 1750, counter)
@@ -79,31 +84,72 @@ async def test_the_summarizer_folds_older_messages_past_the_trigger(client, serv
         headers={"X-Internal-Token": TOKEN},
     )
     assert withdrawn.status_code == 204  # the first reply must not reach the summary (ADR-0048)
-    for _ in range(4):
+    for _ in range(3):
         events = await post_turn(client, conversation_id=conversation, principal=principal, message=message)
         assert events[-1]["type"] == "done"
     assert _calls(spans, "summarizer") == []
 
-    # Turn 6: ten messages in the history, the four older than the window are folded.
+    # Turn 5: once it is persisted the history holds ten messages past the trigger, and the
+    # four older than the window are folded at the end of the turn, after the answer (ADR-0073).
+    spans.clear()
+    events = await post_turn(client, conversation_id=conversation, principal=principal, message=message)
+    assert events[-1]["type"] == "done"
+    summarizer_call, answer_call = _model_call(spans, "summarizer"), _model_call(spans, "reasoning")
+    assert summarizer_call.start_time > answer_call.end_time
+    [summarizer] = _contexts(spans, "summarizer")
+    assert _count(summarizer, "window") == 3  # user 1, user 2, reply 2: the retracted reply is skipped
+    [answer] = _contexts(spans, "answer")
+    assert _count(answer, "summary") == 0
+    assert not next(
+        s for s in spans.get_finished_spans() if s.name == "node.assemble_context"
+    ).attributes.get("context.summary.lazy")
+    values = (await services.graph.aget_state(_thread(conversation))).values
+    assert values["summary"] and values["summary_cursor"] == 4
+
+    # Turn 6: the answer reads the summary and a full window; then, a summary existing, the
+    # two messages that left the window are folded at the end of the turn.
+    spans.clear()
+    await post_turn(client, conversation_id=conversation, principal=principal, message="شكرًا.")
+    [answer] = _contexts(spans, "answer")
+    assert _count(answer, "summary") == 1 and _count(answer, "window") == 6
+    [summarizer] = _contexts(spans, "summarizer")
+    assert _count(summarizer, "summary") == 1 and _count(summarizer, "window") == 2
+    assert _model_call(spans, "summarizer").start_time > _model_call(spans, "reasoning").end_time
+    assert (await services.graph.aget_state(_thread(conversation))).values["summary_cursor"] == 6
+
+
+async def test_the_lazy_fold_runs_before_the_answer_when_the_history_is_already_past_the_trigger(
+    client, services, spans, litellm
+):
+    """The fallback (ADR-0073): history over the trigger at the start of a turn, as after a
+    failed end-of-turn fold, is folded before the answer reads it."""
+    counter = services.assembler.counter
+    message = truncate(LONG, 1750, counter)
+    conversation, principal = str(uuid.uuid4()), _principal()
+    events = await post_turn(client, conversation_id=conversation, principal=principal)
+    assert events[-1]["type"] == "done"
+    # Five long exchanges written straight into the thread: past the trigger, never folded.
+    history = [
+        {"role": role, "content": message, "turn_id": f"t{i}"}
+        for i in range(5)
+        for role in ("user", "assistant")
+    ]
+    await services.graph.aupdate_state(_thread(conversation), {"messages": history}, as_node="write_memory")
+
     spans.clear()
     events = await post_turn(
         client, conversation_id=conversation, principal=principal, message="لخّص لي ما سبق."
     )
     assert events[-1]["type"] == "done"
-    assert len(_calls(spans, "summarizer")) == 1
-    [summarizer] = _contexts(spans, "summarizer")
-    assert _count(summarizer, "window") == 3  # user 1, user 2, reply 2: the retracted reply is skipped
+    lazy, after = sorted(_calls(spans, "summarizer"), key=lambda span: span.start_time)
+    answer_call = _model_call(spans, "reasoning")
+    assert lazy.end_time < answer_call.start_time < answer_call.end_time < after.start_time
     [answer] = _contexts(spans, "answer")
-    assert _count(answer, "summary") == 1 and _count(answer, "window") == 6
-    values = (await services.graph.aget_state(_thread(conversation))).values
-    assert values["summary"] and values["summary_cursor"] == 4
-
-    # Turn 7: a summary exists, so the two messages that just left the window are folded.
-    spans.clear()
-    await post_turn(client, conversation_id=conversation, principal=principal, message="شكرًا.")
-    [summarizer] = _contexts(spans, "summarizer")
-    assert _count(summarizer, "summary") == 1 and _count(summarizer, "window") == 2
-    assert (await services.graph.aget_state(_thread(conversation))).values["summary_cursor"] == 6
+    assert _count(answer, "summary") == 1  # the long window messages are cut to the answer budget
+    assert next(s for s in spans.get_finished_spans() if s.name == "node.assemble_context").attributes[
+        "context.summary.lazy"
+    ]
+    assert (await services.graph.aget_state(_thread(conversation))).values["summary_cursor"] == 8
 
 
 async def test_the_debug_endpoint_is_off_unless_enabled(client, litellm):
