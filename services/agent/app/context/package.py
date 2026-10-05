@@ -118,8 +118,17 @@ class ContextPackage(BaseModel):
 
     def to_messages(self) -> list[dict[str, str]]:
         """System blocks merge into one leading system message; conversation
-        blocks follow in pipeline order, ending with the user message."""
+        blocks follow in pipeline order, ending with the user message. Adjacent
+        blocks of one role merge into one message, so a user-role data block
+        (summary, memory; ADR-0068) joins the user turn it precedes and roles
+        still alternate."""
         system = "\n\n".join(b.content for b in self.blocks if b.role == "system" and b.content)
         messages = [{"role": "system", "content": system}] if system else []
-        messages += [{"role": b.role, "content": b.content} for b in self.blocks if b.role != "system"]
+        for block in self.blocks:
+            if block.role == "system":
+                continue
+            if messages and messages[-1]["role"] == block.role:
+                messages[-1]["content"] += "\n\n" + block.content
+            else:
+                messages.append({"role": block.role, "content": block.content})
         return messages

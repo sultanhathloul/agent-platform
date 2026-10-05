@@ -87,7 +87,8 @@ def render_summary(step: Step, package: ContextPackage, summary: str, limit: int
     if not kept:
         return None
     prompt = step.deps.prompts.render("context.summary", locale, summary=kept)
-    return step.make_block("summary", "system", prompt.text, prompt=prompt.ref, summary=kept)
+    # User-derived text is a delimited data block in the user role, never system (ADR-0068).
+    return step.make_block("summary", "user", prompt.text, prompt=prompt.ref, summary=kept)
 
 
 class SlidingWindow(Step):
@@ -145,9 +146,8 @@ class MemoryRetrieval(Step):
         if not hits:
             return package
         items = [{"id": h.id, "kind": h.kind, "similarity": round(h.similarity, 4)} for h in hits]
-        package.blocks.append(
-            self.make_block("memory", "system", prompt.text, prompt=prompt.ref, items=items)
-        )
+        # User-derived text is a delimited data block in the user role, never system (ADR-0068).
+        package.blocks.append(self.make_block("memory", "user", prompt.text, prompt=prompt.ref, items=items))
         package.prompt_refs.append(prompt.ref)
         return package
 
