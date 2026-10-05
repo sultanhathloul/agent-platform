@@ -142,15 +142,29 @@ ANALYST_ID=$(jq -r '.data.user_id' "$TMP/me.json")
 code=$(status -X PUT -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -d '{"enabled":true}' \
   "$GW/v1/memory/settings")
 [[ $code == 200 ]] && ok "the analyst's memory is on" || fail "PUT /v1/memory/settings returned $code"
+# Earlier runs stored this message's items already, and a duplicate is not stored again
+# (dedupe), so the analyst's own items are deleted first, through their own API.
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/memory" > "$TMP/analyst-before.json" || fail "GET /v1/memory as analyst"
+for id in $(jq -r '.data.items[].id' "$TMP/analyst-before.json"); do
+  [[ $(status -X DELETE -H "Authorization: Bearer $ANALYST" "$GW/v1/memory/$id") == 204 ]] \
+    || fail "the analyst could not delete their own item $id"
+done
+before=$(sql "select count(*) from agent.memory_items where tenant_id = 'default' and user_id = '$ANALYST_ID'")
+(( before == 0 )) && ok "the analyst deleted their earlier items" || fail "$before item(s) left before the memory turn"
 MEMORY_CONV=$(uuidgen | tr 'A-Z' 'a-z')
 curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
   -d "{\"conversation_id\":\"$MEMORY_CONV\",\"message\":\"أعمل محللًا للبيانات في وزارة التعليم، وأفضّل أن تكون الإجابات مختصرة. ما عاصمة الأردن؟\",\"locale\":\"ar\"}" \
   "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$TMP/memory-turn.jsonl"
 check "the memory turn ends with done" jq -se 'last.type == "done"' "$TMP/memory-turn.jsonl"
-rows=$(sql "select count(*) from agent.memory_items where tenant_id = 'default' and user_id = '$ANALYST_ID'")
-(( rows >= 1 )) && ok "$rows memory row(s) for the analyst" || fail "no memory row for the analyst"
+MEMORY_TURN=$(jq -sr 'last.turn_id' "$TMP/memory-turn.jsonl")
+after=$(sql "select count(*) from agent.memory_items where tenant_id = 'default' and user_id = '$ANALYST_ID'")
+this_turn=$(sql "select count(*) from agent.memory_items where tenant_id = 'default' and user_id = '$ANALYST_ID' and source_turn = '$MEMORY_TURN'")
+(( this_turn >= 1 && after - before == this_turn )) && ok "the memory turn wrote $this_turn row(s), and only it" \
+  || fail "memory rows: before $before, after $after, from this turn $this_turn"
 curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/memory" > "$TMP/analyst-memory.json" || fail "GET /v1/memory as analyst"
-check "the analyst lists their memory" jq -e '.data.enabled and (.data.items | length) >= 1' "$TMP/analyst-memory.json"
+turn_ids=$(sql "select id from agent.memory_items where source_turn = '$MEMORY_TURN' and user_id = '$ANALYST_ID' order by id" | sort | paste -sd, -)
+check "the analyst lists exactly this turn's items" jq -e --arg ids "$turn_ids" \
+  '.data.enabled and ([.data.items[].id] | sort | join(",")) == ($ids | split(",") | sort | join(","))' "$TMP/analyst-memory.json"
 ITEM=$(jq -r '.data.items[0].id' "$TMP/analyst-memory.json")
 printf '        memory: %s\n' "$(jq -r '.data.items[0].text' "$TMP/analyst-memory.json")"
 curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/memory" > "$TMP/viewer-memory.json" || fail "GET /v1/memory as viewer"
