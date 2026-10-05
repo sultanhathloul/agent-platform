@@ -137,11 +137,17 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
-      VLLM_BASE_URL: ${VLLM_BASE_URL}
-      VLLM_API_KEY: ${VLLM_API_KEY:-}
+      # Which model serves each alias, and where (ADR-0066); defaults in .env.example.
+      FAST_MODEL: ${FAST_MODEL:?set FAST_MODEL in .env, see .env.example}
+      STANDARD_MODEL: ${STANDARD_MODEL:?set STANDARD_MODEL in .env, see .env.example}
+      HEAVY_MODEL: ${HEAVY_MODEL:?set HEAVY_MODEL in .env, see .env.example}
+      MODEL_API_BASE: ${MODEL_API_BASE:?set MODEL_API_BASE in .env, see .env.example}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      EMBED_MODEL: ${EMBED_MODEL:?set EMBED_MODEL in .env, see .env.example}
+      EMBED_API_BASE: ${EMBED_API_BASE:?set EMBED_API_BASE in .env, see .env.example}
+      MODEL_REASONING_ENABLED: ${MODEL_REASONING_ENABLED:-false}
+      MODEL_PROVIDER_ALLOW_FALLBACKS: ${MODEL_PROVIDER_ALLOW_FALLBACKS:-false}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
     extra_hosts:
