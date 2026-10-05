@@ -112,3 +112,37 @@ async def test_an_escalation_the_cap_or_the_turn_limit_refuses_ends_as_context_o
                 capabilities=[_capability(roomy, "escalate")],
             )
         assert info.value.code == "context_overflow"
+
+
+async def test_needs_more_fires_at_the_real_tier_budget(services, spans):
+    """The tier values are platform budgets (README §19.1, ADR-0067): a user message one
+    budget long fits standard, and a little more raises NeedsMore and ends the turn,
+    since compressing never shortens the user message."""
+    from app.observability.otel import tracer
+
+    standard = services.models_config.tiers["standard"]
+    headroom = services.assembler.config.reserved_loop_headroom_tokens
+    limit = standard.window - standard.max_output - headroom
+    assert limit < 32768  # the README §19.1 window, not a provider's context length
+
+    def request(tokens: int) -> AssemblyRequest:
+        return AssemblyRequest(
+            node="answer",
+            needs=["system", "user_message"],
+            system_prompt="answer.system",
+            locale="ar",
+            state={"user_message": _text(services, tokens)},
+        )
+
+    with tracer.start_as_current_span("test"):
+        fits = await prepare_call(_ctx(services), request(limit - 500), role="reasoning", step="answer")
+    assert fits.package.tier == "standard" and fits.package.budget_limit == limit
+    assert fits.package.total_tokens() <= limit
+
+    spans.clear()
+    with tracer.start_as_current_span("test"), pytest.raises(TurnError) as info:
+        await prepare_call(_ctx(services), request(limit + 500), role="reasoning", step="answer")
+    assert info.value.code == "context_overflow"
+    [needs_more] = [e for s in spans.get_finished_spans() for e in s.events if e.name == "context.needs_more"]
+    assert 0 < needs_more.attributes["deficit_tokens"] <= 600
+    assert needs_more.attributes["action"] == "compress"
