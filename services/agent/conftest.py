@@ -3,14 +3,14 @@
 `docker compose --profile test up -d litellm-mock` and pytest reaches it on
 http://localhost:4001 with the master key from the repo .env.
 
-State lives in Postgres (ADR-0055): each test session creates a throwaway
-database as the Postgres superuser and drops it at the end, as the gateway's
-JDBC tests do (ADR-0051). `make test` passes AGENT_TEST_DATABASE_ADMIN_URL;
-locally, the dev overlay publishes Postgres on port 5433."""
+State lives in Postgres (ADR-0055). The tests connect as the `app` role, like the
+service, to the database `agent_test` that infra/postgres/init provisions with
+the vector extension, and empty the agent's tables at the start of a session
+instead of creating a database (ADR-0070). `make test` passes
+AGENT_TEST_DATABASE_URL; locally, the dev overlay publishes Postgres on port 5433."""
 
 import os
-import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
@@ -20,7 +20,6 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from psycopg.conninfo import make_conninfo
 
 from app.settings import Settings, _default_config_dir
 
@@ -96,30 +95,36 @@ def litellm(settings) -> str:
     return settings.litellm_base_url
 
 
-def _admin_database_url() -> str:
-    if url := os.environ.get("AGENT_TEST_DATABASE_ADMIN_URL"):
+def _test_database_url() -> str:
+    if url := os.environ.get("AGENT_TEST_DATABASE_URL"):
         return url
-    return f"postgresql://postgres:{_dotenv('POSTGRES_PASSWORD') or ''}@localhost:5433/postgres"
+    return f"postgresql://app:{_dotenv('APP_DB_PASSWORD') or ''}@localhost:5433/agent_test"
+
+
+# Kept across sessions: what the migrations recorded, so a session does not re-apply them.
+_KEEP = {"schema_migrations", "checkpoint_migrations"}
 
 
 @pytest.fixture(scope="session")
-def database_url() -> Iterator[str]:
-    """A throwaway database with the vector extension, dropped after the session.
-    Fails (never skips) when Postgres is unreachable."""
-    admin = _admin_database_url()
-    name = f"agent_test_{uuid.uuid4().hex[:12]}"
+def database_url() -> str:
+    """The provisioned test database, its agent tables emptied. Fails (never skips)
+    when Postgres or the database is unreachable."""
+    url = _test_database_url()
     try:
-        with psycopg.connect(admin, autocommit=True, connect_timeout=5) as conn:
-            conn.execute(f'CREATE DATABASE "{name}"')
+        with psycopg.connect(url, autocommit=True, connect_timeout=5) as conn:
+            tables = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'agent'"
+                ).fetchall()
+                if row[0] not in _KEEP
+            ]
+            if tables:
+                conn.execute(f"TRUNCATE {', '.join(f'agent.{t}' for t in tables)}")
     except psycopg.OperationalError as exc:
-        hint = "docker compose up -d --wait postgres (and set AGENT_TEST_DATABASE_ADMIN_URL)"
-        pytest.fail(f"Postgres not reachable for the test database ({exc}); run: {hint}")
-    url = make_conninfo(admin, dbname=name)
-    with psycopg.connect(url, autocommit=True) as conn:
-        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    yield url
-    with psycopg.connect(admin, autocommit=True) as conn:
-        conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        hint = "make test-agent provisions it (infra/postgres/init/10-agent-test.sh)"
+        pytest.fail(f"test database not reachable as the app role ({exc}); {hint}")
+    return url
 
 
 async def _started(settings: Settings, database_url: str, **kwargs):

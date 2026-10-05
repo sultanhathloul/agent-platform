@@ -342,8 +342,8 @@ services:
       <<: *agent-env
       LITELLM_BASE_URL: http://litellm-mock:4000
       DOCS_DIR: /srv/docs
-      # A throwaway database per test session is created and dropped as the superuser (ADR-0055).
-      AGENT_TEST_DATABASE_ADMIN_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
+      # The test database from infra/postgres/init, as the app role; never the superuser (ADR-0070).
+      AGENT_TEST_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/agent_test
     volumes:
       - ./config:/srv/config:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
