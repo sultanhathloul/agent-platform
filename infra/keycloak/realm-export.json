@@ -152,6 +152,17 @@
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "viewer", "temporary": false }],
       "realmRoles": ["default-roles-agent", "viewer", "cap:docs"]
+    },
+    {
+      "username": "evaluator",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "evaluator@agent.local",
+      "firstName": "مقيّم",
+      "lastName": "الاختبارات",
+      "attributes": { "tenant_id": ["default"] },
+      "credentials": [{ "type": "password", "value": "evaluator", "temporary": false }],
+      "realmRoles": ["default-roles-agent"]
     }
   ],
   "components": {
