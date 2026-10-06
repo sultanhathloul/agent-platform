@@ -7,6 +7,10 @@
 #   phase 02: a second turn after `docker compose restart agent` continues the
 #             conversation; a memory row is written for the analyst and is
 #             invisible to the viewer.
+#   phase 03: fake PII in an answer never appears in a token event; a memory
+#             candidate with a fake mobile number is not stored; a policy edit
+#             takes effect without a restart and its block returns message_ar;
+#             a second turn on a busy conversation is 409 turn_in_flight.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -53,7 +57,7 @@ step "general turn, streamed through gateway → agent → LiteLLM"
 CONV=$(uuidgen | tr 'A-Z' 'a-z')
 curl -sN -D "$TMP/headers" -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' \
-  -d "{\"conversation_id\":\"$CONV\",\"message\":\"ما عاصمة المملكة العربية السعودية؟ أجب بجملة واحدة.\",\"locale\":\"ar\"}" \
+  -d "{\"conversation_id\":\"$CONV\",\"message\":\"ما عاصمة المملكة العربية السعودية؟ أجب في ثلاث جمل قصيرة.\",\"locale\":\"ar\"}" \
   "$GW/v1/chat/turns" \
   | python3 -u -c 'import sys, time
 for line in sys.stdin:
@@ -65,6 +69,8 @@ check "events end with done" jq -se 'last.type == "done"' "$TMP/events.jsonl"
 check "no error event" jq -se '[.[] | select(.type == "error")] | length == 0' "$TMP/events.jsonl"
 check "tier event: general runs on standard" jq -se '[.[] | select(.type == "tier")][0].data.tier == "standard"' "$TMP/events.jsonl"
 tokens=$(jq -se '(map(.type) | index("done")) as $done | [.[:$done][] | select(.type == "token")] | length' "$TMP/events.jsonl")
+# The answer leaves sentence by sentence through the DATA buffer (phase 03, I5), so three
+# sentences are three token events at least.
 (( tokens >= 3 )) && ok "$tokens token events before done" || fail "expected at least 3 token events before done, got $tokens"
 ANSWER=$(jq -rse 'last.data.answer' "$TMP/events.jsonl")
 check "answer is non-empty Arabic" bash -c "[[ -n \"\$1\" ]] && grep -q '[ء-ي]' <<<\"\$1\"" _ "$ANSWER"
@@ -179,4 +185,95 @@ check "error code is memory_not_found" jq -e '.error.code == "memory_not_found"'
 denied=$(sql "select count(*) from gateway.audit_events where action = 'memory.delete' and status = 'denied' and detail->>'item_id' = '$ITEM'")
 (( denied >= 1 )) && ok "the refused delete is audited as denied" || fail "no denied memory.delete audit row"
 
-printf '\nsmoke: all phase 01 and phase 02 checks passed\n'
+# Fresh tokens: the realm's access tokens live 300 s and the steps above take a while.
+ADMIN=$(token_for admin admin) || fail "admin login"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+
+step "phase 03: fake PII in an answer is redacted before any token leaves (ADR-0039, D3)"
+# Fake numbers only (ADR-0065): they pass the format checks and nothing else.
+PII_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$PII_CONV\",\"message\":\"انسخ النص التالي حرفيًا كما هو دون أي تعليق أو تغيير: للتواصل اتصل على 0501234567 أو راسل test.user@example.org\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$TMP/pii.jsonl"
+check "the PII turn ends with done" jq -se 'last.type == "done"' "$TMP/pii.jsonl"
+check "pii-redact-output redacted the answer (the model repeated the PII)" jq -se \
+  '[.[] | select(.type == "guard" and .data.policy_id == "pii-redact-output" and .data.action == "redact")] | length > 0' "$TMP/pii.jsonl"
+check "no token event, nor all of them joined, holds the mobile number or the address" python3 -c '
+import json, re, sys
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+tokens = [e["data"]["text"] for e in events if e["type"] == "token"]
+digits = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+mobile = re.compile(r"0\D?5\D?0\D?1\D?2\D?3\D?4\D?5\D?6\D?7")
+for text in [*tokens, "".join(tokens)]:
+    folded = text.translate(digits)
+    if mobile.search(folded) or "test.user@example.org" in folded:
+        sys.exit(1)
+sys.exit(0 if tokens else 1)' "$TMP/pii.jsonl"
+printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/pii.jsonl")"
+
+step "phase 03: a memory candidate carrying a fake mobile number is not stored (B1)"
+MOBILE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$MOBILE_CONV\",\"message\":\"رقم جوالي 0559876543 وأعمل في إدارة التخطيط. لا تكرر الرقم في إجابتك. ما عاصمة سلطنة عُمان؟\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$TMP/mobile.jsonl"
+check "the turn ends with done, no error shown to the user" jq -se 'last.type == "done" and ([.[] | select(.type == "error")] | length == 0)' "$TMP/mobile.jsonl"
+stored=$(sql "select count(*) from agent.memory_items where user_id = '$ANALYST_ID' and (text like '%0559876543%' or text like '%٠٥٥٩٨٧٦٥٤٣%' or text like '%9876543%')")
+(( stored == 0 )) && ok "no memory item holds the mobile number" || fail "$stored memory item(s) hold the mobile number"
+blocked=$(jq -se '[.[] | select(.type == "guard" and .data.policy_id == "pii-block-in-memory" and .data.action == "block")] | length' "$TMP/mobile.jsonl")
+printf '        pii-block-in-memory blocks in this turn: %s (0 when the extractor kept no candidate with the number, or the answer repeated it and the turn was guard-flagged)\n' "$blocked"
+
+step "phase 03: admin policy endpoints are admin-only"
+code=$(status -H "Authorization: Bearer $VIEWER" "$GW/v1/admin/policies")
+[[ $code == 403 ]] && ok "viewer GET /v1/admin/policies → 403" || fail "viewer GET /v1/admin/policies returned $code"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies" > "$TMP/policies.json" || fail "admin GET /v1/admin/policies"
+check "the seed policies are listed" jq -e \
+  '[.data.policies[].policy.id] as $ids | ["pii-redact-output","pii-block-in-memory","prompt-injection-input","topics-politics-llm-judge","web-domain-denylist","tool-visibility-by-role"] | all(. as $x | $ids | index($x))' "$TMP/policies.json"
+
+step "phase 03: a policy edit takes effect without a restart, and its block returns message_ar"
+POLICY_ID=smoke-live-block
+MESSAGE_AR="حُجب هذا الطلب بسياسة اختبار الفحص الشامل."
+POLICY=$(jq -cn --arg id "$POLICY_ID" --arg ar "$MESSAGE_AR" '{id: $id, name: "Smoke: live keyword block", scope: "global",
+  checkpoints: ["INPUT"], checker: "keyword_list", config: {keywords: ["كلمةالفحصالشامل"]}, action: "block",
+  message_ar: $ar, message_en: "Blocked by the smoke test policy.", enabled: true}')
+code=$(curl -s -o "$TMP/created.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d "$POLICY" "$GW/v1/admin/policies")
+if [[ $code == 409 ]]; then  # an earlier smoke run created it: the edit is a new version, switched on
+  code=$(curl -s -o "$TMP/created.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+    -d "$POLICY" "$GW/v1/admin/policies/$POLICY_ID/versions")
+fi
+[[ $code == 201 ]] && ok "admin saved $POLICY_ID@$(jq -r '.data.policy.version' "$TMP/created.json")" || fail "saving the policy returned $code"
+blocked_turn() {
+  curl -sN -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"سؤال فيه كلمةالفحصالشامل\",\"locale\":\"ar\"}" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$1"
+}
+blocked_turn "$TMP/live-blocked.jsonl"
+check "the next turn is blocked, no agent restart (input_blocked)" jq -se 'last.type == "error" and last.data.code == "input_blocked"' "$TMP/live-blocked.jsonl"
+check "the block returns the policy's message_ar" jq -se --arg ar "$MESSAGE_AR" 'last.data.message_ar == $ar' "$TMP/live-blocked.jsonl"
+check "the error names the policy version" jq -se --arg id "$POLICY_ID" 'last.data.policy_id | startswith($id + "@")' "$TMP/live-blocked.jsonl"
+code=$(status -X PUT -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"enabled":false}' \
+  "$GW/v1/admin/policies/$POLICY_ID/enabled")
+[[ $code == 200 ]] && ok "admin switched $POLICY_ID off" || fail "switching the policy off returned $code"
+blocked_turn "$TMP/live-allowed.jsonl"
+check "the turn after the switch passes" jq -se 'last.type == "done"' "$TMP/live-allowed.jsonl"
+audited=$(sql "select count(*) from gateway.audit_events where action in ('policy.create','policy.version','policy.enable') and status = 'ok' and detail->>'policy_id' = '$POLICY_ID' and occurred_at > now() - interval '10 minutes'")
+(( audited >= 2 )) && ok "the policy edits are audited ($audited rows)" || fail "policy edits audited: $audited"
+
+step "phase 03: a second turn on a busy conversation is 409 turn_in_flight (D6)"
+BUSY_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$BUSY_CONV\",\"message\":\"اكتب فقرة من خمس جمل عن تاريخ مدينة الرياض.\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" > "$TMP/busy-first.sse" &   # raw and unbuffered (-N): its first event shows the turn runs
+FIRST=$!
+for _ in $(seq 1 200); do grep -q '^data: ' "$TMP/busy-first.sse" 2>/dev/null && break; sleep 0.05; done
+grep -q '^data: ' "$TMP/busy-first.sse" || fail "the first turn did not start streaming"
+code=$(curl -s -o "$TMP/busy-second.json" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$BUSY_CONV\",\"message\":\"وما عدد سكانها؟\",\"locale\":\"ar\"}" "$GW/v1/chat/turns")
+[[ $code == 409 ]] && ok "the concurrent turn → 409" || fail "the concurrent turn returned $code"
+check "error code is turn_in_flight" jq -e '.error.code == "turn_in_flight"' "$TMP/busy-second.json"
+wait "$FIRST"
+sed -n 's/^data: //p' "$TMP/busy-first.sse" > "$TMP/busy-first.jsonl"
+check "the first turn still ends with done" jq -se 'last.type == "done"' "$TMP/busy-first.jsonl"
+
+printf '\nsmoke: all phase 01, 02 and 03 checks passed\n'
