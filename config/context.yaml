@@ -3,8 +3,8 @@
 pipeline:
   - system_instructions
   - state_digest
-  - rolling_summary
   - sliding_window
+  - rolling_summary   # after the window: part of the current message, never before history (ADR-0077)
   - memory_retrieval
   - semantic_retrieval
   - tool_results
