@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -33,6 +34,13 @@ public class ErrorResponses {
 
     public void write(HttpServletRequest request, HttpServletResponse response, ErrorCode code, int status)
             throws IOException {
+        write(request, response, code, status, null);
+    }
+
+    /** With {@code details}: what is wrong, e.g. a policy's validation errors from the agent. */
+    public void write(
+            HttpServletRequest request, HttpServletResponse response, ErrorCode code, int status, List<String> details)
+            throws IOException {
         if (response.isCommitted()) {
             log.warn("response already committed; cannot send error {}", code.code());
             return;
@@ -41,7 +49,8 @@ public class ErrorResponses {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        ApiErrorEnvelope body = new ApiErrorEnvelope(RequestIdFilter.requestId(request), messages.error(code));
+        ApiErrorEnvelope body =
+                new ApiErrorEnvelope(RequestIdFilter.requestId(request), messages.error(code).withDetails(details));
         response.getOutputStream().write(mapper.writeValueAsBytes(body));
         response.flushBuffer();
     }

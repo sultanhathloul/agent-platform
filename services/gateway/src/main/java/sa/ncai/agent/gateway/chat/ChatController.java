@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,7 @@ import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
 import sa.ncai.agent.gateway.proxy.ClientGoneException;
 import sa.ncai.agent.gateway.proxy.RelayOutcome;
 import sa.ncai.agent.gateway.proxy.SseRelay;
+import sa.ncai.agent.gateway.proxy.TurnInFlightException;
 
 /**
  * One chat turn: authorize, forward to the agent, stream the agent's events back
@@ -106,6 +108,10 @@ public class ChatController {
                 @ApiResponse(responseCode = "403", description = "kb_forbidden or conversation_forbidden",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "409",
+                        description = "turn_in_flight: an earlier turn of this conversation is still running",
+                        content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                                schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "502", description = "agent_unavailable",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
@@ -167,6 +173,11 @@ public class ChatController {
                     return recorded;
                 });
             });
+        } catch (TurnInFlightException e) {
+            // One turn at a time per conversation (D6); nothing streamed, nothing ran.
+            detail.put("error_code", ErrorCode.TURN_IN_FLIGHT.code());
+            refuse(request, response, ErrorCode.TURN_IN_FLIGHT,
+                    auditEvent(requestId, principal, body, AuditStatus.DENIED, detail, started), audited);
         } catch (AgentUnavailableException e) {
             log.warn("{}", e.getMessage());
             detail.put("error_code", ErrorCode.AGENT_UNAVAILABLE.code());
@@ -218,11 +229,41 @@ public class ChatController {
                     detail.put("trace_id", data.get("trace_id").asText());
                 }
                 detail.put("guard_events", data.path("guard_events").size());
+                detail.put("guard_policies", guardPolicies(data.path("guard_events")));
             }
-            case ERROR -> detail.put("error_code", data.path("code").asText("unknown"));
+            case ERROR -> {
+                detail.put("error_code", data.path("code").asText("unknown"));
+                if (data.hasNonNull("policy_id")) {
+                    detail.put("policy_id", data.get("policy_id").asText());
+                }
+                detail.put("guard_policies", guardPolicies(data.path("guard_events")));
+            }
             case INTERRUPTED -> detail.put("error_code", ErrorCode.AGENT_STREAM_INTERRUPTED.code());
         }
         return detail;
+    }
+
+    /**
+     * The audit delta of the turn's guards: every policy that did something, as
+     * {@code {checkpoint, policy: id@version, action, target}}; never any matched text (A1, D5).
+     */
+    private static List<Map<String, Object>> guardPolicies(JsonNode events) {
+        List<Map<String, Object>> policies = new ArrayList<>();
+        for (JsonNode event : events) {
+            String action = event.path("action").asText("");
+            if (!event.hasNonNull("policy_id") || "allow".equals(action)) {
+                continue;
+            }
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("checkpoint", event.path("checkpoint").asText());
+            entry.put("policy", event.get("policy_id").asText() + "@" + event.path("policy_version").asText("?"));
+            entry.put("action", action);
+            if (event.hasNonNull("target")) {
+                entry.put("target", event.get("target").asText());
+            }
+            policies.add(entry);
+        }
+        return policies;
     }
 
     private static AuditEvent auditEvent(

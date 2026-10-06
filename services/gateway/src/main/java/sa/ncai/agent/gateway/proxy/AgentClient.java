@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.util.function.Supplier;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -53,6 +54,7 @@ public class AgentClient {
      * Posts a turn and hands the SSE body to {@code handler}.
      *
      * @throws AgentUnavailableException if the agent is unreachable or answers non-2xx
+     * @throws TurnInFlightException if another turn holds the conversation (409, D6)
      */
     public <T> T streamTurn(AgentTurnRequest request, String requestId, StreamHandler<T> handler) {
         try {
@@ -64,6 +66,9 @@ public class AgentClient {
                     .header(RequestIdFilter.HEADER, requestId)
                     .body(request)
                     .exchange((clientRequest, response) -> {
+                        if (response.getStatusCode().value() == 409) {
+                            throw new TurnInFlightException();
+                        }
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             throw new AgentUnavailableException(
                                     "agent answered " + response.getStatusCode().value());
@@ -147,6 +152,24 @@ public class AgentClient {
                     requireSuccess(response.getStatusCode().value(), "memory settings");
                     return response.bodyTo(MemorySettings.class);
                 }));
+    }
+
+    /**
+     * Calls an admin endpoint (guard policies, phase 03) with the caller from the verified token,
+     * and returns the status and body whatever they are; the caller maps them.
+     *
+     * @throws AgentUnavailableException if the agent is unreachable
+     */
+    public AgentReply exchangeAdmin(
+            HttpMethod method, String uri, Object body, GatewayPrincipal caller, String requestId) {
+        RestClient.RequestBodySpec spec = client.method(method).uri(uri);
+        if (body != null) {
+            spec = spec.contentType(MediaType.APPLICATION_JSON).body(body);
+        }
+        RestClient.RequestBodySpec request = spec;
+        return reach(() -> identified(request, caller, requestId)
+                .exchange((clientRequest, response) ->
+                        new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
     }
 
     private RestClient.RequestHeadersSpec<?> identified(
