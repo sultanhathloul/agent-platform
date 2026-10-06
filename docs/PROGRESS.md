@@ -462,6 +462,9 @@ Tech debt recorded in the PR #2 fix session (2026-10-05; not implemented, by ins
 - [ ] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item.
 - [ ] Phase 09: asynchronous memory writing; a turn's `done` waits for the memory write (7.9 s measured, above).
 
+Tech debt recorded in the second PR #2 fix session (2026-10-06; review finding 2, not implemented, by instruction):
+- [ ] **Phase 03:** nothing serializes turns on one conversation. Two turns in flight on the same thread each start from the checkpoint before the other and the last writer wins (an exchange, or the end-of-turn fold's summary and cursor, is lost); a retract racing a turn can lose its flag while its memory delete stands. Design: a per-conversation Postgres advisory lock (`pg_try_advisory_lock` keyed on the conversation id) held by `TurnRunner` around the graph invocation and around `retract`; a second turn on a conversation whose lock is held ends with `turn_in_flight`, which the gateway returns as **409 `turn_in_flight`** (new error code in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`; API version bump). Phase 08's interrupt/resume takes the same lock.
+
 Accepted interpretation of CLAUDE.md rule 6 (ADR-0075): a test may let a real call go through Context Assembly and LiteLLM and then replace the returned text, to simulate a non-deterministic model defect (`tests/integration/test_answer_retry.py`).
 
 Human review needed (phase 02):
@@ -523,6 +526,26 @@ Human review needed (this session):
 How to verify (this session):
 - `make test`; `make up smoke` with the `.env.example` model values; `make up smoke eval` with the OpenRouter block of README §21.4.
 
+
+### Fix session: second PR #2 review, finding 1 (2026-10-06)
+
+Scope: review finding 1 only (a retracted reply's question merged into the current message); finding 2 recorded as phase 03 tech debt. Nothing else.
+
+Checklist:
+- [x] 1. A retracted reply removes its exchange as a pair in the sliding window and the summarizer's plan (`context/messages.py` `visible()`); ADR-0076, with status notes on ADR-0048 and ADR-0068 (ADR-0034 allows only `Superseded by` notes, so the pair rule is a new entry)
+- [x] 2. `ContextPackage.to_messages` merges only within the current-message group (`summary`, `memory`, `user_message`) and among system blocks; a window ending with a user message raises `HistoryEndsWithUserMessage`
+- [x] 3. Tests: retracted pair at the end of history with and without memory hits; summarizer slice ending on a retracted pair; the pair-skip in the window; `to_messages` refusal. Updated to the pair rule: `test_retracted_exchange_is_skipped_by_the_next_turn`, `test_the_summarizer_folds_older_messages_past_the_trigger` (one more turn to pass the trigger), `test_a_retracted_exchange_is_neither_counted_nor_folded`, `test_summary_and_memory_are_user_role_data_blocks_never_system` (the summary is its own user message now)
+- [x] 4. Finding 2 recorded as phase 03 tech debt (above)
+- [x] 5. `make test`, `make smoke` (current profile), `make eval` once; push
+
+Session result (2026-10-06), on the OpenRouter profile the local `.env` is on:
+- **`make test`:** green (exit 0). Agent 234 passed as the `app` role on `agent_test` (229 before; +5: the four new context tests and the summary-plan slice test). Gateway BUILD SUCCESSFUL plus `gateway-db-tests`. Web 56 passed.
+- **`make smoke`:** green, all phase 01 and 02 checks; the memory turn wrote 2 rows, and only it.
+- **`make eval`:** general 28/28 (1.00), threshold 0.85; dataset run `make-eval-20261006T090537Z`.
+
+Human review needed (this session): `docs/DECISIONS.md` ADR-0076 and the status notes on ADR-0048 and ADR-0068. No file under `config/` or `infra/` changed.
+
+How to verify (this session): `make test`; `make up smoke eval`. The pair rule alone: `pytest tests/unit/test_context_pipeline.py tests/unit/test_summary_plan.py tests/unit/test_assembler.py` and `tests/integration/test_turns.py::test_retracted_exchange_is_skipped_by_the_next_turn` in `make test-agent`.
 
 ## Phase 03: Guardrails engine
 
