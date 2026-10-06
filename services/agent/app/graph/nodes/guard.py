@@ -8,10 +8,11 @@ PRE_TOOL/POST_TOOL run in the broker, MODEL_TIER in the tier resolver (README §
 - OUTPUT and DATA on the whole answer run only in buffered mode (D3): there a block
   ends the turn before any text left, a `rewrite` asks the model once more with the
   violation explained, and a redaction changes the text release_answer streams. In
-  streaming mode DATA already ran on every sentence before it was released, and the
-  OUTPUT policies that apply can only warn or log; if a policy that blocks appears
-  between the answer and this node (a hot reload mid-turn), the streamed text is
-  retracted, the one case besides `validate` where retract remains (ADR-0039).
+  streaming mode the OUTPUT redact policies and DATA already ran on every sentence
+  before it was released (ADR-0106), so the whole-answer OUTPUT check skips redact and
+  what applies can only warn or log; if a policy that blocks appears between the answer
+  and this node (a hot reload mid-turn), the streamed text is retracted, the one case
+  besides `validate` where retract remains (ADR-0039).
 """
 
 from langgraph.runtime import Runtime
@@ -26,7 +27,9 @@ from app.graph.nodes.validate import validation_issues
 from app.graph.state import AgentState
 from app.graph.streaming import split_sentences
 from app.guardrails.checkpoints import Checkpoint
-from app.guardrails.schema import DataPayload, GuardOutcome
+from app.guardrails.schema import ACTIONS, DataPayload, GuardOutcome
+
+WHOLE_ANSWER_ACTIONS = frozenset(ACTIONS) - {"redact"}
 
 
 @traced("guard.INPUT")

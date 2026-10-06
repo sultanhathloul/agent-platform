@@ -113,7 +113,8 @@ async def test_the_pre_guard_purge_is_a_dry_run_then_idempotent(services, litell
     assert {i.id for i in await services.memory.store.list_items(scope)} == {leaked, clean}
 
     applied = await purge(services, dry_run=False)
-    assert (applied.memory_items_deleted, applied.summaries_redacted) == (
+    assert (applied.memory_items_scanned, applied.memory_items_deleted, applied.summaries_redacted) == (
+        dry.memory_items_scanned,
         dry.memory_items_deleted,
         dry.summaries_redacted,
     )

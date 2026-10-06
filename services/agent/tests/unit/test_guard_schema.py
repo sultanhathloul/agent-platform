@@ -17,6 +17,8 @@ from app.guardrails.schema import (
     Scope,
     ScopeError,
     Span,
+    is_exception,
+    overridden,
 )
 from app.identity import Principal
 
@@ -57,14 +59,30 @@ def test_precedence_is_narrow_over_wide_with_the_role_slot_reserved():
     assert ordered == ["global", "tenant:a", "kb:moe", "tool:web"]
 
 
-def test_role_scope_is_rejected_with_a_clear_error():
-    with pytest.raises(ScopeError, match="role scopes are reserved"):
-        Scope.parse("role:viewer")
-    with pytest.raises(ValidationError, match="role scopes are reserved"):
-        policy(scope="role:viewer")
+def test_role_scopes_take_a_slug_and_match_the_principals_policy_roles():
+    assert (Scope.parse("role:pii-exempt").kind, Scope.parse("role:pii-exempt").value) == (
+        "role",
+        "pii-exempt",
+    )
+    assert policy(scope="role:no-sql").scope == "role:no-sql"
+    for bad in ("role:Viewer", "role:a b", "role:"):
+        with pytest.raises(ScopeError):
+            Scope.parse(bad)
+    analyst = Principal(user_id="u", policy_roles=("policy:pii-exempt", "policy:no-sql"))
+    assert {"role:pii-exempt", "role:no-sql"} <= GuardContext().scopes(analyst)
+    assert not {s for s in GuardContext().scopes(Principal(user_id="v")) if s.startswith("role:")}
 
 
-@pytest.mark.parametrize("text", ["", "tenant", "tenant:", "user:x", "global:x", "kb:مدرسة", "tool:a b"])
+def test_a_principal_carries_only_policy_roles():
+    with pytest.raises(ValidationError):
+        Principal(user_id="u", policy_roles=("admin",))
+    with pytest.raises(ValidationError):
+        Principal(user_id="u", policy_roles=("cap:sql",))
+
+
+@pytest.mark.parametrize(
+    "text", ["", "tenant", "tenant:", "user:x", "global:x", "kb:مدرسة", "tool:a b", "role:X"]
+)
 def test_malformed_scopes_are_rejected(text):
     with pytest.raises(ScopeError):
         Scope.parse(text)
@@ -190,6 +208,40 @@ def test_event_records_name_the_policy_version():
     assert GuardEventRecord(checkpoint=Checkpoint.INPUT, action="allow").policy_ref is None
 
 
-def test_block_is_the_most_restrictive_action():
-    assert max(ACTION_RANK, key=ACTION_RANK.get) == "block"
-    assert ACTION_RANK["redact"] > ACTION_RANK["warn"] > ACTION_RANK["log_only"] > ACTION_RANK["allow"]
+def test_strictness_is_the_owners_order():
+    order = sorted(ACTION_RANK, key=ACTION_RANK.get, reverse=True)
+    assert order == ["block", "rewrite", "redact", "require_approval", "warn", "log_only", "allow"]
+
+
+# ------------------------------------------------------------------ exceptions (ADR-0105)
+
+
+def test_a_narrower_weaker_policy_of_the_same_group_is_an_exception():
+    wide = policy(id="pii-global", group="pii")
+    exempt = policy(id="pii-exempt", group="pii", scope="role:pii-exempt", action="allow")
+    stricter = policy(id="pii-tool", group="pii", scope="tool:web", action="redact")
+    assert overridden(exempt, [wide, stricter]) == [wide] and is_exception(exempt, [wide])
+    assert overridden(stricter, [wide, exempt]) == [wide, exempt]
+    assert not is_exception(stricter, [wide])  # redact over redact: no weaker action
+
+
+def test_a_policy_in_another_group_or_wider_scope_overrides_nothing():
+    wide = policy(id="pii-global", group="pii")
+    other_group = policy(id="names", group="names", scope="tenant:t1", action="allow")
+    assert overridden(other_group, [wide]) == []
+    assert overridden(wide, [policy(id="narrow", group="pii", scope="tenant:t1", action="allow")]) == []
+
+
+def test_overrides_need_a_shared_checkpoint_and_at_data_a_shared_target():
+    answers = policy(
+        id="ans", group="pii", config={"patterns": [{"name": "X", "pattern": "x"}], "targets": ["answer"]}
+    )
+    memory = policy(
+        id="mem",
+        group="pii",
+        scope="tenant:t1",
+        action="allow",
+        config={"patterns": [{"name": "X", "pattern": "x"}], "targets": ["memory_candidate"]},
+    )
+    elsewhere = policy(id="inp", group="pii", scope="tenant:t1", action="allow", checkpoints=["INPUT"])
+    assert overridden(memory, [answers]) == [] and overridden(elsewhere, [answers]) == []

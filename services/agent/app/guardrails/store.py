@@ -32,7 +32,7 @@ from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from app.db import Database
-from app.guardrails.schema import GuardEventRecord, Policy
+from app.guardrails.schema import GuardEventRecord, Policy, is_exception, overridden
 
 log = logging.getLogger(__name__)
 
@@ -57,13 +57,16 @@ class PolicyFileError(ValueError):
 
 @dataclass(frozen=True)
 class PolicyView:
-    """A policy's current version, its switch, and who changed it last."""
+    """A policy's current version, its switch, who changed it last, and what the version
+    overrides as computed when it was saved (ADR-0105)."""
 
     policy: Policy
     created_at: datetime
     created_by: str
     updated_at: datetime
     updated_by: str
+    overrides: list[str] = field(default_factory=list)
+    exception: bool = False
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,17 @@ class PolicyVersion:
     policy: Policy
     created_at: datetime
     created_by: str
+    overrides: list[str] = field(default_factory=list)
+    exception: bool = False
+
+
+@dataclass(frozen=True)
+class Overrides:
+    """What a policy overrides (refs of the wider policies of its group) and whether that
+    makes it an exception (ADR-0105)."""
+
+    refs: list[str]
+    exception: bool
 
 
 @dataclass
@@ -85,6 +99,18 @@ def _policy(row: dict) -> Policy:
     content = row["content"] if isinstance(row["content"], dict) else json.loads(row["content"])
     return Policy.model_validate(
         {**content, "id": row["id"], "version": row["version"], "enabled": row["enabled"]}
+    )
+
+
+def _view(row: dict) -> PolicyView:
+    return PolicyView(
+        _policy(row),
+        row["created_at"],
+        row["created_by"],
+        row["updated_at"],
+        row["updated_by"],
+        list(row["overrides"]),
+        row["exception"],
     )
 
 
@@ -125,7 +151,8 @@ def export_document(policies: Iterable[Policy]) -> str:
 
 
 _SELECT_CURRENT = (
-    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, h.enabled, h.updated_at, h.updated_by "
+    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, p.overrides, p.exception, "
+    "h.enabled, h.updated_at, h.updated_by "
     "FROM agent.guard_policy_heads h JOIN agent.guard_policies p "
     "ON p.id = h.id AND p.version = h.current_version"
 )
@@ -230,25 +257,21 @@ class PolicyStore:
     async def list_policies(self) -> list[PolicyView]:
         async with self._db.connection() as conn:
             rows = await (await conn.execute(_SELECT_CURRENT + " ORDER BY p.id")).fetchall()
-        return [
-            PolicyView(_policy(r), r["created_at"], r["created_by"], r["updated_at"], r["updated_by"])
-            for r in rows
-        ]
+        return [_view(r) for r in rows]
 
     async def get(self, policy_id: str) -> PolicyView:
         async with self._db.connection() as conn:
             row = await (await conn.execute(_SELECT_CURRENT + " WHERE h.id = %s", (policy_id,))).fetchone()
         if row is None:
             raise PolicyNotFound(policy_id)
-        return PolicyView(
-            _policy(row), row["created_at"], row["created_by"], row["updated_at"], row["updated_by"]
-        )
+        return _view(row)
 
     async def versions(self, policy_id: str) -> list[PolicyVersion]:
         async with self._db.connection() as conn:
             rows = await (
                 await conn.execute(
-                    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, h.enabled "
+                    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, p.overrides, "
+                    "p.exception, h.enabled "
                     "FROM agent.guard_policies p JOIN agent.guard_policy_heads h ON h.id = p.id "
                     "WHERE p.id = %s ORDER BY p.version DESC",
                     (policy_id,),
@@ -256,7 +279,10 @@ class PolicyStore:
             ).fetchall()
         if not rows:
             raise PolicyNotFound(policy_id)
-        return [PolicyVersion(_policy(r), r["created_at"], r["created_by"]) for r in rows]
+        return [
+            PolicyVersion(_policy(r), r["created_at"], r["created_by"], list(r["overrides"]), r["exception"])
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------ admin writes
 
@@ -334,12 +360,24 @@ class PolicyStore:
             await self._changed()
         return inserted
 
+    async def overrides(self, policy: Policy) -> Overrides:
+        """What `policy`, saved now, would override (the admin form's preview)."""
+        async with self._db.connection() as conn:
+            return await self._overrides(conn, policy)
+
+    async def _overrides(self, conn, policy: Policy) -> Overrides:
+        """Against every other policy's current version, on or off (ADR-0105)."""
+        rows = await (await conn.execute(_SELECT_CURRENT + " WHERE h.id <> %s", (policy.id,))).fetchall()
+        wider = overridden(policy, [_policy(r) for r in rows])
+        return Overrides(sorted(p.ref for p in wider), is_exception(policy, wider))
+
     async def _insert_new(self, conn, policy: Policy, actor: str) -> Policy | None:
         """Version 1 and its head; None when the id exists (concurrent seeders agree)."""
+        found = await self._overrides(conn, policy)
         cursor = await conn.execute(
-            "INSERT INTO agent.guard_policies (id, version, content, created_by) VALUES (%s, 1, %s, %s) "
-            "ON CONFLICT (id, version) DO NOTHING",
-            (policy.id, Jsonb(policy.content()), actor),
+            "INSERT INTO agent.guard_policies (id, version, content, created_by, overrides, exception) "
+            "VALUES (%s, 1, %s, %s, %s, %s) ON CONFLICT (id, version) DO NOTHING",
+            (policy.id, Jsonb(policy.content()), actor, Jsonb(found.refs), found.exception),
         )
         if cursor.rowcount != 1:
             return None
@@ -364,9 +402,11 @@ class PolicyStore:
             )
         ).fetchone()
         version = latest["v"] + 1
+        found = await self._overrides(conn, policy)
         await conn.execute(
-            "INSERT INTO agent.guard_policies (id, version, content, created_by) VALUES (%s, %s, %s, %s)",
-            (policy.id, version, Jsonb(policy.content()), actor),
+            "INSERT INTO agent.guard_policies (id, version, content, created_by, overrides, exception) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (policy.id, version, Jsonb(policy.content()), actor, Jsonb(found.refs), found.exception),
         )
         await conn.execute(
             "UPDATE agent.guard_policy_heads SET current_version = %s, enabled = %s, updated_at = now(), "

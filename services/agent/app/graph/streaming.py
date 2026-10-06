@@ -8,8 +8,9 @@ characters. Waiting for the whitespace keeps "3.5", "x.y@example.org" and
 two digits, so a number written in groups is not split across two checks.
 
 `DataStream` is the answer node's token callback while streaming: tokens queue,
-and a task releases each complete sentence after DATA (target `answer`) has run on
-it, so a redaction happens before the text leaves the agent. Redaction events are
+and a task releases each complete sentence after the OUTPUT redact policies and
+then DATA (target `answer`) have run on it (ADR-0106), so a redaction happens before
+the text leaves the agent. Redaction events are
 reported per sentence; when nothing matched, one `allow` record stands for the
 whole answer."""
 
@@ -22,7 +23,10 @@ from app.graph.deps import TurnContext
 from app.graph.guarding import blocked, guard_context
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
-from app.guardrails.schema import DataPayload, GuardEventRecord
+from app.guardrails.schema import DataPayload, GuardContext, GuardEventRecord
+
+# While streaming, OUTPUT runs per sentence for its redact policies only (ADR-0106).
+SENTENCE_OUTPUT_ACTIONS = frozenset({"redact"})
 
 
 class SentenceBuffer:
@@ -74,6 +78,7 @@ class DataStream:
         config = ctx.services.guard_config.streaming
         self._ctx = ctx
         self._context = guard_context(state, ctx)
+        self._output_context = guard_context(state, ctx, actions=SENTENCE_OUTPUT_ACTIONS)
         self._buffer = SentenceBuffer(config.terminators, config.flush_chars)
         self._queue: asyncio.Queue = asyncio.Queue()
         self._released: list[str] = []
@@ -121,22 +126,29 @@ class DataStream:
 
     async def _release(self, sentence: str) -> None:
         self._sentences += 1
+        output = await self._check(
+            Checkpoint.OUTPUT, {"answer": sentence, "citations": []}, self._output_context, "OUTPUT"
+        )
+        sentence = output.payload["answer"]
+        outcome = await self._check(
+            Checkpoint.DATA, DataPayload(text=sentence, target="answer"), self._context, "DATA"
+        )
+        text = outcome.payload.text
+        if text:
+            self._ctx.emit("token", {"text": text})
+            self._released.append(text)
+
+    async def _check(self, checkpoint: Checkpoint, payload, context: GuardContext, label: str):
         ctx = self._ctx
         outcome = await ctx.services.guard.evaluate(
-            Checkpoint.DATA,
-            DataPayload(text=sentence, target="answer"),
-            principal=ctx.principal,
-            context=self._context,
+            checkpoint, payload, principal=ctx.principal, context=context
         )
         matched = [e for e in outcome.events if e.policy_id]
         if matched:
             self._matched = True
             ctx.report_guard(matched)
         if outcome.unavailable:
-            raise TurnError("guard_unavailable", retryable=True, detail=f"DATA: {outcome.unavailable}")
+            raise TurnError("guard_unavailable", retryable=True, detail=f"{label}: {outcome.unavailable}")
         if outcome.blocked:
             raise blocked("data_blocked", outcome)
-        text = outcome.payload.text
-        if text:
-            ctx.emit("token", {"text": text})
-            self._released.append(text)
+        return outcome

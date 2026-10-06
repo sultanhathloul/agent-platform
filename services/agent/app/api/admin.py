@@ -24,6 +24,7 @@ from app.api.schemas import (
     PolicyList,
     PolicyMatchRow,
     PolicyMetrics,
+    PolicyOverrides,
     PolicyTestRequest,
     PolicyTestResult,
     PolicyVersionView,
@@ -89,6 +90,8 @@ def _view(view: StoredView) -> PolicyView:
         created_by=view.created_by,
         updated_at=view.updated_at,
         updated_by=view.updated_by,
+        overrides=view.overrides,
+        exception=view.exception,
     )
 
 
@@ -144,6 +147,18 @@ async def import_policies(body: PolicyYaml, call: Admin):
         switched=report.switched,
         unchanged=report.unchanged,
     )
+
+
+@router.post("/overrides", response_model=PolicyOverrides, responses=_ERRORS)
+async def preview_overrides(body: PolicyDocument, call: Admin):
+    """What this draft would override if saved now (ADR-0105): the edit form shows it."""
+    if isinstance(call, JSONResponse):
+        return call
+    policy = _validated(call, body)
+    if isinstance(policy, JSONResponse):
+        return policy
+    found = await call.services.policies.overrides(policy)
+    return PolicyOverrides(overrides=found.refs, exception=found.exception)
 
 
 @router.post("/test", response_model=PolicyTestResult, responses={**_ERRORS, 404: {"model": ErrorEnvelope}})
@@ -221,7 +236,13 @@ async def get_policy(policy_id: PolicyId, call: Admin):
     return PolicyDetail(
         current=_view(current),
         versions=[
-            PolicyVersionView(policy=_document(v.policy), created_at=v.created_at, created_by=v.created_by)
+            PolicyVersionView(
+                policy=_document(v.policy),
+                created_at=v.created_at,
+                created_by=v.created_by,
+                overrides=v.overrides,
+                exception=v.exception,
+            )
             for v in versions
         ],
     )

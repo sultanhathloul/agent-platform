@@ -141,12 +141,28 @@ class PolicyView(BaseModel):
     created_by: str
     updated_at: datetime = Field(description="When the policy's head (current version, switch) last changed.")
     updated_by: str
+    overrides: list[str] = Field(
+        default=[],
+        description="id@version of the wider policies of its group this version overrides, at save time.",
+    )
+    exception: bool = Field(
+        default=False, description="It overrides a stricter policy of its group (ADR-0105)."
+    )
 
 
 class PolicyVersionView(BaseModel):
     policy: PolicyDocument
     created_at: datetime
     created_by: str
+    overrides: list[str] = []
+    exception: bool = False
+
+
+class PolicyOverrides(BaseModel):
+    """What a draft would override if saved now, and whether that makes it an exception."""
+
+    overrides: list[str]
+    exception: bool
 
 
 class PolicyList(BaseModel):

@@ -1,19 +1,18 @@
-# Role-based visibility is the capability permission cap:{slug}, which the gateway derives
-# from the user's roles (ADR-0006); the agent never sees roles (ADR-0046, D2). This policy
-# is the layer on top, with the D2 scopes: the tenant `restricted` sees neither web nor sql,
-# whatever roles its users hold. No seed user belongs to that tenant.
+# Owner decision (ADR-0107): visibility by role through a policy role. A user who holds the
+# realm role `policy:no-sql` does not see the sql capability, whatever cap:* roles they hold;
+# authorization itself stays cap:{slug} in the gateway (ADR-0006). Disabled by default.
 id: tool-visibility-by-role
-name: Capabilities hidden from the restricted tenant
+name: Hide the sql capability from the policy role no-sql
 description: >-
-  TOOL_LIST removes the web and sql capabilities for users of tenant `restricted`,
-  on top of the cap:{slug} permissions their roles grant.
-enabled: true
-scope: tenant:restricted
+  TOOL_LIST removes the sql capability for users holding the realm role policy:no-sql.
+  The role grants nothing; it only selects this policy.
+enabled: false
+scope: role:no-sql
 checkpoints: [TOOL_LIST]
 checker: keyword_list
 config:
-  keywords: [web, sql]
+  keywords: [sql]
 action: block
 severity: medium
-message_ar: "هذه القدرة غير متاحة لجهتك."
-message_en: "This capability is not available to your organization."
+message_ar: "هذه القدرة غير متاحة لك."
+message_en: "This capability is not available to you."

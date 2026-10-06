@@ -374,6 +374,7 @@ services:
     volumes:
       - ./config:/srv/config:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
+      - ./infra/keycloak:/srv/infra/keycloak:ro   # no realm user is in a tenant to serve a policy (ADR-0107)
     depends_on:
       postgres:
         condition: service_healthy

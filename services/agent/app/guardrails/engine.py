@@ -94,19 +94,29 @@ class GuardEngine:
 
     # ------------------------------------------------------------------ queries
 
-    def applicable(self, checkpoint: Checkpoint, scopes: set[str], target: str | None = None) -> list[Policy]:
+    def applicable(
+        self,
+        checkpoint: Checkpoint,
+        scopes: set[str],
+        target: str | None = None,
+        actions: frozenset[str] | None = None,
+    ) -> list[Policy]:
         return [
             p
             for p in self.policies.active()
-            if p.enabled and checkpoint in p.checkpoints and p.scope in scopes and p.guards_target(target)
+            if p.enabled
+            and checkpoint in p.checkpoints
+            and p.scope in scopes
+            and p.guards_target(target)
+            and (actions is None or p.action in actions)
         ]
 
     def requires_buffering(self, principal: Principal, context: GuardContext = NO_CONTEXT) -> bool:
         """D3: the answer is buffered whole only when an enabled OUTPUT policy that can
-        block or rewrite applies to the principal's scope. An OUTPUT redaction buffers
-        too, since a redaction after the text streamed would come too late."""
+        block or rewrite applies to the principal's scope. An OUTPUT redaction runs per
+        sentence on the stream, like DATA (ADR-0106)."""
         return any(
-            p.action in ("block", "rewrite", "redact")
+            p.action in ("block", "rewrite")
             for p in self.applicable(Checkpoint.OUTPUT, context.scopes(principal))
         )
 
@@ -142,6 +152,7 @@ class GuardEngine:
                 locale=context.locale,
                 turn=context.turn,
                 only=context.only,
+                actions=context.actions,
             )
             outcome = await self._evaluate(Checkpoint.TOOL_LIST, slug, principal, scoped)
             events += [
@@ -166,7 +177,7 @@ class GuardEngine:
             # The test panel: this one policy, on or off, but still only for the targets it guards.
             policies = [context.only] if context.only.guards_target(target) else []
         else:
-            policies = self.applicable(checkpoint, context.scopes(principal), target)
+            policies = self.applicable(checkpoint, context.scopes(principal), target, context.actions)
         if not policies:
             return GuardOutcome(
                 payload=payload,

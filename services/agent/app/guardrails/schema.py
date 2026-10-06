@@ -21,14 +21,16 @@ from app.identity import Principal
 
 Action = Literal["allow", "block", "redact", "rewrite", "warn", "require_approval", "log_only"]
 ACTIONS: tuple[str, ...] = get_args(Action)
-# When several policy groups match one payload, the most restrictive action wins.
+# Strictness (owner decision, ADR-0105): block > rewrite > redact > require_approval > warn >
+# log_only > allow. The most restrictive action wins across groups and between two policy
+# roles of one group, and a narrower policy with a less strict action is an exception.
 ACTION_RANK: dict[str, int] = {
     "allow": 0,
     "log_only": 1,
     "warn": 2,
-    "redact": 3,
-    "rewrite": 4,
-    "require_approval": 5,
+    "require_approval": 3,
+    "redact": 4,
+    "rewrite": 5,
     "block": 6,
 }
 Severity = Literal["low", "medium", "high", "critical"]
@@ -53,9 +55,13 @@ TEXT_CHECKPOINTS = frozenset({Checkpoint.INPUT, Checkpoint.POST_TOOL, Checkpoint
 # ------------------------------------------------------------------ scopes
 
 ScopeKind = Literal["global", "tenant", "role", "kb", "tool"]
-# D2: narrow over wide. `role` keeps its slot although phase 03 rejects it.
+# D2: narrow over wide.
 SCOPE_PRECEDENCE: dict[str, int] = {"global": 0, "tenant": 1, "role": 2, "kb": 3, "tool": 4}
 _SCOPE_VALUE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+# A role scope names a Keycloak realm role `policy:{name}` (ADR-0107); the name is a slug.
+ROLE_NAME_PATTERN = r"[a-z0-9][a-z0-9_-]{0,63}"
+_ROLE_NAME = re.compile(f"^{ROLE_NAME_PATTERN}$")
+POLICY_ROLE_PREFIX = "policy:"
 
 
 class ScopeError(ValueError):
@@ -64,9 +70,9 @@ class ScopeError(ValueError):
 
 @dataclass(frozen=True, order=True)
 class Scope:
-    """`global | tenant:{id} | kb:{slug} | tool:{name}` (README §10.1, ADR-0025).
-    `role:{role}` is reserved in the vocabulary and its precedence slot but refused:
-    the agent never sees roles (ADR-0046, D2)."""
+    """`global | tenant:{id} | role:{name} | kb:{slug} | tool:{name}` (README §10.1, ADR-0025).
+    `role:{name}` applies to a principal holding the policy role `policy:{name}`, the only
+    roles the gateway forwards (ADR-0107)."""
 
     kind: ScopeKind
     value: str | None = None
@@ -77,12 +83,11 @@ class Scope:
             return cls("global")
         kind, sep, value = text.partition(":")
         if not sep or kind not in SCOPE_PRECEDENCE or kind == "global":
-            raise ScopeError(f"scope {text!r} must be global, tenant:<id>, kb:<slug> or tool:<name>")
-        if kind == "role":
             raise ScopeError(
-                f"scope {text!r}: role scopes are reserved and not supported; the agent never sees roles "
-                "(phase 03 decision D2). Use global, tenant:<id>, kb:<slug> or tool:<name>"
+                f"scope {text!r} must be global, tenant:<id>, role:<name>, kb:<slug> or tool:<name>"
             )
+        if kind == "role" and not _ROLE_NAME.match(value):
+            raise ScopeError(f"scope {text!r}: a role name is a slug of [a-z0-9_-], up to 64 characters")
         if not _SCOPE_VALUE.match(value):
             raise ScopeError(f"scope {text!r}: the value must be 1-128 characters of [A-Za-z0-9_.-]")
         return cls(kind, value)  # type: ignore[arg-type]
@@ -315,9 +320,13 @@ class GuardContext:
     turn: Any = None
     # The admin test panel evaluates one policy, enabled or not, and records nothing.
     only: Policy | None = None
+    # Restricts the call to policies with these actions (None: all). While the answer streams,
+    # OUTPUT redact runs per sentence and the whole-answer OUTPUT check skips it (ADR-0106).
+    actions: frozenset[str] | None = None
 
     def scopes(self, principal: Principal) -> set[str]:
         scopes = {"global", f"tenant:{principal.tenant_id}"}
+        scopes.update(f"role:{role.removeprefix(POLICY_ROLE_PREFIX)}" for role in principal.policy_roles)
         scopes.update(f"kb:{kb}" for kb in self.kbs)
         scopes.update(f"tool:{tool}" for tool in self.tools)
         return scopes
@@ -362,6 +371,32 @@ class GuardOutcome(BaseModel):
     @property
     def blocked(self) -> bool:
         return self.action == "block"
+
+
+def overridden(policy: Policy, others: "list[Policy]") -> "list[Policy]":
+    """The policies `policy` overrides (ADR-0105): same group, a wider scope, a shared
+    checkpoint and, at DATA alone, a shared target. Where both apply, the narrower wins."""
+    mine = policy.parsed_scope.precedence
+    out = []
+    for other in others:
+        if other.id == policy.id or other.effective_group != policy.effective_group:
+            continue
+        if other.parsed_scope.precedence >= mine:
+            continue
+        shared = set(other.checkpoints) & set(policy.checkpoints)
+        if not shared:
+            continue
+        if shared == {Checkpoint.DATA}:
+            targets = set(policy.config.get("targets") or DATA_TARGETS)
+            if not targets & set(other.config.get("targets") or DATA_TARGETS):
+                continue
+        out.append(other)
+    return out
+
+
+def is_exception(policy: Policy, overrides: "list[Policy]") -> bool:
+    """A narrower policy that weakens a wider one of its group, by design (ADR-0105)."""
+    return any(ACTION_RANK[policy.action] < ACTION_RANK[other.action] for other in overrides)
 
 
 @dataclass

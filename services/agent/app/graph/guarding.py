@@ -14,13 +14,20 @@ from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import GuardContext, GuardOutcome
 
 
-def guard_context(state: AgentState, ctx: TurnContext, *, tools: Sequence[str] | None = None) -> GuardContext:
+def guard_context(
+    state: AgentState,
+    ctx: TurnContext,
+    *,
+    tools: Sequence[str] | None = None,
+    actions: frozenset[str] | None = None,
+) -> GuardContext:
     capabilities = tools if tools is not None else (state.get("intent") or {}).get("capabilities") or ()
     return GuardContext(
         kbs=tuple(state.get("selected_kbs") or ()),
         tools=tuple(capabilities),
         locale=state.get("locale") or "ar",
         turn=ctx,
+        actions=actions,
     )
 
 
@@ -31,9 +38,13 @@ async def check(
     payload: Any,
     *,
     tools: Sequence[str] | None = None,
+    actions: frozenset[str] | None = None,
 ) -> GuardOutcome:
     outcome = await ctx.services.guard.evaluate(
-        checkpoint, payload, principal=ctx.principal, context=guard_context(state, ctx, tools=tools)
+        checkpoint,
+        payload,
+        principal=ctx.principal,
+        context=guard_context(state, ctx, tools=tools, actions=actions),
     )
     ctx.report_guard(outcome.events)
     if outcome.unavailable:

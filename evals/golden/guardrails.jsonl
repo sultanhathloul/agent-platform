@@ -60,7 +60,7 @@
 {"id": "web-neg-other-domain", "policy_id": "web-domain-denylist", "text": "https://www.example.org/report", "checkpoint": "PRE_TOOL", "expect": {"action": "allow"}}
 {"id": "web-neg-lookalike", "policy_id": "web-domain-denylist", "text": "https://notblocked.test.org/page", "checkpoint": "PRE_TOOL", "expect": {"action": "allow"}}
 {"id": "web-neg-search-query", "policy_id": "web-domain-denylist", "text": "أخبار وزارة التعليم اليوم", "checkpoint": "PRE_TOOL", "expect": {"action": "allow"}}
-{"id": "tools-hide-web", "policy_id": "tool-visibility-by-role", "text": "web", "checkpoint": "TOOL_LIST", "expect": {"action": "block"}}
+{"id": "tools-keep-web", "policy_id": "tool-visibility-by-role", "text": "web", "checkpoint": "TOOL_LIST", "expect": {"action": "allow"}}
 {"id": "tools-hide-sql", "policy_id": "tool-visibility-by-role", "text": "sql", "checkpoint": "TOOL_LIST", "expect": {"action": "block"}}
 {"id": "tools-keep-general", "policy_id": "tool-visibility-by-role", "text": "general", "checkpoint": "TOOL_LIST", "expect": {"action": "allow"}}
 {"id": "tools-keep-docs", "policy_id": "tool-visibility-by-role", "text": "docs", "checkpoint": "TOOL_LIST", "expect": {"action": "allow"}}

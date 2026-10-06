@@ -1,6 +1,7 @@
 """Policy storage (A1, I1, I2) and reload (A2, I3) against the compose Postgres and Redis.
 
-Test policies use scope tenant:store-test so they never apply to another test's turns."""
+Test policies use scope role:store-test, a policy role no test principal holds, so they never
+apply to another test's turns (ADR-0107)."""
 
 import asyncio
 import time
@@ -20,7 +21,7 @@ from app.guardrails.store import (
     parse_policy_documents,
 )
 
-SCOPE = "tenant:store-test"
+SCOPE = "role:store-test"
 
 
 def policy(policy_id: str, **overrides) -> Policy:
@@ -144,7 +145,7 @@ async def test_an_invalid_document_is_rejected_whole():
         "policies:\n"
         f"  - {{id: ok-one, name: ok, scope: '{SCOPE}', checkpoints: [INPUT], checker: keyword_list,"
         " config: {keywords: [x]}, action: warn}\n"
-        f"  - {{id: bad-one, name: bad, scope: 'role:viewer', checkpoints: [INPUT], checker: keyword_list,"
+        f"  - {{id: bad-one, name: bad, scope: 'user:viewer', checkpoints: [INPUT], checker: keyword_list,"
         " config: {keywords: [x]}, action: warn}\n"
         f"  - {{id: ok-one, name: dup, scope: '{SCOPE}', checkpoints: [INPUT], checker: keyword_list,"
         " config: {keywords: [x]}, action: warn}\n"
@@ -152,7 +153,7 @@ async def test_an_invalid_document_is_rejected_whole():
     with pytest.raises(PolicyFileError) as raised:
         parse_policy_documents(text)
     errors = {e["id"]: e["error"] for e in raised.value.errors}
-    assert "role scopes are reserved" in errors["bad-one"] and errors["ok-one"] == "appears twice"
+    assert "must be global" in errors["bad-one"] and errors["ok-one"] == "appears twice"
     with pytest.raises(PolicyFileError, match="version is assigned"):
         parse_policy_documents(f"{{id: v, version: 3, name: v, scope: '{SCOPE}'}}")
 

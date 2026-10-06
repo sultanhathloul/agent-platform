@@ -1238,6 +1238,118 @@
         }
       }
     },
+    "/v1/admin/policies/overrides": {
+      "post": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Preview Overrides",
+        "description": "What this draft would override if saved now (ADR-0105): the edit form shows it.",
+        "operationId": "preview_overrides_v1_admin_policies_overrides_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDocument"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOverrides"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/v1/admin/policies/test": {
       "post": {
         "tags": [
@@ -2223,6 +2335,28 @@
         ],
         "title": "PolicyMetrics"
       },
+      "PolicyOverrides": {
+        "properties": {
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides"
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception"
+          }
+        },
+        "type": "object",
+        "required": [
+          "overrides",
+          "exception"
+        ],
+        "title": "PolicyOverrides",
+        "description": "What a draft would override if saved now, and whether that makes it an exception."
+      },
       "PolicyTestRequest": {
         "properties": {
           "policy_id": {
@@ -2403,6 +2537,19 @@
           "created_by": {
             "type": "string",
             "title": "Created By"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides",
+            "default": []
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception",
+            "default": false
           }
         },
         "type": "object",
@@ -2437,6 +2584,21 @@
           "updated_by": {
             "type": "string",
             "title": "Updated By"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides",
+            "description": "id@version of the wider policies of its group this version overrides, at save time.",
+            "default": []
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception",
+            "description": "It overrides a stricter policy of its group (ADR-0105).",
+            "default": false
           }
         },
         "type": "object",
@@ -2501,6 +2663,15 @@
               }
             ],
             "title": "Max Tier"
+          },
+          "policy_roles": {
+            "items": {
+              "type": "string",
+              "pattern": "^policy:[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "type": "array",
+            "title": "Policy Roles",
+            "default": []
           },
           "display_name": {
             "type": "string",

@@ -269,26 +269,79 @@ async def test_checkers_run_concurrently():
 # ------------------------------------------------------------------ checkpoint specifics
 
 
-async def test_tool_list_removes_blocked_capabilities_by_their_tool_scope_and_tenant():
+async def test_tool_list_removes_blocked_capabilities_by_their_tool_scope_and_policy_role():
     hide_web = keyword_policy(
         id="hide-web", checkpoints=["TOOL_LIST"], scope="tool:web", config={"keywords": ["web"]}
     )
-    restricted = keyword_policy(
-        id="restricted-tenant",
-        checkpoints=["TOOL_LIST"],
-        scope="tenant:restricted",
-        config={"keywords": ["sql", "docs"]},
+    no_sql = keyword_policy(
+        id="no-sql", checkpoints=["TOOL_LIST"], scope="role:no-sql", config={"keywords": ["sql"]}
     )
-    guard = engine(hide_web, restricted)
+    guard = engine(hide_web, no_sql)
     plain = await guard.evaluate(Checkpoint.TOOL_LIST, ["general", "web", "sql"], principal=PRINCIPAL)
     assert plain.payload == ["general", "sql"] and plain.action == "allow"
     assert any(e.policy_id == "hide-web" and e.detail.startswith("web:") for e in plain.events)
-    tenant = await guard.evaluate(
-        Checkpoint.TOOL_LIST,
-        ["general", "sql", "docs"],
-        principal=Principal(user_id="u", tenant_id="restricted"),
+    holder = Principal(user_id="u", tenant_id="t1", policy_roles=("policy:no-sql",))
+    assert (await guard.evaluate(Checkpoint.TOOL_LIST, ["general", "sql"], principal=holder)).payload == [
+        "general"
+    ]
+
+
+async def test_an_exception_applies_in_its_own_scope_only():
+    """ADR-0105: two tenants, one with an exception; the other keeps the wider action."""
+    wide = mobile_policy(id="pii-global", group="pii")
+    exception = mobile_policy(id="pii-t1-exempt", group="pii", scope="tenant:t1", action="allow")
+    guard = engine(wide, exception)
+    exempt = await guard.evaluate(Checkpoint.DATA, data(), principal=PRINCIPAL)
+    other = await guard.evaluate(Checkpoint.DATA, data(), principal=Principal(user_id="u2", tenant_id="t2"))
+    assert exempt.action == "allow" and exempt.payload.text == TEXT
+    assert other.action == "redact" and "[REDACTED:SA_MOBILE]" in other.payload.text
+
+
+async def test_a_role_exception_applies_to_its_holders_only_in_the_same_tenant():
+    wide = mobile_policy(id="pii-global", group="pii")
+    exempt = mobile_policy(id="pii-role-exempt", group="pii", scope="role:pii-exempt", action="allow")
+    guard = engine(wide, exempt)
+    analyst = Principal(user_id="analyst", tenant_id="t1", policy_roles=("policy:pii-exempt",))
+    viewer = Principal(user_id="viewer", tenant_id="t1")
+    assert (await guard.evaluate(Checkpoint.DATA, data(), principal=analyst)).payload.text == TEXT
+    assert (
+        "[REDACTED:SA_MOBILE]"
+        in (await guard.evaluate(Checkpoint.DATA, data(), principal=viewer)).payload.text
     )
-    assert tenant.payload == ["general"]
+
+
+async def test_two_policy_roles_in_one_group_resolve_to_the_stricter_action():
+    allow = mobile_policy(id="role-a", group="pii", scope="role:a", action="allow")
+    warn = mobile_policy(id="role-b", group="pii", scope="role:b", action="warn")
+    redact = mobile_policy(id="role-c", group="pii", scope="role:c", action="redact")
+    guard = engine(allow, warn, redact)
+    both = Principal(user_id="u", policy_roles=("policy:a", "policy:b"))
+    assert (await guard.evaluate(Checkpoint.DATA, data(), principal=both)).action == "warn"
+    all_three = Principal(user_id="u", policy_roles=("policy:a", "policy:b", "policy:c"))
+    outcome = await guard.evaluate(Checkpoint.DATA, data(), principal=all_three)
+    assert outcome.action == "redact" and "[REDACTED:SA_MOBILE]" in outcome.payload.text
+
+
+async def test_a_role_scoped_model_tier_ceiling_lowers_and_never_raises():
+    def ceiling(max_tier: str) -> Policy:
+        return Policy(
+            id=f"role-{max_tier}",
+            name="ceiling",
+            scope="role:light",
+            checkpoints=["MODEL_TIER"],
+            checker="tier_ceiling",
+            config={"max_tier": max_tier},
+            action="log_only",
+        )
+
+    holder = Principal(user_id="u", policy_roles=("policy:light",))
+    request = {"role": "reasoning", "step": "answer", "tier": "heavy", "cap": "standard"}
+    lowered = await engine(ceiling("fast")).evaluate(Checkpoint.MODEL_TIER, request, principal=holder)
+    assert lowered.payload["cap"] == "fast"
+    raised = await engine(ceiling("heavy")).evaluate(Checkpoint.MODEL_TIER, request, principal=holder)
+    assert raised.payload["cap"] == "standard"
+    other = await engine(ceiling("fast")).evaluate(Checkpoint.MODEL_TIER, request, principal=PRINCIPAL)
+    assert other.payload["cap"] == "standard"
 
 
 async def test_model_tier_policies_lower_the_cap_to_their_ceiling():
@@ -335,7 +388,7 @@ async def test_buffering_is_required_only_by_an_applicable_output_block_or_rewri
     warn_only = keyword_policy(id="out-warn", checkpoints=["OUTPUT"], action="warn")
     redacting = mobile_policy(id="out-redact", checkpoints=["OUTPUT"])
     assert engine(judge_like).requires_buffering(PRINCIPAL)
-    assert engine(redacting).requires_buffering(PRINCIPAL)
+    assert not engine(redacting).requires_buffering(PRINCIPAL)  # it runs per sentence (ADR-0106)
     assert not engine(other_tenant, warn_only, mobile_policy()).requires_buffering(PRINCIPAL)
     assert not engine(keyword_policy(id="off", checkpoints=["OUTPUT"], enabled=False)).requires_buffering(
         PRINCIPAL
