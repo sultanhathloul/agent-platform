@@ -88,6 +88,9 @@ class ApiError(BaseModel):
     code: str
     message_ar: str
     message_en: str
+    details: list[str] | None = Field(
+        default=None, description="What is wrong, e.g. a policy's validation errors."
+    )
 
 
 class ErrorEnvelope(BaseModel):
@@ -95,8 +98,131 @@ class ErrorEnvelope(BaseModel):
     error: ApiError
 
     @classmethod
-    def of(cls, request_id: str, error: ErrorData) -> "ErrorEnvelope":
+    def of(cls, request_id: str, error: ErrorData, details: list[str] | None = None) -> "ErrorEnvelope":
         return cls(
             request_id=request_id,
-            error=ApiError(code=error.code, message_ar=error.message_ar, message_en=error.message_en),
+            error=ApiError(
+                code=error.code, message_ar=error.message_ar, message_en=error.message_en, details=details
+            ),
         )
+
+
+# ------------------------------------------------------------------ admin: guard policies (phase 03)
+
+POLICY_ID_PATH = r"^[a-z0-9][a-z0-9-]{1,63}$"
+
+
+class PolicyDocument(BaseModel):
+    """A policy as the admin API reads and writes it (README §10.1). On create and on a new
+    version, `version` is ignored: the store assigns it (I2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    version: int | None = None
+    name: str
+    description: str = ""
+    enabled: bool = True
+    scope: str
+    checkpoints: list[str]
+    checker: str
+    config: dict[str, Any] = {}
+    action: str
+    severity: str = "medium"
+    message_ar: str | None = None
+    message_en: str | None = None
+    on_error: str | None = None
+    group: str | None = None
+
+
+class PolicyView(BaseModel):
+    policy: PolicyDocument
+    created_at: datetime = Field(description="When this version was created.")
+    created_by: str
+    updated_at: datetime = Field(description="When the policy's head (current version, switch) last changed.")
+    updated_by: str
+
+
+class PolicyVersionView(BaseModel):
+    policy: PolicyDocument
+    created_at: datetime
+    created_by: str
+
+
+class PolicyList(BaseModel):
+    policies: list[PolicyView]
+
+
+class PolicyDetail(BaseModel):
+    current: PolicyView
+    versions: list[PolicyVersionView] = Field(description="Every version, newest first.")
+
+
+class PolicyEnabled(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class PolicyTestRequest(BaseModel):
+    """Evaluates one policy, stored (`policy_id`, its current version, on or off) or a draft
+    (`policy`), against sample text on the runtime engine path; nothing is recorded."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: str | None = None
+    policy: PolicyDocument | None = None
+    text: str = Field(min_length=1, max_length=20000)
+    checkpoint: str | None = Field(default=None, description="Default: the policy's first checkpoint.")
+    target: str | None = Field(default=None, description="DATA only; default: the first target, else answer.")
+
+
+class SpanView(BaseModel):
+    start: int
+    end: int
+    entity: str
+    score: float | None = None
+
+
+class PolicyTestResult(BaseModel):
+    policy_ref: str
+    checkpoint: str
+    target: str | None = None
+    action: str = Field(description="What the engine decided for this text.")
+    matched: bool
+    score: float
+    explanation: str
+    spans: list[SpanView] = Field(description="Matched regions of `text`, by character offsets.")
+    output_text: str | None = Field(
+        default=None, description="The text after redaction, for text checkpoints."
+    )
+    message_ar: str | None = None
+    message_en: str | None = None
+    error: str | None = Field(default=None, description="The checker's error, when it failed (see on_error).")
+
+
+class PolicyYaml(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    yaml: str = Field(min_length=1, max_length=500_000)
+
+
+class PolicyImportReport(BaseModel):
+    created: list[str]
+    versioned: list[str]
+    switched: list[str]
+    unchanged: list[str]
+
+
+class PolicyMatchRow(BaseModel):
+    day: str
+    policy_id: str
+    action: str
+    matches: int
+
+
+class PolicyMetrics(BaseModel):
+    days: int
+    rows: list[PolicyMatchRow] = Field(
+        description="Matched evaluations of real turns per UTC day, policy and action."
+    )

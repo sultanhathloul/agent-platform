@@ -16,6 +16,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from app.api.admin import router as admin_router
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
@@ -224,6 +225,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.state.services = services
     app.state.runner = TurnRunner(services)
     app.include_router(router)
+    app.include_router(admin_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
