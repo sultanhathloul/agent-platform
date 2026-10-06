@@ -448,22 +448,22 @@ Tech debt carried from the second PR #1 review (recorded 2026-09-13; not fixed i
 - [x] `ConversationOwners` (ADR-0050) is durable in Postgres beside the checkpointer (ADR-0055); `tests/integration/test_restart.py` and the smoke restart check.
 
 Tech debt recorded in phase 02 (2026-09-15; not implemented, by instruction or out of scope):
-- [ ] Guards on memory content (phase 03): the DATA checkpoint over memory text and PII categories. Today PII is kept out only by the extractor prompt (ADR-0058).
+- [x] Guards on memory content (phase 03): the DATA checkpoint over memory text and PII categories. Today PII is kept out only by the extractor prompt (ADR-0058). Closed in phase 03 (B1, ADR-0080).
 - [ ] Asynchronous memory writing (phase 09): `write_memory` is a synchronous node, so a turn's `done` waits for one `fast` call and up to `max_items_per_turn + 1` embeddings.
 - [ ] Quantization experiment on the `standard` model: the owner runs it after merge.
 - [ ] Extraction precision on `fast`: the ADR-0064 filters stop inferred facts, restated answers and drifted script, but not a question restated as a fact about the user. The live stack stored "المستخدم يسأل عن أكبر مدن المملكة العربية السعودية من حيث عدد السكان." for the analyst. Material for ADR-0030's helper-role suite.
-- [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059).
+- [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059). Retention closed in phase 03 (B3, ADR-0081); the admin proxy of the debug endpoint is still open.
 - [ ] `memory_items.embedding` has no ANN index; retrieval scans one user's items (ADR-0058).
 - [ ] A memory extracted from a reply that is retracted afterwards stays until its user deletes it; a reply retracted after it was folded stays in the summary (ADR-0057, ADR-0058). The memory part is fixed by ADR-0071 (PR #2 fix session); the summary part stays.
 - [x] README §7 still describes the debug endpoint as admin-only; the agent endpoint is owner-only until the gateway proxy exists (ADR-0059). Amendment note added under §7 in the PR #2 fix session.
 
 Tech debt recorded in the PR #2 fix session (2026-10-05; not implemented, by instruction):
-- [ ] **Phase 03, first item of scope:** a DATA guard on memory candidates and on the rolling summary before they are stored, plus a one-time rescan and purge of the `memory_items` rows and `summary` values stored before it exists.
-- [ ] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item.
+- [x] **Phase 03, first item of scope:** a DATA guard on memory candidates and on the rolling summary before they are stored, plus a one-time rescan and purge of the `memory_items` rows and `summary` values stored before it exists. Closed in phase 03 (B1, ADR-0080).
+- [x] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item. Closed in phase 03 (B3, ADR-0081): no memory, summary or extractor content goes to Langfuse, so there is nothing there to delete.
 - [ ] Phase 09: asynchronous memory writing; a turn's `done` waits for the memory write (7.9 s measured, above).
 
 Tech debt recorded in the second PR #2 fix session (2026-10-06; review finding 2, not implemented, by instruction):
-- [ ] **Phase 03:** nothing serializes turns on one conversation. Two turns in flight on the same thread each start from the checkpoint before the other and the last writer wins (an exchange, or the end-of-turn fold's summary and cursor, is lost); a retract racing a turn can lose its flag while its memory delete stands. Design: a per-conversation Postgres advisory lock (`pg_try_advisory_lock` keyed on the conversation id) held by `TurnRunner` around the graph invocation and around `retract`; a second turn on a conversation whose lock is held ends with `turn_in_flight`, which the gateway returns as **409 `turn_in_flight`** (new error code in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`; API version bump). Phase 08's interrupt/resume takes the same lock.
+- [x] **Phase 03:** nothing serializes turns on one conversation (closed in phase 03, B2, ADR-0082). Two turns in flight on the same thread each start from the checkpoint before the other and the last writer wins (an exchange, or the end-of-turn fold's summary and cursor, is lost); a retract racing a turn can lose its flag while its memory delete stands. Design: a per-conversation Postgres advisory lock (`pg_try_advisory_lock` keyed on the conversation id) held by `TurnRunner` around the graph invocation and around `retract`; a second turn on a conversation whose lock is held ends with `turn_in_flight`, which the gateway returns as **409 `turn_in_flight`** (new error code in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`; API version bump). Phase 08's interrupt/resume takes the same lock.
 
 Accepted interpretation of CLAUDE.md rule 6 (ADR-0075): a test may let a real call go through Context Assembly and LiteLLM and then replace the returned text, to simulate a non-deterministic model defect (`tests/integration/test_answer_retry.py`).
 
@@ -563,7 +563,7 @@ Human review needed (this session): `config/context.yaml` pipeline order; ADR-00
 ## Phase 03: Guardrails engine
 
 - Branch: `phase/03-guardrails`
-- Status: in progress
+- Status: **done, awaiting review.** `make up`, `make test`, `make smoke` and `make eval` (three runs) are green; the three Part B items are closed with tests; time to first token is measured.
 - Done when: policy model in DB + Redis reload; 7 checkpoints; `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge`; admin policy UI with test panel; `guardrails.jsonl` ≥ threshold.
 
 Scope restated (session 2026-10-06):
@@ -576,22 +576,22 @@ Scope restated (session 2026-10-06):
 Checklist:
 - [x] D9: "Accepted on 2026-10-06" on the Status lines of ADR-0055–0059, 0061, 0062, 0064 (first commit)
 - [x] Baseline (G1): `make test` counts; the gateway stages print JUnit XML totals; TTFT of the phase 02 answer path (`scripts/measure_ttft.py`)
-- [ ] G2 contracts with tests before any checker: policy schema, scopes and precedence, `CheckResult`, the checkpoint call signature, the DATA payload `target`
-- [ ] A1 policy store: migration `0002`, immutable versions, enabled head, seeding of absent ids only; `guard_events` table without content
-- [ ] A2 Redis cache + pub/sub reload; test asserts ≤ 2 s across two engine instances
-- [ ] A3 checkers with Arabic cases (G4): `regex`, `presidio` (+ `presidio-analyzer` service, `infra/presidio/` recognizers), `keyword_list`, `llm_judge` (+ prompts, Redis cache); `tier_ceiling` for MODEL_TIER
-- [ ] A4/engine: scope resolution, groups, most-restrictive combination, redaction, `on_error`
-- [ ] B1 DATA on memory candidates and the summary; seed `pii-block-in-memory`, `pii-redact-output`; `make purge-pre-guard` (dry-run, idempotent); run counts recorded
-- [ ] B2 per-conversation lock (D6), 409 `turn_in_flight` (errors.yaml, gateway catalogs, web); tests: 200 + 409, release after error and after disconnect
-- [ ] B3 retention (D5) with tests
-- [ ] C1 checkpoints: INPUT, TOOL_LIST, OUTPUT, DATA in the graph; PRE_TOOL/POST_TOOL in the broker (sanitize first, `approval_required`); MODEL_TIER in the resolver; all actions; events/spans/SSE/audit delta
-- [ ] C2 sentence buffer (I5) and buffered mode (D3), rewrite once; TTFT p50/p95 streaming and buffered vs phase 02
-- [ ] C3 gateway admin endpoints (list, get, create, version, enable, test, import, export, metrics), admin-checked, audited fail-closed; OpenAPI 1.3.0
-- [ ] C4 web `/admin/policies` (list, edit, history, enable, test panel with highlighted spans, import/export, matches per day); guard chips; ar/en strings
-- [ ] C5 seed policies (six)
-- [ ] C6 `evals/golden/guardrails.jsonl` ≥ 60 cases via the gateway test endpoint as admin; thresholds (D8); `make eval` ×3
-- [ ] C7 smoke: PII redacted in every token event; memory candidate with a fake mobile not stored; policy edit live; 409; block with `message_ar`
-- [ ] ADRs (D2–D8, D10, I1–I7, assumptions); README notes; PROGRESS counts per G1; human-review list
+- [x] G2 contracts with tests before any checker: policy schema, scopes and precedence, `CheckResult`, the checkpoint call signature, the DATA payload `target` (`app/guardrails/schema.py`, `tests/unit/test_guard_schema.py`)
+- [x] A1 policy store: migration `0002`, immutable versions, enabled head, seeding of absent ids only; `guard_events` table without content
+- [x] A2 Redis cache + pub/sub reload; the test asserts ≤ 2 s across two store instances
+- [x] A3 checkers with Arabic cases (G4): `regex`, `presidio` (+ `presidio-analyzer` service, `infra/presidio/` recognizers), `keyword_list`, `llm_judge` (+ prompts, Redis cache); `tier_ceiling` for MODEL_TIER
+- [x] A4/engine: scope resolution, groups, most-restrictive combination, redaction, `on_error`
+- [x] B1 DATA on memory candidates and the summary; seeds `pii-block-in-memory`, `pii-redact-output`; `make purge-pre-guard` (dry run, idempotent); run counts recorded
+- [x] B2 per-conversation lock (D6), 409 `turn_in_flight` (errors.yaml, gateway catalogs, web); tests: 200 + 409, release after error and after disconnect
+- [x] B3 retention (D5) with tests
+- [x] C1 checkpoints: INPUT, TOOL_LIST, OUTPUT, DATA in the graph; PRE_TOOL/POST_TOOL in the broker (sanitize first, `approval_required`); MODEL_TIER in the resolver; all actions; events/spans/SSE/audit delta
+- [x] C2 sentence buffer (I5) and buffered mode (D3), rewrite once; TTFT p50/p95 streaming and buffered vs phase 02
+- [x] C3 gateway admin endpoints (list, get, create, version, enable, test, import, export, metrics), admin-checked, audited fail-closed; OpenAPI 1.3.0
+- [x] C4 web `/admin/policies` (list, edit, history, enable, test panel with highlighted spans, import/export, matches per day); guard chips; ar/en strings
+- [x] C5 seed policies (six, plus `pii-arabic-names-log` for D7)
+- [x] C6 `evals/golden/guardrails.jsonl` (80 cases) via the gateway test endpoint as admin; thresholds (D8); `make eval` ×3
+- [x] C7 smoke: PII redacted in every token event; memory candidate with a fake mobile not stored; policy edit live; 409; block with `message_ar`
+- [x] ADRs (D2–D8, D10, I1–I7, assumptions: ADR-0078 to ADR-0104); README notes; PROGRESS counts per G1; human-review list
 
 Baseline (2026-10-06, before any phase 03 code), per G1:
 - agent (pytest): 236 passed, 0 failed, 0 skipped
@@ -599,6 +599,85 @@ Baseline (2026-10-06, before any phase 03 code), per G1:
 - gateway-db-tests (JUnit XML): 5 tests, 5 passed, 0 failed, 0 errors, 0 skipped
 - web (vitest): 56 passed, 0 failed, 0 skipped
 - Time to first token, phase 02 answer path (OpenRouter profile, `evaluator`, 20 general turns, `scripts/measure_ttft.py phase02 20`): p50 1.17 s, p95 3.15 s (mean 1.42 s); to the terminal event p50 1.35 s, p95 3.38 s.
+
+Results (2026-10-06), per G1. Every run below is on the OpenRouter profile the local `.env` is on.
+
+Test runs during the session (agent pytest in the `agent-tests` container; the gateway and gateway-db counts are the JUnit XML totals the stages now print):
+- Baseline: agent 236 passed / 0 failed / 0 skipped; gateway 63 / 0 / 0 (0 errors); gateway-db-tests 5 / 0 / 0; web 56 / 0 / 0.
+- Agent runs while building, passed / failed / skipped (no count went down): 310 / 20 / 0 (the event schema did not yet carry the new guard fields), 321 / 9 / 0 (test fakes on the phase 01 engine signature), 331 / 1 / 0 (the concurrent-binding test met the new lock), 340 / 0 / 0, 348 / 0 / 0, 376 / 2 / 0 (a store reload race in a test fixture, fixed in the fixture), 378 / 0 / 0, 386 / 0 / 0, 388 / 0 / 0.
+- Gateway while building: 77 / 0 / 0 (63 + 11 admin proxy tests + 3 chat tests).
+- One `make test` died in the gateway image build with a BuildKit `EOF`: the Docker VM had crashed (8 GB, with the whole stack, presidio-analyzer and a Gradle build at once). Docker Desktop was restarted (the VM was already gone, so nothing further was lost) and `make test` re-run with only the services it needs.
+
+Final `make test` (exit 0):
+- agent (pytest): **388 passed, 0 failed, 0 skipped**
+- gateway (JUnit XML): **77 tests, 77 passed, 0 failed, 0 errors, 0 skipped**
+- gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+- web (vitest, with typecheck and lint): **65 passed, 0 failed, 0 skipped** (6 files)
+
+`make up`: green; every service with a healthcheck is healthy (the OTel collector has none). The agent applied `0002_guardrails.sql` and seeded the seven policies.
+
+`make smoke`: **60/60 checks passed** (43 phase 01 and 02 checks, 17 new phase 03 checks), after the Docker restart and `make up`. In the PII check the model repeated the fake numbers and the answer came out as "للتواصل اتصل على [REDACTED:SA_MOBILE] أو راسل [REDACTED:EMAIL_ADDRESS]"; no token event held the raw values. In the memory check `pii-block-in-memory` fired 0 times: the extractor kept no candidate with the number (the check is that no item holds it).
+
+`make eval` (general + guardrails), three runs; the judge's verdict cache (I4) was flushed before runs 2 and 3, so each run measured the judge afresh:
+
+| Run | guardrails (80 cases) | deterministic (66) | llm_judge accuracy / FPR (14) | general (28) | Langfuse dataset run |
+|---|---|---|---|---|---|
+| 1 | 80/80 PASS | 1.00 | 1.00 / 0.00 | 28/28 (1.00) PASS | `make-eval-20261006T122140Z` |
+| 2 | 80/80 PASS | 1.00 | 1.00 / 0.00 | 28/28 (1.00) PASS | `make-eval-20261006T130541Z` |
+| 3 | 80/80 PASS | 1.00 | 1.00 / 0.00 | 28/28 (1.00) PASS | `make-eval-20261006T130947Z` |
+
+The guardrails suite has 80 cases, 62 of them in Arabic: 30 for `pii-redact-output` (every recognizer, Arabic-Indic and Persian digits, spaces and dashes, tatweel between digit groups, a number glued to Arabic letters, both targets, nine negatives), 7 for `pii-block-in-memory`, 5 for `pii-arabic-names-log`, 14 for `prompt-injection-input` (tashkeel, tatweel, mixed script, five negatives), 6 for `web-domain-denylist`, 4 for `tool-visibility-by-role` and 14 for `topics-politics-llm-judge` (7 violating, 7 not).
+
+Time to first token (C2, `scripts/measure_ttft.py`, `evaluator`, 20 turns per row, each in a new conversation):
+
+| Answer path | Questions | TTFT p50 | TTFT p95 | mean | to the terminal event p50 / p95 |
+|---|---|---|---|---|---|
+| phase 02 (tokens streamed as produced, no guard) | one sentence | 1.17 s | 3.15 s | 1.42 s | 1.35 / 3.38 s |
+| phase 03 streaming (DATA sentence buffer) | one sentence | 1.49 s | 2.35 s | 1.69 s | 1.50 / 2.37 s |
+| phase 03 buffered (a global OUTPUT keyword block policy) | one sentence | 1.50 s | 1.96 s | 1.60 s | 1.50 / 1.97 s |
+| phase 03 buffered, `topics-politics-llm-judge` on (judge at INPUT and OUTPUT) | one sentence | 1.53 s | 4.11 s | 2.06 s | 1.54 / 4.12 s |
+| phase 03 streaming | five sentences | 2.01 s | 2.40 s | 2.01 s | 4.76 / 6.12 s |
+| phase 03 buffered (the same keyword policy) | five sentences | 4.53 s | 5.23 s | 4.43 s | 4.54 / 5.24 s |
+
+What the numbers say: with the sentence buffer the first token waits for the first complete sentence (plus one presidio call per sentence), so a one-sentence answer's first token comes when it ends; that is why streaming and buffered are the same on the short set, and both about 0.3 s slower at p50 than phase 02's token streaming. On five-sentence answers buffering costs the whole generation before the first token: p50 4.53 s against 2.01 s. The judge adds one `fast` call per checkpoint when its verdict is not cached; the questions repeat, so 15 of those 20 turns read cached verdicts and p95 shows the uncached ones. There is no phase 02 baseline for five-sentence answers: the phase 02 answer path no longer runs.
+
+Pre-guard purge (D4) on the development database, `make purge-pre-guard DRY_RUN=1`, then `make purge-pre-guard`, then once more:
+
+| Run | memory items scanned | deleted | threads scanned | summaries scanned | redacted | removed |
+|---|---|---|---|---|---|---|
+| dry run | 4 | 0 | 87 | 0 | 0 | 0 |
+| apply | 4 | 0 | 87 | 0 | 0 | 0 |
+| again | 4 | 0 | 87 | 0 | 0 | 0 |
+
+The development data held no PII and no summary (no conversation passed the 8k trigger); the purge's behaviour on PII is covered by `tests/integration/test_guarded_storage.py::test_the_pre_guard_purge_is_a_dry_run_then_idempotent`.
+
+Left for this phase: **nothing but review.** Not verified: the `/admin/policies` page was not opened in a browser this session; it builds (`make up`), passes typecheck, lint and its unit tests, and its API calls are covered by the gateway and agent tests.
+
+Left behind in the development database (policies cannot be deleted, ADR-0101): `smoke-live-block` (created by smoke, switched off at its end) and `ttft-buffered-output` (the measurement's OUTPUT block policy, switched off). `topics-politics-llm-judge` is off again, as seeded.
+
+Human review needed (phase 03):
+- `config/policies/**`: the seven seed policies (entities and thresholds of the presidio policies, the injection patterns, the judge's topic description and examples, the placeholder denied domains, the `tenant:restricted` visibility policy).
+- `config/prompts/guardrails/**`: `guardrails.judge.system`, `guardrails.judge.request`, `guardrails.rewrite` (1.0.0, ar and en).
+- `infra/presidio/**`: the recognizer patterns and scores; checksums are not verified (ADR-0097).
+- `evals/thresholds.yaml` (the guardrails thresholds of D8) and `evals/golden/guardrails.jsonl` (the 80 cases and their expected actions).
+- `services/agent/app/db/migrations/0002_guardrails.sql`: `guard_policies`, `guard_policy_heads`, `guard_events`, and the retention columns of `context_packages`.
+- `config/messages/errors.yaml`: `turn_in_flight`, `input_blocked`, `guard_unavailable`, `policy_not_found`, `policy_exists`, `policy_invalid`; the gateway's `messages_{ar,en}.properties` and the web catalogs (`errors.*`, `policies.*`, `header.policies`).
+- `.env.example`: `DEBUG_CONTEXT_RETENTION_DAYS`, `LOCK_POOL_SIZE`.
+- `docker-compose.yml`: `presidio-analyzer` (pinned 2.2.362, one worker); the agent's `REDIS_URL`, `PRESIDIO_URL`, `LOCK_POOL_SIZE`, `DEBUG_CONTEXT_RETENTION_DAYS` and its new dependencies on `redis` and `presidio-analyzer`; `agent-tests` on Redis database 15 with presidio. `docker-compose.dev.yml` publishes presidio on 5002.
+- Also: `config/guardrails.yaml` (sanitizer patterns, sentence buffer), `config/context.yaml` (`nodes.guard_judge`), `Makefile` (`purge-pre-guard`, `test-agent` starts redis and presidio), `services/gateway/Dockerfile` and `junit-totals.sh`, README amendment notes (§10.1, §14) and §20.2, ADR-0078 to ADR-0104 and the status note on ADR-0039.
+
+Owner notes:
+- **Docker memory.** The VM crashed once with 8 GB (stack, presidio-analyzer and a Gradle build together). The host has 64 GB; README §21.1 already recommends 12 GB or more. Until then, run `make test` before `make up`, or with the stack down.
+- **First token.** The sentence buffer adds about 0.3 s at p50 on one-sentence answers and makes a sentence the unit of streaming; buffered mode costs the whole generation. Enabling `topics-politics-llm-judge` buffers every answer in scope (D3).
+- **Assumptions to confirm**, all recorded as `assumed`: policy groups for narrow-over-wide (ADR-0092), the `tier_ceiling` checker (ADR-0093), OUTPUT `redact` also buffering (ADR-0095), fail-closed at the post-persist targets meaning "not stored" (ADR-0099), and the `tenant:restricted` reading of `tool-visibility-by-role` (ADR-0104).
+- Phase 08: `POST /v1/turns/{id}/approve` must take the conversation lock (ADR-0082) and check ownership itself (residual risk 7).
+
+How to verify (phase 03):
+- `make test` (better with the stack down on an 8 GB VM), then `make up && make smoke && make eval`.
+- The lock: `make test-agent` runs `tests/integration/test_turn_lock.py`; by hand, two `POST /v1/chat/turns` on one conversation id, the second → 409 `turn_in_flight`.
+- The purge: `make purge-pre-guard DRY_RUN=1` prints counts and changes nothing.
+- The admin UI: http://localhost:3000/admin/policies as `admin`/`admin` (the header shows "سياسات الحماية" to admins only); test `pii-redact-output` on "اتصل على ٠٥٠١٢٣٤٥٦٧".
+- Time to first token: `uv run scripts/measure_ttft.py streaming 20` (and `--long`).
 
 ## Phase 04: UC3 documents (`docs` capability)
 
