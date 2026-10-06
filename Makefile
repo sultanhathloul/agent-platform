@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi
+.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -58,6 +58,9 @@ eval: .env ## Golden suites against the live stack (real models)
 
 smoke: .env ## End-to-end smoke test against the live stack
 	scripts/smoke.sh
+
+purge-pre-guard: ## One-time purge of memory and summaries stored before the DATA guard (D4); DRY_RUN=1 only counts
+	$(COMPOSE) exec -T agent python -m app.guardrails.purge $(if $(DRY_RUN),--dry-run,)
 
 logs: ## Tail logs, e.g. make logs s=agent
 	$(COMPOSE) logs -f --tail=200 $(s)

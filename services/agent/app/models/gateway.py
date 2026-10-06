@@ -16,6 +16,7 @@ from app.models.config import ModelsConfig
 from app.models.routing import TierDecision
 from app.observability.langfuse import set_generation, set_metadata
 from app.observability.otel import tracer
+from app.observability.redaction import CONTENT_FREE_ROLES, messages_digest, observable_messages, sha256
 from app.settings import Settings
 
 # The deployment LiteLLM routed the alias to (its `model` in infra/litellm/config.yaml,
@@ -113,13 +114,19 @@ class ModelGateway:
             span.set_attribute("model.usage_reported", usage is not None)
             # The upstream model when LiteLLM names it; otherwise the alias, marked unknown.
             span.set_attribute("model.served_known", served is not None)
+            # D5: no memory, summary or extractor content reaches Langfuse; hashes stand in.
+            content_free = decision.role in CONTENT_FREE_ROLES
+            set_metadata(
+                span,
+                {"input_sha256": messages_digest(messages), "output_sha256": sha256(text)},
+            )
             set_generation(
                 span,
                 model=served or tier.alias,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
-                input_messages=messages if self._capture else None,
-                output_text=text if self._capture else None,
+                input_messages=observable_messages(context) if self._capture and not content_free else None,
+                output_text=text if self._capture and not content_free else None,
             )
             return ModelResult(
                 text=text,
