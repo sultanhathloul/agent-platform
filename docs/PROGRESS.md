@@ -628,18 +628,17 @@ Final `make test` (exit 0):
 
 The guardrails suite has 80 cases, 62 of them in Arabic: 30 for `pii-redact-output` (every recognizer, Arabic-Indic and Persian digits, spaces and dashes, tatweel between digit groups, a number glued to Arabic letters, both targets, nine negatives), 7 for `pii-block-in-memory`, 5 for `pii-arabic-names-log`, 14 for `prompt-injection-input` (tashkeel, tatweel, mixed script, five negatives), 6 for `web-domain-denylist`, 4 for `tool-visibility-by-role` and 14 for `topics-politics-llm-judge` (7 violating, 7 not).
 
-Time to first token (C2, `scripts/measure_ttft.py`, `evaluator`, 20 turns per row, each in a new conversation):
+Time to first token (C2, `scripts/measure_ttft.py`, `evaluator`, OpenRouter profile, 20 turns per row, each in a new conversation; replaced in the owner decisions session of 2026-10-06, after OUTPUT redact moved to the sentence buffer). The phase 02 baseline was measured on `main` (commit `c4eb5b4`) in a git worktree whose agent replaced the phase 03 agent in the running stack, with the same prompts and profile; the phase 03 rows were measured right before (set A) and right after (set B) it. "Buffered" is forced by a global OUTPUT keyword block policy (`ttft-buffered-output`, switched on for the run and off after). p50 / p95 in seconds:
 
-| Answer path | Questions | TTFT p50 | TTFT p95 | mean | to the terminal event p50 / p95 |
-|---|---|---|---|---|---|
-| phase 02 (tokens streamed as produced, no guard) | one sentence | 1.17 s | 3.15 s | 1.42 s | 1.35 / 3.38 s |
-| phase 03 streaming (DATA sentence buffer) | one sentence | 1.49 s | 2.35 s | 1.69 s | 1.50 / 2.37 s |
-| phase 03 buffered (a global OUTPUT keyword block policy) | one sentence | 1.50 s | 1.96 s | 1.60 s | 1.50 / 1.97 s |
-| phase 03 buffered, `topics-politics-llm-judge` on (judge at INPUT and OUTPUT) | one sentence | 1.53 s | 4.11 s | 2.06 s | 1.54 / 4.12 s |
-| phase 03 streaming | five sentences | 2.01 s | 2.40 s | 2.01 s | 4.76 / 6.12 s |
-| phase 03 buffered (the same keyword policy) | five sentences | 4.53 s | 5.23 s | 4.43 s | 4.54 / 5.24 s |
+| Answer path | One sentence, TTFT | Five sentences, TTFT | Five sentences, to the terminal event |
+|---|---|---|---|
+| phase 02, `main` (tokens streamed as produced) | 1.66 / 4.20 | 2.08 / 7.54 | 6.44 / 11.16 |
+| phase 03 streaming, set A | 2.37 / 3.50 | 2.33 / 8.71 | 5.81 / 16.55 |
+| phase 03 streaming, set B | 2.02 / 6.14 | 2.26 / 19.80 | 6.92 / 21.86 |
+| phase 03 buffered, set A | 1.94 / 6.82 | 6.46 / 31.25 | 6.47 / 31.26 |
+| phase 03 buffered, set B | 1.95 / 20.09 | 6.52 / 14.40 | 6.53 / 14.41 |
 
-What the numbers say: with the sentence buffer the first token waits for the first complete sentence (plus one presidio call per sentence), so a one-sentence answer's first token comes when it ends; that is why streaming and buffered are the same on the short set, and both about 0.3 s slower at p50 than phase 02's token streaming. On five-sentence answers buffering costs the whole generation before the first token: p50 4.53 s against 2.01 s. The judge adds one `fast` call per checkpoint when its verdict is not cached; the questions repeat, so 15 of those 20 turns read cached verdicts and p95 shows the uncached ones. There is no phase 02 baseline for five-sentence answers: the phase 02 answer path no longer runs.
+What the numbers say: the provider was slower and much noisier this afternoon than in the morning (the same phase 02 path gave p50 1.17 s then, 1.66 s now), so the p95 values swing between sets and say little; the p50 values are stable. With the sentence buffer the first token waits for the first complete sentence and its guard calls: +0.2 to +0.4 s at p50 over phase 02 on five-sentence answers (2.26–2.33 s against 2.08 s), more on one-sentence answers, where the first sentence is the whole answer (2.02–2.37 s against 1.66 s). Buffering costs the whole generation on long answers: p50 6.5 s against 2.3 s streaming. On one-sentence answers streaming and buffered are the same, as before.
 
 Pre-guard purge (D4) on the development database, `make purge-pre-guard DRY_RUN=1`, then `make purge-pre-guard`, then once more:
 
@@ -656,7 +655,7 @@ Left for this phase: **nothing but review.** Not verified: the `/admin/policies`
 Left behind in the development database (policies cannot be deleted, ADR-0101): `smoke-live-block` (created by smoke, switched off at its end) and `ttft-buffered-output` (the measurement's OUTPUT block policy, switched off). `topics-politics-llm-judge` is off again, as seeded.
 
 Human review needed (phase 03):
-- `config/policies/**`: the seven seed policies (entities and thresholds of the presidio policies, the injection patterns, the judge's topic description and examples, the placeholder denied domains, the `tenant:restricted` visibility policy).
+- `config/policies/**`: the seven seed policies (entities and thresholds of the presidio policies, the injection patterns, the judge's topic description and examples, the placeholder denied domains, the `role:no-sql` visibility policy, disabled).
 - `config/prompts/guardrails/**`: `guardrails.judge.system`, `guardrails.judge.request`, `guardrails.rewrite` (1.0.0, ar and en).
 - `infra/presidio/**`: the recognizer patterns and scores; checksums are not verified (ADR-0097).
 - `evals/thresholds.yaml` (the guardrails thresholds of D8) and `evals/golden/guardrails.jsonl` (the 80 cases and their expected actions).
@@ -669,7 +668,7 @@ Human review needed (phase 03):
 Owner notes:
 - **Docker memory.** The VM crashed once with 8 GB (stack, presidio-analyzer and a Gradle build together). The host has 64 GB; README §21.1 already recommends 12 GB or more. Until then, run `make test` before `make up`, or with the stack down.
 - **First token.** The sentence buffer adds about 0.3 s at p50 on one-sentence answers and makes a sentence the unit of streaming; buffered mode costs the whole generation. Enabling `topics-politics-llm-judge` buffers every answer in scope (D3).
-- **Assumptions to confirm**, all recorded as `assumed`: policy groups for narrow-over-wide (ADR-0092), the `tier_ceiling` checker (ADR-0093), OUTPUT `redact` also buffering (ADR-0095), fail-closed at the post-persist targets meaning "not stored" (ADR-0099), and the `tenant:restricted` reading of `tool-visibility-by-role` (ADR-0104).
+- **Assumptions**, decided in the owner decisions session (below): ADR-0092 decided with exceptions (ADR-0105), ADR-0093 and ADR-0099 accepted, ADR-0095 rejected (ADR-0106), ADR-0104 rejected (ADR-0107).
 - Phase 08: `POST /v1/turns/{id}/approve` must take the conversation lock (ADR-0082) and check ownership itself (residual risk 7).
 
 How to verify (phase 03):
@@ -678,6 +677,51 @@ How to verify (phase 03):
 - The purge: `make purge-pre-guard DRY_RUN=1` prints counts and changes nothing.
 - The admin UI: http://localhost:3000/admin/policies as `admin`/`admin` (the header shows "سياسات الحماية" to admins only); test `pii-redact-output` on "اتصل على ٠٥٠١٢٣٤٥٦٧".
 - Time to first token: `uv run scripts/measure_ttft.py streaming 20` (and `--long`).
+
+### Owner decisions session on PR #3 (2026-10-06)
+
+Scope: the owner's five decisions on PR #3 and nothing else; status notes on ADR-0092, 0093, 0095, 0099, 0104.
+
+Checklist:
+- [x] Status notes: ADR-0092 decided (see ADR-0105), ADR-0093 and ADR-0099 accepted, ADR-0095 rejected (ADR-0106), ADR-0104 rejected (ADR-0107); ADR-0046 and ADR-0078 superseded by ADR-0107 for the `policy:` namespace and the role-scope refusal only
+- [x] Decision 1 (ADR-0105): overrides and `exception` computed at save time (migration `0003_policy_exceptions.sql`), strictness block > rewrite > redact > require_approval > warn > log_only > allow, exception badge, overrides in the save response and the form (preview endpoint), audited with the actor; tests: two tenants, only one with an exception; another group overrides nothing
+- [x] Decision 2 (ADR-0106): OUTPUT redact per sentence; only block and rewrite buffer; test: an OUTPUT redact policy keeps streaming and no token holds the span
+- [x] Decision 3 (ADR-0107): `policy:` realm roles forwarded as `principal.policy_roles` (only those, from the token only), `role:{name}` scopes, two-role conflicts to the stricter action, role-scoped MODEL_TIER ceilings, `GET /v1/admin/policy-roles` through the gateway's Keycloak Admin API client with a warning in the form, realm role `policy:pii-exempt` for `analyst`; README amendment notes under §10.1 and §11; APIs stay 1.3.0; tests as listed
+- [x] Decision 4: tenant `restricted` removed; `tool-visibility-by-role` is `role:no-sql`, hides sql, disabled; test that no seed, fixture or realm entry uses a tenant to serve a policy; the integration tests isolate their policies with policy roles
+- [x] Decision 5: purge test with dry-run and real-run counts matching; TTFT table replaced with a `main` baseline for both lengths; smoke leaves no residue (two runs, same row count); 20 borderline or Gulf-dialect judge cases; smoke exception check for analyst and viewer
+- [x] `make test`, `make eval` ×3, `make smoke` (twice); push
+
+Results, per G1 (OpenRouter profile):
+- `make test` (exit 0; run with the stack stopped, after the VM crash noted above):
+  - agent (pytest): **403 passed, 0 failed, 0 skipped** (388 before; +15: the role, exception, OUTPUT-redact, no-tenant and override tests)
+  - gateway (JUnit XML): **83 tests, 83 passed, 0 failed, 0 errors, 0 skipped** (77 before; +6: policy roles forwarded and forged ones ignored, none sent without a role, exception audit, override preview, policy-role listing, its refusals)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **66 passed, 0 failed, 0 skipped** (65 before; +1 for the unknown-role warning)
+  - Agent runs while building: 401 / 2 failed / 0 (the store's read path dropped the new columns; fixed), then 403 / 0 / 0.
+- `make up`: green; the agent applied `0003_policy_exceptions.sql`. The running Keycloak volume predates `policy:pii-exempt`, so it was added to the live realm with `kcadm` and assigned to `analyst` (the realm file is the source of truth: `make clean && make up` seeds it). The live `tool-visibility-by-role` was given the new seed as version 2 through the admin import (seeding never overwrites, I2).
+- `GET /v1/admin/policy-roles` on the live stack: `["policy:pii-exempt"]`, read with the gateway client's service account.
+- `make smoke`, two consecutive runs: **68/68 checks passed** each (60 before; +8: the role exception's six checks and the two residue checks). `agent.guard_policies` / `guard_policy_heads` rows: 13 / 9 before run 1, 14 / 10 after it (it created `smoke-pii-exempt` once), **14 / 10 after run 2**: a repeated run adds no rows. In the exception check the analyst's answer held the fake mobile and the viewer's tokens held `[REDACTED:SA_MOBILE]` only.
+- `make eval`, three runs, the judge's verdict cache flushed before each:
+
+| Run | guardrails (97 cases) | deterministic (66) | llm_judge accuracy / FPR (31) | borderline or Gulf (20) | general (28) | Langfuse dataset run |
+|---|---|---|---|---|---|---|
+| 1 | 97/97 PASS | 1.00 | 1.00 / 0.00 | 20/20 | 28/28 PASS | `make-eval-20261006T152214Z` |
+| 2 | 97/97 PASS | 1.00 | 1.00 / 0.00 | 20/20 | 28/28 PASS | `make-eval-20261006T152429Z` |
+| 3 | 97/97 PASS | 1.00 | 1.00 / 0.00 | 20/20 | 28/28 PASS | `make-eval-20261006T152653Z` |
+
+  The judge was exercised by 14 cases before, 3 of them borderline (the national day, a birthday "party", a student-council election) and none in Gulf dialect. 17 cases were added: 10 in Gulf dialect (5 violating, 5 not, 3 of those also borderline) and 7 borderline in MSA (3 violating, 4 not), so 20 of the 31 are borderline or Gulf-dialect (8 violating, 12 not). Thresholds unchanged. `tools-hide-web` became `tools-keep-web` (allow), since the visibility policy now hides sql only.
+- Purge (Decision 5): `tests/integration/test_guarded_storage.py::test_the_pre_guard_purge_is_a_dry_run_then_idempotent` seeds a fake email into `memory_items` and a fake mobile into a thread's summary, runs the dry run (counts, nothing changed), then the real run (the item deleted, the summary redacted, messages untouched), and asserts the scanned, deleted and redacted counts of both runs are equal; a third run finds nothing.
+- Time to first token: the replaced table is above, under Results.
+
+Human review needed (this session):
+- `infra/keycloak/realm-export.json`: realm role `policy:pii-exempt`, assigned to `analyst`.
+- `config/policies/**`: `tool-visibility-by-role.yaml` (role `no-sql`, sql hidden, disabled).
+- New ADRs: ADR-0105 (exceptions), ADR-0106 (OUTPUT redact per sentence), ADR-0107 (role scopes, policy roles, replacing ADR-0104), and the status notes on ADR-0046, 0078, 0092, 0093, 0095, 0099, 0104.
+- README amendment notes under §10.1 and §11.
+- `evals/golden/guardrails.jsonl`: the 17 new judge cases and their tags.
+- Also: `services/agent/app/db/migrations/0003_policy_exceptions.sql`; `docker-compose.yml` (the gateway's `GATEWAY_KEYCLOAK_ADMIN_*`, the realm mounted read-only into `agent-tests`); the gateway's `identity_unavailable` code and texts.
+
+How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up`, `make smoke` twice (the residue check), `make eval`. On an existing Keycloak volume, add `policy:pii-exempt` to `analyst` first (or `make clean && make up`), or the smoke exception check fails on the analyst's token.
 
 ## Phase 04: UC3 documents (`docs` capability)
 
