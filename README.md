@@ -368,6 +368,8 @@ A **policy** = `{id, name, enabled, version, scope, checkpoints[], checker, conf
 
 **Actions:** `allow | block | redact | rewrite | warn | require_approval | log_only`. `block` returns the policy's `message_ar/en` to the user; `redact` replaces spans with `[REDACTED:{type}]`; `rewrite` asks the model to regenerate with the violation explained (max once).
 
+> **Amendment 2026-10-06 (ADR-0078, ADR-0092, ADR-0093, ADR-0083).** Phase 03 supports the scopes `global`, `tenant:{id}`, `kb:{slug}` and `tool:{name}`; `role:{role}` keeps its precedence slot but is refused, because the agent never sees roles. "Narrower overrides wider" applies within a policy `group` (default: the policy's id); across groups the most restrictive action wins. MODEL_TIER policies are ceilings and use the deterministic `tier_ceiling` checker. A policy also has `on_error` (`closed` for regex, presidio and keyword_list; `open` for llm_judge) and, at DATA, may name `config.targets` (`answer`, `memory_candidate`, `summary`). The Arabic-name heuristic ships as a seventh seed policy, `pii-arabic-names-log`, with action `log_only`.
+
 ### 10.2 Checkers (pluggable — `guardrails/checkers/`)
 
 Each checker implements `check(text_or_payload, config) -> CheckResult{matched, spans[], score, explanation}`:
@@ -450,6 +452,8 @@ Seed policies in `config/policies/`:
 - `.env.example` documents every variable; no secrets in compose. Model endpoints default to Ollama on the host.
 - `make up` must bring a working stack with seeded users, one KB (`moe`, with 3 sample Arabic PDFs), UC1 sample schema (`sales`, `customers` with **fake** PII to prove redaction), and pass `scripts/smoke.sh` (login → 5 turns covering the 5 use cases → guard redaction → HITL interrupt/resume → eval run).
 - Provide `docker-compose.prod.md` notes for Kubernetes migration (Helm later, not v1).
+
+> **Amendment 2026-10-06 (ADR-0097, ADR-0087).** `presidio-analyzer` is pinned to `2.2.362` with one worker and loads only `infra/presidio/recognizers.yaml`; it takes about 740 MiB. The agent now uses Redis (policy cache, change notifications, judge verdicts) and waits for `redis` and `presidio-analyzer` to be healthy.
 
 > **Amendment 2026-10-05 (ADR-0065, ADR-0066).** `litellm` reads one `infra/litellm/config.yaml` whose aliases take their model, endpoint and key from `.env` (`FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `MODEL_API_KEY`, `EMBED_API_BASE`). Two profiles use it: **offline** (the `.env.example` defaults, Ollama on the host, no key; `make smoke` passes on a fresh clone) and **OpenRouter** (development only, §21.4). Switching is a `.env` edit and `make up`; no compose overlay.
 
@@ -688,6 +692,18 @@ Rules:
 | `.env` | `DEBUG_CONTEXT_ENABLED` | Records context packages and serves `GET /v1/debug/context/{turn_id}` on the agent; `false` by default |
 
 ---
+
+### 20.2 Configuration keys added in phase 03
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/guardrails.yaml` | `sanitize.max_chars`, `sanitize.instruction_patterns` | `sanitize_untrusted` at POST_TOOL (§10.3): size cap and the instruction-like strings removed (matched on Arabic-folded text) |
+| | `streaming.terminators`, `streaming.flush_chars` | The DATA sentence buffer (ADR-0089): a sentence leaves after a terminator followed by whitespace, a newline, or `flush_chars` characters |
+| `config/policies/*.yaml` | one policy per file (§10.1 fields, plus `group`, `on_error`, `config.targets`) | Seeded into `agent.guard_policies` only when the id is absent (ADR-0086) |
+| `config/context.yaml` | `nodes.guard_judge` | The llm_judge checker's node: its system and request prompts (ADR-0102) |
+| `config/prompts/guardrails/` | `guardrails.judge.system`, `guardrails.judge.request`, `guardrails.rewrite` | The judge's prompts and the one-rewrite policy hint, in ar and en |
+| `infra/presidio/recognizers.yaml` | the recognizer registry | Saudi mobile, national ID / iqama, SA IBAN, email, Arabic-name heuristic (ADR-0097) |
+| `.env` | `DEBUG_CONTEXT_RETENTION_DAYS`, `LOCK_POOL_SIZE` | Context package expiry (ADR-0081); connections for per-conversation turn locks (ADR-0082) |
 
 ## 21. Getting started on a new machine
 

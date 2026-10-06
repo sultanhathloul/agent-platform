@@ -363,3 +363,25 @@ async def test_every_terminal_event_names_policy_versions_for_the_audit(services
     records = [json.loads(g.model_dump_json()) for g in events[-1].data.guard_events]
     assert {r["checkpoint"] for r in records} >= {"INPUT", "TOOL_LIST", "MODEL_TIER", "OUTPUT", "DATA"}
     assert all(r["policy_version"] for r in records if r["policy_id"])
+
+
+async def test_a_data_block_mid_answer_retracts_what_already_left(services, tenant, litellm):
+    name, add = tenant
+    await add(
+        checkpoints=["DATA"],
+        checker="keyword_list",
+        config={"keywords": ["سرّي"], "targets": ["answer"]},
+        action="block",
+        message_ar="حُجبت الإجابة.",
+        message_en="Withheld.",
+    )
+    replaced, _ = replacing(services, {"reasoning": "الجملة الأولى سليمة. والثانية فيها أمر سرّي للغاية."})
+    events, _ = await turn(replaced, principal(name))
+    types = [e.type for e in events]
+    assert "token" in types and types.index("retract") > types.index("token")
+    assert (events[-1].type, events[-1].data.code, events[-1].data.message_ar) == (
+        "error",
+        "data_blocked",
+        "حُجبت الإجابة.",
+    )
+    assert next(e for e in events if e.type == "retract").data.reason == "data_blocked"

@@ -21,6 +21,7 @@ from langgraph.runtime import Runtime
 from opentelemetry import trace
 
 from app.context.package import AssemblyRequest
+from app.errors import TurnError
 from app.graph.calls import call_model, prepare_call, tier_event
 from app.graph.deps import TurnContext
 from app.graph.guarding import guard_context
@@ -90,7 +91,13 @@ async def answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         except BaseException:
             await stream.abort()
             raise
-        released = await stream.close()
+        try:
+            released = await stream.close()
+        except TurnError as exc:
+            # A DATA block or an unavailable policy mid-answer: withdraw what already left.
+            if stream.released:
+                emit(runtime, "retract", {"reason": exc.code})
+            raise
         return result.text, released, result.tokens_in, result.tokens_out
 
     text, released, tokens_in, tokens_out = await attempt()

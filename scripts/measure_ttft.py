@@ -8,10 +8,12 @@ Runs N general turns as the eval user (memory off, ADR-0074), each in a new
 conversation, and measures from sending the request to the first `token` event,
 and to the terminal event. Prints p50 and p95 and writes one JSON line per turn.
 
-    uv run scripts/measure_ttft.py <label> [turns] [out.jsonl]
+    uv run scripts/measure_ttft.py <label> [turns] [out.jsonl] [--long]
 
 The label names the mode being measured (e.g. phase02, streaming, buffered); which
 mode the agent runs in is decided by the enabled policies, not by this script.
+`--long` asks for five-sentence answers instead of one sentence, where streaming
+and buffered mode differ most.
 """
 
 import json
@@ -32,6 +34,15 @@ QUESTIONS = [
     "كم عدد أيام الأسبوع؟ أجب بجملة واحدة.",
     "ما عاصمة مصر؟ أجب بجملة واحدة.",
     "ما لون علم المملكة العربية السعودية؟ أجب بجملة واحدة.",
+]
+
+
+LONG_QUESTIONS = [
+    "اكتب خمس جمل عن تاريخ مدينة الرياض.",
+    "اكتب خمس جمل عن أهمية التعليم.",
+    "اكتب خمس جمل عن المحيط الهادئ.",
+    "اكتب خمس جمل عن النخلة في الثقافة العربية.",
+    "اكتب خمس جمل عن فوائد القراءة.",
 ]
 
 
@@ -70,16 +81,18 @@ def turn(http: httpx.Client, gateway: str, token: str, message: str) -> dict:
 
 
 def main() -> int:
-    label = sys.argv[1]
-    count = int(sys.argv[2]) if len(sys.argv) > 2 else 20
-    out = Path(sys.argv[3]) if len(sys.argv) > 3 else None
+    args = [a for a in sys.argv[1:] if a != "--long"]
+    questions = LONG_QUESTIONS if "--long" in sys.argv else QUESTIONS
+    label = args[0]
+    count = int(args[1]) if len(args) > 1 else 20
+    out = Path(args[2]) if len(args) > 2 else None
     cfg = env()
     gateway = cfg["GATEWAY_PUBLIC_URL"]
     rows = []
     with httpx.Client(timeout=300) as http:
         for i in range(count):
             token = login("evaluator", "evaluator")["access_token"]
-            row = {"label": label, "i": i, **turn(http, gateway, token, QUESTIONS[i % len(QUESTIONS)])}
+            row = {"label": label, "i": i, **turn(http, gateway, token, questions[i % len(questions)])}
             rows.append(row)
             print(json.dumps(row, ensure_ascii=False), flush=True)
     if out:
