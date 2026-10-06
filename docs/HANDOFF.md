@@ -89,7 +89,7 @@ Review branch phase/NN (PR #K), restricted to: <the fixed areas>. Threat model: 
 - Dev model tiers run on OpenRouter via .env (single LiteLLM config, offline Ollama defaults in .env.example, ADR-0065). Eval: 28/28 on three runs. No real or ministry data in dev while on OpenRouter.
 - Tech debt into phase 03 (in PROGRESS.md): DATA guard on memory candidates and summaries before storage plus purge of pre-guard rows (first item of scope); per-conversation advisory lock + gateway 409 turn_in_flight (also serves phase 08 resume); retention for context_packages and Langfuse content on memory delete; rule-6 interpretation recorded in ADR-0075.
 - Deferred to phase 09: async memory write (7.9 s before done, measured).
-- **Next: phase 03 build prompt** (Governance and policies; §9.3, §18; branch `phase/03-governance`).
+- **Next: phase 03 build prompt** (Governance and policies; README §10; branch `phase/03-governance`).
 
 ## How to resume with Claude (chat)
 
