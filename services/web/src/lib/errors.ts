@@ -28,6 +28,7 @@ export const KNOWN_ERROR_CODES = [
   "policy_not_found",
   "policy_exists",
   "policy_invalid",
+  "identity_unavailable",
   "unknown",
 ] as const;
 

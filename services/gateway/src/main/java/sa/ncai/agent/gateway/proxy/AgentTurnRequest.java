@@ -1,5 +1,6 @@
 package sa.ncai.agent.gateway.proxy;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import sa.ncai.agent.gateway.chat.Attachment;
 
@@ -15,7 +16,8 @@ public record AgentTurnRequest(
     /**
      * Identity set by the gateway, never by the model. {@code maxTier} is the model tier ceiling
      * derived from the caller's roles, null when no role caps it; roles themselves never leave
-     * the gateway (ADR-0046).
+     * the gateway (ADR-0046), except the {@code policy:*} roles, which select role-scoped guard
+     * policies and grant nothing (ADR-0107). Built from the verified token only.
      */
     public record Principal(
             String userId,
@@ -23,5 +25,6 @@ public record AgentTurnRequest(
             List<String> permissions,
             String maxTier,
             String displayName,
-            String locale) {}
+            String locale,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> policyRoles) {}
 }

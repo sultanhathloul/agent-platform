@@ -54,6 +54,8 @@ public abstract class GatewayTestSupport {
 
     protected static final MockWebServer JWKS = new MockWebServer();
     protected static final MockWebServer AGENT = new MockWebServer();
+    /** Plays Keycloak's token endpoint and Admin REST API (ADR-0107). */
+    protected static final MockWebServer KEYCLOAK_ADMIN = new MockWebServer();
 
     static {
         JWKS.setDispatcher(new Dispatcher() {
@@ -67,6 +69,7 @@ public abstract class GatewayTestSupport {
         try {
             JWKS.start();
             AGENT.start();
+            KEYCLOAK_ADMIN.start();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -76,6 +79,8 @@ public abstract class GatewayTestSupport {
     static void endpoints(DynamicPropertyRegistry registry) {
         registry.add("gateway.keycloak.jwks-uri", () -> JWKS.url("/realms/agent/protocol/openid-connect/certs").toString());
         registry.add("gateway.agent.base-url", () -> "http://" + AGENT.getHostName() + ":" + AGENT.getPort());
+        registry.add("gateway.keycloak.admin.base-url",
+                () -> "http://" + KEYCLOAK_ADMIN.getHostName() + ":" + KEYCLOAK_ADMIN.getPort());
     }
 
     @TestBean(methodName = "inMemoryAudit")
@@ -101,6 +106,9 @@ public abstract class GatewayTestSupport {
         ((InMemoryConversationRepository) conversations).clear();
         while (AGENT.takeRequest(0, TimeUnit.MILLISECONDS) != null) {
             // drop requests left over from earlier tests
+        }
+        while (KEYCLOAK_ADMIN.takeRequest(0, TimeUnit.MILLISECONDS) != null) {
+            // likewise
         }
     }
 

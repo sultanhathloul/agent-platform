@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { emptyForm, formFromPolicy, highlight, lastDays, matchesByPolicy, policyFromForm } from "./policies";
+import {
+  emptyForm,
+  formFromPolicy,
+  highlight,
+  lastDays,
+  matchesByPolicy,
+  policyFromForm,
+  unknownPolicyRole,
+} from "./policies";
 
 describe("highlight", () => {
   it("marks the matched Arabic span by character offsets", () => {
@@ -78,5 +86,15 @@ describe("matches per day", () => {
 
   it("lists the last days oldest first in UTC", () => {
     expect(lastDays(3, new Date(Date.UTC(2026, 9, 1, 23)))).toEqual(["2026-09-29", "2026-09-30", "2026-10-01"]);
+  });
+});
+
+describe("role scopes", () => {
+  it("warns about a role scope whose policy role the realm does not hold", () => {
+    const roles = ["policy:pii-exempt", "policy:no-sql"];
+    expect(unknownPolicyRole("role:pii-exempt", roles)).toBeNull();
+    expect(unknownPolicyRole("role:typo", roles)).toBe("policy:typo");
+    expect(unknownPolicyRole("global", roles)).toBeNull();
+    expect(unknownPolicyRole("role:typo", null)).toBeNull(); // roles not loaded yet: no warning
   });
 });

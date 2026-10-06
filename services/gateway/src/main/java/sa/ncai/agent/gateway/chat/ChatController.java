@@ -210,7 +210,7 @@ public class ChatController {
         return new AgentTurnRequest(
                 body.conversationId(),
                 new AgentTurnRequest.Principal(principal.userId(), principal.tenantId(), principal.permissions(),
-                        maxTier, principal.displayName(), body.locale()),
+                        maxTier, principal.displayName(), body.locale(), principal.policyRoles()),
                 body.message(),
                 body.attachments(),
                 body.selectedKbs(),

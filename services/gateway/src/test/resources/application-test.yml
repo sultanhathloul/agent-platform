@@ -7,11 +7,15 @@ spring:
       - org.springframework.boot.autoconfigure.jdbc.JdbcClientAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
 
-# jwks-uri and agent.base-url come from GatewayTestSupport (MockWebServer).
+# jwks-uri, keycloak.admin.base-url and agent.base-url come from GatewayTestSupport (MockWebServer).
 gateway:
   keycloak:
     issuer: http://localhost:8081/realms/agent
     audience: gateway
+    admin:
+      realm: agent
+      client-id: gateway
+      client-secret: test-client-secret
   agent:
     internal-token: test-internal-token
     connect-timeout: 2s

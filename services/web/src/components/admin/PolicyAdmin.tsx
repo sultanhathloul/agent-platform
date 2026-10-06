@@ -7,6 +7,7 @@ import type {
   PolicyDetail,
   PolicyImportReport,
   PolicyMetrics,
+  PolicyOverrides,
   PolicyTestResult,
   PolicyView,
 } from "@/lib/api/types";
@@ -19,7 +20,9 @@ import {
   getPolicy,
   importPolicies,
   listPolicies,
+  listPolicyRoles,
   policyMetrics,
+  previewOverrides,
   setPolicyEnabled,
   testPolicy,
 } from "@/lib/gateway";
@@ -37,6 +40,7 @@ import {
   lastDays,
   matchesByPolicy,
   policyFromForm,
+  unknownPolicyRole,
   type PolicyForm,
 } from "@/lib/policies";
 import { useAuth } from "../AuthProvider";
@@ -73,6 +77,8 @@ export function PolicyAdmin() {
   const [error, setError] = useState<ErrorInfo | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PolicyOverrides | null>(null);
+  const [realmRoles, setRealmRoles] = useState<string[] | null>(null);
 
   const authorized = useCallback(
     async <T,>(call: (token: string) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
@@ -102,6 +108,33 @@ export function PolicyAdmin() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // The realm's policy:* roles, for the scope field (ADR-0107). Quiet on failure: the form
+  // then simply does not warn about unknown roles.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const token = await getAccessToken();
+      if (!token) return;
+      const roles = await listPolicyRoles({ gatewayUrl, token }).catch(() => null);
+      if (active && roles) setRealmRoles(roles.roles);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [getAccessToken, gatewayUrl]);
+
+  async function checkOverrides() {
+    if (!editing) return;
+    const parsed = policyFromForm(editing.form);
+    if (!parsed.ok) {
+      setError({ code: "policy_invalid", details: [t("policies.configInvalid")] });
+      return;
+    }
+    setError(null);
+    const result = await authorized((token) => previewOverrides({ gatewayUrl, token, policy: parsed.policy }));
+    if (result.ok) setPreview(result.value);
+  }
 
   const open = useCallback(
     async (id: string) => {
@@ -143,7 +176,16 @@ export function PolicyAdmin() {
     );
     setBusy(null);
     if (!result.ok) return;
-    setNotice(t("policies.saved", { version: result.value.policy.version ?? 1 }));
+    const overrides = result.value.overrides ?? [];
+    setNotice(
+      [
+        t("policies.saved", { version: result.value.policy.version ?? 1 }),
+        overrides.length
+          ? t("policies.overrides.saved", { list: overrides.join("، ") })
+          : t("policies.overrides.nothing"),
+      ].join(" "),
+    );
+    setPreview(null);
     setEditing(null);
     await reload();
     await open(result.value.policy.id);
@@ -226,6 +268,14 @@ export function PolicyAdmin() {
                         <bdi className="font-mono">{p.scope}</bdi>
                         <span>·</span>
                         <span>{t.has(`guardActions.${p.action}`) ? t(`guardActions.${p.action}`) : p.action}</span>
+                        {view.exception && (
+                          <span
+                            className="rounded-full bg-amber-100 px-1.5 text-amber-900"
+                            title={(view.overrides ?? []).join(", ")}
+                          >
+                            {t("policies.overrides.badge")}
+                          </span>
+                        )}
                       </span>
                     </button>
                     <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
@@ -252,7 +302,13 @@ export function PolicyAdmin() {
               form={editingForm}
               mode={editing.mode}
               busy={busy === "save"}
-              onChange={(form) => setEditing({ ...editing, form })}
+              preview={preview}
+              realmRoles={realmRoles}
+              onChange={(form) => {
+                setPreview(null);
+                setEditing({ ...editing, form });
+              }}
+              onPreview={() => void checkOverrides()}
               onSave={() => void save()}
               onCancel={() => setEditing(null)}
             />
@@ -276,6 +332,7 @@ export function PolicyAdmin() {
                   {current.description}
                 </p>
               )}
+              <OverridesNote overrides={detail?.current.overrides ?? []} exception={Boolean(detail?.current.exception)} />
               <pre dir="ltr" className="mt-3 max-h-64 overflow-auto rounded-md bg-slate-50 p-2 text-xs text-slate-700">
                 {JSON.stringify(current.config ?? {}, null, 2)}
               </pre>
@@ -309,21 +366,49 @@ export function PolicyAdmin() {
 
 type Authorized = <T>(call: (token: string) => Promise<T>) => Promise<{ ok: true; value: T } | { ok: false }>;
 
+/** What a version overrides (ADR-0105): the exact policies, or "overrides nothing". */
+function OverridesNote({ overrides, exception }: { overrides: string[]; exception: boolean }) {
+  const t = useTranslations();
+  return (
+    <p className={`mt-2 text-xs ${exception ? "text-amber-800" : "text-slate-600"}`}>
+      {overrides.length === 0 ? (
+        t("policies.overrides.nothing")
+      ) : (
+        <>
+          {exception ? t("policies.overrides.exception") : t("policies.overrides.label")}{" "}
+          {overrides.map((ref) => (
+            <bdi key={ref} className="me-1 font-mono">
+              {ref}
+            </bdi>
+          ))}
+        </>
+      )}
+    </p>
+  );
+}
+
 function PolicyEditor({
   form,
   mode,
   busy,
+  preview,
+  realmRoles,
   onChange,
+  onPreview,
   onSave,
   onCancel,
 }: {
   form: PolicyForm;
   mode: "create" | "version";
   busy: boolean;
+  preview: PolicyOverrides | null;
+  realmRoles: string[] | null;
   onChange: (form: PolicyForm) => void;
+  onPreview: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const missingRole = unknownPolicyRole(form.scope, realmRoles);
   const t = useTranslations();
   const set = <K extends keyof PolicyForm>(key: K, value: PolicyForm[K]) => onChange({ ...form, [key]: value });
   const field = "flex flex-col gap-1 text-sm text-slate-700";
@@ -367,8 +452,24 @@ function PolicyEditor({
         </label>
         <label className={field}>
           {t("policies.fields.scope")}
-          <input dir="ltr" className={`${input} font-mono`} value={form.scope} onChange={(e) => set("scope", e.target.value)} />
+          <input
+            dir="ltr"
+            list="policy-roles"
+            className={`${input} font-mono`}
+            value={form.scope}
+            onChange={(e) => set("scope", e.target.value)}
+          />
+          <datalist id="policy-roles">
+            {(realmRoles ?? []).map((role) => (
+              <option key={role} value={`role:${role.slice("policy:".length)}`} />
+            ))}
+          </datalist>
           <span className="text-[11px] text-slate-500">{t("policies.fields.scopeHint")}</span>
+          {missingRole && (
+            <span role="status" className="text-[11px] text-amber-800">
+              {t("policies.fields.unknownRole")} <bdi className="font-mono">{missingRole}</bdi>
+            </span>
+          )}
         </label>
         <label className={field}>
           {t("policies.fields.group")}
@@ -462,6 +563,12 @@ function PolicyEditor({
           <input type="checkbox" checked={form.enabled ?? true} onChange={(e) => set("enabled", e.target.checked)} />
           {t("policies.fields.enabled")}
         </label>
+        <div className="sm:col-span-2">
+          <button type="button" className={quiet} onClick={onPreview}>
+            {t("policies.overrides.check")}
+          </button>
+          {preview && <OverridesNote overrides={preview.overrides} exception={preview.exception} />}
+        </div>
         <div className="flex justify-end gap-2 sm:col-span-2">
           <button type="button" className={quiet} onClick={onCancel}>
             {t("policies.cancel")}

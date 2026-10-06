@@ -10,6 +10,8 @@ import type {
   PolicyImportReport,
   PolicyList,
   PolicyMetrics,
+  PolicyOverrides,
+  PolicyRoles,
   PolicyTestRequest,
   PolicyTestResult,
   PolicyView,
@@ -186,6 +188,22 @@ export async function testPolicy({
   const body = JSON.stringify(request);
   const url = `${gatewayUrl}${POLICIES}/test`;
   return required(await callJson<PolicyTestResult>(url, token, { method: "POST", body, signal }), 200);
+}
+
+/** What a draft would override if saved now, and whether it is an exception (ADR-0105). */
+export async function previewOverrides({
+  gatewayUrl,
+  token,
+  signal,
+  policy,
+}: Authorized & { policy: PolicyDocument }): Promise<PolicyOverrides> {
+  const url = `${gatewayUrl}${POLICIES}/overrides`;
+  return required(await callJson<PolicyOverrides>(url, token, { method: "POST", body: JSON.stringify(policy), signal }), 200);
+}
+
+/** The realm's policy:* roles, which role-scoped policies name (ADR-0107). */
+export async function listPolicyRoles({ gatewayUrl, token, signal }: Authorized): Promise<PolicyRoles> {
+  return required(await callJson<PolicyRoles>(`${gatewayUrl}/v1/admin/policy-roles`, token, { method: "GET", signal }), 200);
 }
 
 export async function exportPolicies({ gatewayUrl, token, signal }: Authorized): Promise<PolicyYaml> {

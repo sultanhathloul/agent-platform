@@ -446,6 +446,30 @@ class ChatProxyTest extends GatewayTestSupport {
                 "checkpoint", "INPUT", "policy", "prompt-injection-input@1", "action", "block")));
     }
 
+    @Test
+    void onlyPolicyRolesLeaveTheGatewayAndOnlyFromTheToken() throws Exception {
+        AGENT.enqueue(sse(DONE_STREAM));
+        String caller = token(c -> c.claim("realm_access", java.util.Map.of("roles",
+                List.of("default-roles-agent", "user", "cap:general", "cap:sql", "admin", "policy:pii-exempt"))));
+        String body = body("سؤال", List.of()).replaceFirst("\\{", "{\"policy_roles\":[\"policy:forged\"],"
+                + "\"principal\":{\"policy_roles\":[\"policy:forged\"]},");
+
+        mvc.perform(chat(body, caller).header("X-Policy-Roles", "policy:forged")).andExpect(status().isOk());
+
+        JsonNode principal = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8()).path("principal");
+        assertThat(principal.path("policy_roles").toString()).isEqualTo("[\"policy:pii-exempt\"]");
+        assertThat(principal.path("permissions").toString()).isEqualTo("[\"cap:general\",\"cap:sql\"]");
+        assertThat(principal.has("roles")).isFalse();
+    }
+
+    @Test
+    void aCallerWithoutPolicyRolesSendsNone() throws Exception {
+        AGENT.enqueue(sse(DONE_STREAM));
+        mvc.perform(chat(body("سؤال", List.of()))).andExpect(status().isOk());
+        JsonNode principal = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8()).path("principal");
+        assertThat(principal.has("policy_roles")).isFalse();
+    }
+
     private static MockResponse sse(String body) {
         return new MockResponse()
                 .setHeader("Content-Type", "text/event-stream; charset=utf-8")

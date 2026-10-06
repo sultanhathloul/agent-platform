@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/policies/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What a draft would override if saved now (ADR-0105) */
+        post: operations["previewOverrides"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/policies/test": {
         parameters: {
             query?: never;
@@ -135,6 +152,23 @@ export interface paths {
         put?: never;
         /** Saves an edit as the next, immutable version and makes it current */
         post: operations["addPolicyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policy-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The realm's policy:* roles, which role-scoped policies name (ADR-0107) */
+        get: operations["listPolicyRoles"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -285,6 +319,16 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopePolicyOverrides: {
+            data?: components["schemas"]["PolicyOverrides"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyRoles: {
+            data?: components["schemas"]["PolicyRoles"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiEnvelopePolicyTestResult: {
             data?: components["schemas"]["PolicyTestResult"];
             error?: components["schemas"]["ApiError"];
@@ -424,6 +468,13 @@ export interface components {
             days: number;
             rows: components["schemas"]["PolicyMatchRow"][];
         };
+        PolicyOverrides: {
+            exception: boolean;
+            overrides: string[];
+        };
+        PolicyRoles: {
+            roles: string[];
+        };
         PolicySpan: {
             /** Format: int32 */
             end: number;
@@ -463,12 +514,18 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string;
+            exception?: boolean;
+            overrides?: string[];
             policy: components["schemas"]["PolicyDocument"];
         };
         PolicyView: {
             /** Format: date-time */
             created_at: string;
             created_by: string;
+            /** @description It overrides a stricter policy of its group (ADR-0105) */
+            exception?: boolean;
+            /** @description id@version of the wider policies of its group this version overrides */
+            overrides?: string[];
             policy: components["schemas"]["PolicyDocument"];
             /** Format: date-time */
             updated_at: string;
@@ -704,6 +761,48 @@ export interface operations {
             };
         };
     };
+    previewOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyDocument"];
+            };
+        };
+        responses: {
+            /** @description The overridden policies and the exception flag */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyOverrides"];
+                };
+            };
+            /** @description policy_invalid, with details */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     testPolicy: {
         parameters: {
             query?: never;
@@ -901,6 +1000,53 @@ export interface operations {
             };
             /** @description policy_not_found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listPolicyRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyRoles"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description identity_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

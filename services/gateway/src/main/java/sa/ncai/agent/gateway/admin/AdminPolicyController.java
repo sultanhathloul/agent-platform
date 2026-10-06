@@ -39,6 +39,7 @@ import sa.ncai.agent.gateway.audit.AuditEvent;
 import sa.ncai.agent.gateway.audit.AuditStatus;
 import sa.ncai.agent.gateway.audit.AuditTrail;
 import sa.ncai.agent.gateway.auth.GatewayPrincipal;
+import sa.ncai.agent.gateway.auth.KeycloakAdminClient;
 import sa.ncai.agent.gateway.proxy.AgentClient;
 import sa.ncai.agent.gateway.proxy.AgentReply;
 import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
@@ -66,12 +67,19 @@ public class AdminPolicyController {
     private final AuditTrail audit;
     private final ErrorResponses errors;
     private final ObjectMapper mapper;
+    private final KeycloakAdminClient keycloak;
 
-    public AdminPolicyController(AgentClient agent, AuditTrail audit, ErrorResponses errors, ObjectMapper mapper) {
+    public AdminPolicyController(
+            AgentClient agent,
+            AuditTrail audit,
+            ErrorResponses errors,
+            ObjectMapper mapper,
+            KeycloakAdminClient keycloak) {
         this.agent = agent;
         this.audit = audit;
         this.errors = errors;
         this.mapper = mapper;
+        this.keycloak = keycloak;
     }
 
     @GetMapping(path = BASE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -134,7 +142,7 @@ public class AdminPolicyController {
             HttpServletResponse response) throws IOException {
         Map<String, Object> detail = describeDocument(body);
         return proxy(jwt, request, response, "policy.create", HttpMethod.POST, BASE, body, PolicyView.class, 201,
-                detail, (d, created) -> d.put("version", created.policy().version()));
+                detail, (d, created) -> describeSaved(d, created));
     }
 
     @PostMapping(path = BASE + "/{policyId}/versions", consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -160,7 +168,68 @@ public class AdminPolicyController {
         Map<String, Object> detail = describeDocument(body);
         detail.put("policy_id", policyId);
         return proxy(jwt, request, response, "policy.version", HttpMethod.POST, BASE + "/" + policyId + "/versions",
-                body, PolicyView.class, 201, detail, (d, saved) -> d.put("version", saved.policy().version()));
+                body, PolicyView.class, 201, detail, AdminPolicyController::describeSaved);
+    }
+
+    @PostMapping(path = BASE + "/overrides", consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "What a draft would override if saved now (ADR-0105)", responses = {
+        @ApiResponse(responseCode = "200", description = "The overridden policies and the exception flag"),
+        @ApiResponse(responseCode = "400", description = "policy_invalid, with details", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "403", description = "forbidden: not an admin", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class)))
+    })
+    public ResponseEntity<ApiEnvelope<PolicyOverrides>> previewOverrides(
+            @RequestBody PolicyDocument body,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        return proxy(jwt, request, response, "policy.preview", HttpMethod.POST, BASE + "/overrides", body,
+                PolicyOverrides.class, 200, describeDocument(body), (d, found) -> {
+                    d.put("overrides", found.overrides());
+                    d.put("exception", found.exception());
+                });
+    }
+
+    @GetMapping(path = "/v1/admin/policy-roles", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "The realm's policy:* roles, which role-scoped policies name (ADR-0107)", responses = {
+        @ApiResponse(responseCode = "200", description = "The policy roles"),
+        @ApiResponse(responseCode = "403", description = "forbidden: not an admin", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "502", description = "identity_unavailable", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "503", description = "audit_unavailable", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class)))
+    })
+    public ResponseEntity<ApiEnvelope<PolicyRoles>> listPolicyRoles(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        long started = System.nanoTime();
+        String requestId = RequestIdFilter.requestId(request);
+        GatewayPrincipal caller = GatewayPrincipal.from(jwt);
+        String action = "policy.roles";
+        Map<String, Object> detail = new LinkedHashMap<>();
+        if (!audit.reachable()) {
+            return failed(request, response, ErrorCode.AUDIT_UNAVAILABLE, null);
+        }
+        if (!caller.admin()) {
+            return refuse(request, response, ErrorCode.FORBIDDEN, caller, action, AuditStatus.DENIED, detail, started,
+                    null);
+        }
+        List<String> roles;
+        try {
+            roles = keycloak.policyRoles();
+        } catch (KeycloakAdminClient.IdentityUnavailableException e) {
+            return refuse(request, response, ErrorCode.IDENTITY_UNAVAILABLE, caller, action, AuditStatus.ERROR, detail,
+                    started, null);
+        }
+        detail.put("roles", roles.size());
+        if (!audit.append(event(requestId, caller, action, AuditStatus.OK, detail, started))) {
+            return failed(request, response, ErrorCode.AUDIT_UNAVAILABLE, null);
+        }
+        return ResponseEntity.ok(ApiEnvelope.ok(requestId, new PolicyRoles(roles)));
     }
 
     @PutMapping(path = BASE + "/{policyId}/enabled", consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -328,6 +397,13 @@ public class AdminPolicyController {
         } catch (IOException e) {
             return mapper.missingNode();
         }
+    }
+
+    /** A saved version's audit detail: its version and, for an exception, what it weakens (ADR-0105). */
+    private static void describeSaved(Map<String, Object> detail, PolicyView saved) {
+        detail.put("version", saved.policy().version());
+        detail.put("exception", Boolean.TRUE.equals(saved.exception()));
+        detail.put("overrides", saved.overrides() == null ? List.of() : saved.overrides());
     }
 
     private static Map<String, Object> withPolicy(String policyId) {

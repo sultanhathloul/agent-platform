@@ -239,6 +239,68 @@ class AdminPolicyProxyTest extends GatewayTestSupport {
         assertThat(singleAudit().status()).isEqualTo(AuditStatus.ERROR);
     }
 
+    @Test
+    void savingAnExceptionIsAuditedWithWhatItOverrides() throws Exception {
+        String saved = VIEW.replace("\"version\":2", "\"version\":1").replace("pii-redact-output", "pii-exempt-role")
+                .replace("\"updated_by\":\"admin-1\"}", "\"updated_by\":\"admin-1\",\"overrides\":[\"pii-redact-output@1\"],\"exception\":true}");
+        AGENT.enqueue(json(201, saved));
+        mvc.perform(post("/v1/admin/policies")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DRAFT.replace("keyword-test", "pii-exempt-role")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.exception").value(true))
+                .andExpect(jsonPath("$.data.overrides[0]").value("pii-redact-output@1"));
+        AuditEvent event = singleAudit();
+        assertThat(event.userId()).isEqualTo("user-123");
+        assertThat(event.detail()).containsEntry("exception", true)
+                .containsEntry("overrides", List.of("pii-redact-output@1"));
+    }
+
+    @Test
+    void theOverridePreviewIsProxiedAndAudited() throws Exception {
+        AGENT.enqueue(json(200, "{\"overrides\":[],\"exception\":false}"));
+        mvc.perform(post("/v1/admin/policies/overrides")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DRAFT))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.exception").value(false));
+        assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath()).isEqualTo("/v1/admin/policies/overrides");
+        assertThat(singleAudit().action()).isEqualTo("policy.preview");
+    }
+
+    @Test
+    void policyRolesAreReadFromKeycloakWithTheServiceAccount() throws Exception {
+        KEYCLOAK_ADMIN.enqueue(json(200, "{\"access_token\":\"service-token\",\"expires_in\":60}"));
+        KEYCLOAK_ADMIN.enqueue(json(200, "[{\"name\":\"policy:pii-exempt\"},{\"name\":\"policy:no-sql\"},{\"name\":\"admin\"}]"));
+        mvc.perform(get("/v1/admin/policy-roles").header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.roles[0]").value("policy:no-sql"))
+                .andExpect(jsonPath("$.data.roles[1]").value("policy:pii-exempt"))
+                .andExpect(jsonPath("$.data.roles.length()").value(2));
+        RecordedRequest tokenCall = KEYCLOAK_ADMIN.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(tokenCall.getPath()).isEqualTo("/realms/agent/protocol/openid-connect/token");
+        assertThat(tokenCall.getBody().readUtf8()).contains("grant_type=client_credentials").contains("client_id=gateway");
+        RecordedRequest rolesCall = KEYCLOAK_ADMIN.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(rolesCall.getPath()).startsWith("/admin/realms/agent/roles?search=policy%3A");
+        assertThat(rolesCall.getHeader("Authorization")).isEqualTo("Bearer service-token");
+        assertThat(singleAudit().action()).isEqualTo("policy.roles");
+    }
+
+    @Test
+    void policyRolesNeedAnAdminAndAReachableKeycloak() throws Exception {
+        mvc.perform(get("/v1/admin/policy-roles").header(HttpHeaders.AUTHORIZATION, bearer(token())))
+                .andExpect(status().isForbidden());
+        assertThat(singleAudit().status()).isEqualTo(AuditStatus.DENIED);
+        auditLog().clear();
+        KEYCLOAK_ADMIN.enqueue(json(401, "{}"));
+        mvc.perform(get("/v1/admin/policy-roles").header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("identity_unavailable"));
+        assertThat(singleAudit().status()).isEqualTo(AuditStatus.ERROR);
+    }
+
     private static MockResponse json(int status, String body) {
         return new MockResponse().setResponseCode(status).setHeader("Content-Type", "application/json").setBody(body);
     }

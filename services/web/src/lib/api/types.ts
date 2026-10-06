@@ -35,3 +35,5 @@ export type PolicyYaml = Schemas["PolicyYaml"];
 export type PolicyImportReport = Schemas["PolicyImportReport"];
 export type PolicyMetrics = Schemas["PolicyMetrics"];
 export type PolicyMatchRow = Schemas["PolicyMatchRow"];
+export type PolicyOverrides = Schemas["PolicyOverrides"];
+export type PolicyRoles = Schemas["PolicyRoles"];

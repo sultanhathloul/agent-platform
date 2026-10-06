@@ -125,3 +125,13 @@ export function lastDays(days: number, today: Date = new Date()): string[] {
   }
   return out;
 }
+
+/**
+ * The policy role a `role:{name}` scope names, when the realm does not hold it (the form warns,
+ * it does not refuse, ADR-0107); null for any other scope or a known role.
+ */
+export function unknownPolicyRole(scope: string, realmRoles: string[] | null): string | null {
+  if (!scope.startsWith("role:") || realmRoles === null) return null;
+  const role = `policy:${scope.slice("role:".length)}`;
+  return realmRoles.includes(role) ? null : role;
+}

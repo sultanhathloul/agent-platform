@@ -15,6 +15,7 @@ public enum ErrorCode {
     TURN_IN_FLIGHT("turn_in_flight", 409),
     AGENT_UNAVAILABLE("agent_unavailable", 502),
     AGENT_STREAM_INTERRUPTED("agent_stream_interrupted", 502),
+    IDENTITY_UNAVAILABLE("identity_unavailable", 502),
     AUDIT_UNAVAILABLE("audit_unavailable", 503),
     INTERNAL_ERROR("internal_error", 500);
 

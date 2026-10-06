@@ -109,6 +109,7 @@
     "policy_not_found": "This policy was not found; it may have been removed or its id changed.",
     "policy_exists": "A policy with this id already exists. Choose another id or save it as a new version.",
     "policy_invalid": "The policy is invalid. See the details below.",
+    "identity_unavailable": "The identity service could not be reached right now. Please try again shortly.",
     "unknown": "An unknown error occurred."
   },
   "policies": {
@@ -136,7 +137,7 @@
       "name": "Name",
       "description": "Description",
       "scope": "Scope",
-      "scopeHint": "global, tenant:ID, kb:SLUG or tool:NAME. The role scope is reserved and not supported.",
+      "scopeHint": "global, tenant:ID, role:NAME, kb:SLUG or tool:NAME. A role scope applies to holders of the policy role policy:NAME.",
       "group": "Group",
       "groupHint": "Within one group the narrowest scope wins; leave empty to make the id the group.",
       "checkpoints": "Checkpoints",
@@ -148,7 +149,8 @@
       "messageEn": "Block message in English",
       "config": "Settings (JSON)",
       "configHint": "Per checker, e.g. keywords, patterns or entities. DATA policies may name targets.",
-      "enabled": "On"
+      "enabled": "On",
+      "unknownRole": "Warning: Keycloak has no role by this name yet:"
     },
     "checkpoints": {
       "INPUT": "User message",
@@ -225,6 +227,14 @@
       "empty": "No matches in this period.",
       "policy": "Policy",
       "total": "Total"
+    },
+    "overrides": {
+      "badge": "Exception",
+      "label": "Overrides:",
+      "exception": "Exception, weakens:",
+      "nothing": "Overrides nothing.",
+      "check": "Show what it overrides",
+      "saved": "It overrides: {list}."
     }
   }
 }

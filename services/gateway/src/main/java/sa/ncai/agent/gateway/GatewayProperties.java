@@ -22,8 +22,17 @@ public record GatewayProperties(
      * @param issuer   browser-facing issuer the tokens carry (validated, never fetched)
      * @param jwksUri  internal JWKS endpoint the gateway fetches signing keys from
      * @param audience value that must appear in the token's {@code aud}
+     * @param admin    the Admin REST API, reached with the gateway's service account (README §11)
      */
-    public record Keycloak(@NotBlank String issuer, @NotBlank String jwksUri, @NotBlank String audience) {}
+    public record Keycloak(
+            @NotBlank String issuer, @NotBlank String jwksUri, @NotBlank String audience, Admin admin) {}
+
+    /**
+     * The Keycloak Admin REST API: internal base URL, realm, and the confidential client whose
+     * service account reads realm roles (ADR-0107). Unset values make role reads fail with
+     * {@code identity_unavailable}.
+     */
+    public record Admin(String baseUrl, String realm, String clientId, String clientSecret) {}
 
     public record Agent(
             @NotBlank String baseUrl,

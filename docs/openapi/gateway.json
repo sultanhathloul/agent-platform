@@ -255,6 +255,55 @@
         "tags" : [ "admin-policies" ]
       }
     },
+    "/v1/admin/policies/overrides" : {
+      "post" : {
+        "operationId" : "previewOverrides",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyDocument"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyOverrides"
+                }
+              }
+            },
+            "description" : "The overridden policies and the exception flag"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_invalid, with details"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "What a draft would override if saved now (ADR-0105)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
     "/v1/admin/policies/test" : {
       "post" : {
         "operationId" : "testPolicy",
@@ -502,6 +551,55 @@
           }
         },
         "summary" : "Saves an edit as the next, immutable version and makes it current",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policy-roles" : {
+      "get" : {
+        "operationId" : "listPolicyRoles",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyRoles"
+                }
+              }
+            },
+            "description" : "The policy roles"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "identity_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The realm's policy:* roles, which role-scoped policies name (ADR-0107)",
         "tags" : [ "admin-policies" ]
       }
     },
@@ -923,6 +1021,34 @@
         },
         "required" : [ "request_id" ]
       },
+      "ApiEnvelopePolicyOverrides" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyOverrides"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyRoles" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyRoles"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiEnvelopePolicyTestResult" : {
         "properties" : {
           "data" : {
@@ -1303,6 +1429,31 @@
         },
         "required" : [ "days", "rows" ]
       },
+      "PolicyOverrides" : {
+        "properties" : {
+          "exception" : {
+            "type" : "boolean"
+          },
+          "overrides" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "required" : [ "exception", "overrides" ]
+      },
+      "PolicyRoles" : {
+        "properties" : {
+          "roles" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "required" : [ "roles" ]
+      },
       "PolicySpan" : {
         "properties" : {
           "end" : {
@@ -1403,6 +1554,15 @@
           "created_by" : {
             "type" : "string"
           },
+          "exception" : {
+            "type" : "boolean"
+          },
+          "overrides" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
           "policy" : {
             "$ref" : "#/components/schemas/PolicyDocument"
           }
@@ -1417,6 +1577,18 @@
           },
           "created_by" : {
             "type" : "string"
+          },
+          "exception" : {
+            "type" : "boolean",
+            "description" : "It overrides a stricter policy of its group (ADR-0105)"
+          },
+          "overrides" : {
+            "type" : "array",
+            "description" : "id@version of the wider policies of its group this version overrides",
+            "items" : {
+              "type" : "string",
+              "description" : "id@version of the wider policies of its group this version overrides"
+            }
           },
           "policy" : {
             "$ref" : "#/components/schemas/PolicyDocument"
