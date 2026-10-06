@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.context.messages import role_and_text
+from app.context.messages import visible
 from app.context.tokens import TokenCounter
 
 
@@ -33,12 +33,15 @@ def plan_summary(
     """Past `trigger_tokens`, every message older than the window and not yet in the
     summary is folded. Once a summary exists, each later turn folds the messages
     that left the window, so no message falls between the summary and the window.
-    Retracted messages are never folded (ADR-0048)."""
-    unsummarized = [parsed[1] for m in messages[cursor:] if (parsed := role_and_text(m))]
+    A retracted exchange is never folded, its question included (ADR-0048, ADR-0076)."""
+    shown = visible(messages)
+    unsummarized = [parsed[1] for parsed in shown[cursor:] if parsed]
     tokens = counter.count(summary or "") + sum(counter.count(text) for text in unsummarized)
     due = bool(summary) or tokens > trigger_tokens
     fold_until = max(cursor, len(messages) - window_messages)
     if not due or fold_until == cursor:
         return SummaryPlan(tokens, len(unsummarized), [], cursor)
-    fold = [m for m in messages[cursor:fold_until] if role_and_text(m)]
+    fold = [
+        m for m, parsed in zip(messages[cursor:fold_until], shown[cursor:fold_until], strict=True) if parsed
+    ]
     return SummaryPlan(tokens, len(unsummarized), fold, fold_until)

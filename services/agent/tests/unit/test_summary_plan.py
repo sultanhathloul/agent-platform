@@ -38,12 +38,21 @@ def test_past_the_trigger_the_messages_older_than_the_window_are_folded():
     assert plan.fold == messages[:6] and plan.cursor_after == 6
 
 
-def test_retracted_messages_are_neither_counted_nor_folded():
+def test_a_retracted_exchange_is_neither_counted_nor_folded():
+    # ADR-0076: the reply and the question stored with it go as a pair.
     messages = _messages(12)
     messages[1] = {**messages[1], "retracted": True}
-    plan = _plan(messages, trigger=105)
-    assert plan.history_tokens == 110
-    assert plan.fold == [m for i, m in enumerate(messages[:6]) if i != 1] and plan.cursor_after == 6
+    plan = _plan(messages, trigger=95)
+    assert plan.history_tokens == 100
+    assert plan.fold == messages[2:6] and plan.cursor_after == 6
+
+
+def test_a_fold_slice_ending_on_a_retracted_exchange_ends_on_the_reply_before_it():
+    messages = _messages(12)
+    messages[5] = {**messages[5], "retracted": True}
+    plan = _plan(messages, trigger=95)
+    assert plan.fold == messages[:4] and plan.cursor_after == 6
+    assert plan.fold[-1]["role"] == "assistant"
 
 
 def test_the_summary_counts_toward_the_trigger():

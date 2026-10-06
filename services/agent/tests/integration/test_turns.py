@@ -110,7 +110,8 @@ async def retract(client, conversation_id, turn_id, *, principal=USER, headers=T
     )
 
 
-async def test_retracted_reply_is_skipped_by_the_next_turn(client, services, spans, litellm):
+async def test_retracted_exchange_is_skipped_by_the_next_turn(client, services, spans, litellm):
+    """ADR-0048, ADR-0076: the reply and its question leave the context as a pair."""
     conversation = str(uuid.uuid4())
     first = parse_sse((await post_turn(client, conversation_id=conversation)).text)
     turn_id = first[-1]["turn_id"]
@@ -130,10 +131,7 @@ async def test_retracted_reply_is_skipped_by_the_next_turn(client, services, spa
         if s.name == "context.assemble" and s.attributes.get("context.node") == "answer"
     ]
     assert len(answer_contexts) == 1
-    window = [b for b in answer_contexts[0]["blocks"] if b["name"] == "window"]
-    assert window == [
-        {"name": "window", "tokens": window[0]["tokens"], "count": 1}
-    ]  # the question, not the reply
+    assert [b for b in answer_contexts[0]["blocks"] if b["name"] == "window"] == []
 
 
 async def test_retract_is_refused_for_another_owner_an_unknown_turn_or_no_token(client, litellm):

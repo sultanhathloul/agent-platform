@@ -73,7 +73,7 @@ async def test_the_summarizer_folds_older_messages_past_the_trigger(client, serv
     counter, trigger = services.assembler.counter, services.assembler.config.summary.trigger_tokens
     message = truncate(LONG, 1750, counter)
     tokens = counter.count(message)
-    # Four exchanges stay under the trigger; the fifth long message takes the history past it.
+    # Four visible exchanges stay under the trigger; a fifth takes the history past it.
     assert 4 * tokens + 4 * 100 <= trigger < 5 * tokens
 
     conversation, principal = str(uuid.uuid4()), _principal()
@@ -83,30 +83,32 @@ async def test_the_summarizer_folds_older_messages_past_the_trigger(client, serv
         json={"principal": principal, "reason": "audit_unavailable"},
         headers={"X-Internal-Token": TOKEN},
     )
-    assert withdrawn.status_code == 204  # the first reply must not reach the summary (ADR-0048)
-    for _ in range(3):
+    # The first exchange, question and reply, must not reach the summary (ADR-0048, ADR-0076).
+    assert withdrawn.status_code == 204
+    for _ in range(4):
         events = await post_turn(client, conversation_id=conversation, principal=principal, message=message)
         assert events[-1]["type"] == "done"
     assert _calls(spans, "summarizer") == []
 
-    # Turn 5: once it is persisted the history holds ten messages past the trigger, and the
-    # four older than the window are folded at the end of the turn, after the answer (ADR-0073).
+    # Turn 6: once it is persisted the history holds twelve messages, ten visible and past the
+    # trigger, and the six older than the window are folded at the end of the turn, after the
+    # answer (ADR-0073), the retracted pair skipped.
     spans.clear()
     events = await post_turn(client, conversation_id=conversation, principal=principal, message=message)
     assert events[-1]["type"] == "done"
     summarizer_call, answer_call = _model_call(spans, "summarizer"), _model_call(spans, "reasoning")
     assert summarizer_call.start_time > answer_call.end_time
     [summarizer] = _contexts(spans, "summarizer")
-    assert _count(summarizer, "window") == 3  # user 1, user 2, reply 2: the retracted reply is skipped
+    assert _count(summarizer, "window") == 4  # exchanges 2 and 3: the retracted pair is skipped
     [answer] = _contexts(spans, "answer")
     assert _count(answer, "summary") == 0
     assert not next(
         s for s in spans.get_finished_spans() if s.name == "node.assemble_context"
     ).attributes.get("context.summary.lazy")
     values = (await services.graph.aget_state(_thread(conversation))).values
-    assert values["summary"] and values["summary_cursor"] == 4
+    assert values["summary"] and values["summary_cursor"] == 6
 
-    # Turn 6: the answer reads the summary and a full window; then, a summary existing, the
+    # Turn 7: the answer reads the summary and a full window; then, a summary existing, the
     # two messages that left the window are folded at the end of the turn.
     spans.clear()
     await post_turn(client, conversation_id=conversation, principal=principal, message="شكرًا.")
@@ -115,7 +117,7 @@ async def test_the_summarizer_folds_older_messages_past_the_trigger(client, serv
     [summarizer] = _contexts(spans, "summarizer")
     assert _count(summarizer, "summary") == 1 and _count(summarizer, "window") == 2
     assert _model_call(spans, "summarizer").start_time > _model_call(spans, "reasoning").end_time
-    assert (await services.graph.aget_state(_thread(conversation))).values["summary_cursor"] == 6
+    assert (await services.graph.aget_state(_thread(conversation))).values["summary_cursor"] == 8
 
 
 async def test_the_lazy_fold_runs_before_the_answer_when_the_history_is_already_past_the_trigger(

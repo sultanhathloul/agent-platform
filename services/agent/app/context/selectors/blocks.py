@@ -4,7 +4,7 @@ records what it cut; the budget guard enforces the tier budget afterwards."""
 
 from app.context.budget import Budget
 from app.context.compress import extractive, truncate
-from app.context.messages import role_and_text
+from app.context.messages import visible
 from app.context.package import ContextPackage
 from app.context.selectors.base import Step
 
@@ -100,15 +100,14 @@ class SlidingWindow(Step):
 
     async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
         req, config = package.request, self.deps.config
-        history = (req.state.get("messages") or [])[req.state.get("summary_cursor") or 0 :]
+        # Pairs are found on the whole history, so a retracted reply's question goes too (ADR-0076).
+        history = visible(req.state.get("messages") or [])[req.state.get("summary_cursor") or 0 :]
         if req.window_messages is not None:
             size = req.window_messages
         else:
             size = config.compress.window_messages if req.compress else config.window_messages
         recent = history[-size:] if size else []
-        blocks = [
-            self.make_block("window", parsed[0], parsed[1]) for m in recent if (parsed := role_and_text(m))
-        ]
+        blocks = [self.make_block("window", parsed[0], parsed[1]) for parsed in recent if parsed]
         limit = self.budget_for(package).max_tokens
         while blocks and sum(b.tokens for b in blocks) > limit:
             oldest = blocks.pop(0)

@@ -75,8 +75,9 @@ async def test_window_keeps_only_the_last_n_messages(assembler):
     assert window == [f"رسالة رقم {i}" for i in range(4, 10)]
 
 
-async def test_window_skips_retracted_replies(assembler):
-    # ADR-0048: a reply withdrawn after its turn never reaches a model again.
+async def test_window_skips_a_retracted_exchange_as_a_pair(assembler):
+    # ADR-0048, ADR-0076: a reply withdrawn after its turn never reaches a model again,
+    # and neither does the question stored with it.
     plain = [
         {"role": "user", "content": "سؤال أول"},
         {"role": "assistant", "content": "إجابة مسحوبة", "retracted": True},
@@ -88,7 +89,7 @@ async def test_window_skips_retracted_replies(assembler):
         state = {"turn": 3, "user_message": "سؤال", "messages": messages}
         package = await assembler.assemble(_request(state), _budget(100_000))
         window = [b.content for b in package.blocks if b.name == "window"]
-        assert window == ["سؤال أول", "سؤال ثانٍ", "إجابة سليمة"]
+        assert window == ["سؤال ثانٍ", "إجابة سليمة"]
 
 
 async def test_findings_block_only_with_evidence(assembler):

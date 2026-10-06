@@ -23,6 +23,15 @@ BLOCK_NAMES: tuple[str, ...] = get_args(BlockName)
 PROTECTED_BLOCKS: frozenset[str] = frozenset({"system", "user_message"})
 
 
+# The blocks that form the current user message; only these merge (ADR-0076).
+CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset({"summary", "memory", "user_message"})
+
+
+class HistoryEndsWithUserMessage(RuntimeError):
+    """The window ends with a user message where the current message begins. Pairs
+    are skipped together (ADR-0076), so this is a core defect, never merged away."""
+
+
 class Block(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -118,17 +127,27 @@ class ContextPackage(BaseModel):
 
     def to_messages(self) -> list[dict[str, str]]:
         """System blocks merge into one leading system message; conversation
-        blocks follow in pipeline order, ending with the user message. Adjacent
-        blocks of one role merge into one message, so a user-role data block
-        (summary, memory; ADR-0068) joins the user turn it precedes and roles
-        still alternate."""
+        blocks follow in pipeline order, ending with the user message. Merging is
+        confined to the current-message group (ADR-0076): adjacent summary, memory
+        and user_message blocks of one role join into one message, so the
+        delimited data blocks (ADR-0068) travel with the question. A history
+        (window) message is never merged with a neighbour; history that ends with
+        a user message right before the group is refused, never merged."""
         system = "\n\n".join(b.content for b in self.blocks if b.role == "system" and b.content)
         messages = [{"role": "system", "content": system}] if system else []
+        previous: Block | None = None
         for block in self.blocks:
             if block.role == "system":
                 continue
-            if messages and messages[-1]["role"] == block.role:
-                messages[-1]["content"] += "\n\n" + block.content
-            else:
-                messages.append({"role": block.role, "content": block.content})
+            if previous is not None and previous.role == block.role:
+                if previous.name in CURRENT_MESSAGE_BLOCKS and block.name in CURRENT_MESSAGE_BLOCKS:
+                    messages[-1]["content"] += "\n\n" + block.content
+                    previous = block
+                    continue
+                if previous.name == "window" and block.name in CURRENT_MESSAGE_BLOCKS:
+                    raise HistoryEndsWithUserMessage(
+                        f"node {self.node}: the window ends with a user message before {block.name}"
+                    )
+            messages.append({"role": block.role, "content": block.content})
+            previous = block
         return messages
