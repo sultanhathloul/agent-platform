@@ -85,11 +85,11 @@ Review branch phase/NN (PR #K), restricted to: <the fixed areas>. Threat model: 
 
 ## Current status (update by hand)
 
-- **Phase 01: merged to `main` (PR #1) on 2026-09-13.** Sixth restricted review: no findings under the threat model.
-- Tech debt into phase 02 (in PROGRESS.md): durable ownership registry; snapshot tests → behaviour tests; untested paths (validation_failed / context_overflow / model_unavailable through the API, capability timeout, client disconnect); ownership check on approve/resume (phase 08) and /v1/debug/context (phase 02); word-level script check (ADR-0033); capabilities that swallow cancellation or leave background tasks (noted in review 6, out of scope).
-- Proposed for phase 03: qwen2.5:7b-instruct as fast tier on a helper-role suite (ADR-0030); sentence-buffer guards (ADR-0031).
-- Proposed for phase 09: process-level capability isolation (ADR-0054).
-- **Next: phase 02 build prompt** (State, Context Assembly, Memory; §5.1, §7, §8; branch `phase/02-context-state-memory`).
+- **Phase 02: merged to `main` (PR #2) on 2026-10-06.** Two review rounds plus one narrow fix round (regression introduced by the fix session, ADR-0076). No cross-user data path found.
+- Dev model tiers run on OpenRouter via .env (single LiteLLM config, offline Ollama defaults in .env.example, ADR-0065). Eval: 28/28 on three runs. No real or ministry data in dev while on OpenRouter.
+- Tech debt into phase 03 (in PROGRESS.md): DATA guard on memory candidates and summaries before storage plus purge of pre-guard rows (first item of scope); per-conversation advisory lock + gateway 409 turn_in_flight (also serves phase 08 resume); retention for context_packages and Langfuse content on memory delete; rule-6 interpretation recorded in ADR-0075.
+- Deferred to phase 09: async memory write (7.9 s before done, measured).
+- **Next: phase 03 build prompt** (Governance and policies; §9.3, §18; branch `phase/03-governance`).
 
 ## How to resume with Claude (chat)
 
