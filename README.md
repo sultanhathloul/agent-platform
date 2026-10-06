@@ -370,6 +370,8 @@ A **policy** = `{id, name, enabled, version, scope, checkpoints[], checker, conf
 
 > **Amendment 2026-10-06 (ADR-0078, ADR-0092, ADR-0093, ADR-0083).** Phase 03 supports the scopes `global`, `tenant:{id}`, `kb:{slug}` and `tool:{name}`; `role:{role}` keeps its precedence slot but is refused, because the agent never sees roles. "Narrower overrides wider" applies within a policy `group` (default: the policy's id); across groups the most restrictive action wins. MODEL_TIER policies are ceilings and use the deterministic `tier_ceiling` checker. A policy also has `on_error` (`closed` for regex, presidio and keyword_list; `open` for llm_judge) and, at DATA, may name `config.targets` (`answer`, `memory_candidate`, `summary`). The Arabic-name heuristic ships as a seventh seed policy, `pii-arabic-names-log`, with action `log_only`.
 
+> **Amendment 2026-10-06 (ADR-0105, ADR-0107).** `role:{name}` scopes are supported: such a policy applies to a user holding the Keycloak realm role `policy:{name}`, the only roles the gateway forwards (`principal.policy_roles`). Precedence stays tool > kb > role > tenant > global; two policy roles conflicting in one group resolve to the stricter action (block > rewrite > redact > require_approval > warn > log_only > allow). A narrower policy that weakens a wider one of its group is an exception: it is flagged when saved, with the policies it overrides, and audited.
+
 ### 10.2 Checkers (pluggable — `guardrails/checkers/`)
 
 Each checker implements `check(text_or_payload, config) -> CheckResult{matched, spans[], score, explanation}`:
@@ -404,6 +406,8 @@ Seed policies in `config/policies/`:
 - Token claims → `permissions[]` in the principal. The gateway is the only place that interprets Keycloak roles; the agent only sees `permissions[]`. `tenant_id` comes from the Keycloak user attribute `tenant_id` (mapped into a token claim) and defaults to `default` when absent.
 - Admin console (in the web app, `admin` role): users & groups (delegated to Keycloak Admin API through the gateway), KB management + role assignment, policies, evaluation dashboards (links to Langfuse), context debug panel, audit log search.
 - Seed users: `admin/admin`, `analyst/analyst` (sql + moe KB), `viewer/viewer` (general + docs only).
+
+> **Amendment 2026-10-06 (ADR-0107).** Realm roles prefixed `policy:` (e.g. `policy:pii-exempt`, held by the seed user `analyst`) are policy-scope roles: they grant nothing, select the guard policies scoped `role:{name}`, and are the only roles the gateway forwards to the agent, as `principal.policy_roles`. The admin policy form lists them through the gateway's Keycloak Admin API client.
 
 ---
 

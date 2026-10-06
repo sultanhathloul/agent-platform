@@ -10,7 +10,9 @@
 #   phase 03: fake PII in an answer never appears in a token event; a memory
 #             candidate with a fake mobile number is not stored; a policy edit
 #             takes effect without a restart and its block returns message_ar;
-#             a second turn on a busy conversation is 409 turn_in_flight.
+#             a role-scoped exception (policy:pii-exempt) reaches the analyst and not the
+#             viewer; a second turn on a busy conversation is 409 turn_in_flight; the
+#             temporary policies end switched off and a repeated run adds no versions.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -230,19 +232,31 @@ curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies" > "$TMP/poli
 check "the seed policies are listed" jq -e \
   '[.data.policies[].policy.id] as $ids | ["pii-redact-output","pii-block-in-memory","prompt-injection-input","topics-politics-llm-judge","web-domain-denylist","tool-visibility-by-role"] | all(. as $x | $ids | index($x))' "$TMP/policies.json"
 
+# Smoke's temporary policies have fixed ids and go through the import endpoint: the first run
+# creates them, later runs only switch them on, and every run ends with them off, so repeated
+# runs add no policy versions (no residue).
+SMOKE_POLICIES="'smoke-live-block','smoke-pii-exempt'"
+versions_before=$(sql "select count(*) from agent.guard_policies where id in ($SMOKE_POLICIES)")
+existed_before=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES)")
+import_policy() {  # $1: one policy as JSON; prints the HTTP status
+  curl -s -o "$TMP/imported.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" \
+    -H 'Content-Type: application/json' -d "$(jq -cn --argjson p "$1" '{yaml: ({policies: [$p]} | tojson)}')" \
+    "$GW/v1/admin/policies/import"
+}
+switch_off() {
+  status -X PUT -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"enabled":false}' \
+    "$GW/v1/admin/policies/$1/enabled"
+}
+
 step "phase 03: a policy edit takes effect without a restart, and its block returns message_ar"
 POLICY_ID=smoke-live-block
 MESSAGE_AR="حُجب هذا الطلب بسياسة اختبار الفحص الشامل."
 POLICY=$(jq -cn --arg id "$POLICY_ID" --arg ar "$MESSAGE_AR" '{id: $id, name: "Smoke: live keyword block", scope: "global",
   checkpoints: ["INPUT"], checker: "keyword_list", config: {keywords: ["كلمةالفحصالشامل"]}, action: "block",
   message_ar: $ar, message_en: "Blocked by the smoke test policy.", enabled: true}')
-code=$(curl -s -o "$TMP/created.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
-  -d "$POLICY" "$GW/v1/admin/policies")
-if [[ $code == 409 ]]; then  # an earlier smoke run created it: the edit is a new version, switched on
-  code=$(curl -s -o "$TMP/created.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
-    -d "$POLICY" "$GW/v1/admin/policies/$POLICY_ID/versions")
-fi
-[[ $code == 201 ]] && ok "admin saved $POLICY_ID@$(jq -r '.data.policy.version' "$TMP/created.json")" || fail "saving the policy returned $code"
+code=$(import_policy "$POLICY")
+[[ $code == 200 ]] && ok "admin switched $POLICY_ID on ($(jq -c '.data | {created, switched, versioned}' "$TMP/imported.json"))" \
+  || fail "importing the policy returned $code"
 blocked_turn() {
   curl -sN -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
     -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"سؤال فيه كلمةالفحصالشامل\",\"locale\":\"ar\"}" \
@@ -252,13 +266,44 @@ blocked_turn "$TMP/live-blocked.jsonl"
 check "the next turn is blocked, no agent restart (input_blocked)" jq -se 'last.type == "error" and last.data.code == "input_blocked"' "$TMP/live-blocked.jsonl"
 check "the block returns the policy's message_ar" jq -se --arg ar "$MESSAGE_AR" 'last.data.message_ar == $ar' "$TMP/live-blocked.jsonl"
 check "the error names the policy version" jq -se --arg id "$POLICY_ID" 'last.data.policy_id | startswith($id + "@")' "$TMP/live-blocked.jsonl"
-code=$(status -X PUT -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"enabled":false}' \
-  "$GW/v1/admin/policies/$POLICY_ID/enabled")
+code=$(switch_off "$POLICY_ID")
 [[ $code == 200 ]] && ok "admin switched $POLICY_ID off" || fail "switching the policy off returned $code"
 blocked_turn "$TMP/live-allowed.jsonl"
 check "the turn after the switch passes" jq -se 'last.type == "done"' "$TMP/live-allowed.jsonl"
-audited=$(sql "select count(*) from gateway.audit_events where action in ('policy.create','policy.version','policy.enable') and status = 'ok' and detail->>'policy_id' = '$POLICY_ID' and occurred_at > now() - interval '10 minutes'")
+audited=$(sql "select count(*) from gateway.audit_events where status = 'ok' and occurred_at > now() - interval '10 minutes'
+  and ((action = 'policy.import' and (detail->'created' ? '$POLICY_ID' or detail->'switched' ? '$POLICY_ID'))
+       or (action = 'policy.enable' and detail->>'policy_id' = '$POLICY_ID'))")
 (( audited >= 2 )) && ok "the policy edits are audited ($audited rows)" || fail "policy edits audited: $audited"
+
+step "phase 03: a role-scoped exception reaches its holder only (policy:pii-exempt, ADR-0107)"
+check "the analyst's token carries policy:pii-exempt" python3 -c '
+import base64, json, sys
+payload = sys.argv[1].split(".")[1]
+claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+sys.exit(0 if "policy:pii-exempt" in claims.get("realm_access", {}).get("roles", []) else 1)' "$ANALYST"
+EXEMPT=$(jq -cn '{id: "smoke-pii-exempt", name: "Smoke: PII exception for policy:pii-exempt", scope: "role:pii-exempt",
+  checkpoints: ["DATA"], checker: "presidio",
+  config: {entities: ["SA_MOBILE", "SA_NATIONAL_ID", "SA_IBAN", "EMAIL_ADDRESS"], score_threshold: 0.5, targets: ["answer", "summary"]},
+  action: "allow", severity: "high", group: "pii-output", enabled: true}')
+code=$(import_policy "$EXEMPT")
+[[ $code == 200 ]] && ok "admin switched smoke-pii-exempt on" || fail "importing the exception returned $code"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies/smoke-pii-exempt" > "$TMP/exempt.json" || fail "GET smoke-pii-exempt"
+check "it is flagged an exception over pii-redact-output" jq -e \
+  '.data.current.exception == true and (.data.current.overrides | any(startswith("pii-redact-output@")))' "$TMP/exempt.json"
+exempt_turn() {  # $1: token, $2: output file
+  curl -sN -H "Authorization: Bearer $1" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"انسخ النص التالي حرفيًا كما هو دون أي تعليق أو تغيير: رقم التواصل 0501234567\",\"locale\":\"ar\"}" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$2"
+}
+exempt_turn "$ANALYST" "$TMP/exempt-analyst.jsonl"
+exempt_turn "$VIEWER" "$TMP/exempt-viewer.jsonl"
+code=$(switch_off smoke-pii-exempt)
+[[ $code == 200 ]] && ok "admin switched smoke-pii-exempt off" || fail "switching the exception off returned $code"
+check "the analyst sees the fake mobile in the answer" jq -se \
+  'last.type == "done" and ([.[] | select(.type == "token") | .data.text] | join("") | contains("0501234567"))' "$TMP/exempt-analyst.jsonl"
+check "the viewer, same tenant, gets it redacted in every token event" jq -se \
+  'last.type == "done" and ([.[] | select(.type == "token") | .data.text] | join("") | (contains("0501234567") | not) and contains("[REDACTED:SA_MOBILE]"))' \
+  "$TMP/exempt-viewer.jsonl"
 
 step "phase 03: a second turn on a busy conversation is 409 turn_in_flight (D6)"
 BUSY_CONV=$(uuidgen | tr 'A-Z' 'a-z')
@@ -275,5 +320,16 @@ check "error code is turn_in_flight" jq -e '.error.code == "turn_in_flight"' "$T
 wait "$FIRST"
 sed -n 's/^data: //p' "$TMP/busy-first.sse" > "$TMP/busy-first.jsonl"
 check "the first turn still ends with done" jq -se 'last.type == "done"' "$TMP/busy-first.jsonl"
+
+step "phase 03: no residue (temporary policies end switched off, no new versions on a repeated run)"
+off=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES) and not enabled")
+(( off == 2 )) && ok "smoke's policies are switched off" || fail "$off of smoke's 2 policies are off"
+versions_after=$(sql "select count(*) from agent.guard_policies where id in ($SMOKE_POLICIES)")
+if (( existed_before == 2 )); then
+  (( versions_after == versions_before )) && ok "no policy version added ($versions_after rows, as before the run)" \
+    || fail "policy versions went from $versions_before to $versions_after"
+else
+  ok "first run: smoke's policies created ($versions_after version rows); later runs add none"
+fi
 
 printf '\nsmoke: all phase 01, 02 and 03 checks passed\n'

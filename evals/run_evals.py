@@ -133,7 +133,10 @@ def guard_scores(results: list[tuple[dict, bool, str]]) -> dict:
     deterministic = [ok for case, ok, checker in results if checker in DETERMINISTIC]
     judge = [(case, ok) for case, ok, checker in results if checker == "llm_judge"]
     negatives = [(case, ok) for case, ok in judge if case["expect"]["action"] == "allow"]
+    tagged = [(case, ok) for case, ok in judge if case.get("tags")]
     return {
+        "llm_judge_borderline_or_gulf": len(tagged),
+        "llm_judge_borderline_or_gulf_passed": sum(ok for _, ok in tagged),
         "deterministic": sum(deterministic) / len(deterministic) if deterministic else 1.0,
         "deterministic_cases": len(deterministic),
         "llm_judge_accuracy": sum(ok for _, ok in judge) / len(judge) if judge else 1.0,
@@ -268,7 +271,9 @@ def main() -> int:
                 print(
                     f"  {name}: deterministic {scores['deterministic']:.2f} ({scores['deterministic_cases']} cases), "
                     f"llm_judge accuracy {scores['llm_judge_accuracy']:.2f} and false-positive rate "
-                    f"{scores['llm_judge_false_positive_rate']:.2f} ({scores['llm_judge_cases']} cases)"
+                    f"{scores['llm_judge_false_positive_rate']:.2f} ({scores['llm_judge_cases']} cases, "
+                    f"{scores['llm_judge_borderline_or_gulf']} borderline or Gulf-dialect, "
+                    f"{scores['llm_judge_borderline_or_gulf_passed']} of them passed)"
                 )
             else:
                 ok = isinstance(threshold, int | float) and rate >= threshold

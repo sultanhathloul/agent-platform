@@ -377,7 +377,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0046: The gateway sends `principal.max_tier`; the agent never sees roles
 - Date: 2026-09-13
 - Phase: 01 (fix session for PR #1)
-- Status: decided — Superseded by ADR-0049 on 2026-09-13 (ceiling arithmetic and the max_tier type only)
+- Status: decided — Superseded by ADR-0049 on 2026-09-13 (ceiling arithmetic and the max_tier type only); Superseded by ADR-0107 on 2026-10-06 (the policy: role namespace only)
 - Context: ADR-0040 made `role:viewer: standard` take effect by forwarding filtered realm roles to the agent. The owner rejected that approach: README §11 makes the gateway the only place that interprets Keycloak roles and gives the agent only `permissions[]`, and forwarding roles would weaken that boundary.
 - Decision: The gateway reads `order` and the `caps.role:<name>` entries of `config/models.yaml` at startup (mounted read-only, path in `GATEWAY_MODELS_CONFIG`; an unknown tier fails startup) and turns the caller's realm roles into one `principal.max_tier`: the strictest matching ceiling, omitted when no role has one. The agent's `Principal` carries `max_tier` and no roles. `TierResolver` uses `principal.max_tier` as the ceiling, `caps.default` when it is absent, and refuses a tier it does not know. The `viewer` realm role from ADR-0040 stays. README §11 is unchanged.
 - Consequences: Roles stay inside the gateway; the agent receives the decision, not its inputs. `config/models.yaml` stays the single place caps are written, now read by two services: the gateway reads the `role:` entries, the agent reads `default`, so changing a role cap needs a gateway restart. The gateway's test image receives `config/models.yaml` through the named build context `config`, which `make test-gateway` passes. The agent request contract changes from `principal.roles` to `principal.max_tier`; the agent OpenAPI version stays 1.1.0, because 1.1.0 has not left this unmerged PR (ADR-0044).
@@ -709,7 +709,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0078: Guard policy scopes in phase 03; `role:` is reserved; MODEL_TIER policies are ceilings
 - Date: 2026-10-06
 - Phase: 03
-- Status: decided
+- Status: decided — Superseded by ADR-0107 on 2026-10-06 (the refusal of role scopes only)
 - Context: README §10.1 lists `global | tenant:{id} | role:{role} | kb:{slug} | tool:{name}`, narrower overriding wider, but the agent never sees roles (ADR-0046), so a role scope could not be resolved where policies run. Owner decision D2.
 - Decision: Phase 03 supports `global`, `tenant:{id}`, `kb:{slug}` and `tool:{name}` (`tool:` names a tool or a capability, never a permission, ADR-0025). `role:{role}` stays in the vocabulary and its precedence slot and is refused by validation with an error that names the decision ("role scopes are reserved and not supported; the agent never sees roles"). Precedence, narrow over wide: tool > kb > role > tenant > global. MODEL_TIER policies are ceilings only: the final tier is at most min(`caps.default`, `principal.max_tier`, every applicable policy ceiling).
 - Consequences: Role-based policy needs a design in which the gateway resolves roles, not the agent; until then role-specific behaviour is the capability permission `cap:{slug}` plus tenant policies. A MODEL_TIER policy can never raise a tier.
@@ -821,7 +821,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0092: Narrow over wide applies within a policy group; across groups the most restrictive action wins
 - Date: 2026-10-06
 - Phase: 03
-- Status: assumed
+- Status: assumed — Decided by the owner on 2026-10-06; see ADR-0105 for exceptions
 - Context: README §10.1 says narrower scopes override wider ones but not which policies a narrower one overrides. Overriding every wider policy would let any tool-scoped warning cancel a global PII redaction.
 - Decision: A policy has an optional `group`, by default its own id. Within one checkpoint evaluation, among the matched policies of one group only those at the narrowest scope count (tool > kb > role > tenant > global); an overridden match is recorded as `allow` with "overridden by id@version". Across groups the most restrictive action wins: block > require_approval > rewrite > redact > warn > log_only > allow, and the spans of every winning `redact` are replaced together. A block's message is the deciding policy's (highest severity, then narrowest scope). The seed PII policies are in groups `pii-output` and `pii-memory`, so a tenant exemption is a narrower policy of that group with action `allow`.
 - Consequences: Overriding is explicit: an admin puts policies in one group to make one replace the other. Unrelated policies always all apply.
@@ -829,7 +829,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0093: MODEL_TIER policies use the tier_ceiling checker with action log_only or warn
 - Date: 2026-10-06
 - Phase: 03
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: Every policy names a checker (README §10.1), but none of the four phase 03 checkers reads a tier request, and a ceiling is not a block (README §19.3: a capped request is served at the ceiling).
 - Decision: A fifth, deterministic checker `tier_ceiling` (config `max_tier`, optional model `roles`) matches when the requested tier is above `max_tier`; the engine then lowers the request's cap to the ceiling. MODEL_TIER policies must use it, only it may use MODEL_TIER, and their action is `log_only` or `warn`. The tier event's reason names the policy (`capped by policy id@version`); its evaluations are carried on the TierDecision and reported to the turn by `prepare_call`.
 - Consequences: A tenant or capability ceiling is a policy, not a code change. The judge cannot run at MODEL_TIER, so resolving the judge's own tier can never recurse into the judge.
@@ -845,7 +845,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0095: OUTPUT redact also buffers; a late block on streamed text still retracts
 - Date: 2026-10-06
 - Phase: 03
-- Status: assumed
+- Status: assumed — Rejected by the owner on 2026-10-06; superseded by ADR-0106
 - Context: D3 buffers for OUTPUT block or rewrite. An OUTPUT redaction applied after the text streamed would break "redaction happens before text leaves", and D3 did not consider it. A policy can also be switched on between the answer node and the OUTPUT node of a turn (hot reload), and a DATA block can match a later sentence after earlier ones left.
 - Decision: An applicable OUTPUT policy with action `redact` buffers the answer as block and rewrite do. In streaming mode, a blocking OUTPUT verdict (only a mid-turn reload can bring one) and a DATA block or an unavailable policy mid-answer emit `retract` for the text already released, then end the turn with the policy's message.
 - Consequences: Besides `validate`, retract remains only for these races and for a DATA policy that blocks answers; the seed policies never trigger it. A DATA block on answers is the admin's choice that accepts it; buffering for it would make every turn pay a full generation.
@@ -877,7 +877,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0099: Fail-closed after a reply is persisted means "not stored"; a broker failure ends the turn
 - Date: 2026-10-06
 - Phase: 03
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: D8's `closed` ends the turn with `guard_unavailable`. The memory writer and the end-of-turn fold run after the reply is persisted and streamed, and a tool policy fails inside a capability.
 - Decision: At the `memory_candidate` and end-of-turn `summary` targets, a closed failure stores nothing and the turn completes, recorded on the span (the lazy fold before the answer ends the turn as D8 says). A blocked summary keeps the old summary and still moves the cursor, so the folded messages leave the context instead of being kept unguarded. At PRE_TOOL and POST_TOOL a closed failure denies the call with `guard_unavailable` and `run_capabilities` ends the turn with that code after the capability returns.
 - Consequences: An outage never stores unchecked memory or summaries, and never shows an error after the answer was delivered.
@@ -917,7 +917,44 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0104: tool-visibility-by-role is a tenant policy on top of capability permissions
 - Date: 2026-10-06
 - Phase: 03
-- Status: assumed
+- Status: assumed — Rejected by the owner on 2026-10-06; superseded by ADR-0107
 - Context: README §10.4 names a seed `tool-visibility-by-role.yaml`, but role scopes are refused (ADR-0078) and visibility by role is already the `cap:{slug}` permission the gateway derives from roles (ADR-0006).
 - Decision: The seed expresses the policy layer with the D2 scopes: TOOL_LIST, scope `tenant:restricted`, keyword list `web`, `sql`, action `block`: that tenant sees neither capability whatever its users' roles. No seed user belongs to it.
 - Consequences: The file name keeps the README's; its description says what it does.
+
+### ADR-0105: Policy exceptions: a narrower policy may weaken a wider one of its group, and is flagged
+- Date: 2026-10-06
+- Phase: 03 (owner decisions on PR #3)
+- Status: decided
+- Context: ADR-0092 lets a narrower policy of a group override wider ones. The owner decided it, with the rule that such a weakening is visible and accountable.
+- Decision:
+  - A narrower policy may weaken a wider one in the same group, by design. An exception applies only inside its own scope and group, never to another tenant, kb, role or tool (the engine's scope resolution, unchanged).
+  - When a version is saved (create, new version, import, seed) the store computes what it overrides: every other policy's current version, on or off, of the same group, at a wider scope, sharing a checkpoint and, when DATA is the only shared checkpoint, a target. It records them on the version as `id@version` (`agent.guard_policies.overrides`, migration `0003_policy_exceptions.sql`) and sets `exception = true` when one of them has a stricter action.
+  - Strictness: block > rewrite > redact > require_approval > warn > log_only > allow. The engine's combination across groups and between policy roles uses the same order (`ACTION_RANK`); it differs from ADR-0092's order only between require_approval and rewrite/redact, which never meet at one checkpoint (require_approval is PRE_TOOL only, rewrite OUTPUT only, redact text checkpoints only).
+  - The admin API returns `overrides` and `exception` on every policy view and on the save response, and `POST /v1/admin/policies/overrides` previews them for a draft; the admin list shows an exception badge, and the form and the saved notice name the overridden policies or say "overrides nothing".
+  - The gateway's audit record of a create or new version carries `exception` and `overrides`, with the actor, fail-closed (ADR-0042); a preview is audited as `policy.preview`.
+- Consequences: The flag describes the moment of saving: a wider policy saved later does not re-flag older narrower versions. Versions saved before migration `0003` carry `overrides = []`, `exception = false`; none of the seed policies overrides another.
+
+### ADR-0106: OUTPUT redact runs on the sentence buffer; only block and rewrite buffer the answer
+- Date: 2026-10-06
+- Phase: 03 (owner decisions on PR #3)
+- Status: decided
+- Context: ADR-0095 (assumed) made an OUTPUT redact policy buffer the answer whole. The owner rejected it.
+- Decision: Full buffering happens only for an enabled OUTPUT policy with action block or rewrite (D3, ADR-0079). An OUTPUT redact policy runs per sentence on the stream, like DATA: each sentence goes through the OUTPUT policies whose action is `redact`, then DATA (target `answer`), before it is released. The whole-answer OUTPUT check in streaming mode skips redact policies, so a sentence is never redacted twice; in buffered mode OUTPUT runs whole, redact included. The rest of ADR-0095 stands as decided here: a blocking OUTPUT verdict that a mid-turn reload brings in after the text streamed, and a DATA block or an unavailable policy mid-answer, emit `retract` for the released text and end the turn with the policy's message. `GuardContext` gains `actions`, which restricts a call to policies with those actions.
+- Consequences: An OUTPUT redaction costs one more engine call per sentence instead of a full generation before the first token.
+
+### ADR-0107: Role scopes through policy roles; tool-visibility-by-role uses one
+- Date: 2026-10-06
+- Phase: 03 (owner decisions on PR #3)
+- Status: decided
+- Context: ADR-0078 refused `role:` scopes because the agent never sees roles (ADR-0046). ADR-0104 (assumed) expressed `tool-visibility-by-role` with a tenant `restricted`, which the owner rejected: tenants are not policy groups.
+- Decision:
+  - Keycloak realm roles prefixed `policy:` are policy-scope roles. They grant nothing; authorization stays `cap:{slug}` and `kb:{slug}:read` in the gateway (ADR-0006).
+  - The gateway forwards to the agent only the caller's realm roles that start with `policy:` (and match `policy:[a-z0-9][a-z0-9_-]{0,63}`), as `principal.policy_roles` (full names, sorted, omitted when empty). It never forwards any other role, and builds the principal from the verified token only: a client's `policy_roles` field or header is ignored.
+  - A policy with scope `role:{name}` (a slug) applies when `policy:{name}` is in `principal.policy_roles`. Precedence is unchanged: tool > kb > role > tenant > global. When a user holds two policy roles whose policies in one group conflict, the stricter action wins (the order of ADR-0105).
+  - MODEL_TIER policies may be role-scoped; they stay ceilings: final tier ≤ min(`caps.default`, `principal.max_tier`, every applicable policy ceiling).
+  - Validation accepts `role:{name}`. The admin form lists the realm's `policy:*` roles, read through the gateway's Keycloak Admin API client (`GET /v1/admin/policy-roles`, the `gateway` client's service account, `view-realm`), and warns, without refusing, when the named role does not exist. A Keycloak failure there is 502 `identity_unavailable`.
+  - Realm: role `policy:pii-exempt`, assigned to the seed user `analyst`. No seed policy uses it, so seed behaviour is unchanged.
+  - Replacing ADR-0104: the tenant `restricted` is removed everywhere; `tool-visibility-by-role.yaml` is TOOL_LIST, scope `role:no-sql`, hides the `sql` capability, disabled by default. A test asserts that no seed policy, test fixture or realm entry sets a tenant to serve a policy; the integration tests isolate their policies with policy roles instead of tenants.
+  - Agent and gateway OpenAPI stay 1.3.0 (PR #3 is unmerged; ADR-0044, ADR-0046 reasoning); `docs/events.schema.json` is unchanged.
+- Consequences: This supersedes ADR-0078's refusal of `role:` scopes and ADR-0046's "the agent never sees roles" for the `policy:` namespace only. A realm role named `policy:*` is now a policy selector: granting one to a user can weaken a policy for that user, which is why exceptions are flagged and audited (ADR-0105). An existing Keycloak volume gets `policy:pii-exempt` only after `make clean && make up` or through the admin console. A `role:` policy applies only to new tokens, since the roles are read from the token.
