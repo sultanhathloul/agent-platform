@@ -547,6 +547,19 @@ Human review needed (this session): `docs/DECISIONS.md` ADR-0076 and the status 
 
 How to verify (this session): `make test`; `make up smoke eval`. The pair rule alone: `pytest tests/unit/test_context_pipeline.py tests/unit/test_summary_plan.py tests/unit/test_assembler.py` and `tests/integration/test_turns.py::test_retracted_exchange_is_skipped_by_the_next_turn` in `make test-agent`.
 
+### Fix session: summary position (2026-10-06)
+
+Scope: move the summary block next to the current question; nothing else.
+
+Checklist:
+- [x] `config/context.yaml` pipeline: `sliding_window` before `rolling_summary` (system → window → summary → memory → user message); ADR-0077, status note on ADR-0076
+- [x] Test: with a summary and a window starting on a user message, `to_messages` alternates user/assistant after the system message (with and without memory); two pipeline tests updated to the new order
+- [x] `make test`, `make smoke` (current profile), `make eval` once; push
+
+Session result (2026-10-06), OpenRouter profile: `make test` green (agent 236 passed, +2 for the alternation test with and without memory; gateway BUILD SUCCESSFUL plus `gateway-db-tests`; web 56 passed). `make smoke` green, all phase 01 and 02 checks (a first run started while the agent was still restarting after `make up` and failed on `unhealthy: agent`; re-run once healthy, green). `make eval` general 28/28 (1.00), dataset run `make-eval-20261006T091758Z`.
+
+Human review needed (this session): `config/context.yaml` pipeline order; ADR-0077 and the status note on ADR-0076.
+
 ## Phase 03: Guardrails engine
 
 - Branch: `phase/03-guardrails`

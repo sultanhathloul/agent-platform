@@ -689,7 +689,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0076: A retracted exchange leaves the context as a pair; only the current message merges
 - Date: 2026-10-06
 - Phase: 02 (second fix session for PR #2)
-- Status: decided
+- Status: decided — Superseded by ADR-0077 on 2026-10-06 (the summary's position only)
 - Context: ADR-0048 skipped a retracted reply but kept the user message of its turn, and ADR-0068 had `ContextPackage.to_messages` merge every pair of adjacent blocks of one role. After a retract the window ended with that orphan question, so it merged with the memory block and the current message: the model saw `"A\n\nB"` as one user turn (review of PR #2, finding 1).
 - Decision:
   - `context/messages.py` `visible()` marks, besides each retracted reply, the user message right before it, which `persist_state` stored with it. The sliding window and the summarizer's plan (`plan_summary`: the history count and the fold slice) read history through it, with pairs found on the whole history before the summary cursor or window slice applies. The orphan question never reaches a model either.
@@ -697,3 +697,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - Tested: a history ending in a retracted pair gives `[system, user "B"]`, and with memory hits the memory block joins `"B"` only; a summarizer slice ending on a retracted pair ends on the assistant message before it; the window skips the pair; `to_messages` raises on a window ending with a user message.
   - Supersedes ADR-0048's "The user message of that turn stays" and ADR-0068's merge rule ("the summary joins the first window message") only.
 - Consequences: A summary block followed by a window that starts with a user message gives two consecutive user messages; roles no longer strictly alternate there. Whether every served model's chat template accepts that is not verified; one that requires strict alternation would need the summary moved into the current-message group, a new decision. A retracted question already folded into the summary stays there (ADR-0071's consequence, unchanged).
+
+### ADR-0077: The summary block sits after the window, inside the current message
+- Date: 2026-10-06
+- Phase: 02 (second fix session for PR #2)
+- Status: decided
+- Context: ADR-0076 left the summary block before the window, so when the window started on a user message the model received two consecutive user messages, and whether every served model's chat template accepts that was not verified.
+- Decision: The pipeline in `config/context.yaml` runs `sliding_window` before `rolling_summary`: system → state digest → history window → summary → memory → (system-role evidence blocks) → user message. The summary is thus adjacent to the memory block and the question and merges with them under ADR-0076's rule; it never precedes history. README §7 already lists the window (step 3) before the summary (step 4) and makes the order configuration, so the README is unchanged. Tested by `test_with_a_summary_the_messages_strictly_alternate_after_the_system_message` (with and without memory hits): after the system message the roles alternate user/assistant and end on the user. Supersedes ADR-0076's summary position and its alternation consequence only.
+- Consequences: With a summary present, roles strictly alternate after the system message. The current user message carries `<conversation_summary>`, then `<user_memory>`, then the question. The summarizer node gets the same order: the fold slice, then the existing summary joined with its request prompt.
