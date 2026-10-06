@@ -13,7 +13,7 @@ import pytest
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.guardrails.checkpoints import Checkpoint
-from app.guardrails.engine import GuardEngine
+from app.guardrails.engine import NO_CONTEXT, GuardEngine
 from app.guardrails.schema import GuardEventRecord, GuardOutcome
 from app.identity import Principal
 from app.memory.types import MemoryScope
@@ -134,9 +134,9 @@ async def test_with_memory_off_nothing_is_written_or_retrieved(debug_client, deb
 class _WarningGuard(GuardEngine):
     """Flags every INPUT with a `warn` policy event."""
 
-    async def evaluate(self, checkpoint, payload, *, principal=None, scope=None):
+    async def evaluate(self, checkpoint, payload, *, principal=None, context=NO_CONTEXT):
         if checkpoint != Checkpoint.INPUT:
-            return await super().evaluate(checkpoint, payload, principal=principal, scope=scope)
+            return await super().evaluate(checkpoint, payload, principal=principal, context=context)
         event = GuardEventRecord(checkpoint=checkpoint, policy_id="test-warn", action="warn")
         return GuardOutcome(action="warn", payload=payload, events=[event])
 

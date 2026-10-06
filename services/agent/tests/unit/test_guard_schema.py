@@ -39,7 +39,12 @@ def policy(**overrides) -> Policy:
 
 @pytest.mark.parametrize(
     ("text", "kind", "value"),
-    [("global", "global", None), ("tenant:moe", "tenant", "moe"), ("kb:moe", "kb", "moe"), ("tool:web", "tool", "web")],
+    [
+        ("global", "global", None),
+        ("tenant:moe", "tenant", "moe"),
+        ("kb:moe", "kb", "moe"),
+        ("tool:web", "tool", "web"),
+    ],
 )
 def test_scopes_parse_and_print_back(text, kind, value):
     scope = Scope.parse(text)
@@ -78,7 +83,10 @@ def test_a_valid_policy_has_a_ref_and_defaults():
     p = policy()
     assert p.ref == "pii-test@1" and p.enabled and p.severity == "medium"
     assert p.effective_on_error == "closed" and p.effective_group == "pii-test"
-    assert policy(checker="llm_judge", config={"topic_description": "سياسة"}, action="warn").effective_on_error == "open"
+    assert (
+        policy(checker="llm_judge", config={"topic_description": "سياسة"}, action="warn").effective_on_error
+        == "open"
+    )
 
 
 def test_a_block_needs_both_messages():
@@ -112,8 +120,14 @@ def test_model_tier_policies_are_ceilings_with_the_tier_ceiling_checker():
     with pytest.raises(ValidationError, match="tier_ceiling"):
         policy(checkpoints=["DATA"], checker="tier_ceiling", config={"max_tier": "fast"}, action="log_only")
     with pytest.raises(ValidationError, match="ceiling"):
-        policy(checkpoints=["MODEL_TIER"], checker="tier_ceiling", config={"max_tier": "fast"}, action="block",
-               message_ar="x", message_en="x")
+        policy(
+            checkpoints=["MODEL_TIER"],
+            checker="tier_ceiling",
+            config={"max_tier": "fast"},
+            action="block",
+            message_ar="x",
+            message_en="x",
+        )
 
 
 def test_config_is_validated_against_its_checker():
@@ -135,7 +149,9 @@ def test_checkpoints_do_not_repeat_and_ids_are_slugs():
 def test_data_targets_default_to_all_and_can_be_restricted():
     assert DATA_TARGETS == ("answer", "memory_candidate", "summary")
     every = policy()
-    memory_only = policy(config={"patterns": [{"name": "X", "pattern": "x"}], "targets": ["memory_candidate"]})
+    memory_only = policy(
+        config={"patterns": [{"name": "X", "pattern": "x"}], "targets": ["memory_candidate"]}
+    )
     assert all(every.guards_target(t) for t in DATA_TARGETS)
     assert memory_only.guards_target("memory_candidate") and not memory_only.guards_target("answer")
     with pytest.raises(ValidationError):
@@ -167,7 +183,9 @@ def test_the_data_payload_carries_a_known_target():
 
 
 def test_event_records_name_the_policy_version():
-    event = GuardEventRecord(checkpoint=Checkpoint.DATA, policy_id="pii-test", policy_version=3, action="redact")
+    event = GuardEventRecord(
+        checkpoint=Checkpoint.DATA, policy_id="pii-test", policy_version=3, action="redact"
+    )
     assert event.policy_ref == "pii-test@3"
     assert GuardEventRecord(checkpoint=Checkpoint.INPUT, action="allow").policy_ref is None
 

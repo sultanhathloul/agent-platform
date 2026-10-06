@@ -1,0 +1,18 @@
+# Seeded once into agent.guard_policies; after that the admin UI owns it (I2).
+id: pii-redact-output
+name: Redact personal data in answers and summaries
+description: >-
+  Saudi mobile numbers, national ID and iqama numbers, SA IBANs and email addresses are
+  replaced with [REDACTED:<type>] before an answer leaves the agent (sentence by sentence
+  while it streams) and before the rolling summary is stored.
+enabled: true
+scope: global
+checkpoints: [DATA]
+checker: presidio
+config:
+  entities: [SA_MOBILE, SA_NATIONAL_ID, SA_IBAN, EMAIL_ADDRESS]
+  score_threshold: 0.5
+  targets: [answer, summary]
+action: redact
+severity: high
+group: pii-output

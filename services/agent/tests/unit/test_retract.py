@@ -1,7 +1,8 @@
-"""Streaming before guards, interim (ADR-0039): when validate, OUTPUT or DATA fail
-after tokens were streamed, the node emits `retract` before the turn ends in an
-error. persist_state stores the post-guard text and keeps the streamed text for
-audit only (ADR-0048)."""
+"""What leaves the agent after the guards (ADR-0039 full fix, D3). Redaction happens
+before text is released, so the persisted reply and the shown text are the same
+redacted text; `retract` remains only for `validate` on the complete answer and for
+a blocking policy that a mid-turn reload brings in after the text streamed.
+persist_state stores the post-guard text (ADR-0048)."""
 
 from types import SimpleNamespace
 
@@ -9,10 +10,12 @@ import pytest
 from langgraph.graph.message import add_messages
 
 from app.errors import TurnError
-from app.graph.nodes.guard import guard_data, guard_output
+from app.graph.deps import TurnContext
+from app.graph.nodes.guard import guard_data, guard_output, release_answer
 from app.graph.nodes.persist import persist_state
 from app.graph.nodes.validate import validate
-from app.guardrails.schema import GuardEventRecord, GuardOutcome
+from app.guardrails.config import StreamingConfig
+from app.guardrails.schema import DataPayload, GuardEventRecord, GuardOutcome
 from app.identity import Principal
 from app.text.script import RetryPolicy, ScriptPolicy, ValidationConfig
 
@@ -20,37 +23,57 @@ VALIDATION = ValidationConfig(
     scripts={"ar": ScriptPolicy(letters=["ARABIC", "LATIN"])},
     retry=RetryPolicy(issues=[], attempts=0, temperature=0.0),
 )
+STREAMING = SimpleNamespace(streaming=StreamingConfig(terminators=[".", "؟"], flush_chars=240))
 
 
 class _Engine:
-    def __init__(self, action: str, payload=None):
-        self.action, self.payload = action, payload
+    """Answers every checkpoint with one policy's verdict."""
 
-    async def evaluate(self, checkpoint, payload, *, principal=None, scope=None):
+    def __init__(self, action: str, text: str | None = None):
+        self.action, self.text = action, text
+
+    async def evaluate(self, checkpoint, payload, *, principal=None, context=None):
+        if self.text is not None:
+            payload = (
+                payload.model_copy(update={"text": self.text})
+                if isinstance(payload, DataPayload)
+                else {**payload, "answer": self.text}
+            )
+        event = GuardEventRecord(
+            checkpoint=checkpoint, policy_id="test-policy", policy_version=1, action=self.action
+        )
         return GuardOutcome(
             action=self.action,
-            payload=payload if self.payload is None else self.payload,
-            events=[GuardEventRecord(checkpoint=checkpoint, policy_id="test-policy", action=self.action)],
+            payload=payload,
+            events=[event],
+            decided_by="test-policy@1",
+            message_ar="رسالة السياسة" if self.action == "block" else None,
+            message_en="The policy's message" if self.action == "block" else None,
         )
 
 
 def _runtime(engine=None):
     written: list[dict] = []
-    services = SimpleNamespace(guard=engine, validation=VALIDATION)
-    context = SimpleNamespace(services=services, principal=Principal(user_id="u"))
+    services = SimpleNamespace(guard=engine, validation=VALIDATION, guard_config=STREAMING)
+    context = TurnContext(
+        services=services, principal=Principal(user_id="u"), request_id="r", turn_id="turn-1"
+    )
+    context.writer = written.append
     return SimpleNamespace(context=context, stream_writer=written.append), written
 
 
-def _state(answer: str) -> dict:
+def _state(answer: str, *, mode: str = "streaming") -> dict:
     return {
         "user_message": "ما عاصمة المملكة؟",
         "locale": "ar",
         "turn_id": "turn-1",
+        "answer_mode": mode,
         "draft_answer": answer,
-        "shown_answer": answer,
+        "shown_answer": answer if mode == "streaming" else None,
         "capability_outputs": [],
         "citations": [],
         "guard_events": [],
+        "intent": {"capabilities": ["general"]},
     }
 
 
@@ -69,33 +92,53 @@ async def test_nothing_streamed_means_nothing_to_retract():
     assert written == []
 
 
-@pytest.mark.parametrize(("node", "code"), [(guard_output, "output_blocked"), (guard_data, "data_blocked")])
-async def test_blocking_guard_after_streaming_retracts_then_fails(node, code):
+async def test_a_block_that_arrives_after_streaming_retracts_then_fails_with_the_policy_message():
     runtime, written = _runtime(_Engine("block"))
     with pytest.raises(TurnError) as info:
-        await node(_state("العاصمة هي الرياض."), runtime)
-    assert info.value.code == code
+        await guard_output(_state("العاصمة هي الرياض."), runtime)
+    assert (info.value.code, info.value.message_ar, info.value.policy_id) == (
+        "output_blocked",
+        "رسالة السياسة",
+        "test-policy@1",
+    )
     assert [w["type"] for w in written] == ["guard", "retract"]
-    assert written[1]["data"] == {"reason": code}
+    assert written[1]["data"] == {"reason": "output_blocked"}
 
 
-async def test_redaction_persists_the_post_guard_text_and_keeps_the_shown_text_for_audit():
-    shown = "رقم الجوال هو 0501234567"
-    redacted = "رقم الجوال هو [REDACTED:phone]"
-    runtime, written = _runtime(_Engine("redact", payload=redacted))
-    state = _state(shown)
-    update = await guard_data(state, runtime)
-    assert [w["type"] for w in written] == ["guard"]
+@pytest.mark.parametrize(("node", "code"), [(guard_output, "output_blocked"), (guard_data, "data_blocked")])
+async def test_a_buffered_block_ends_the_turn_before_any_text_left(node, code):
+    runtime, written = _runtime(_Engine("block"))
+    with pytest.raises(TurnError) as info:
+        await node(_state("العاصمة هي الرياض.", mode="buffered"), runtime)
+    assert info.value.code == code and info.value.message_en == "The policy's message"
+    assert [w["type"] for w in written] == ["guard"]  # no token, no retract
 
-    persisted = await persist_state({**state, **update}, runtime)
+
+async def test_streaming_data_ran_per_sentence_so_the_whole_answer_node_does_nothing():
+    runtime, written = _runtime(_Engine("block"))
+    assert await guard_data(_state("العاصمة هي الرياض."), runtime) == {}
+    assert written == []
+
+
+async def test_a_buffered_redaction_releases_only_the_redacted_text_and_persists_it():
+    shown = "رقم الجوال هو 0501234567. شكرًا"
+    redacted = "رقم الجوال هو [REDACTED:SA_MOBILE]. شكرًا"
+    runtime, written = _runtime(_Engine("redact", text=redacted))
+    state = _state(shown, mode="buffered")
+    state |= await guard_data(state, runtime)
+    state |= await release_answer(state, runtime)
+    tokens = [w["data"]["text"] for w in written if w["type"] == "token"]
+    assert "".join(tokens) == redacted and len(tokens) == 2  # a sentence per token event
+    assert not any("0501234567" in t for t in tokens)
+    assert [w["type"] for w in written][0] == "guard"
+
+    persisted = await persist_state(state, runtime)
     user, assistant = persisted["messages"]
     assert user == {"role": "user", "content": "ما عاصمة المملكة؟"}
-    assert assistant == {"role": "assistant", "content": redacted, "turn_id": "turn-1", "shown_answer": shown}
-
-    # In the checkpointed history the redacted text is the content; the shown text is audit metadata.
+    # What was shown and what is stored are the same redacted text: no audit copy of the raw text.
+    assert assistant == {"role": "assistant", "content": redacted, "turn_id": "turn-1"}
     _, reply = add_messages([], persisted["messages"])
-    assert reply.content == redacted
-    assert reply.additional_kwargs == {"turn_id": "turn-1", "shown_answer": shown}
+    assert reply.content == redacted and reply.additional_kwargs == {"turn_id": "turn-1"}
 
 
 async def test_unchanged_answer_is_persisted_once():

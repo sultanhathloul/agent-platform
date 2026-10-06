@@ -1,0 +1,16 @@
+# D7: the Arabic-name recognizer is a heuristic, so it only logs; it never redacts or blocks.
+id: pii-arabic-names-log
+name: Log Arabic personal names (heuristic)
+description: >-
+  Records when text on its way to the user or to memory looks like it names a person
+  (an Arabic title followed by a name, or a nasab such as "X بن Y"). Log only: the
+  heuristic has false positives, and a name alone is not redacted.
+enabled: true
+scope: global
+checkpoints: [DATA]
+checker: presidio
+config:
+  entities: [ARABIC_NAME]
+  score_threshold: 0.4
+action: log_only
+severity: low

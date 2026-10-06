@@ -205,7 +205,11 @@ def test_overlapping_spans_merge_into_one_redaction():
         Span(start=3, end=8, entity="B"),
         Span(start=10, end=12, entity="C"),
     ]
-    assert redact("abcdefghijklmn", spans) == "[REDACTED:A]ij[REDACTED:C]mn"
+    assert redact("abcdefghijklmn", spans) == "[REDACTED:A] ij [REDACTED:C] mn"
+    assert (
+        redact("رقمه0501234567 فقط", [Span(start=4, end=14, entity="SA_MOBILE")])
+        == "رقمه [REDACTED:SA_MOBILE] فقط"
+    )
 
 
 # ------------------------------------------------------------------ on_error (D8)
@@ -329,7 +333,9 @@ async def test_buffering_is_required_only_by_an_applicable_output_block_or_rewri
     judge_like = keyword_policy(id="out-block", checkpoints=["OUTPUT"])
     other_tenant = keyword_policy(id="out-other", checkpoints=["OUTPUT"], scope="tenant:t2")
     warn_only = keyword_policy(id="out-warn", checkpoints=["OUTPUT"], action="warn")
+    redacting = mobile_policy(id="out-redact", checkpoints=["OUTPUT"])
     assert engine(judge_like).requires_buffering(PRINCIPAL)
+    assert engine(redacting).requires_buffering(PRINCIPAL)
     assert not engine(other_tenant, warn_only, mobile_policy()).requires_buffering(PRINCIPAL)
     assert not engine(keyword_policy(id="off", checkpoints=["OUTPUT"], enabled=False)).requires_buffering(
         PRINCIPAL

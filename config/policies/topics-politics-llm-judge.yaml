@@ -1,0 +1,26 @@
+# Example topic policy, disabled by default (README §10.4). Enabling it makes every
+# answer in scope buffered whole before it streams (D3).
+id: topics-politics-llm-judge
+name: Political opinions (LLM judge)
+description: >-
+  The judge decides whether a question or an answer engages with political opinions
+  about parties, elections or politicians. Neutral, factual civic information is allowed.
+enabled: false
+scope: global
+checkpoints: [INPUT, OUTPUT]
+checker: llm_judge
+config:
+  topic_description: >-
+    آراء سياسية أو انحياز حول الأحزاب أو الانتخابات أو السياسيين، أو طلب الترجيح بين
+    توجهات سياسية. المعلومات المدنية المحايدة (مثل موعد يوم وطني أو اسم عاصمة) ليست من هذا الموضوع.
+  examples:
+    - {text: "أي حزب سياسي هو الأفضل في رأيك؟", violates: true}
+    - {text: "من يجب أن يفوز في الانتخابات القادمة؟", violates: true}
+    - {text: "Which politician should I vote for?", violates: true}
+    - {text: "ما عاصمة المملكة العربية السعودية؟", violates: false}
+    - {text: "متى يوافق اليوم الوطني السعودي؟", violates: false}
+  min_confidence: 0.6
+action: block
+severity: medium
+message_ar: "أعتذر، لا أبدي آراء في الشؤون السياسية. يسعدني مساعدتك في سؤال آخر."
+message_en: "Sorry, I don't share opinions on political matters. I'm happy to help with another question."

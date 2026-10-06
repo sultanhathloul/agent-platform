@@ -4,9 +4,14 @@ message and the reply, never `shown_answer` (ADR-0048) — and the kept candidat
 are stored for the turn's (tenant, user). Nothing is written when that user's
 memory is off or a guard flagged the turn.
 
+Every kept candidate goes through DATA with target `memory_candidate` before it is
+stored (phase 03, B1): a candidate a policy blocks is dropped without a message to
+the user (seed `pii-block-in-memory`), a redaction stores the redacted text.
+
 Synchronous in phase 02 (asynchronous writing is phase 09); its latency goes on
 the turn span as `memory.write_ms`. The reply is already persisted, so a failure
-here is recorded on the span and never fails the turn."""
+here is recorded on the span and never fails the turn; a fail-closed policy that
+cannot be evaluated therefore stores nothing (D8)."""
 
 import logging
 import time
@@ -17,9 +22,12 @@ from opentelemetry import trace
 from app.context.package import AssemblyRequest
 from app.graph.calls import call_model, prepare_call
 from app.graph.deps import TurnContext
+from app.graph.guarding import check
 from app.graph.nodes import traced
 from app.graph.state import AgentState
-from app.memory.policy import guard_flagged, parse_candidates
+from app.guardrails.checkpoints import Checkpoint
+from app.guardrails.schema import DataPayload
+from app.memory.policy import Candidate, guard_flagged, parse_candidates
 from app.memory.types import MemoryScope
 
 log = logging.getLogger(__name__)
@@ -68,11 +76,24 @@ async def _write(state: AgentState, ctx: TurnContext) -> tuple[str, int, int]:
         source=exchange[0]["content"],
         scripts=ctx.services.validation.scripts_for(state["locale"]),
     )
-    stored = await memory.writer.store_candidates(scope, candidates, source_turn=ctx.turn_id)
+    guarded = await _guarded(state, ctx, candidates)
+    stored = await memory.writer.store_candidates(scope, guarded, source_turn=ctx.turn_id)
     span = trace.get_current_span()
     span.set_attribute("memory.candidates", len(candidates))
+    span.set_attribute("memory.guard_dropped", len(candidates) - len(guarded))
     span.set_attribute("memory.stored", stored)
     return ("stored" if stored else "nothing_stored"), result.tokens_in, result.tokens_out
+
+
+async def _guarded(state: AgentState, ctx: TurnContext, candidates: list[Candidate]) -> list[Candidate]:
+    """DATA on each candidate before it is stored: blocked ones are dropped silently."""
+    kept = []
+    for candidate in candidates:
+        payload = DataPayload(text=candidate.text, target="memory_candidate")
+        outcome = await check(ctx, state, Checkpoint.DATA, payload)
+        if not outcome.blocked:
+            kept.append(candidate.model_copy(update={"text": outcome.payload.text}))
+    return kept
 
 
 @traced("write_memory")
@@ -90,9 +111,8 @@ async def write_memory(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     finally:
         ctx.timings["memory.write_ms"] = int((time.monotonic() - started) * 1000)
     span.set_attribute("memory.write.outcome", outcome)
-    if not (tokens_in or tokens_out):
-        return {}
-    return {
-        "tokens_in": (state.get("tokens_in") or 0) + tokens_in,
-        "tokens_out": (state.get("tokens_out") or 0) + tokens_out,
-    }
+    update: dict = {"guard_events": ctx.guard_records()}
+    if tokens_in or tokens_out:
+        update["tokens_in"] = (state.get("tokens_in") or 0) + tokens_in
+        update["tokens_out"] = (state.get("tokens_out") or 0) + tokens_out
+    return update

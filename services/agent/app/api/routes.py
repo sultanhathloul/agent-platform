@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Path, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from opentelemetry import propagate
+from starlette.background import BackgroundTask
 
 from app.api.events import to_sse
 from app.api.ownership import Owner
@@ -74,6 +75,7 @@ async def health(request: Request) -> HealthResponse:
         },
         400: {"model": ErrorEnvelope},
         401: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope, "description": "turn_in_flight: another turn holds the conversation"},
     },
 )
 async def create_turn(
@@ -89,15 +91,21 @@ async def create_turn(
 
     parent = propagate.extract(request.headers)
     runner = request.app.state.runner
+    # One turn at a time per conversation (D6): refused before any stream starts.
+    lease = await runner.lock(body.conversation_id)
+    if lease is None:
+        return _error(request, request_id, "turn_in_flight", 409)
 
     async def events():
-        async for event in runner.stream(body, request_id, parent):
+        async for event in runner.stream(body, request_id, parent, lease=lease):
             yield to_sse(event)
 
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "X-Request-Id": request_id},
+        # Idempotent; covers a client gone before the stream started.
+        background=BackgroundTask(lease.release),
     )
 
 
@@ -111,6 +119,7 @@ async def create_turn(
         401: {"model": ErrorEnvelope},
         403: {"model": ErrorEnvelope, "description": "conversation_forbidden"},
         404: {"model": ErrorEnvelope, "description": "turn_not_found"},
+        409: {"model": ErrorEnvelope, "description": "turn_in_flight: a turn kept the conversation locked"},
     },
 )
 async def retract_turn(
@@ -131,7 +140,10 @@ async def retract_turn(
     outcome = await request.app.state.runner.retract(conversation_id, turn_id, body.principal, body.reason)
     if outcome == "retracted":
         return Response(status_code=204)
-    code, status = ("conversation_forbidden", 403) if outcome == "forbidden" else ("turn_not_found", 404)
+    code, status = {
+        "forbidden": ("conversation_forbidden", 403),
+        "in_flight": ("turn_in_flight", 409),
+    }.get(outcome, ("turn_not_found", 404))
     return _error(request, request_id, code, status)
 
 

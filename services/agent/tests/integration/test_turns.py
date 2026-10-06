@@ -178,8 +178,15 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
     assert generation.attributes["model.temperature"] == 0.2  # reasoning role (ADR-0032)
     assert {f"node.{n}" for n in ("route", "run_capabilities", "answer", "validate")} <= set(by_name)
     assert "capability.general" in by_name
-    checkpoints = {s.attributes["guard.checkpoint"] for s in by_name["guard.check"]}
+    # Every checkpoint a general turn reaches is evaluated (no tool, so no PRE/POST_TOOL), and
+    # each policy evaluation is its own guard.check span naming the policy's version (C1).
+    checkpoints = {s.attributes["guard.checkpoint"] for s in by_name["guard.evaluate"]}
     assert checkpoints == {"INPUT", "TOOL_LIST", "MODEL_TIER", "OUTPUT", "DATA"}
+    policies = {s.attributes["guard.policy"] for s in by_name["guard.check"]}
+    assert {"prompt-injection-input@1", "pii-redact-output@1"} <= policies
+    assert all(
+        "guard.latency_ms" in s.attributes and "guard.action" in s.attributes for s in by_name["guard.check"]
+    )
 
 
 async def test_missing_internal_token_is_rejected(client):

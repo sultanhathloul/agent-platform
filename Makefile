@@ -33,7 +33,7 @@ seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot
 test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
-	$(COMPOSE) up -d --wait postgres
+	$(COMPOSE) up -d --wait postgres redis presidio-analyzer
 	@# The test database and its owner come from infra/postgres/init; idempotent on an existing volume (ADR-0070).
 	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/10-agent-test.sh
 	$(COMPOSE) --profile test up -d --wait litellm-mock

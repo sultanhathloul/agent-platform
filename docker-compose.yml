@@ -38,6 +38,10 @@ x-agent-env: &agent-env
   CONFIG_DIR: /srv/config
   USER_ID_HASH_SALT: ${USER_ID_HASH_SALT}
   OBSERVABILITY_CAPTURE_CONTENT: ${OBSERVABILITY_CAPTURE_CONTENT:-true}
+  # Guard policies: presidio-analyzer with the Saudi recognizers (README §10.2).
+  PRESIDIO_URL: http://presidio-analyzer:3000
+  # Connections reserved for per-conversation turn locks (D6).
+  LOCK_POOL_SIZE: ${LOCK_POOL_SIZE:-20}
 
 services:
   # ------------------------------------------------------------------ data
@@ -93,6 +97,20 @@ services:
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
         mc mb --ignore-existing local/uploads local/kb-docs local/langfuse
     restart: "no"
+
+  # Pattern recognizers only (infra/presidio/recognizers.yaml); its NLP model is never asked for
+  # an entity. One worker: each worker loads the spaCy model (~740 MiB).
+  presidio-analyzer:
+    image: mcr.microsoft.com/presidio-analyzer:2.2.362
+    environment:
+      RECOGNIZER_REGISTRY_CONF_FILE: /srv/presidio/recognizers.yaml
+      WORKERS: "1"
+    volumes:
+      - ./infra/presidio:/srv/presidio:ro
+    healthcheck:
+      <<: *healthcheck
+      start_period: 30s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
 
   # ------------------------------------------------------------------ identity
   keycloak:
@@ -249,12 +267,19 @@ services:
       # State, owners and memory in database `app`, schema `agent` (ADR-0055).
       DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/app
       DEBUG_CONTEXT_ENABLED: ${DEBUG_CONTEXT_ENABLED:-false}
+      DEBUG_CONTEXT_RETENTION_DAYS: ${DEBUG_CONTEXT_RETENTION_DAYS:-7}
+      # Policy cache, change notifications and judge verdicts (README §10.1).
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: agent
     volumes:
       - ./config:/srv/config:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      presidio-analyzer:
         condition: service_healthy
       litellm:
         condition: service_healthy
@@ -344,11 +369,17 @@ services:
       DOCS_DIR: /srv/docs
       # The test database from infra/postgres/init, as the app role; never the superuser (ADR-0070).
       AGENT_TEST_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/agent_test
+      # Redis database 15 and a namespace of its own: tests never meet the stack's keys or channels.
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/15
     volumes:
       - ./config:/srv/config:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      presidio-analyzer:
         condition: service_healthy
       litellm-mock:
         condition: service_healthy

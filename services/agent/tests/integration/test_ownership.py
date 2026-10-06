@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.api.ownership import Owner
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
@@ -58,17 +59,36 @@ async def test_a_refused_turn_writes_nothing_to_the_thread(client, services, lit
 
 
 async def test_concurrent_first_turns_bind_one_owner(client, services, litellm):
+    """Overlapping turns on one conversation are serialized by the turn lock (D6): one
+    runs, an overlapping one is refused with 409 turn_in_flight, and one that comes after
+    the winner finished is refused as conversation_forbidden. Either way one owner."""
     conversation = str(uuid.uuid4())
     responses = await asyncio.gather(
         *(_turn(client, conversation, _principal(user_id=f"u-race-{i}")) for i in range(4))
     )
-    endings = [_events(response)[-1] for response in responses]
-
-    assert [e["type"] for e in endings].count("done") == 1
-    assert [e["data"]["code"] for e in endings if e["type"] == "error"] == ["conversation_forbidden"] * 3
+    winners = [r for r in responses if r.status_code == 200 and _events(r)[-1]["type"] == "done"]
+    assert len(winners) == 1
+    for response in responses:
+        if response in winners:
+            continue
+        if response.status_code == 409:
+            assert response.json()["error"]["code"] == "turn_in_flight"
+        else:
+            assert [e["data"]["code"] for e in _events(response)] == ["conversation_forbidden"]
     snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
-    winner = next(r for r, e in zip(responses, endings, strict=True) if e["type"] == "done")
-    assert snapshot.values["user_id"] == json.loads(winner.request.content)["principal"]["user_id"]
+    assert snapshot.values["user_id"] == json.loads(winners[0].request.content)["principal"]["user_id"]
+
+
+async def test_concurrent_first_bindings_agree_on_one_owner(services):
+    """The binding itself is atomic, whatever serializes the turns around it (ADR-0050)."""
+    conversation = str(uuid.uuid4())
+
+    async def nobody():
+        return None
+
+    callers = [Owner(f"u-bind-{i}", "default") for i in range(8)]
+    owners = await asyncio.gather(*(services.owners.bind_or_get(conversation, c, nobody) for c in callers))
+    assert len(set(owners)) == 1 and owners[0] in callers
 
 
 async def test_an_owner_recorded_in_the_thread_wins_over_a_lost_binding(services, litellm):

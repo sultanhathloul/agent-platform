@@ -1,0 +1,28 @@
+id: prompt-injection-input
+name: Block prompt injection in the user message
+description: >-
+  English and Arabic phrasings that try to override the assistant's instructions or
+  extract its system prompt. Patterns are matched on Arabic-folded text (tashkeel and
+  tatweel removed, alef and taa marbuta forms folded), case-insensitively.
+enabled: true
+scope: global
+checkpoints: [INPUT]
+checker: regex
+config:
+  patterns:
+    - name: OVERRIDE_EN
+      pattern: "\\b(?:ignore|disregard|forget)\\s+(?:all\\s+|any\\s+)?(?:the\\s+|your\\s+)?(?:previous|prior|above|earlier)\\s+(?:instructions|prompts?|rules|directions)"
+    - name: EXTRACT_EN
+      pattern: "\\b(?:reveal|print|show|repeat)\\s+(?:me\\s+)?(?:your|the)\\s+(?:system\\s+prompt|hidden\\s+instructions|initial\\s+instructions)"
+    - name: ROLE_EN
+      pattern: "\\byou\\s+are\\s+now\\s+(?:DAN|in\\s+developer\\s+mode|an?\\s+unrestricted)"
+    - name: OVERRIDE_AR
+      pattern: "(?:تجاهل|انس|اهمل)\\s+(?:جميع\\s+|كل\\s+)?(?:التعليمات|الاوامر|القواعد|التوجيهات)\\s+(?:السابقة|اعلاه|التي\\s+تلقيتها)"
+    - name: EXTRACT_AR
+      pattern: "(?:اكشف|اعرض|اطبع|كرر)\\s+(?:لي\\s+)?(?:موجه|تعليمات|رسالة)\\s+النظام"
+    - name: ROLE_AR
+      pattern: "انت\\s+الان\\s+(?:في\\s+وضع\\s+المطور|بلا\\s+قيود|نموذج\\s+غير\\s+مقيد)"
+action: block
+severity: high
+message_ar: "لا يمكنني تنفيذ طلب يحاول تجاوز تعليماتي. أعد صياغة سؤالك من فضلك."
+message_en: "I can't follow a request that tries to override my instructions. Please rephrase your question."

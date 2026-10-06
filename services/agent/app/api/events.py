@@ -38,8 +38,12 @@ class TierData(_Model):
 class GuardData(_Model):
     checkpoint: str
     policy_id: str | None = None
+    policy_version: int | None = Field(default=None, description="With policy_id: the version that decided.")
     action: str
     detail: str | None = None
+    target: str | None = Field(default=None, description="DATA only: answer, memory_candidate or summary.")
+    entities: list[str] = Field(default=[], description="Entity types matched; never the matched text.")
+    latency_ms: int | None = None
 
 
 class ToolStartData(_Model):
@@ -90,6 +94,13 @@ class ErrorData(_Model):
     message_ar: str
     message_en: str
     retryable: bool = False
+    policy_id: str | None = Field(
+        default=None,
+        description="policy_id@version whose block ended the turn; its messages are the policy's.",
+    )
+    guard_events: list[GuardData] = Field(
+        default=[], description="The turn's guard events up to the error, for the audit record."
+    )
 
 
 class RetractData(_Model):

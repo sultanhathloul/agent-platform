@@ -1,0 +1,19 @@
+# Scope tool:web: applies to the web capability's tool calls only (ADR-0025). Domains under
+# the reserved .invalid and .test TLDs stand in for real ones until phase 06.
+id: web-domain-denylist
+name: Web domains the web tool may not fetch
+description: >-
+  A web search or fetch whose arguments name a denied domain is refused before the tool
+  runs (PRE_TOOL).
+enabled: true
+scope: tool:web
+checkpoints: [PRE_TOOL]
+checker: regex
+config:
+  patterns:
+    - name: DENIED_DOMAIN
+      pattern: "(?:^|[\\s\"'/@.])(?:malware-example\\.invalid|tracker-example\\.invalid|blocked\\.test)(?=[\\s\"'/:?#]|$)"
+action: block
+severity: high
+message_ar: "هذا النطاق غير مسموح به في البحث على الويب."
+message_en: "This domain is not allowed for web search."

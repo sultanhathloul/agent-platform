@@ -62,7 +62,8 @@ class _NoPolicies:
 
 def redact(text: str, spans: Sequence[Span]) -> str:
     """Replaces every span with `[REDACTED:{type}]`; overlapping spans merge, typed by
-    the first one."""
+    the first one. A marker glued to a letter or digit gets a space on that side, so
+    `رقمه0501234567` never becomes one mixed-script token (ADR-0060)."""
     merged: list[tuple[int, int, str]] = []
     for span in sorted(spans, key=lambda s: (s.start, -s.end)):
         if merged and span.start < merged[-1][1]:
@@ -71,7 +72,9 @@ def redact(text: str, spans: Sequence[Span]) -> str:
         else:
             merged.append((span.start, span.end, span.entity))
     for start, end, entity in reversed(merged):
-        text = f"{text[:start]}[REDACTED:{entity}]{text[end:]}"
+        before = " " if start > 0 and text[start - 1].isalnum() else ""
+        after = " " if end < len(text) and text[end].isalnum() else ""
+        text = f"{text[:start]}{before}[REDACTED:{entity}]{after}{text[end:]}"
     return text
 
 
@@ -100,9 +103,10 @@ class GuardEngine:
 
     def requires_buffering(self, principal: Principal, context: GuardContext = NO_CONTEXT) -> bool:
         """D3: the answer is buffered whole only when an enabled OUTPUT policy that can
-        block or rewrite applies to the principal's scope."""
+        block or rewrite applies to the principal's scope. An OUTPUT redaction buffers
+        too, since a redaction after the text streamed would come too late."""
         return any(
-            p.action in ("block", "rewrite")
+            p.action in ("block", "rewrite", "redact")
             for p in self.applicable(Checkpoint.OUTPUT, context.scopes(principal))
         )
 

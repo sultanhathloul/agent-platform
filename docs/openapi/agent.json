@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "paths": {
     "/v1/health": {
@@ -102,6 +102,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "409": {
+            "description": "turn_in_flight: another turn holds the conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
@@ -211,6 +221,16 @@
           },
           "404": {
             "description": "turn_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "turn_in_flight: a turn kept the conversation locked",
             "content": {
               "application/json": {
                 "schema": {

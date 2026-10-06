@@ -51,6 +51,7 @@ async def prepare_call(
     services = ctx.services
     specs = [cap.model_spec() for cap in capabilities]
     decision = await services.resolver.resolve(role, step=step, capabilities=specs, principal=ctx.principal)
+    ctx.report_guard(decision.guard_events)
     package = await services.assembler.assemble(request, _budget(ctx, decision, max_input))
     if isinstance(package, NeedsMore):
         action = services.resolver.overflow_action(specs)
@@ -66,6 +67,8 @@ async def prepare_call(
             escalated = await services.resolver.escalate(
                 decision, principal=ctx.principal, reason="context_overflow"
             )
+        if escalated is not None:
+            ctx.report_guard(escalated.guard_events)
         if escalated is not None and escalated.final != decision.final:
             ctx.escalations += 1
             decision = escalated

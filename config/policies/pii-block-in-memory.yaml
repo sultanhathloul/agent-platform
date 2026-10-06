@@ -1,0 +1,19 @@
+id: pii-block-in-memory
+name: Never store personal data in memory
+description: >-
+  A memory candidate holding a Saudi mobile number, national ID or iqama number, SA IBAN
+  or email address is dropped before it is stored. The user sees no message; the guard
+  event is recorded (README §8).
+enabled: true
+scope: global
+checkpoints: [DATA]
+checker: presidio
+config:
+  entities: [SA_MOBILE, SA_NATIONAL_ID, SA_IBAN, EMAIL_ADDRESS]
+  score_threshold: 0.5
+  targets: [memory_candidate]
+action: block
+severity: high
+message_ar: "لا تُحفظ البيانات الشخصية في الذاكرة."
+message_en: "Personal data is not stored in memory."
+group: pii-memory
