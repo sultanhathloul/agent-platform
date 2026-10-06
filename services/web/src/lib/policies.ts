@@ -1,0 +1,127 @@
+// Pure helpers for the admin policy page (README §10.4). No API types are written here;
+// they come from the generated gateway types.
+import type { PolicyDocument, PolicyMatchRow, PolicySpan } from "@/lib/api/types";
+
+export const CHECKPOINTS = ["INPUT", "TOOL_LIST", "PRE_TOOL", "POST_TOOL", "OUTPUT", "DATA", "MODEL_TIER"] as const;
+export const CHECKERS = ["regex", "presidio", "keyword_list", "llm_judge", "tier_ceiling"] as const;
+export const ACTIONS = ["allow", "block", "redact", "rewrite", "warn", "require_approval", "log_only"] as const;
+export const SEVERITIES = ["low", "medium", "high", "critical"] as const;
+export const ON_ERROR = ["", "open", "closed"] as const;
+export const TARGETS = ["answer", "memory_candidate", "summary"] as const;
+
+export type Segment = { text: string; entity: string | null };
+
+/**
+ * Splits `text` into plain and matched segments by the spans' character offsets.
+ * Overlapping spans merge (typed by the first); spans outside the text are clamped.
+ */
+export function highlight(text: string, spans: PolicySpan[]): Segment[] {
+  const sorted = spans
+    .map((s) => ({ start: Math.max(0, Math.min(s.start, text.length)), end: Math.max(0, Math.min(s.end, text.length)), entity: s.entity }))
+    .filter((s) => s.end > s.start)
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+  const merged: { start: number; end: number; entity: string }[] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && span.start < last.end) last.end = Math.max(last.end, span.end);
+    else merged.push({ ...span });
+  }
+  const segments: Segment[] = [];
+  let cursor = 0;
+  for (const span of merged) {
+    if (span.start > cursor) segments.push({ text: text.slice(cursor, span.start), entity: null });
+    segments.push({ text: text.slice(span.start, span.end), entity: span.entity });
+    cursor = span.end;
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), entity: null });
+  return segments;
+}
+
+/** The editor's state: the document with its config as editable JSON text. */
+export type PolicyForm = Omit<PolicyDocument, "config"> & { configText: string };
+
+export function emptyForm(): PolicyForm {
+  return {
+    id: "",
+    name: "",
+    description: "",
+    enabled: true,
+    scope: "global",
+    checkpoints: ["INPUT"],
+    checker: "keyword_list",
+    configText: JSON.stringify({ keywords: [] }, null, 2),
+    action: "warn",
+    severity: "medium",
+    message_ar: "",
+    message_en: "",
+    on_error: "",
+    group: "",
+  };
+}
+
+export function formFromPolicy(policy: PolicyDocument): PolicyForm {
+  const { config, ...rest } = policy;
+  return {
+    ...rest,
+    description: rest.description ?? "",
+    message_ar: rest.message_ar ?? "",
+    message_en: rest.message_en ?? "",
+    on_error: rest.on_error ?? "",
+    group: rest.group ?? "",
+    configText: JSON.stringify(config ?? {}, null, 2),
+  };
+}
+
+export type ParsedForm = { ok: true; policy: PolicyDocument } | { ok: false; error: "config_json" };
+
+/** The document to send; empty optional texts are left out so the agent applies its defaults. */
+export function policyFromForm(form: PolicyForm): ParsedForm {
+  let config: unknown;
+  try {
+    config = JSON.parse(form.configText || "{}");
+  } catch {
+    return { ok: false, error: "config_json" };
+  }
+  if (typeof config !== "object" || config === null || Array.isArray(config)) return { ok: false, error: "config_json" };
+  const { configText, ...rest } = form;
+  void configText;
+  const optional = (value: string | null | undefined) => (value && value.trim() ? value : undefined);
+  return {
+    ok: true,
+    policy: {
+      ...rest,
+      version: undefined,
+      config: config as PolicyDocument["config"],
+      description: rest.description ?? "",
+      message_ar: optional(rest.message_ar),
+      message_en: optional(rest.message_en),
+      on_error: optional(rest.on_error),
+      group: optional(rest.group),
+    },
+  };
+}
+
+export type PolicyMatches = { policyId: string; total: number; byAction: Record<string, number>; byDay: Record<string, number> };
+
+/** Matches per day per policy, grouped by policy, busiest first. */
+export function matchesByPolicy(rows: PolicyMatchRow[]): PolicyMatches[] {
+  const byPolicy = new Map<string, PolicyMatches>();
+  for (const row of rows) {
+    const entry = byPolicy.get(row.policy_id) ?? { policyId: row.policy_id, total: 0, byAction: {}, byDay: {} };
+    entry.total += row.matches;
+    entry.byAction[row.action] = (entry.byAction[row.action] ?? 0) + row.matches;
+    entry.byDay[row.day] = (entry.byDay[row.day] ?? 0) + row.matches;
+    byPolicy.set(row.policy_id, entry);
+  }
+  return [...byPolicy.values()].sort((a, b) => b.total - a.total || a.policyId.localeCompare(b.policyId));
+}
+
+/** The last `days` UTC dates, oldest first, as YYYY-MM-DD. */
+export function lastDays(days: number, today: Date = new Date()): string[] {
+  const out: string[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}

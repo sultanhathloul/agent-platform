@@ -4,7 +4,17 @@ import type { ErrorInfo } from "./errors";
 
 export type Chip =
   | { kind: "tier"; key: string; role: string; step: string | null; tier: string; reason: string }
-  | { kind: "guard"; key: string; checkpoint: string; policyId: string | null; action: string; detail: string | null }
+  | {
+      kind: "guard";
+      key: string;
+      checkpoint: string;
+      policyId: string | null;
+      policyVersion: number | null;
+      action: string;
+      detail: string | null;
+      target: string | null;
+      entities: string[];
+    }
   | { kind: "tool"; key: string; callId: string; tool: string; capability: string; status: string; latencyMs: number | null };
 
 export type AssistantStatus = "streaming" | "done" | "error" | "aborted";
@@ -69,8 +79,11 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
           key: `guard-${event.seq}`,
           checkpoint: event.data.checkpoint,
           policyId: event.data.policy_id ?? null,
+          policyVersion: event.data.policy_version ?? null,
           action: event.data.action,
           detail: event.data.detail ?? null,
+          target: event.data.target ?? null,
+          entities: event.data.entities ?? [],
         }),
       };
     case "tool_start":
@@ -117,6 +130,7 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
         message_ar: event.data.message_ar,
         message_en: event.data.message_en,
         retryable: event.data.retryable ?? false,
+        ...(event.data.policy_id ? { policy_id: event.data.policy_id } : {}),
       });
     case "retract":
       // A check failed after the text streamed (ADR-0039): stop showing it; the error that follows takes its place.

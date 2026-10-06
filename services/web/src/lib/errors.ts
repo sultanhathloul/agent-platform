@@ -22,6 +22,12 @@ export const KNOWN_ERROR_CODES = [
   "output_blocked",
   "data_blocked",
   "memory_not_found",
+  "turn_in_flight",
+  "input_blocked",
+  "guard_unavailable",
+  "policy_not_found",
+  "policy_exists",
+  "policy_invalid",
   "unknown",
 ] as const;
 
@@ -32,19 +38,28 @@ export type ErrorInfo = {
   message_ar?: string | null;
   message_en?: string | null;
   retryable?: boolean | null;
+  /** policy_id@version of a guard policy whose block ended the turn; its messages are the policy's own. */
+  policy_id?: string | null;
+  /** What is wrong, e.g. a policy's validation errors. */
+  details?: string[] | null;
 };
 
 export function isKnownErrorCode(code: string): code is KnownErrorCode {
   return (KNOWN_ERROR_CODES as readonly string[]).includes(code);
 }
 
-/** The UI's own catalog wins; otherwise the server message for the current locale; otherwise "unknown". */
+/**
+ * A guard block shows the policy's own message (README §10.1: block returns the policy's
+ * message_ar/en). Otherwise the UI's own catalog wins; otherwise the server message for the
+ * current locale; otherwise "unknown".
+ */
 export function resolveErrorMessage(
   error: ErrorInfo,
   locale: Locale,
   translate: (key: `errors.${KnownErrorCode}`) => string,
 ): string {
-  if (isKnownErrorCode(error.code)) return translate(`errors.${error.code}`);
   const serverMessage = locale === "ar" ? error.message_ar : error.message_en;
+  if (error.policy_id && serverMessage?.trim()) return serverMessage;
+  if (isKnownErrorCode(error.code)) return translate(`errors.${error.code}`);
   return serverMessage?.trim() ? serverMessage : translate("errors.unknown");
 }

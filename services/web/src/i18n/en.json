@@ -7,7 +7,8 @@
     "newChat": "New chat",
     "memory": "Memory",
     "signOut": "Sign out",
-    "switchLanguage": "Change language"
+    "switchLanguage": "Change language",
+    "policies": "Guard policies"
   },
   "locale": {
     "ar": "العربية",
@@ -102,6 +103,128 @@
     "output_blocked": "The answer was withheld by a content policy.",
     "data_blocked": "The answer was withheld because it contains protected data.",
     "memory_not_found": "This item was not found in your memory; it may already have been deleted.",
+    "turn_in_flight": "Your earlier request in this conversation is still being processed. Wait for it to finish, then try again.",
+    "input_blocked": "The request was not carried out under a content policy.",
+    "guard_unavailable": "The protection policies could not be checked right now, so the request was not completed. Please try again shortly.",
+    "policy_not_found": "This policy was not found; it may have been removed or its id changed.",
+    "policy_exists": "A policy with this id already exists. Choose another id or save it as a new version.",
+    "policy_invalid": "The policy is invalid. See the details below.",
     "unknown": "An unknown error occurred."
+  },
+  "policies": {
+    "title": "Guard policies",
+    "description": "These policies control what enters the assistant, what leaves it and what is stored in memory, at the seven checkpoints. Every edit is saved as a new version and reaches every server within two seconds, without a restart.",
+    "listTitle": "Policies",
+    "newPolicy": "New policy",
+    "loading": "Loading policies…",
+    "empty": "There are no policies.",
+    "select": "Choose a policy from the list to view and test it, or create a new one.",
+    "enabled": "On",
+    "disabled": "Off",
+    "toggleLabel": "Turn on the policy: {name}",
+    "edit": "Edit",
+    "createTitle": "New policy",
+    "versionTitle": "New version of {id}",
+    "create": "Create policy",
+    "saveVersion": "Save new version",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "saved": "The policy was saved; the current version is {version}.",
+    "configInvalid": "The settings are not a valid JSON object.",
+    "fields": {
+      "id": "Id",
+      "name": "Name",
+      "description": "Description",
+      "scope": "Scope",
+      "scopeHint": "global, tenant:ID, kb:SLUG or tool:NAME. The role scope is reserved and not supported.",
+      "group": "Group",
+      "groupHint": "Within one group the narrowest scope wins; leave empty to make the id the group.",
+      "checkpoints": "Checkpoints",
+      "checker": "Checker",
+      "action": "Action",
+      "severity": "Severity",
+      "onError": "When the check fails",
+      "messageAr": "Block message in Arabic",
+      "messageEn": "Block message in English",
+      "config": "Settings (JSON)",
+      "configHint": "Per checker, e.g. keywords, patterns or entities. DATA policies may name targets.",
+      "enabled": "On"
+    },
+    "checkpoints": {
+      "INPUT": "User message",
+      "TOOL_LIST": "Available capabilities",
+      "PRE_TOOL": "Before a tool",
+      "POST_TOOL": "After a tool",
+      "OUTPUT": "Answer",
+      "DATA": "Outgoing data",
+      "MODEL_TIER": "Model ceiling"
+    },
+    "checkers": {
+      "regex": "Regular expression",
+      "presidio": "Personal data detection",
+      "keyword_list": "Keyword list",
+      "llm_judge": "Model judge",
+      "tier_ceiling": "Model tier ceiling"
+    },
+    "severities": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "onError": {
+      "default": "Checker default",
+      "open": "Allow and log the error",
+      "closed": "Stop the request"
+    },
+    "targets": {
+      "answer": "Answer",
+      "memory_candidate": "Memory",
+      "summary": "Summary"
+    },
+    "test": {
+      "title": "Test the policy",
+      "storedNote": "Tests the saved current version, on or off. Nothing is recorded.",
+      "draftNote": "Tests the current draft before it is saved. Nothing is recorded.",
+      "text": "Text to test",
+      "placeholder": "Type a sample text, such as a fake mobile number…",
+      "checkpoint": "Checkpoint",
+      "target": "Target",
+      "run": "Test",
+      "running": "Testing…",
+      "matched": "Matched",
+      "notMatched": "Not matched",
+      "action": "Action:",
+      "score": "Score:",
+      "explanation": "Explanation:",
+      "error": "Checker error:",
+      "spans": "Matched spans",
+      "noSpans": "No spans were marked.",
+      "output": "Text after redaction",
+      "message": "Policy message:"
+    },
+    "history": {
+      "title": "Version history",
+      "current": "Current",
+      "by": "by {user} on {date}",
+      "view": "View",
+      "hide": "Hide",
+      "restore": "Restore as a new version",
+      "version": "v{version}"
+    },
+    "io": {
+      "title": "Import and export",
+      "export": "Export YAML",
+      "file": "Choose a file",
+      "placeholder": "Paste a YAML document of policies here",
+      "import": "Import",
+      "report": "{created} created, {versioned} given a new version, {switched} switched, {unchanged} unchanged."
+    },
+    "metrics": {
+      "title": "Matches per day per policy (last {days} days)",
+      "empty": "No matches in this period.",
+      "policy": "Policy",
+      "total": "Total"
+    }
   }
 }

@@ -47,8 +47,21 @@ export type Seq2 = number;
 export type Type2 = "guard";
 export type Checkpoint = string;
 export type PolicyId = string | null;
+/**
+ * With policy_id: the version that decided.
+ */
+export type PolicyVersion = number | null;
 export type Action = string;
 export type Detail = string | null;
+/**
+ * DATA only: answer, memory_candidate or summary.
+ */
+export type Target = string | null;
+/**
+ * Entity types matched; never the matched text.
+ */
+export type Entities = string[];
+export type LatencyMs = number | null;
 export type RequestId3 = string;
 export type TurnId3 = string | null;
 /**
@@ -70,7 +83,7 @@ export type CallId1 = string;
 export type Tool1 = string;
 export type Capability1 = string;
 export type Status = "ok" | "error" | "denied" | "pending_approval";
-export type LatencyMs = number;
+export type LatencyMs1 = number;
 export type RequestId5 = string;
 export type TurnId5 = string | null;
 /**
@@ -134,6 +147,14 @@ export type Code = string;
 export type MessageAr = string;
 export type MessageEn = string;
 export type Retryable = boolean;
+/**
+ * policy_id@version whose block ended the turn; its messages are the policy's.
+ */
+export type PolicyId1 = string | null;
+/**
+ * The turn's guard events up to the error, for the audit record.
+ */
+export type GuardEvents1 = GuardData[];
 export type RequestId9 = string;
 export type TurnId9 = string | null;
 /**
@@ -179,8 +200,12 @@ export interface GuardEvent {
 export interface GuardData {
   checkpoint: Checkpoint;
   policy_id?: PolicyId;
+  policy_version?: PolicyVersion;
   action: Action;
   detail?: Detail;
+  target?: Target;
+  entities?: Entities;
+  latency_ms?: LatencyMs;
 }
 export interface ToolStartEvent {
   request_id: RequestId3;
@@ -206,7 +231,7 @@ export interface ToolEndData {
   tool: Tool1;
   capability: Capability1;
   status: Status;
-  latency_ms: LatencyMs;
+  latency_ms: LatencyMs1;
 }
 export interface CitationEvent {
   request_id: RequestId5;
@@ -275,6 +300,8 @@ export interface ErrorData {
   message_ar: MessageAr;
   message_en: MessageEn;
   retryable?: Retryable;
+  policy_id?: PolicyId1;
+  guard_events?: GuardEvents1;
 }
 /**
  * Withdraws every answer token streamed so far in this turn.
