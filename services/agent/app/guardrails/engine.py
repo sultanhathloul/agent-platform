@@ -163,7 +163,8 @@ class GuardEngine:
                 notes.append(note)
 
         if context.only is not None:
-            policies = [context.only]
+            # The test panel: this one policy, on or off, but still only for the targets it guards.
+            policies = [context.only] if context.only.guards_target(target) else []
         else:
             policies = self.applicable(checkpoint, context.scopes(principal), target)
         if not policies:

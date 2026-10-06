@@ -85,7 +85,7 @@ async def try_policy(
     error = None
     if result is None:
         failed = next((e for e in outcome.events if e.policy_id == policy.id), None)
-        error = failed.detail if failed else "not evaluated"
+        error = failed.detail if failed else f"not evaluated: the policy does not guard the target {target}"
     # TOOL_LIST filters rather than ends the turn: a removed capability is the block.
     action = (
         ("block" if not outcome.payload else "allow") if point == Checkpoint.TOOL_LIST else outcome.action

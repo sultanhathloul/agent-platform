@@ -16,8 +16,17 @@ Case checks so far: contains_any (answer contains one of the strings, compared
 after Arabic normalization), excludes_any (answer contains none of them; catches
 a right keyword inside a wrong answer) and script (arabic | latin: the answer
 is mostly in that script). Suites for later phases add their own checks.
+
+Guard cases (phase 03, I6) name a `policy_id` instead of a message: they run as the
+seed user `admin` through the gateway's policy test endpoint, the runtime engine path,
+and pass when the engine's action is `expect.action` (and the matched entity types
+include `expect.entities`). Each case gets a Langfuse trace for its dataset run item.
+A suite of guard cases has a structured threshold (D8): every deterministic case
+(regex, presidio, keyword_list) must pass, and the llm_judge cases need an accuracy
+and a false-positive rate within their bounds.
 """
 
+import hashlib
 import json
 import re
 import sys
@@ -36,6 +45,9 @@ from get_token import env, login  # noqa: E402
 # A dedicated seed user whose memory is switched off before every run, so a case never
 # reads what an earlier case or run stored; the analyst keeps memory for smoke (ADR-0074).
 EVAL_USER = ("evaluator", "evaluator")
+# Guard cases run through the admin-only policy test endpoint (I6).
+ADMIN_USER = ("admin", "admin")
+DETERMINISTIC = {"regex", "presidio", "keyword_list", "tier_ceiling"}
 _FOLD = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه", **{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}})
 _DIACRITICS = re.compile(r"[ً-ٰٟ]")
 
@@ -74,6 +86,75 @@ def run_turn(http: httpx.Client, gateway: str, token: str, case: dict) -> dict:
             if line.startswith("data: "):
                 last = json.loads(line[6:])
     return last
+
+
+def run_guard_case(http: httpx.Client, gateway: str, token: str, case: dict) -> tuple[dict | None, list[str]]:
+    body = {"policy_id": case["policy_id"], "text": case["text"]}
+    for key in ("checkpoint", "target"):
+        if case.get(key):
+            body[key] = case[key]
+    response = http.post(
+        f"{gateway}/v1/admin/policies/test", json=body, headers={"Authorization": f"Bearer {token}"}
+    )
+    if response.status_code != 200:
+        return None, [f"HTTP {response.status_code}: {response.text[:200]}"]
+    result = response.json()["data"]
+    expect, problems = case["expect"], []
+    if result["action"] != expect["action"]:
+        problems.append(f"action {result['action']} != {expect['action']} ({result.get('explanation')})")
+    found = {span["entity"] for span in result["spans"]}
+    missing = set(expect.get("entities", [])) - found
+    if missing:
+        problems.append(f"missing entities {sorted(missing)}; found {sorted(found)}")
+    return result, problems
+
+
+def guard_trace(http: httpx.Client, cfg: dict, auth: tuple[str, str], case: dict, result: dict | None) -> str:
+    """A trace for the case's dataset run item: the policy test endpoint makes no turn."""
+    trace_id = uuid.uuid4().hex
+    now = datetime.now(UTC).isoformat()
+    body = {
+        "id": trace_id,
+        "name": "guardrails-eval",
+        "timestamp": now,
+        "input": {"policy_id": case["policy_id"], "checkpoint": case.get("checkpoint"), "target": case.get("target"),
+                  "text_sha256": hashlib.sha256(case["text"].encode()).hexdigest()},
+        "output": None if result is None else {"action": result["action"], "matched": result["matched"],
+                                               "policy_ref": result["policy_ref"]},
+    }
+    langfuse(http, cfg, auth, "ingestion", {"batch": [{"id": uuid.uuid4().hex, "type": "trace-create",
+                                                       "timestamp": now, "body": body}]})
+    return trace_id
+
+
+def guard_scores(results: list[tuple[dict, bool, str]]) -> dict:
+    """D8: deterministic accuracy; llm_judge accuracy and false-positive rate (a case that
+    should be allowed but was blocked or flagged)."""
+    deterministic = [ok for case, ok, checker in results if checker in DETERMINISTIC]
+    judge = [(case, ok) for case, ok, checker in results if checker == "llm_judge"]
+    negatives = [(case, ok) for case, ok in judge if case["expect"]["action"] == "allow"]
+    return {
+        "deterministic": sum(deterministic) / len(deterministic) if deterministic else 1.0,
+        "deterministic_cases": len(deterministic),
+        "llm_judge_accuracy": sum(ok for _, ok in judge) / len(judge) if judge else 1.0,
+        "llm_judge_false_positive_rate": sum(not ok for _, ok in negatives) / len(negatives) if negatives else 0.0,
+        "llm_judge_cases": len(judge),
+    }
+
+
+def guard_threshold_ok(scores: dict, threshold: dict) -> bool:
+    judge = threshold.get("llm_judge", {})
+    return (
+        scores["deterministic"] >= threshold.get("deterministic", 1.0)
+        and scores["llm_judge_accuracy"] >= judge.get("accuracy", 0.0)
+        and scores["llm_judge_false_positive_rate"] <= judge.get("false_positive_rate", 1.0)
+    )
+
+
+def policy_checkers(http: httpx.Client, gateway: str, token: str) -> dict[str, str]:
+    response = http.get(f"{gateway}/v1/admin/policies", headers={"Authorization": f"Bearer {token}"})
+    response.raise_for_status()
+    return {view["policy"]["id"]: view["policy"]["checker"] for view in response.json()["data"]["policies"]}
 
 
 def langfuse(http: httpx.Client, cfg: dict, auth: tuple[str, str], path: str, body: dict) -> None:
@@ -116,8 +197,40 @@ def main() -> int:
             # One Langfuse dataset per suite, one item per case, one run per `make eval` (README §12).
             langfuse(http, cfg, auth, "v2/datasets", {"name": name, "description": f"{path.relative_to(REPO)}"})
             passed = 0
+            guard_results: list[tuple[dict, bool, str]] = []
+            checkers: dict[str, str] = {}
             for case in cases:
                 item_id = f"{name}:{case['id']}"
+                if "policy_id" in case:
+                    langfuse(
+                        http, cfg, auth, "dataset-items",
+                        {"datasetName": name, "id": item_id,
+                         "input": {"policy_id": case["policy_id"], "text": case["text"],
+                                   "checkpoint": case.get("checkpoint"), "target": case.get("target")},
+                         "expectedOutput": case["expect"]},
+                    )
+                    admin = login(*ADMIN_USER)["access_token"]
+                    if not checkers:
+                        checkers = policy_checkers(http, cfg["GATEWAY_PUBLIC_URL"], admin)
+                    result, problems = run_guard_case(http, cfg["GATEWAY_PUBLIC_URL"], admin, case)
+                    checker = checkers.get(case["policy_id"], "unknown")
+                    guard_results.append((case, not problems, checker))
+                    passed += not problems
+                    mark = "pass" if not problems else "FAIL"
+                    shown = result["action"] if result else "-"
+                    print(f"  {mark}  {name}/{case['id']}  [{checker}] {shown}  {'; '.join(problems)}")
+                    trace_id = guard_trace(http, cfg, auth, case, result)
+                    langfuse(
+                        http, cfg, auth, "dataset-run-items",
+                        {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
+                         "metadata": {"passed": not problems, "problems": problems, "checker": checker}},
+                    )
+                    langfuse(
+                        http, cfg, auth, "scores",
+                        {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                         "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
+                    )
+                    continue
                 langfuse(
                     http, cfg, auth, "dataset-items",
                     {"datasetName": name, "id": item_id,
@@ -149,13 +262,22 @@ def main() -> int:
                     )
             rate = passed / len(cases)
             threshold = thresholds.get(name)
-            ok = threshold is not None and rate >= threshold
+            if guard_results:
+                scores = guard_scores(guard_results)
+                ok = isinstance(threshold, dict) and guard_threshold_ok(scores, threshold)
+                print(
+                    f"  {name}: deterministic {scores['deterministic']:.2f} ({scores['deterministic_cases']} cases), "
+                    f"llm_judge accuracy {scores['llm_judge_accuracy']:.2f} and false-positive rate "
+                    f"{scores['llm_judge_false_positive_rate']:.2f} ({scores['llm_judge_cases']} cases)"
+                )
+            else:
+                ok = isinstance(threshold, int | float) and rate >= threshold
             failed |= not ok
             rows.append((name, passed, len(cases), rate, threshold, ok))
 
     print(f"\n{'suite':<14}{'passed':>9}{'rate':>8}{'threshold':>11}  result")
     for name, passed, total, rate, threshold, ok in rows:
-        shown = "missing" if threshold is None else f"{threshold:.2f}"
+        shown = "missing" if threshold is None else ("per D8" if isinstance(threshold, dict) else f"{threshold:.2f}")
         print(f"{name:<14}{passed:>4}/{total:<4}{rate:>8.2f}{shown:>11}  {'PASS' if ok else 'FAIL'}")
     print(f"\nLangfuse dataset run: {run_name}")
     return 1 if failed else 0

@@ -351,3 +351,13 @@ async def test_only_evaluates_one_policy_enabled_or_not():
         context=GuardContext(only=disabled),
     )
     assert outcome.blocked and outcome.results["kw@1"].matched
+
+
+async def test_only_respects_the_targets_a_data_policy_guards():
+    memory_only = mobile_policy(
+        config={"patterns": [{"name": "SA_MOBILE", "pattern": MOBILE}], "targets": ["memory_candidate"]}
+    )
+    outcome = await engine().evaluate(
+        Checkpoint.DATA, data(target="answer"), principal=PRINCIPAL, context=GuardContext(only=memory_only)
+    )
+    assert outcome.action == "allow" and outcome.results == {}
