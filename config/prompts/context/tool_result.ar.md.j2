@@ -1,0 +1,12 @@
+---
+id: context.tool_result
+version: 1.0.0
+role: context
+locale: ar
+changelog:
+  - "1.0.0: first version (phase 02): one tool result of this turn, wrapped as untrusted data (README §7 step 7, §10.3)"
+---
+نتيجة الأداة {{ tool }}:
+<untrusted source="{{ tool }}">
+{{ content }}
+</untrusted>

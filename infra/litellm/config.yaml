@@ -1,27 +1,53 @@
-# Tier aliases → concrete endpoints (README §19.1, ADR-0008).
-# This file is the only place in the repository that names a model.
-# num_ctx must be >= the tier window in config/models.yaml; Ollama silently
-# truncates prompts longer than num_ctx.
+# Tier aliases → concrete endpoints (README §19.1, ADR-0008, ADR-0066).
+# The aliases are fixed here; which model serves each one, and where, comes from
+# the environment (.env, passed through docker-compose.yml). .env.example holds
+# the offline defaults (local Ollama); README §21.4 shows the OpenRouter values.
+# No real or ministry data in dev while the tiers point at OpenRouter (ADR-0065).
+#
+# LiteLLM resolves `os.environ/` to strings. A boolean such as `false` becomes a
+# boolean, a number stays a string, and Ollama rejects a string `num_ctx`, so
+# `num_ctx` is written here. It equals the tier windows in config/models.yaml;
+# Ollama uses it and an OpenAI-compatible endpoint receives it as an ignored field.
+# `extra_body` is what OpenRouter reads (no hidden reasoning, no provider
+# fallback); Ollama ignores it.
 model_list:
   - model_name: fast
     litellm_params:
-      model: ollama_chat/qwen2.5:3b
-      api_base: os.environ/OLLAMA_BASE_URL
+      model: os.environ/FAST_MODEL
+      api_base: os.environ/MODEL_API_BASE
+      api_key: os.environ/MODEL_API_KEY
       num_ctx: 32768
+      extra_body:
+        reasoning:
+          enabled: os.environ/MODEL_REASONING_ENABLED
+        provider:
+          allow_fallbacks: os.environ/MODEL_PROVIDER_ALLOW_FALLBACKS
   - model_name: standard
     litellm_params:
-      model: ollama_chat/qwen2.5:14b-instruct
-      api_base: os.environ/OLLAMA_BASE_URL
+      model: os.environ/STANDARD_MODEL
+      api_base: os.environ/MODEL_API_BASE
+      api_key: os.environ/MODEL_API_KEY
       num_ctx: 32768
+      extra_body:
+        reasoning:
+          enabled: os.environ/MODEL_REASONING_ENABLED
+        provider:
+          allow_fallbacks: os.environ/MODEL_PROVIDER_ALLOW_FALLBACKS
   - model_name: heavy
     litellm_params:
-      model: ollama_chat/gemma4:31b
-      api_base: os.environ/OLLAMA_BASE_URL
+      model: os.environ/HEAVY_MODEL
+      api_base: os.environ/MODEL_API_BASE
+      api_key: os.environ/MODEL_API_KEY
       num_ctx: 65536
+      extra_body:
+        reasoning:
+          enabled: os.environ/MODEL_REASONING_ENABLED
+        provider:
+          allow_fallbacks: os.environ/MODEL_PROVIDER_ALLOW_FALLBACKS
   - model_name: embed
     litellm_params:
-      model: ollama/bge-m3
-      api_base: os.environ/OLLAMA_BASE_URL
+      model: os.environ/EMBED_MODEL
+      api_base: os.environ/EMBED_API_BASE
     model_info:
       mode: embedding
   # rerank (bge-reranker-v2-m3) is added in phase 04; Ollama cannot serve it (ADR-0008).

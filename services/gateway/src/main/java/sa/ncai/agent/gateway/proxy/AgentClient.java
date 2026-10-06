@@ -3,6 +3,7 @@ package sa.ncai.agent.gateway.proxy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
+import java.util.function.Supplier;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -10,6 +11,9 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import sa.ncai.agent.gateway.GatewayProperties;
 import sa.ncai.agent.gateway.api.RequestIdFilter;
+import sa.ncai.agent.gateway.auth.GatewayPrincipal;
+import sa.ncai.agent.gateway.memory.MemoryList;
+import sa.ncai.agent.gateway.memory.MemorySettings;
 
 /**
  * Internal client for the agent service (README §6.2). The client is built from Boot's
@@ -19,6 +23,9 @@ import sa.ncai.agent.gateway.api.RequestIdFilter;
 public class AgentClient {
 
     public static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
+    /** Name the caller on agent endpoints without a request body; always from the verified token (ADR-0059). */
+    public static final String USER_HEADER = "X-User-Id";
+    public static final String TENANT_HEADER = "X-Tenant-Id";
 
     /** Consumes the agent's SSE body; runs only after a 2xx response. */
     @FunctionalInterface
@@ -89,6 +96,76 @@ public class AgentClient {
                         }
                         return null;
                     });
+        } catch (ResourceAccessException e) {
+            throw new AgentUnavailableException("agent unreachable: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The caller's own memory items and memory switch (README §8).
+     *
+     * @throws AgentUnavailableException if the agent is unreachable or answers non-2xx
+     */
+    public MemoryList listMemory(GatewayPrincipal caller, String requestId) {
+        return reach(() -> identified(client.get().uri("/v1/memory"), caller, requestId)
+                .exchange((clientRequest, response) -> {
+                    requireSuccess(response.getStatusCode().value(), "memory list");
+                    return response.bodyTo(MemoryList.class);
+                }));
+    }
+
+    /**
+     * Deletes one of the caller's memory items.
+     *
+     * @return false when the caller has no item with this id, another user's item included
+     * @throws AgentUnavailableException if the agent is unreachable or answers another non-2xx
+     */
+    public boolean deleteMemory(GatewayPrincipal caller, String itemId, String requestId) {
+        return reach(() -> identified(client.delete().uri("/v1/memory/{itemId}", itemId), caller, requestId)
+                .exchange((clientRequest, response) -> {
+                    int status = response.getStatusCode().value();
+                    if (status == 404) {
+                        return false;
+                    }
+                    requireSuccess(status, "memory delete");
+                    return true;
+                }));
+    }
+
+    /**
+     * Turns the caller's memory on or off.
+     *
+     * @throws AgentUnavailableException if the agent is unreachable or answers non-2xx
+     */
+    public MemorySettings setMemoryEnabled(GatewayPrincipal caller, boolean enabled, String requestId) {
+        RestClient.RequestBodySpec put = client.put()
+                .uri("/v1/memory/settings")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new MemorySettings(enabled));
+        return reach(() -> identified(put, caller, requestId)
+                .exchange((clientRequest, response) -> {
+                    requireSuccess(response.getStatusCode().value(), "memory settings");
+                    return response.bodyTo(MemorySettings.class);
+                }));
+    }
+
+    private RestClient.RequestHeadersSpec<?> identified(
+            RestClient.RequestHeadersSpec<?> spec, GatewayPrincipal caller, String requestId) {
+        return spec.header(INTERNAL_TOKEN_HEADER, internalToken)
+                .header(RequestIdFilter.HEADER, requestId)
+                .header(USER_HEADER, caller.userId())
+                .header(TENANT_HEADER, caller.tenantId());
+    }
+
+    private static void requireSuccess(int status, String call) {
+        if (status < 200 || status >= 300) {
+            throw new AgentUnavailableException("agent answered " + status + " to " + call);
+        }
+    }
+
+    private static <T> T reach(Supplier<T> call) {
+        try {
+            return call.get();
         } catch (ResourceAccessException e) {
             throw new AgentUnavailableException("agent unreachable: " + e.getMessage(), e);
         }

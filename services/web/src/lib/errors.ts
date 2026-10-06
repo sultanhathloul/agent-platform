@@ -21,6 +21,7 @@ export const KNOWN_ERROR_CODES = [
   "validation_failed",
   "output_blocked",
   "data_blocked",
+  "memory_not_found",
   "unknown",
 ] as const;
 

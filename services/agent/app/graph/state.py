@@ -63,6 +63,7 @@ class AgentState(TypedDict, total=False):
     reflection: dict | None
     # across turns
     summary: str | None
+    summary_cursor: int  # addition: how many messages from the start the summary covers (ADR-0057)
     decisions: list[Decision]
     open_threads: list[str]
     artifacts: list[dict]

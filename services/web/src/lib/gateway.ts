@@ -1,5 +1,5 @@
 // Gateway client. All API calls go to the gateway (README §13), never to the agent.
-import type { ApiErrorEnvelope, ChatTurnRequest, StreamEvent } from "@/lib/api/types";
+import type { ApiErrorEnvelope, ChatTurnRequest, MemoryList, MemorySettings, StreamEvent } from "@/lib/api/types";
 import type { ErrorInfo } from "./errors";
 import { readSse, type SseMessage } from "./sse";
 
@@ -54,6 +54,55 @@ export function parseEvent(message: SseMessage): StreamEvent | null {
     // malformed event: skip it rather than break the whole answer
   }
   return null;
+}
+
+type Authorized = { gatewayUrl: string; token: string; signal?: AbortSignal };
+
+/** Calls a JSON endpoint and returns the envelope's `data`; an error envelope becomes a GatewayError. */
+async function callJson<T>(url: string, token: string, init: RequestInit): Promise<T | undefined> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+      },
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new GatewayError(0, { code: "network_error" });
+  }
+  if (!res.ok) throw await errorFromResponse(res);
+  if (res.status === 204) return undefined;
+  return ((await res.json()) as { data?: T }).data;
+}
+
+function required<T>(data: T | undefined, status: number): T {
+  if (data === undefined) throw new GatewayError(status, { code: "unknown" });
+  return data;
+}
+
+/** The caller's memory items and memory switch (README §8). */
+export async function getMemory({ gatewayUrl, token, signal }: Authorized): Promise<MemoryList> {
+  return required(await callJson<MemoryList>(`${gatewayUrl}/v1/memory`, token, { method: "GET", signal }), 200);
+}
+
+export async function deleteMemoryItem({ gatewayUrl, token, signal, id }: Authorized & { id: string }): Promise<void> {
+  await callJson(`${gatewayUrl}/v1/memory/${encodeURIComponent(id)}`, token, { method: "DELETE", signal });
+}
+
+export async function setMemoryEnabled({
+  gatewayUrl,
+  token,
+  signal,
+  enabled,
+}: Authorized & { enabled: boolean }): Promise<MemorySettings> {
+  const body = JSON.stringify({ enabled });
+  const data = await callJson<MemorySettings>(`${gatewayUrl}/v1/memory/settings`, token, { method: "PUT", body, signal });
+  return required(data, 200);
 }
 
 type StreamTurnArgs = {

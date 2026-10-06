@@ -33,7 +33,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 from get_token import env, login  # noqa: E402
 
-EVAL_USER = ("analyst", "analyst")
+# A dedicated seed user whose memory is switched off before every run, so a case never
+# reads what an earlier case or run stored; the analyst keeps memory for smoke (ADR-0074).
+EVAL_USER = ("evaluator", "evaluator")
 _FOLD = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه", **{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}})
 _DIACRITICS = re.compile(r"[ً-ٰٟ]")
 
@@ -79,6 +81,16 @@ def langfuse(http: httpx.Client, cfg: dict, auth: tuple[str, str], path: str, bo
     response.raise_for_status()
 
 
+def disable_memory(http: httpx.Client, gateway: str, token: str) -> None:
+    headers = {"Authorization": f"Bearer {token}"}
+    response = http.put(f"{gateway}/v1/memory/settings", json={"enabled": False}, headers=headers)
+    response.raise_for_status()
+    listed = http.get(f"{gateway}/v1/memory", headers=headers)
+    listed.raise_for_status()
+    if listed.json()["data"]["enabled"] is not False:
+        raise SystemExit("the eval user's memory is still on")
+
+
 def suites() -> dict[str, Path]:
     files = sorted((REPO / "evals" / "golden").glob("*.jsonl"))
     files += sorted((REPO / "services" / "agent" / "app" / "capabilities").glob("*/evals/*.jsonl"))
@@ -92,12 +104,13 @@ def main() -> int:
     if not found:
         print("no eval suites found")
         return 1
-    token = login(*EVAL_USER)["access_token"]
+    token = login(*EVAL_USER)["access_token"]  # fail before any Langfuse write when the user cannot log in
     auth = (cfg["LANGFUSE_PUBLIC_KEY"], cfg["LANGFUSE_SECRET_KEY"])
     run_name = f"make-eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
     rows, failed = [], False
 
     with httpx.Client(timeout=300) as http:
+        disable_memory(http, cfg["GATEWAY_PUBLIC_URL"], token)
         for name, path in found.items():
             cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
             # One Langfuse dataset per suite, one item per case, one run per `make eval` (README §12).
@@ -111,6 +124,8 @@ def main() -> int:
                      "input": {"message": case["message"], "locale": case.get("locale", "ar")},
                      "expectedOutput": case.get("expect", {})},
                 )
+                # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
+                token = login(*EVAL_USER)["access_token"]
                 event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
                 if event.get("type") == "done":
                     answer = event["data"]["answer"]

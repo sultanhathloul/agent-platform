@@ -1,11 +1,13 @@
 # Context Assembly (README §7). The pipeline order is configuration; each name
-# maps to a step class in services/agent/app/context/selectors/.
-# Phase 01 ships the minimal pipeline (ADR-0009). Summary, memory, retrieval and
-# tool-result steps join in later phases.
+# maps to a step class in services/agent/app/context/selectors/ (ADR-0056).
 pipeline:
   - system_instructions
   - state_digest
   - sliding_window
+  - rolling_summary   # after the window: part of the current message, never before history (ADR-0077)
+  - memory_retrieval
+  - semantic_retrieval
+  - tool_results
   - capability_findings
   - user_message
   - budget_guard
@@ -13,8 +15,54 @@ pipeline:
 window_messages: 6
 reserved_loop_headroom_tokens: 1000
 
-# Core nodes that call a model, and the blocks each one needs.
+# Per-block token budgets (README §7). Each step trims its own block to its budget and
+# logs what it cut; the budget guard then enforces the tier budget on the whole package.
+# `top_k` is how many items the memory and retrieval steps take (README §7 steps 5, 6).
+blocks:
+  state_digest: {max_tokens: 300}
+  summary:      {max_tokens: 1200}
+  window:       {max_tokens: 8000}
+  memory:       {max_tokens: 800, top_k: 5}
+  retrieval:    {max_tokens: 6000, top_k: 8}
+  tool_results: {max_tokens: 2000}
+  findings:     {max_tokens: 8000}
+
+# Over the tier budget, the budget guard drops in this order (README §7 step 9): old
+# window messages, lowest-scored chunks, memory, then it shortens the summary. System
+# instructions and the user message are never dropped; what still does not fit is NeedsMore.
+drop_order: [window, retrieval, memory, summary]
+
+# The harder pass when NeedsMore resolves to `compress` (README §19.3 step 3): a shorter
+# window, fewer memory items and chunks, a shorter summary and shorter tool results.
+compress:
+  window_messages: 2
+  memory_top_k: 2
+  retrieval_top_k: 4
+  summary_max_tokens: 400
+  tool_results_max_tokens: 800
+
+# Rolling summary (README §7 step 4, ADR-0057): once the summary plus the unsummarized
+# history exceed trigger_tokens, messages older than the window are folded into
+# state.summary by the `summarizer` role; from then on each turn folds what leaves the window.
+summary:
+  trigger_tokens: 8000
+
+# Core nodes that call a model: the blocks each one needs, its prompts, the form of
+# evidence blocks (full | summary | reference, README §7 step 8) and per-node block budgets.
 nodes:
   answer:
     system_prompt: answer.system
-    needs: [system, state_digest, window, findings, user_message]
+    needs: [system, state_digest, summary, window, memory, findings, user_message]
+    forms: {findings: full}
+  summarizer:
+    system_prompt: summarizer.system
+    request_prompt: summarizer.request
+    needs: [system, summary, window, user_message]
+    blocks:
+      window: {max_tokens: 24000}   # the messages being folded, not a recent window
+  memory_writer:
+    system_prompt: memory.extractor
+    request_prompt: memory.extract_request
+    needs: [system, window, user_message]
+    blocks:
+      window: {max_tokens: 12000}   # this turn's exchange, post-guard content only

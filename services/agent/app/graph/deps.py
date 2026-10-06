@@ -8,13 +8,18 @@ from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
 from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
+from app.context.log import ContextLog
+from app.db import Database
 from app.guardrails.engine import GuardEngine
 from app.identity import Principal
+from app.memory.service import MemoryService
 from app.models.config import ModelsConfig
+from app.models.embeddings import EmbeddingGateway
 from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.settings import Settings
+from app.text.script import ValidationConfig
 from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
 
@@ -27,13 +32,20 @@ class Services:
     assembler: ContextAssembler
     resolver: TierResolver
     gateway: ModelGateway
+    embeddings: EmbeddingGateway
     guard: GuardEngine
     registry: CapabilityRegistry
     tools: ToolRegistry
     broker: ToolBroker
     messages: ErrorMessages
+    validation: ValidationConfig
+    db: Database
     owners: ConversationOwners
-    graph: Any  # compiled main graph
+    memory: MemoryService
+    context_log: ContextLog
+    # The compiled main graph, set by app.main.start_services once the database is open:
+    # the Postgres checkpointer binds to the running event loop (ADR-0055).
+    graph: Any = None
 
 
 @dataclass
@@ -55,3 +67,6 @@ class TurnContext:
     request_id: str
     turn_id: str
     usage: TurnUsage = field(default_factory=TurnUsage)
+    conversation_id: str = ""
+    escalations: int = 0  # tier escalations so far this turn (README §19.1 max_escalations_per_turn)
+    timings: dict[str, int] = field(default_factory=dict)  # milliseconds, set on the turn span by the runner

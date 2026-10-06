@@ -2,15 +2,16 @@
 `run_capabilities`, never as branches here. Reflection, attachment ingestion
 and the HITL interrupt join in later phases."""
 
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.deps import TurnContext
 from app.graph.nodes.answer import answer
-from app.graph.nodes.assemble import assemble_context
+from app.graph.nodes.assemble import assemble_context, fold_summary
 from app.graph.nodes.capabilities import run_capabilities
 from app.graph.nodes.guard import guard_data, guard_input, guard_output, guard_tool_list
 from app.graph.nodes.identity import load_identity_and_state
+from app.graph.nodes.memory import write_memory
 from app.graph.nodes.persist import persist_state
 from app.graph.nodes.route import route
 from app.graph.nodes.validate import validate
@@ -28,11 +29,13 @@ PIPELINE = [
     ("guard_output", guard_output),  # checkpoint 5
     ("guard_data", guard_data),  # checkpoint 6
     ("persist_state", persist_state),
+    ("fold_summary", fold_summary),  # rolling summary after the reply, never before the first token
+    ("write_memory", write_memory),  # synchronous in phase 02 (ADR-0058)
 ]
 
 
-def build_graph(checkpointer=None):
-    """Phase 01 checkpoints in memory; phase 02 passes the Postgres checkpointer."""
+def build_graph(checkpointer: BaseCheckpointSaver):
+    """Compiled on the Postgres checkpointer the service opens at startup (ADR-0055)."""
     graph = StateGraph(AgentState, context_schema=TurnContext)
     previous = START
     for name, node in PIPELINE:
@@ -40,4 +43,4 @@ def build_graph(checkpointer=None):
         graph.add_edge(previous, name)
         previous = name
     graph.add_edge(previous, END)
-    return graph.compile(checkpointer=checkpointer or InMemorySaver())
+    return graph.compile(checkpointer=checkpointer)

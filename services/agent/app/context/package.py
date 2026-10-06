@@ -4,6 +4,8 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.memory.types import MemoryScope
+
 BlockName = Literal[
     "system",
     "state_digest",
@@ -19,6 +21,15 @@ BLOCK_NAMES: tuple[str, ...] = get_args(BlockName)
 
 # Budget guard never drops these (README §7 step 9).
 PROTECTED_BLOCKS: frozenset[str] = frozenset({"system", "user_message"})
+
+
+# The blocks that form the current user message; only these merge (ADR-0076).
+CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset({"summary", "memory", "user_message"})
+
+
+class HistoryEndsWithUserMessage(RuntimeError):
+    """The window ends with a user message where the current message begins. Pairs
+    are skipped together (ADR-0076), so this is a core defect, never merged away."""
 
 
 class Block(BaseModel):
@@ -47,11 +58,30 @@ class AssemblyRequest(BaseModel):
     system_prompt: str | None = Field(
         default=None, description="Prompt id of the system block; None when the node needs no system block."
     )
+    user_prompt: str | None = Field(
+        default=None,
+        description="Prompt id rendered as the user block in place of state.user_message (helper nodes).",
+    )
     locale: str
     state: dict[str, Any]
     tools: list[str] = Field(default=[], description="Descriptions of permitted tools this node may use.")
     findings: list[dict[str, str]] = Field(default=[], description="[{capability, findings}] from this turn.")
+    retrieved: list[dict[str, Any]] = Field(
+        default=[], description="Chunks {id, source, score, text, kb?, locator?} for docs, kb and sql nodes."
+    )
+    tool_results: list[dict[str, Any]] = Field(
+        default=[], description="This turn's tool results {tool, content, sources?}, already sanitized."
+    )
     policy_hints: list[str] = []
+    memory_scope: MemoryScope | None = Field(
+        default=None, description="Whose memory the memory step reads; set by core code from the principal."
+    )
+    window_messages: int | None = Field(
+        default=None, ge=0, description="Overrides the configured window size for this request."
+    )
+    compress: bool = Field(
+        default=False, description="The harder pass after NeedsMore resolved to compress (README §19.3)."
+    )
 
 
 class ContextPackage(BaseModel):
@@ -61,6 +91,7 @@ class ContextPackage(BaseModel):
     tier: str
     locale: str
     budget_limit: int
+    compressed: bool = False
     blocks: list[Block] = []
     drops: list[Drop] = []
     prompt_refs: list[str] = []
@@ -84,6 +115,7 @@ class ContextPackage(BaseModel):
             "node": self.node,
             "tier": self.tier,
             "budget_limit": self.budget_limit,
+            "compressed": self.compressed,
             "total_tokens": self.total_tokens(),
             "blocks": [
                 {"name": name, "tokens": tokens, "count": counts[name]}
@@ -95,8 +127,27 @@ class ContextPackage(BaseModel):
 
     def to_messages(self) -> list[dict[str, str]]:
         """System blocks merge into one leading system message; conversation
-        blocks follow in pipeline order, ending with the user message."""
+        blocks follow in pipeline order, ending with the user message. Merging is
+        confined to the current-message group (ADR-0076): adjacent summary, memory
+        and user_message blocks of one role join into one message, so the
+        delimited data blocks (ADR-0068) travel with the question. A history
+        (window) message is never merged with a neighbour; history that ends with
+        a user message right before the group is refused, never merged."""
         system = "\n\n".join(b.content for b in self.blocks if b.role == "system" and b.content)
         messages = [{"role": "system", "content": system}] if system else []
-        messages += [{"role": b.role, "content": b.content} for b in self.blocks if b.role != "system"]
+        previous: Block | None = None
+        for block in self.blocks:
+            if block.role == "system":
+                continue
+            if previous is not None and previous.role == block.role:
+                if previous.name in CURRENT_MESSAGE_BLOCKS and block.name in CURRENT_MESSAGE_BLOCKS:
+                    messages[-1]["content"] += "\n\n" + block.content
+                    previous = block
+                    continue
+                if previous.name == "window" and block.name in CURRENT_MESSAGE_BLOCKS:
+                    raise HistoryEndsWithUserMessage(
+                        f"node {self.node}: the window ends with a user message before {block.name}"
+                    )
+            messages.append({"role": block.role, "content": block.content})
+            previous = block
         return messages

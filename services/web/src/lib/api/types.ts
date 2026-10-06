@@ -19,3 +19,6 @@ type Schemas = components["schemas"];
 export type ChatTurnRequest = Schemas["ChatTurnRequest"];
 export type ApiError = Schemas["ApiError"];
 export type ApiErrorEnvelope = Schemas["ApiErrorEnvelope"];
+export type MemoryList = Schemas["MemoryList"];
+export type MemoryItem = Schemas["MemoryItem"];
+export type MemorySettings = Schemas["MemorySettings"];

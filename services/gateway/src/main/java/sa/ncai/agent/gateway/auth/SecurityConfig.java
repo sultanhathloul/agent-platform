@@ -104,7 +104,7 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource(GatewayProperties properties) {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(properties.cors().allowedOrigins());
-        cors.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of(
                 HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE, HttpHeaders.ACCEPT,
                 HttpHeaders.ACCEPT_LANGUAGE, RequestIdFilter.HEADER));

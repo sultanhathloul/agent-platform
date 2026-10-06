@@ -110,7 +110,8 @@ async def retract(client, conversation_id, turn_id, *, principal=USER, headers=T
     )
 
 
-async def test_retracted_reply_is_skipped_by_the_next_turn(client, services, spans, litellm):
+async def test_retracted_exchange_is_skipped_by_the_next_turn(client, services, spans, litellm):
+    """ADR-0048, ADR-0076: the reply and its question leave the context as a pair."""
     conversation = str(uuid.uuid4())
     first = parse_sse((await post_turn(client, conversation_id=conversation)).text)
     turn_id = first[-1]["turn_id"]
@@ -130,10 +131,7 @@ async def test_retracted_reply_is_skipped_by_the_next_turn(client, services, spa
         if s.name == "context.assemble" and s.attributes.get("context.node") == "answer"
     ]
     assert len(answer_contexts) == 1
-    window = [b for b in answer_contexts[0]["blocks"] if b["name"] == "window"]
-    assert window == [
-        {"name": "window", "tokens": window[0]["tokens"], "count": 1}
-    ]  # the question, not the reply
+    assert [b for b in answer_contexts[0]["blocks"] if b["name"] == "window"] == []
 
 
 async def test_retract_is_refused_for_another_owner_an_unknown_turn_or_no_token(client, litellm):
@@ -151,14 +149,16 @@ async def test_retract_is_refused_for_another_owner_an_unknown_turn_or_no_token(
 
 
 async def test_trace_has_context_block_token_counts(client, spans, litellm):
-    parse_sse((await post_turn(client)).text)
+    # A user new to this session: no memory yet, and turn 1 has an empty digest.
+    principal = {**USER, "user_id": f"u-{uuid.uuid4().hex[:8]}"}
+    parse_sse((await post_turn(client, principal=principal)).text)
     by_name = {}
     for span in spans.get_finished_spans():
         by_name.setdefault(span.name, []).append(span)
 
     turn = by_name["turn"][0]
     assert turn.attributes["langfuse.trace.name"] == "turn"
-    assert turn.attributes["langfuse.user.id"] != USER["user_id"]  # hashed
+    assert turn.attributes["langfuse.user.id"] != principal["user_id"]  # hashed
 
     assembled = {s.attributes["context.node"]: s for s in by_name["context.assemble"]}
     # general's own package goes through the resolver and gets a real budget (ADR-0038)
@@ -169,7 +169,7 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
     for block in ("system", "user_message"):
         assert assemble.attributes[f"context.block.{block}.tokens"] > 0
     block_tokens = json.loads(assemble.attributes["langfuse.observation.metadata.block_tokens"])
-    assert set(block_tokens) == {"system", "user_message"}  # empty digest omitted on turn 1
+    assert set(block_tokens) == {"system", "user_message"}  # empty digest, summary and memory omitted
     assert assemble.parent is not None and assemble.context.trace_id == turn.context.trace_id
 
     generation = by_name["model.call"][0]

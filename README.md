@@ -51,6 +51,8 @@ A single message may combine use cases (e.g. UC1 + UC4). The orchestrator decide
 | Frontend | **Next.js 15 + TypeScript + Tailwind**, `next-intl`, RTL by default | Chat, KB plugin toggles, uploads, admin console. |
 | Data access (UC1) | PostgreSQL only in v1; the SQL tool is written against a `QueryEngine` interface so **StarRocks/Trino over HDFS** can be added in v2 | Semantic layer (YAML metric/table descriptions) is mandatory from v1. |
 
+> **Amendment 2026-10-05 (ADR-0065).** *Model serving:* for **development only**, the chat tiers may be served by a hosted OpenAI-compatible endpoint (OpenRouter, with open-weight models of the kind production can host), selected in `.env` (§21.4, ADR-0066). No real or ministry data in development while it is selected. Production stays offline: vLLM behind LiteLLM, no external SaaS (§16).
+
 ---
 
 ## 3. Target architecture
@@ -282,6 +284,8 @@ Pipeline (each step is a class with `apply(package, budget) -> package`; order i
 
 Expose `GET /v1/debug/context/{turn_id}` (admin only) returning the exact `ContextPackage` — the admin UI shows it as the "what did the model see" panel.
 
+> **Amendment 2026-10-05 (ADR-0059).** In phase 02 the agent's `GET /v1/debug/context/{turn_id}` is **owner-only**: it answers only the conversation's owner, and only while `DEBUG_CONTEXT_ENABLED` is true. Admin access is deferred to the phase 03 policy layer, which decides who may read another user's packages through the gateway.
+
 ---
 
 ## 8. State vs Memory (implement both; keep them apart)
@@ -447,6 +451,8 @@ Seed policies in `config/policies/`:
 - `make up` must bring a working stack with seeded users, one KB (`moe`, with 3 sample Arabic PDFs), UC1 sample schema (`sales`, `customers` with **fake** PII to prove redaction), and pass `scripts/smoke.sh` (login → 5 turns covering the 5 use cases → guard redaction → HITL interrupt/resume → eval run).
 - Provide `docker-compose.prod.md` notes for Kubernetes migration (Helm later, not v1).
 
+> **Amendment 2026-10-05 (ADR-0065, ADR-0066).** `litellm` reads one `infra/litellm/config.yaml` whose aliases take their model, endpoint and key from `.env` (`FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `MODEL_API_KEY`, `EMBED_API_BASE`). Two profiles use it: **offline** (the `.env.example` defaults, Ollama on the host, no key; `make smoke` passes on a fresh clone) and **OpenRouter** (development only, §21.4). Switching is a `.env` edit and `make up`; no compose overlay.
+
 ---
 
 ## 15. Delivery plan (build in this order; each phase ends green)
@@ -488,7 +494,7 @@ Multi-agent supervision, OCR for scanned PDFs, StarRocks/Trino engine, Milvus ad
 ```
 services/agent/app/capabilities/email_proofreader/
 ├── manifest.yaml
-├── graph.py          ← builds a compiled LangGraph subgraph: CapabilityInput → CapabilityOutput
+├── graph.py          ← build() returns an uncompiled StateGraph (the core compiles it): CapabilityInput → CapabilityOutput
 ├── tools.py          ← optional ToolSpecs (registered into the shared registry at startup)
 ├── policies/         ← default guard policies, scope: tool:email_proofreader (seeded, admin-editable)
 ├── prompts/          ← versioned prompt files
@@ -550,7 +556,7 @@ class CapabilityOutput(BaseModel):
 
 class Capability(Protocol):
     manifest: Manifest
-    def build(self) -> CompiledGraph      # subgraph consuming CapabilityInput, producing CapabilityOutput
+    def build(self) -> StateGraph         # uncompiled subgraph consuming CapabilityInput, producing CapabilityOutput; the core compiles it
     def tools(self) -> list[ToolSpec]: ...
 ```
 
@@ -667,9 +673,25 @@ Rules:
 - Prompts are addressed by `id@version`; the trace records which version produced each call, so a regression can be tied to a prompt change.
 - No secrets and no environment-specific values in any of these folders; those live in `.env` / Vault.
 
+### 20.1 Configuration keys added in phase 02
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/context.yaml` | `blocks.<block>.max_tokens`, `blocks.memory.top_k`, `blocks.retrieval.top_k` | Token budget of each Context Assembly block (§7) and how many memory items and chunks are taken |
+| | `drop_order` | Order in which the budget guard drops over the tier budget: `window`, `retrieval`, `memory`, then `summary` (shortened) |
+| | `compress.*` | The harder pass when `NeedsMore` resolves to `compress`: window size, memory and retrieval `top_k`, summary and tool-result budgets |
+| | `summary.trigger_tokens` | History size (summary + unsummarized messages) past which older messages are folded into `state.summary` |
+| | `nodes.<node>.request_prompt`, `.forms`, `.blocks` | A helper node's request prompt; evidence form `full`, `summary` or `reference` (§7 step 8); the node's own block budgets |
+| `config/memory.yaml` | `enabled_by_default`, `kinds`, `min_confidence`, `max_items_per_turn`, `dedupe_similarity`, `min_similarity`, `max_text_chars`, `ttl_days` | Memory policy (§8): default switch, what is kept, deduplication, retrieval floor, expiry |
+| `config/validation.yaml` | `scripts.<locale>.letters`, `scripts.<locale>.mixed_token_allowlist` | Writing scripts an answer in that locale may use, and tokens allowed to mix two scripts |
+| | `retry.issues`, `retry.attempts`, `retry.temperature` | The answer's single retry after a script failure |
+| `.env` | `DEBUG_CONTEXT_ENABLED` | Records context packages and serves `GET /v1/debug/context/{turn_id}` on the agent; `false` by default |
+
 ---
 
 ## 21. Getting started on a new machine
+
+> **Amendment 2026-10-05 (ADR-0066).** Models are no longer named in `infra/litellm/config.yaml` but in `.env`: `make models` and `scripts/preflight.sh` read `FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE` and `EMBED_API_BASE` from `.env` (no shell variables). The defaults in `.env.example` are the offline profile. §21.4 below is superseded by the amendment at its top.
 
 ### 21.1 Prerequisites
 
@@ -713,6 +735,18 @@ Ports come from `WEB_PORT`, `GATEWAY_PORT`, `KEYCLOAK_PORT` and `LANGFUSE_PORT` 
 Seed users in realm `agent` (password = username): `admin/admin` (admin console), `analyst/analyst` (`cap:sql`, `cap:kb`, `kb:moe:read`), `viewer/viewer` (general and docs only).
 
 ### 21.4 Using a shared model server
+
+> **Amendment 2026-10-05 (ADR-0065, ADR-0066).** Every alias reads its model and endpoint from `.env`; `infra/litellm/config.yaml` is never edited to change a model. **Switch to OpenRouter** (development only, no real data) by replacing these lines of `.env`, then `make up`:
+>
+> ```
+> FAST_MODEL=openrouter/google/gemma-4-26b-a4b-it
+> STANDARD_MODEL=openrouter/qwen/qwen3.6-27b
+> HEAVY_MODEL=openrouter/deepseek/deepseek-v4-flash
+> MODEL_API_BASE=https://openrouter.ai/api/v1
+> MODEL_API_KEY=<OpenRouter key>
+> ```
+>
+> Switch back by restoring the `.env.example` values. Embeddings stay on Ollama (`EMBED_MODEL`, `EMBED_API_BASE`). A remote Ollama or vLLM server is the same edit: `MODEL_API_BASE` (and `EMBED_API_BASE`) pointing at it, with `ollama_chat/<model>` or `openai/<model>` as the model values. `MODEL_REASONING_ENABLED` and `MODEL_PROVIDER_ALLOW_FALLBACKS` (both `false`) are read by OpenRouter and ignored by Ollama. `num_ctx` stays in `infra/litellm/config.yaml`, equal to the tier windows, because LiteLLM passes environment values as strings and Ollama requires an integer. The text below describes the layout before this amendment.
 
 Nothing in the repository names a model except `infra/litellm/config.yaml`, and nothing names an endpoint except `.env`. To use models served elsewhere — a GPU box on the network, or a colleague's machine — leave the code alone and change those two files.
 

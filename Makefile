@@ -33,6 +33,9 @@ seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot
 test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
+	$(COMPOSE) up -d --wait postgres
+	@# The test database and its owner come from infra/postgres/init; idempotent on an existing volume (ADR-0070).
+	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/10-agent-test.sh
 	$(COMPOSE) --profile test up -d --wait litellm-mock
 	$(COMPOSE) --profile test run --rm --build agent-tests
 
@@ -65,6 +68,7 @@ ps: ## Service status and health
 openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web's API types
 	cd services/agent && uv run python -m app.api.export
 	docker run --rm -v "$(CURDIR)/services/gateway":/w -v gateway-gradle-cache:/home/gradle/.gradle -w /w \
+		-v "$(CURDIR)/config/models.yaml":/config/models.yaml:ro -e GATEWAY_MODELS_CONFIG=/config/models.yaml \
 		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api

@@ -1,8 +1,9 @@
 """validate (README §5.2): deterministic checks on the draft answer. Citations
-must be a subset of this turn's capability sources, and an Arabic turn must not
-come back in another script. In phase 08 a failure feeds reflection and tier
-escalation; until then it ends the turn, retracting any text already streamed
-(ADR-0039)."""
+must be a subset of this turn's capability sources, and an answer must keep to
+the writing scripts its locale allows (config/validation.yaml, ADR-0060). The
+answer node has already retried a script failure once (ADR-0061); a failure
+here ends the turn, retracting any text already streamed (ADR-0039). In phase 08
+a failure also feeds reflection and tier escalation."""
 
 from langgraph.runtime import Runtime
 from opentelemetry import trace
@@ -11,13 +12,13 @@ from app.errors import TurnError
 from app.graph.deps import TurnContext
 from app.graph.nodes import retract_streamed, traced
 from app.graph.state import AgentState
-from app.text.script import contains_cjk
+from app.text.script import ScriptPolicy, script_issues
 
 MAX_ANSWER_CHARS = 32_000
 
 
 def validation_issues(
-    answer: str | None, citations: list[dict], sources: list[dict], *, locale: str = "en"
+    answer: str | None, citations: list[dict], sources: list[dict], *, scripts: ScriptPolicy | None = None
 ) -> list[str]:
     issues = []
     text = (answer or "").strip()
@@ -26,11 +27,8 @@ def validation_issues(
     else:
         if len(text) > MAX_ANSWER_CHARS:
             issues.append("answer_too_long")
-        # Small models drift into Chinese on Arabic prompts (ADR-0024). The
-        # answer is wrong, not merely badly phrased, so the turn fails and any
-        # streamed text is retracted (ADR-0039).
-        if locale == "ar" and contains_cjk(text):
-            issues.append("cjk_in_arabic_answer")
+        if scripts is not None:
+            issues.extend(script_issues(text, scripts))
     source_ids = {s["id"] for s in sources}
     if any(c.get("id") not in source_ids for c in citations):
         issues.append("citation_not_in_sources")
@@ -44,7 +42,7 @@ async def validate(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         state.get("draft_answer"),
         state.get("citations") or [],
         sources,
-        locale=state.get("locale") or "en",
+        scripts=runtime.context.services.validation.scripts_for(state.get("locale") or "en"),
     )
     span = trace.get_current_span()
     span.set_attribute("validate.passed", not issues)

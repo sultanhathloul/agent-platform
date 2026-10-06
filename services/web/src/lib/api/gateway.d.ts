@@ -58,12 +58,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's memory items and memory switch */
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memory/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Turns the caller's memory on or off */
+        put: operations["settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memory/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes one of the caller's memory items */
+        delete: operations["delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         ApiEnvelopeMeResponse: {
             data?: components["schemas"]["MeResponse"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeMemoryList: {
+            data?: components["schemas"]["MemoryList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeMemorySettings: {
+            data?: components["schemas"]["MemorySettings"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -107,6 +168,29 @@ export interface components {
             permissions: string[];
             tenant_id: string;
             user_id: string;
+        };
+        MemoryItem: {
+            /** Format: double */
+            confidence: number;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description Absent while the item has no expiry.
+             */
+            expires_at?: string;
+            id: string;
+            /** @description preference | fact_about_user | project_context | decision */
+            kind: string;
+            text: string;
+        };
+        MemoryList: {
+            /** @description Whether memory is written and retrieved for the caller. */
+            enabled: boolean;
+            items: components["schemas"]["MemoryItem"][];
+        };
+        MemorySettings: {
+            enabled: boolean;
         };
     };
     responses: never;
@@ -222,6 +306,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelopeMeResponse"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's memory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeMemoryList"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemorySettings"];
+            };
+        };
+        responses: {
+            /** @description The caller's memory switch as saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeMemorySettings"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The item is deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description memory_not_found, also for another user's item */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
         };

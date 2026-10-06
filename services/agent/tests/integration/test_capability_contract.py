@@ -47,9 +47,14 @@ async def test_probe_uses_models_and_broker_and_streams_while_running(probe_serv
     assert done.state_digest.capabilities == ["probe"]
     assert done.usage.tokens_out > 0
 
-    # Usage is recorded once per model call (ADR-0047): the probe's draft call and the answer.
+    # Usage is recorded once per model call (ADR-0047): the probe's draft call, the answer,
+    # and the memory extractor after persist_state (ADR-0058).
     calls = [s for s in spans.get_finished_spans() if s.name == "model.call"]
-    assert [s.attributes["model.step"] for s in calls] == ["draft", "answer"]
+    assert [(s.attributes["model.role"], s.attributes.get("model.step")) for s in calls] == [
+        ("reasoning", "draft"),
+        ("reasoning", "answer"),
+        ("extractor", None),
+    ]
     assert done.usage.tokens_in == sum(s.attributes["gen_ai.usage.input_tokens"] for s in calls)
     assert done.usage.tokens_out == sum(s.attributes["gen_ai.usage.output_tokens"] for s in calls)
 

@@ -2,11 +2,14 @@
 # answering with mock_response, so `make test` exercises the real client path
 # (Context Assembly → models.call → LiteLLM) without reaching a model.
 model_list:
+  # The helper roles (summarizer, extractor) run on `fast`. Its answer is a valid
+  # memory extraction, so the memory write path stores an item in tests (ADR-0058);
+  # as a summary it is simply a non-empty text.
   - model_name: fast
     litellm_params:
       model: openai/mock-fast
       api_key: mock
-      mock_response: "هذه إجابة تجريبية من النموذج الوهمي. This is a mock answer."
+      mock_response: '[{"kind": "preference", "text": "يفضّل المستخدم الإجابات المختصرة.", "confidence": 0.9}]'
   - model_name: standard
     litellm_params:
       model: openai/mock-standard
@@ -17,6 +20,14 @@ model_list:
       model: openai/mock-heavy
       api_key: mock
       mock_response: "هذه إجابة تجريبية من النموذج الوهمي. This is a mock answer."
+  # One fixed vector for every text: every item is maximally similar to every query.
+  - model_name: embed
+    litellm_params:
+      model: openai/mock-embed
+      api_key: mock
+      mock_response: [0.12, 0.34, 0.56, 0.78]
+    model_info:
+      mode: embedding
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

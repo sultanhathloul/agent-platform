@@ -42,3 +42,6 @@ dist/
 # editors
 .idea/
 .vscode/
+
+# tool artefacts (pasted session transcripts)
+summary.ini

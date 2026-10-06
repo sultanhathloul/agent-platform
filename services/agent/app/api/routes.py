@@ -1,22 +1,34 @@
 """Internal agent API (README §6.2). Reachable only from the gateway on the
-compose network; requests carry the shared X-Internal-Token."""
+compose network; requests carry the shared X-Internal-Token. Endpoints without a
+request body name their caller in X-User-Id and X-Tenant-Id, which the gateway
+sets from the verified token, never from client input (ADR-0059)."""
 
+import dataclasses
 import hmac
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Header, Path, Request, Response
+from fastapi import APIRouter, Depends, Header, Path, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from opentelemetry import propagate
 
 from app.api.events import to_sse
+from app.api.ownership import Owner
 from app.api.schemas import (
     CONVERSATION_ID_PATTERN,
+    MEMORY_ITEM_ID_PATTERN,
     TURN_ID_PATTERN,
+    DebugContext,
     ErrorEnvelope,
     HealthResponse,
+    MemoryItemView,
+    MemoryList,
+    MemorySettings,
+    RecordedContext,
     RetractRequest,
     TurnRequest,
 )
+from app.memory.types import MemoryScope
 
 router = APIRouter(prefix="/v1")
 
@@ -25,6 +37,25 @@ _SSE_DESCRIPTION = "Server-sent events; each `data` is an AgentEvent (docs/event
 
 def _authorized(token: str | None, expected: str) -> bool:
     return bool(expected) and token is not None and hmac.compare_digest(token.encode(), expected.encode())
+
+
+def _error(request: Request, request_id: str, code: str, status: int) -> JSONResponse:
+    envelope = ErrorEnvelope.of(request_id, request.app.state.services.messages.error(code))
+    return JSONResponse(envelope.model_dump(), status_code=status)
+
+
+def _caller(
+    x_user_id: Annotated[str, Header(min_length=1, max_length=256, description="The caller's user id.")],
+    x_tenant_id: Annotated[str, Header(min_length=1, max_length=256, description="The caller's tenant id.")],
+) -> MemoryScope:
+    return MemoryScope(tenant_id=x_tenant_id, user_id=x_user_id)
+
+
+Caller = Annotated[MemoryScope, Depends(_caller)]
+InternalToken = Annotated[str | None, Header()]
+RequestId = Annotated[str | None, Header()]
+
+_CALLER_ERRORS = {400: {"model": ErrorEnvelope}, 401: {"model": ErrorEnvelope}}
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -54,8 +85,7 @@ async def create_turn(
     services = request.app.state.services
     request_id = x_request_id or str(uuid.uuid4())
     if not _authorized(x_internal_token, services.settings.agent_internal_token):
-        envelope = ErrorEnvelope.of(request_id, services.messages.error("unauthorized"))
-        return JSONResponse(envelope.model_dump(), status_code=401)
+        return _error(request, request_id, "unauthorized", 401)
 
     parent = propagate.extract(request.headers)
     runner = request.app.state.runner
@@ -96,12 +126,110 @@ async def retract_turn(
     services = request.app.state.services
     request_id = x_request_id or str(uuid.uuid4())
     if not _authorized(x_internal_token, services.settings.agent_internal_token):
-        envelope = ErrorEnvelope.of(request_id, services.messages.error("unauthorized"))
-        return JSONResponse(envelope.model_dump(), status_code=401)
+        return _error(request, request_id, "unauthorized", 401)
 
     outcome = await request.app.state.runner.retract(conversation_id, turn_id, body.principal, body.reason)
     if outcome == "retracted":
         return Response(status_code=204)
     code, status = ("conversation_forbidden", 403) if outcome == "forbidden" else ("turn_not_found", 404)
-    envelope = ErrorEnvelope.of(request_id, services.messages.error(code))
-    return JSONResponse(envelope.model_dump(), status_code=status)
+    return _error(request, request_id, code, status)
+
+
+@router.get("/memory", response_model=MemoryList, responses=_CALLER_ERRORS)
+async def list_memory(
+    request: Request, caller: Caller, x_internal_token: InternalToken = None, x_request_id: RequestId = None
+):
+    """The caller's own memory items and memory switch (README §8). No endpoint reads
+    another user's memory."""
+    services = request.app.state.services
+    request_id = x_request_id or str(uuid.uuid4())
+    if not _authorized(x_internal_token, services.settings.agent_internal_token):
+        return _error(request, request_id, "unauthorized", 401)
+    store = services.memory.store
+    items = [MemoryItemView(**dataclasses.asdict(item)) for item in await store.list_items(caller)]
+    return MemoryList(enabled=await store.enabled(caller), items=items)
+
+
+@router.delete(
+    "/memory/{item_id}",
+    status_code=204,
+    response_class=Response,
+    responses={
+        204: {"description": "The item is deleted."},
+        **_CALLER_ERRORS,
+        404: {"model": ErrorEnvelope, "description": "memory_not_found, also for another user's item"},
+    },
+)
+async def delete_memory(
+    request: Request,
+    caller: Caller,
+    item_id: str = Path(pattern=MEMORY_ITEM_ID_PATTERN),
+    x_internal_token: InternalToken = None,
+    x_request_id: RequestId = None,
+):
+    services = request.app.state.services
+    request_id = x_request_id or str(uuid.uuid4())
+    if not _authorized(x_internal_token, services.settings.agent_internal_token):
+        return _error(request, request_id, "unauthorized", 401)
+    if not await services.memory.store.delete(caller, item_id):
+        return _error(request, request_id, "memory_not_found", 404)
+    return Response(status_code=204)
+
+
+@router.put("/memory/settings", response_model=MemorySettings, responses=_CALLER_ERRORS)
+async def update_memory_settings(
+    body: MemorySettings,
+    request: Request,
+    caller: Caller,
+    x_internal_token: InternalToken = None,
+    x_request_id: RequestId = None,
+):
+    """Turns the caller's memory on or off. Off, nothing is written or retrieved for
+    them; stored items stay until they delete them."""
+    services = request.app.state.services
+    request_id = x_request_id or str(uuid.uuid4())
+    if not _authorized(x_internal_token, services.settings.agent_internal_token):
+        return _error(request, request_id, "unauthorized", 401)
+    return MemorySettings(enabled=await services.memory.store.set_enabled(caller, body.enabled))
+
+
+@router.get(
+    "/debug/context/{turn_id}",
+    response_model=DebugContext,
+    responses={
+        **_CALLER_ERRORS,
+        403: {"model": ErrorEnvelope, "description": "conversation_forbidden"},
+        404: {"model": ErrorEnvelope, "description": "not_found (disabled) or turn_not_found"},
+    },
+)
+async def debug_context(
+    request: Request,
+    caller: Caller,
+    turn_id: str = Path(pattern=TURN_ID_PATTERN),
+    x_internal_token: InternalToken = None,
+    x_request_id: RequestId = None,
+):
+    """What every model call of a turn saw (README §7). Off unless DEBUG_CONTEXT_ENABLED.
+    It reaches a conversation outside a turn, so it does not go through the turn
+    runner's binding and checks ownership itself: only the conversation's owner
+    reads it (ADR-0059)."""
+    services = request.app.state.services
+    request_id = x_request_id or str(uuid.uuid4())
+    if not _authorized(x_internal_token, services.settings.agent_internal_token):
+        return _error(request, request_id, "unauthorized", 401)
+    if not services.settings.debug_context_enabled:
+        return _error(request, request_id, "not_found", 404)
+    recorded = await services.context_log.turn(turn_id)
+    if recorded is None:
+        return _error(request, request_id, "turn_not_found", 404)
+    owner = await request.app.state.runner.owner_of(recorded.conversation_id)
+    if owner != Owner(caller.user_id, caller.tenant_id):
+        return _error(request, request_id, "conversation_forbidden", 403)
+    return DebugContext(
+        turn_id=turn_id,
+        conversation_id=recorded.conversation_id,
+        packages=[
+            RecordedContext(node=p.node, created_at=p.created_at, package=p.package)
+            for p in recorded.packages
+        ],
+    )

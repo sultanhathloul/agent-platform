@@ -42,7 +42,7 @@ Checklist:
 - [x] Wrap-up: PROGRESS done/left/verify; list of `config/` and `infra/` files for human review
 
 Session result (2026-09-13), closing the phase:
-- **`make up`:** green. 13 long-running services are up, every one with a healthcheck is healthy, and `minio-init` completed. The OTel collector image is distroless, so it has no healthcheck.
+- **`make up`:** green. 12 long-running services are up, plus one one-shot (`minio-init`), which completed; every one with a healthcheck is healthy. The OTel collector image is distroless, so it has no healthcheck.
 - **`make test`:** green.
   - agent: 70 passed (58 before, plus `test_validate.py` and the per-role temperature tests).
   - gateway: 37 tests, 0 failed, 0 skipped. `make test` serves this layer from cache, so it was re-run for real with `gradle cleanTest test --no-build-cache`; a plain `cleanTest test` still restores `:test FROM-CACHE` and proves nothing.
@@ -80,7 +80,7 @@ Human review needed:
 - `infra/keycloak/realm-export.json`: roles, groups, the gateway service account's `realm-management` roles, and the user-profile `tenant_id` attribute.
 - `infra/litellm/config.yaml`: aliases, `num_ctx` per alias, and the `heavy → standard` fallback.
 - `config/models.yaml`: the dev heavy window of 65536, and the `temperature` block (ADR-0032).
-- `config/prompts/**`: `answer.system@1.2.0` (ar) and `@1.1.0` (en), `context.state_digest@1.1.0`, `context.findings@1.0.0`. The ar and en versions differ on purpose: only the Arabic prompt needed the script rule.
+- `config/prompts/**`: `answer.system@1.3.0` (ar) and `@1.1.0` (en), `context.state_digest@1.1.0`, `context.findings@1.0.0`. The ar and en versions differ on purpose: only the Arabic prompt needed the script rule.
 - `config/context.yaml`, `config/messages/errors.yaml`.
 - `evals/thresholds.yaml` and `services/agent/app/capabilities/general/evals/general.jsonl` (the 20 cases and their ground truths).
 - `infra/otel/collector.yaml`, `infra/postgres/init/00-databases.sh`.
@@ -246,21 +246,319 @@ How to verify:
 ## Phase 02: State, Context Assembly, Memory
 
 - Branch: `phase/02-context-state-memory`
-- Status: not started
+- Status: **done, awaiting review.** `make up`, `make test`, `make smoke` and `make eval` (three runs, all ≥ 0.85) are green.
 - Done when: `AgentState` checkpointed; assembler pipeline with budget logging and `NeedsMore`; summarizer kicks in past 8k tokens; memory write/retrieve; `/settings/memory`; `/v1/debug/context`.
+
+Scope restated (session 2026-09-15):
+1. State: the LangGraph Postgres checkpointer in database `app` replaces `InMemorySaver`, and `ConversationOwners` becomes a Postgres table beside it; both survive `make down && make up`, and `test_capability_isolation.py` passes unchanged on Postgres.
+2. Context Assembly: the full §7 pipeline behind `ContextAssembler`, driven by `config/context.yaml` (per-block budgets, drop order, `NeedsMore` → compress or escalate, one re-assembly), block token counts on `context.assemble`; a rolling summary by the `summarizer` role past 8k history tokens, checkpointed in `summary`.
+3. Memory (§8): write (graph node after `persist_state`, `extractor` role, post-guard content only) and retrieve (top-k by embedding), scoped by (tenant_id, user_id), with a per-user enable flag; list/delete/toggle APIs in agent and gateway (audited), and `/settings/memory` in the web.
+4. `GET /v1/debug/context/{turn_id}` (internal token, own ownership check, off unless enabled); script validation per a new ADR superseding ADR-0033, with one temperature-0 retry; the §18.4 cross-namespace `cap_state` lint rule; agent and gateway OpenAPI 1.2.0.
+5. Done = the checks above, the tests of scope item 8, `make test` green, `make smoke` green with the restart and memory-isolation checks, and `make eval` run three times with every suite ≥ 0.85.
+
+Checklist:
+- [x] Docs first: this checklist; documentation corrections (PROGRESS service count and prompt version, README §18.1/§18.3 `build()` wording)
+- [x] State: Postgres checkpointer (`agent` schema in database `app`), pool opened in the app lifespan; durable `ConversationOwners`; agent SQL migrations; compose/Makefile wiring for the agent and `agent-tests`
+- [x] Tests on Postgres: a throwaway database per test session; `test_capability_isolation.py` unchanged and green; restart persistence (checkpoint, owners, memory) with a fresh service instance on the same database
+- [x] Context Assembly: per-block budgets and drop order from `config/context.yaml`; summary, memory, retrieval and tool-result steps; `NeedsMore` → compress/escalate with one re-assembly; one helper for resolve → budget → assemble → call used by every model call site; drops logged
+- [x] Summarizer: trigger past `summary.trigger_tokens`, `summarizer` role through Context Assembly, checkpointed `summary` and cursor, window = summary + recent messages, retracted messages skipped; trigger and non-trigger tests
+- [x] Memory: `memory_items` and per-user settings tables, embeddings through LiteLLM (`embed` alias, mock in tests), extractor node after `persist_state` (post-guard `content` only), policy (kinds, confidence, dedupe ≥ 0.92, skip guard-flagged turns), retrieval step scoped by (tenant, user); latency on the turn span; disabled path; victim/attacker isolation test
+- [x] Agent APIs: `GET /v1/debug/context/{turn_id}` (flag, ownership check, tests); `GET /v1/memory`, `DELETE /v1/memory/{id}`, `PUT /v1/memory/settings`
+- [x] Gateway: memory proxy endpoints with the caller's identity, audited fail-closed (ADR-0042); tests
+- [x] Web: `/settings/memory` (list, delete, enable/disable), header link, every string in `ar.json` and `en.json`
+- [x] Script validation: new ADR superseding ADR-0033; allow-list in `config/`; Arabic test cases (three measured samples, pure Cyrillic); answer retry at temperature 0.0 with `answer.retry` on the span; retry succeeds / fails tests
+- [x] Lint: capability code must not read or write another capability's `cap_state` namespace; runs in `make test`
+- [x] Tests: `context_overflow` through `POST /v1/turns`; ownership on the debug endpoint; memory disabled path
+- [x] Contracts: agent and gateway OpenAPI 1.2.0; `docs/openapi/*` and web types regenerated
+- [x] Evals: 6–8 Arabic proper-noun cases in the `general` suite; scores before and after the retry; `make eval` three times
+- [x] Smoke: second turn after `docker compose restart agent` continues the conversation; a memory row for the analyst, invisible to the viewer
+- [x] README: new config keys; `.env.example`; three Arabic summary samples in PROGRESS; ADRs from ADR-0055
+- [x] `make up`, `make test`, `make smoke`, `make eval` ×3 green; PROGRESS done/left/verify; human-review list
+
+Session result (2026-09-15):
+- **`make up`:** green; the agent applied `0001_state_and_memory.sql` and the checkpointer migrations into schema `agent` of database `app`.
+- **`make test`:** green (exit 0). Agent 218 passed (142 before), on the Postgres checkpointer in a throwaway database, `test_capability_isolation.py` unchanged. Gateway image `test` stage BUILD SUCCESSFUL (63 tests, 10 of them the new `MemoryProxyTest`) plus 5 `gateway-db-tests`. Web 56 passed across 5 files, with typecheck and lint.
+- **`make smoke`:** green, all phase 01 checks plus the phase 02 checks: a second turn after `docker compose restart agent` continues the conversation at turn 2; a memory row is written for the analyst ("المستخدم يفضل أن تكون الإجابات مختصرة."), the viewer's `GET /v1/memory` does not contain it, the viewer's `DELETE` of it is 404 `memory_not_found`, the row is still stored, and the refused delete is audited as `denied`. Two smoke fixes on the way: the block-count check now selects the answer node's package by name (the memory writer assembles one too), and the Langfuse wait also waits for the trace's session id, because the root span now ends after the memory write.
+- **`make eval`:** the `general` suite has 28 cases (21 Arabic, 8 of them new proper-noun cases). Threshold 0.85.
+  - Retry off (`retry.attempts: 0`), one run: **24/28 (0.86)**. Failures, all `validation_failed` by the new script rule: `general-ar-currency` (`mixed_script_token`, the `الريyal` class), `general-ar-sunrise`, `general-ar-portugal-capital`, `general-ar-shakespeare` (`disallowed_script` / `mixed_script_token`). Dataset run `make-eval-20260915T121945Z`.
+  - Retry on, three consecutive runs: **25/28 (0.89), 24/28 (0.86), 24/28 (0.86)**. Failures: currency, sunrise and Shakespeare in every run, Portugal in runs 2 and 3; all `validation_failed`. Dataset runs `make-eval-20260915T122104Z`, `…122145Z`, `…122224Z`.
+  - Langfuse over the three retry runs: 84 answers, 11 retried (`answer.retry = true`), **0 retries passed**. At temperature 0.0 on the same package the `standard` model reproduces its drift, so the retry costs a second call and rarely changes the outcome; the one extra pass in run 1 is Portugal not drifting on the first attempt. What the new rule changes is that these answers are now withheld instead of shown as `الريyal`. Options for the owner: a retry one tier up (validation escalation, phase 08), or a retry that tells the model which token failed.
+  - Analyst memory rows before each run: 4, 16, 18, 19; memory retrieved into these answers is part of what the answer model sees.
+- **Summary samples** for ADR-0030 are below.
+
+Measurement material for ADR-0030 (the `fast` model on helper-role work), recorded 2026-09-15:
+
+Rolling summary, `summarizer.system@1.0.0` + `summarizer.request@1.0.0`, `fast` tier (`qwen2.5:3b`), temperature 0.0. Each sample folds a ten-message Arabic conversation through `prepare_call` → `call_model` inside the running agent, the exact request `assemble_context` builds (harness: a scratch script run with `docker compose exec -T agent python -`; the conversations are an education dashboard project, a passport renewal and a diabetes awareness campaign). Verbatim:
+
+1. Education dashboard (844 tokens in, 124 out):
+   > أقترح البدء بمؤشرات: متوسط الدرجات لكل منطقة، نسبة الطلاب فوق مستوى الإتقان (مع تعديل معيار 2023 إلى 65)، الفجوة بين البنين والبنات، والتغير عن العام الماضي. سيتم حساب الأعوام السابقة بمعيار 65. الموعد المستهدف لإطلاق النسخة الأولى نهاية نوفمبر. قررنا استخدام أداة جاهزة أو بناء اللوحة داخليًا، وسنقيم التكلفة والمتطلبات قبل اتخاذ القرار.
+2. Passport renewal (775 tokens in, 70 out):
+   > تم تجديد جواز السفري هذا الأسبوع. موعد تجديد جواز ابنك في فرع النرجس يوم 12 نوفمبر، مع اختيار مدة خمس سنوات. زوجتك لا تحتاج إلى تجديد جوازها حالياً، فهو صالح حتى 2027.
+3. Diabetes campaign (814 tokens in, 170 out):
+   > تم تصميم حملة توعية بمرض السكري للفئة العمرية من 35 إلى 60 عامًا في الأحساء على ثلاثة محاور: الفحص المبكر، والتثقيف بالتغذية والنشاط البدني، ومتابعة الحالات. تم تحديد 10 آلاف فحص و12 مركزًا صحيًا مشاركًا مع تركيز على الأسواق العامة وأماكن العمل. المؤشرات الرئيسية للنجاح: عدد المفحوصين، نسبة اكتشاف ما قبل السكري، ونسبة حضور المتابعة، وتغير المعرفة بالمرض. سيتم تقييم الحملة من خلال فريق التسويق الداخلي أو التعاقد مع شركة إعلام خارجية.
+
+Observed errors, for the helper-role suite: sample 1 writes in the assistant's voice ("أقترح") and states an open choice as decided ("قررنا استخدام أداة جاهزة أو بناء…"); sample 2 turns a planned renewal into a done one ("تم تجديد") with a grammar slip ("جواز السفري") and switches person ("ابنك", "زوجتك"); sample 3 renames "فريق التواصل" to "فريق التسويق" and presents the open media decision as how the campaign "will be evaluated". The numbers, dates and names are all kept.
+
+Memory extraction, `memory.extractor@1.0.0`, `fast`, temperature 0.0, four Arabic exchanges (smoke message; a general question only; a preference only; a project), before the ADR-0064 filters and after:
+- Prompt without examples: `[]` for the smoke message, which states a role and a preference.
+- Prompt with two examples: the smoke message extracted correctly; the general question produced an inferred fact ("المستخدم يرغب في الحصول على معلومة تاريخية حول عاصمة بلد معين"); the preference became "المستخدم معرف بجامعة الملك سعود"; the project drifted into mixed script ("ي.work على مشروع…"). A later run returned the answer itself as a fact ("عاصمة البرتغال هي لشبونة.").
+- Final prompt (three examples, "ابدأ كل text بكلمة «المستخدم»") with the filters: smoke → both items kept; general question → the model copied example 2 ("المستخدم يرغب في الإجابات بلغة بسيطة."), dropped as ungrounded; preference → kept with the wrong kind (`fact_about_user`); project → the project kept, plus a marginal "المستخدم يركز على المؤشرات المناسبة لمشروعه." (grounded in the question's words).
+
+### Dev tiers on OpenRouter (2026-09-16, ADR-0065)
+
+The owner moved `fast`, `standard` and `heavy` to open-weight models on OpenRouter (`infra/litellm/config.yaml`); `embed` stays on Ollama. This section re-runs the phase 02 measurements on the new models, next to the earlier ones above.
+
+Changes in this commit:
+- [x] Offline profile: the previous Ollama aliases in `infra/litellm/config.local.yaml`, selected by `docker-compose.local.yml`: `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml make up smoke`, then `make up` to return (HANDOFF owner checklist).
+- [x] `OPENROUTER_API_KEY=` in `.env.example`.
+- [x] `config/models.yaml`: window / max_output = the smallest context and completion limit among each model's OpenRouter providers (no provider is pinned): `fast` 131072 / 8192, `standard` 256000 / 65536, `heavy` 1000000 / 32768 (were 32000/2000, 32000/4000, 65536/8000). LiteLLM recreated; agent and gateway restarted.
+- [x] `config/validation.yaml`: `retry.attempts: 0` (the loader needs a mapping, so the documented off switch replaces a literal `retry: false`). The code path stays; `test_answer_retry.py` now sets `attempts` itself.
+- [x] Tests that pinned the old windows derive them from `config/models.yaml`: `test_budget_limit_reserves_output_and_headroom`, and the "roomy" findings budget in `test_model_calls.py` (100 000 tokens was below an over-`standard` package of about 191 000).
+- [x] `evals/run_evals.py` logs in before each case (owner-approved): a run now takes about 8 minutes and the realm's access token lives 300 s, so every run ended in 401 at case 26.
+- [x] ADR-0065 (assumed); ADR-0030 status: superseded.
+
+Rolling summary, same harness, conversations and prompts as above (`summarizer.system@1.0.0` + `summarizer.request@1.0.0`), `fast` tier on OpenRouter, temperature 0.0. Run three times; the verbatim text is run 1. The passport sample was identical in runs 1 and 2, the diabetes sample in all three; the education sample differed between runs by a few clauses (whether school access is deferred, and the cost and hosting criteria).
+
+1. Education dashboard (742 tokens in, 314 out):
+   > يرغب مستخدم يعمل في إدارة التخطيط بوزارة التعليم في بناء لوحة مؤشرات لنتائج اختبارات الرياضيات للصف السادس في مناطق الرياض ومكة المكرمة والشرقية، بناءً على بيانات متوفرة للأعوام من 2021 إلى 2024. تم الاتفاق على اعتماد أربعة مؤشرات رئيسية وهي: متوسط الدرجات لكل منطقة، ونسبة الطلاب فوق مستوى الإتقان، والفجوة بين البنين والبنات، والتغير عن العام الماضي، مع استبعاد مؤشر توزيع الدرجات حسب المدرسة في المرحلة الأولى لخصوصية البيانات. ونظرًا لتغير معيار الإتقان في عام 2023 من 60 إلى 65 درجة، تقرر إعادة حساب جميع الأعوام باستخدام معيار 65 لضمان اتساق المقارنة الزمنية باستخدام الدرجات الخام المتوفرة. أما فيما يخص صلاحيات الوصول، فقد تم الاتفاق على أن يطّلع مديرو المناطق على بيانات مناطقهم فقط، مع توفير لوحة وطنية مجمعة لقيادة الوزارة، مع إرجاء تحديد صلاحيات المدارس لاحقًا. والموعد المستهدف لإطلاق النسخة الأولى هو نهاية شهر نوفمبر، بينما لا تزال مسألة اختيار وسيلة التنفيذ قائمة، حيث لم يُحسم بعد ما إذا كان سيتم استخدام أداة جاهزة أم بناء اللوحة داخليًا، مع مراعاة متطلبات التكلفة واستضافة البيانات على خوادم الوزارة.
+2. Passport renewal (676 tokens in, 193 out):
+   > يرغب المستخدم في تجديد جواز سفره وجواز ابنه البالغ من العمر تسع سنوات استعداداً للسفر إلى ماليزيا في منتصف ديسمبر. قرر المستخدم تجديد جوازه هذا الأسبوع نظراً لأن صلاحيته تنتهي في يناير، حيث تشترط العديد من الدول أن يكون الجواز صالحاً لمدة لا تقل عن ستة أشهر. أما بالنسبة لابنه، فقد حجز المستخدم موعداً في فرع الجوازات بحي النرجس بتاريخ 12 نوفمبر، وقد استقر القرار على اختيار مدة صلاحية خمس سنوات للجواز الجديد، مع العلم أن الرسوم تختلف بحسب المدة المختارة ولا تختلف باختلاف العمر. كما استفسر المستخدم عن وضع جواز سفر زوجته، وتبين أن جوازها صالح حتى عام 2027 ولا يحتاج لتجديد، لكن عليها التأكد من متطلبات التأشيرة في حال قررت السفر معهم.
+3. Diabetes campaign (736 tokens in, 236 out):
+   > يخطط تجمع صحي لإطلاق حملة توعية بمرض السكري في محافظة الأحساء تستهدف الفئة العمرية من 35 إلى 60 عامًا، وذلك خلال ثلاثة أشهر تبدأ في شهر فبراير. تبلغ ميزانية الحملة 400 ألف ريال، وتشارك فيها 12 مركزًا صحيًا مع 6 فرق متنقلة. تم الاتفاق على استهداف 10 آلاف شخص للفحص، مع التركيز على التواجد في الأسواق والمساجد وأماكن العمل لضمان الوصول لأكبر شريحة ممكنة. اعتمد التجمع أربعة مؤشرات لقياس نجاح الحملة وهي: عدد المفحوصين مقارنة بالهدف، ونسبة من اكتُشفت لديهم مؤشرات ما قبل السكري، ونسبة من حضروا موعد المتابعة بعد الإحالة، وتغير مستوى المعرفة بالمرض قبل الحملة وبعدها عبر استبيان قصير. ولم يُحسم بعد قرار التعاقد مع شركة إعلام خارجية أو إسناد مهمة إعداد المواد التوعوية لفريق التواصل داخل التجمع.
+
+Earlier defects, checked in all three runs:
+- Sample 1, assistant's voice ("أقترح"): **does not reproduce**; the summary reports the user's project in the third person.
+- Sample 1, open choice stated as decided ("قررنا استخدام أداة جاهزة أو بناء…"): **does not reproduce**; "لم يُحسم بعد ما إذا كان سيتم استخدام أداة جاهزة أم بناء اللوحة داخليًا".
+- Sample 2, planned renewal stated as done ("تم تجديد"): **does not reproduce**; "قرر المستخدم تجديد جوازه هذا الأسبوع".
+- Sample 2, grammar slip ("جواز السفري") and person switch ("ابنك", "زوجتك"): **do not reproduce**; "ابنه", "زوجته".
+- Sample 3, "فريق التواصل" renamed "فريق التسويق": **does not reproduce**.
+- Sample 3, open media decision presented as how the campaign will be evaluated: **does not reproduce**; "لم يُحسم بعد قرار التعاقد مع شركة إعلام خارجية أو إسناد مهمة إعداد المواد التوعوية لفريق التواصل".
+- Numbers, dates and names are kept, as before. The summaries are two to three times longer (193–314 tokens out, against 70–170), within the 1200-token summary budget.
+
+Memory extraction, same probe (`memory.extractor@1.0.0`, the committed prompt with three examples), `fast` on OpenRouter, temperature 0.0, the four exchanges above plus a fifth: the smoke follow-up question that phase 02 stored as a fact ("وما أكبر مدنها من حيث عدد السكان؟ أجب بجملة واحدة."). Raw output of run 1, verbatim (runs 2 and 3 returned the same text for every exchange), and what the ADR-0064 filters keep:
+
+- `smoke`, raw:
+  ````
+  ```json
+  [
+    {
+      "kind": "fact_about_user",
+      "text": "المستخدم يعمل محللًا للبيانات في وزارة التعليم.",
+      "confidence": 1.0
+    },
+    {
+      "kind": "preference",
+      "text": "المستخدم يفضل أن تكون الإجابات مختصرة.",
+      "confidence": 1.0
+    }
+  ]
+  ```
+  ````
+  kept: ["المستخدم يعمل محللًا للبيانات في وزارة التعليم.", "المستخدم يفضل أن تكون الإجابات مختصرة."]
+- `general-only`, raw:
+  ````
+  []
+  ````
+  kept: []
+- `preference-only`, raw:
+  ````
+  ```json
+  [
+    {
+      "kind": "preference",
+      "text": "المستخدم يريد الإجابات دائمًا باللغة العربية الفصحى ومع ذكر المصدر.",
+      "confidence": 1.0
+    }
+  ]
+  ```
+  ````
+  kept: ["المستخدم يريد الإجابات دائمًا باللغة العربية الفصحى ومع ذكر المصدر."]
+- `project`, raw:
+  ````
+  ```json
+  [
+    {
+      "kind": "project_context",
+      "text": "المستخدم يعمل على مشروع لتقليل زمن انتظار المراجعين في المستشفيات الحكومية.",
+      "confidence": 1.0
+    },
+    {
+      "kind": "decision",
+      "text": "المستخدم قرر البدء بمستشفيين في جدة.",
+      "confidence": 1.0
+    }
+  ]
+  ```
+  ````
+  kept: ["المستخدم يعمل على مشروع لتقليل زمن انتظار المراجعين في المستشفيات الحكومية.", "المستخدم قرر البدء بمستشفيين في جدة."]
+- `question-restated`, raw:
+  ````
+  []
+  ````
+  kept: []
+
+The model wraps its array in a ```` ```json ```` fence; `parse_candidates` already accepts it.
+
+Earlier extractor defects:
+- `[]` for an explicit role and preference (prompt without examples): not re-run; that prompt was never committed. With the committed prompt the smoke message yields both items, in all three runs.
+- Inferred fact for a general question ("المستخدم يرغب في الحصول على معلومة تاريخية…"), and the answer restated as a fact ("عاصمة البرتغال هي لشبونة."): **do not reproduce**; `general-only` returns `[]`. These came from the unpublished two-example prompt; the check here is the same exchange on the committed prompt, before filters.
+- Preference turned into "المستخدم معرف بجامعة الملك سعود": **does not reproduce**; the preference is extracted as stated.
+- Mixed script ("ي.work على مشروع…"): **does not reproduce**.
+- Final-prompt defects (phase 02): example 2 copied for the general question (**does not reproduce**), the preference labelled `fact_about_user` (**does not reproduce**, now `preference`), the marginal "المستخدم يركز على المؤشرات المناسبة لمشروعه." (**does not reproduce**; the project now yields `project_context` and a `decision`, both grounded).
+- Question restated as a fact about the user (tech debt below): **does not reproduce** on this exchange; `[]`.
+
+`make eval` (`general`, 28 cases, threshold 0.85), retry off, three consecutive runs:
+- **28/28 (1.00), 28/28 (1.00), 28/28 (1.00).** Dataset runs `make-eval-20260916T112253Z`, `make-eval-20260916T113106Z`, `make-eval-20260916T113834Z`, 28 run items each (84); the dataset keeps its 28 items. Each run took 7.5–8.5 minutes. Analyst memory rows before each run: 19, 19, 19.
+- Earlier on the old models: 24–25/28 with the retry on, 24/28 with it off (above). The four script failures (currency, sunrise, Portugal, Shakespeare) all pass: "الريال السعودي", "لشبونة", "ويليام شكسبير".
+- Invalid attempts, not counted: three runs at 0/28 with every turn `model_unavailable` (OpenRouter 402: the account credit could not cover `max_tokens` 65536 on `standard`; the owner added credit), which left no run items, and one run that ended in 401 after 26 cases (25 passed; Portugal answered "ليسبون"), which left 26 run items, before the runner fix.
+
+Turn latency breakdown, one `general` turn (Langfuse trace `b83da1a91482530fbe5eabf70a9cef9b`, turn 7 of a conversation whose six earlier user messages hold about 1 700 tokens each, so the rolling summary folds in this turn). Durations are the spans of the `turn` span:
+
+| Part | Span | Duration | Tokens in / out |
+|---|---|---|---|
+| Summarizer (`fast`) | `model.call` step `summarizer`, inside `node.assemble_context` (4.16 s) | 4.15 s | 4492 / 87 |
+| Memory retrieval embedding | `model.embed` inside `node.answer` | 0.14 s | — |
+| Answer call (`standard`) | `model.call` step `answer` | 12.42 s | 5889 / 376 |
+| Memory write (`memory.write_ms` on the turn span) | `node.write_memory` | 7.91 s (7914 ms) | — |
+| — extractor (`fast`) | `model.call` step `extractor` | 7.78 s | 591 / 55 |
+| — candidate embedding | `model.embed` | 0.14 s | — |
+| Everything else (guards, assembly, routing, persistence) | | < 0.05 s | — |
+| **Turn** | `turn` | **24.64 s** (client 24.70 s) | usage 10972 / 518 |
+
+The answer was "أكبر مدن المملكة العربية السعودية من حيث عدد السكان هي الرياض."; the extractor's candidate was a duplicate, so no row was written. The same turn without a fold (turn 5 of a shorter conversation, trace `f6cc41414a7daff5ea1a051ef94e10d3`): answer 18.06 s, memory write 2.16 s (extractor 1.93 s), turn 20.37 s. The answer model reasons before it answers (345 reasoning tokens for a one-word reply in a direct call), which is most of its latency; the extractor on `fast` varied from 1.9 s to 7.8 s between the two turns. `done.usage.cost_usd` is 0.0: LiteLLM's local cost map has no price for these models.
+
+Verification: `make test` green (agent 218 passed; gateway BUILD SUCCESSFUL plus `gateway-db-tests`; web 56 passed); `make smoke` green on OpenRouter (all phase 01 and 02 checks; answer "عاصمة المملكة العربية السعودية هي الرياض."); `make eval` three times as above. `make smoke` on `config.local.yaml` was not run in this session; it is the owner's once-per-phase check before merge.
+
+Human review (this commit): `infra/litellm/config.yaml` (the owner's), `infra/litellm/config.local.yaml`, `docker-compose.local.yml`, `config/models.yaml` (windows and `max_output`), `config/validation.yaml` (retry off), `.env.example`, `evals/run_evals.py`.
 
 Tech debt carried from the PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
 - [ ] Replace snapshot tests with behaviour tests. These assert config and prompt values and are edited in lockstep with every config change: `services/agent/app/capabilities/general/tests/test_general.py::test_manifest_is_valid`, `services/agent/tests/unit/test_models.py` (`test_repo_models_config_pins_helper_roles_to_fast`, `test_repo_models_config_makes_helper_roles_deterministic`), `services/agent/tests/unit/test_prompts.py::test_answer_prompt_renders_arabic_without_optional_sections`, and the `prompt_refs` version assertions in `services/agent/tests/unit/test_assembler.py`.
 - [ ] Cover the untested paths:
-  - `validation_failed`, `context_overflow` and `model_unavailable` through the API (`POST /v1/turns`), not only at node level.
-  - A capability that exceeds `limits.timeout_s` (`app/graph/nodes/capabilities.py`).
-  - `cap_state` isolation between two capabilities in one turn.
-  - Client disconnect mid-turn (`app/api/runner.py` task cancellation).
-- [ ] Add the lint rule README §18.4 requires: a capability must not read or write another capability's `cap_state` namespace. Today only the runtime slice exists.
+  - [x] `context_overflow` through the API (`POST /v1/turns`): `tests/integration/test_context_turns.py` (phase 02).
+  - [ ] `validation_failed` and `model_unavailable` through `POST /v1/turns`. `validation_failed` is now exercised through `TurnRunner` by `tests/integration/test_answer_retry.py`, not over HTTP.
+  - [ ] A capability that exceeds `limits.timeout_s` (`app/graph/nodes/capabilities.py`). Out of scope for phase 02.
+  - [ ] `cap_state` isolation between two capabilities in one turn (runtime). Out of scope for phase 02.
+  - [ ] Client disconnect mid-turn (`app/api/runner.py` task cancellation). Out of scope for phase 02.
+- [x] Add the lint rule README §18.4 requires: a capability must not read or write another capability's `cap_state` namespace (`tests/unit/test_cap_state_lint.py`, ADR-0062).
 
 Tech debt carried from the second PR #1 review (recorded 2026-09-13; not fixed in phase 01, by instruction):
 - [ ] Residual risk 7: `GET /v1/debug/context/{turn_id}` (phase 02) and `POST /v1/turns/{id}/approve` (phase 08) must each perform the conversation ownership check themselves. Both reach a thread without running `load_identity_and_state` (a debug read, and a resume from an interrupt in the middle of the graph), and neither goes through the turn runner's binding (ADR-0050).
-- [ ] `ConversationOwners` (ADR-0050) is in memory, like the phase 01 checkpointer; make it durable in Postgres together with the checkpointer, so a restart keeps both.
+  - [x] `GET /v1/debug/context/{turn_id}` checks ownership itself (ADR-0059; `test_the_debug_endpoint_returns_a_turns_packages_to_its_owner_only`).
+  - [ ] `POST /v1/turns/{id}/approve`: phase 08.
+- [x] `ConversationOwners` (ADR-0050) is durable in Postgres beside the checkpointer (ADR-0055); `tests/integration/test_restart.py` and the smoke restart check.
+
+Tech debt recorded in phase 02 (2026-09-15; not implemented, by instruction or out of scope):
+- [ ] Guards on memory content (phase 03): the DATA checkpoint over memory text and PII categories. Today PII is kept out only by the extractor prompt (ADR-0058).
+- [ ] Asynchronous memory writing (phase 09): `write_memory` is a synchronous node, so a turn's `done` waits for one `fast` call and up to `max_items_per_turn + 1` embeddings.
+- [ ] Quantization experiment on the `standard` model: the owner runs it after merge.
+- [ ] Extraction precision on `fast`: the ADR-0064 filters stop inferred facts, restated answers and drifted script, but not a question restated as a fact about the user. The live stack stored "المستخدم يسأل عن أكبر مدن المملكة العربية السعودية من حيث عدد السكان." for the analyst. Material for ADR-0030's helper-role suite.
+- [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059).
+- [ ] `memory_items.embedding` has no ANN index; retrieval scans one user's items (ADR-0058).
+- [ ] A memory extracted from a reply that is retracted afterwards stays until its user deletes it; a reply retracted after it was folded stays in the summary (ADR-0057, ADR-0058). The memory part is fixed by ADR-0071 (PR #2 fix session); the summary part stays.
+- [x] README §7 still describes the debug endpoint as admin-only; the agent endpoint is owner-only until the gateway proxy exists (ADR-0059). Amendment note added under §7 in the PR #2 fix session.
+
+Tech debt recorded in the PR #2 fix session (2026-10-05; not implemented, by instruction):
+- [ ] **Phase 03, first item of scope:** a DATA guard on memory candidates and on the rolling summary before they are stored, plus a one-time rescan and purge of the `memory_items` rows and `summary` values stored before it exists.
+- [ ] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item.
+- [ ] Phase 09: asynchronous memory writing; a turn's `done` waits for the memory write (7.9 s measured, above).
+
+Tech debt recorded in the second PR #2 fix session (2026-10-06; review finding 2, not implemented, by instruction):
+- [ ] **Phase 03:** nothing serializes turns on one conversation. Two turns in flight on the same thread each start from the checkpoint before the other and the last writer wins (an exchange, or the end-of-turn fold's summary and cursor, is lost); a retract racing a turn can lose its flag while its memory delete stands. Design: a per-conversation Postgres advisory lock (`pg_try_advisory_lock` keyed on the conversation id) held by `TurnRunner` around the graph invocation and around `retract`; a second turn on a conversation whose lock is held ends with `turn_in_flight`, which the gateway returns as **409 `turn_in_flight`** (new error code in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`; API version bump). Phase 08's interrupt/resume takes the same lock.
+
+Accepted interpretation of CLAUDE.md rule 6 (ADR-0075): a test may let a real call go through Context Assembly and LiteLLM and then replace the returned text, to simulate a non-deterministic model defect (`tests/integration/test_answer_retry.py`).
+
+Human review needed (phase 02):
+- `config/context.yaml`: block budgets, `drop_order`, the `compress` pass, `summary.trigger_tokens`, the three core nodes (ADR-0056, ADR-0057).
+- `config/memory.yaml`: `enabled_by_default: true`, `min_confidence`, `dedupe_similarity`, `min_similarity: 0.5`, `min_grounding`, `grounding_ignore`, `subject_words` (ADR-0058, ADR-0064).
+- `config/validation.yaml`: the Arabic script policy and the retry (ADR-0060, ADR-0061).
+- `config/prompts/**` (all 1.0.0): `context.summary`, `context.memory`, `context.retrieval`, `context.tool_result`, `summarizer.system`, `summarizer.request`, `memory.extractor`, `memory.extract_request`, in ar and en.
+- `config/messages/errors.yaml`: `not_found`, `memory_not_found`; the gateway's `messages_{ar,en}.properties` and the web catalogs gain `memory_not_found` and the `memory.*` strings.
+- `services/agent/app/db/migrations/0001_state_and_memory.sql`: the `agent` schema tables.
+- `docker-compose.yml`: the agent's `DATABASE_URL` and `DEBUG_CONTEXT_ENABLED`; `agent-tests` connects as the Postgres superuser to create a throwaway database. `.env.example`: `DEBUG_CONTEXT_ENABLED`.
+- `infra/litellm/config.mock.yaml`: the `embed` mock and the `fast` mock answer (a memory extraction).
+- `services/agent/app/capabilities/general/evals/general.jsonl`: the eight proper-noun cases and their ground truths.
+- `Makefile`: `make test` starts Postgres for the agent tests; `make openapi` mounts `config/models.yaml` for the gateway export (it failed without it since ADR-0046).
+
+How to verify (phase 02):
+- `make up && make test && make smoke && make eval`
+- Agent tests alone, against the compose Postgres and mock LiteLLM: `make test-agent`
+- Restart persistence by hand: a turn in the web UI, `docker compose restart agent`, a second turn in the same conversation.
+- Memory: http://localhost:3000/settings/memory as `analyst` after a turn that states a preference ("أفضّل أن تكون الإجابات مختصرة"); `viewer` sees none of it.
+- Debug context: set `DEBUG_CONTEXT_ENABLED=true` in `.env`, `docker compose up -d agent`, then `GET /v1/debug/context/{turn_id}` on the agent with `X-Internal-Token`, `X-User-Id` and `X-Tenant-Id` of the conversation's owner.
+
+### Fix session: PR #2 review decisions (2026-10-05)
+
+Scope: apply the owner's twelve decisions on PR #2 and nothing else; record the deferred items as tech debt. Re-run `make test`, `make eval` three times on the OpenRouter profile, and `make smoke` on both profiles; push.
+
+Checklist:
+- [x] 1. One LiteLLM config, values from the environment (`FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `MODEL_API_KEY`, `EMBED_API_BASE`, provider params); `.env.example` holds the offline defaults; `config.local.yaml` and `docker-compose.local.yml` deleted; compose passes the variables; `preflight.sh` and `pull_models.sh` read `.env`; README §21 and HANDOFF document the switch to OpenRouter; `os.environ/` in the `model` field verified
+- [x] 2. Tier values back to README §19.1 (`max_output` 2000/4000/8000, `window` 32768/32768/65536); one test that `NeedsMore` fires against the real budget
+- [x] 3. README amendment notes (§2 ADR-0065, §7 ADR-0059, §14 and §21 the two profiles); ADR-0065 Status: decided by the owner, with the per-case eval login as a status note
+- [x] 4. Summary and memory blocks as a delimited user-role data block, not system; ADR
+- [x] 5. `runner.retract` deletes the turn's `memory_items` in the same transaction as the retract flag; test; status note on ADR-0058
+- [x] 6. Memory store tests with hand-built vectors against Postgres (`dedupe_similarity`, `min_similarity`, ranking, `vector_dims`); smoke asserts this turn's memory delta
+- [x] 7. One test asserts `prompts`, `tier_reason` and `gen_ai.response.model` on `model.call`; the upstream served model recorded when LiteLLM exposes it, else the alias with `model.served_known=false`
+- [x] 8. Evals run as a dedicated eval user with memory disabled (realm seed + `run_evals.py`)
+- [x] 9. The summarizer fold runs at the end of the turn (after `persist_state`, before `write_memory`); the lazy fold stays as the fallback when the threshold is already exceeded at turn start
+- [x] 10. The migration runner stores a checksum per file and fails on a mismatch
+- [x] 11. Agent integration tests connect as the app role to a database provisioned by `infra/postgres/init`; the fixture truncates instead of creating databases
+- [x] 12. `summary.ini` ignored as a tool artefact (a pasted Claude Code transcript; left on disk, added to `.gitignore`)
+- [x] Tech debt and the rule 6 interpretation recorded below
+- [x] `make test`; `make eval` ×3 (OpenRouter); `make smoke` on both profiles; push
+
+Session result (2026-10-05):
+- **Item 1, verification.** On LiteLLM v1.100.0 with a capturing upstream: `os.environ/` resolves in `model`, `api_base`, `api_key` and nested `extra_body`, and `false` arrives as a boolean, so the one-file layout holds. A number arrives as a string, and Ollama rejects `"num_ctx": "32768"` (`option "num_ctx" must be of type integer`), so `num_ctx` stays a literal per alias, equal to the tier windows; OpenRouter receives it as an extra field and the OpenRouter smoke passed with it (ADR-0066). The switch to OpenRouter is **five** `.env` lines (three models, base URL, key), not three.
+- **`make test`:** green (exit 0). Agent 229 passed in the `agent-tests` container as the `app` role on `agent_test` (218 before; +11: real-budget NeedsMore, user-role blocks, two retract-memory tests, four memory-store tests, served model, migration checksum, lazy fold). Gateway image `test` stage BUILD SUCCESSFUL plus `gateway-db-tests`. Web 56 passed.
+- **`make smoke`, offline profile** (`.env.example` values, Ollama `qwen2.5:3b` / `qwen2.5:14b-instruct` / `gemma4:31b`, `bge-m3`): green, all phase 01 and 02 checks; the memory turn wrote 2 rows, all with this turn's `source_turn`, and the list holds exactly those.
+- **`make smoke`, OpenRouter profile:** green, same checks; memory turn wrote 2 rows, and only it. Langfuse shows `gen_ai.response.model` `openrouter/qwen/qwen3.6-27b` (answer) and `openrouter/google/gemma-4-26b-a4b-it` (extractor), `model.served_known=true`.
+- **`make eval`, OpenRouter, as `evaluator` with memory off, three consecutive runs:** **26/28 (0.93), 28/28 (1.00), 28/28 (1.00)**, threshold 0.85. Run 1's two failures were `model_unavailable` at the first two cases: OpenRouter 429 (`qwen/qwen3.6-27b is temporarily rate-limited upstream`), not answers. Dataset runs `make-eval-20261005T145808Z`, `…145909Z`, `…150010Z`. A run takes about one minute (7.5–8.5 minutes before): hidden reasoning is off and `max_output` is 4000.
+- The running Keycloak volume predates the `evaluator` user, so for these runs it was added to the live realm with `kcadm` (same username, password and base role; `tenant_id` resolves to `default`). The realm file is the source of truth: **`make clean && make up`** gives a stack seeded from it.
+- The local `.env` gained the model variables (appended; nothing removed) and is left on the OpenRouter profile, as before this session.
+
+Human review needed (this session):
+- `infra/litellm/config.yaml` (env-driven aliases, literal `num_ctx`), `.env.example` (offline defaults, OpenRouter block), `docker-compose.yml` (litellm variables; `agent-tests` as the app role), `scripts/models_env.sh`, `preflight.sh`, `pull_models.sh`.
+- `config/models.yaml`: windows 32768/32768/65536, `max_output` 2000/4000/8000 (ADR-0067).
+- `config/prompts/context/{summary,memory}.{ar,en}.md.j2` 1.1.0 (delimited user-role data, ADR-0068).
+- `infra/keycloak/realm-export.json`: new seed user `evaluator` (**realm changed: `make clean && make up`**).
+- `infra/postgres/init/10-agent-test.sh`: the `agent_test` database owned by `app`.
+- README amendment notes under §2, §7, §14, §21 and §21.4; `docs/HANDOFF.md` owner checklist; ADR-0065's Status line; ADR-0066–0075.
+
+How to verify (this session):
+- `make test`; `make up smoke` with the `.env.example` model values; `make up smoke eval` with the OpenRouter block of README §21.4.
+
+
+### Fix session: second PR #2 review, finding 1 (2026-10-06)
+
+Scope: review finding 1 only (a retracted reply's question merged into the current message); finding 2 recorded as phase 03 tech debt. Nothing else.
+
+Checklist:
+- [x] 1. A retracted reply removes its exchange as a pair in the sliding window and the summarizer's plan (`context/messages.py` `visible()`); ADR-0076, with status notes on ADR-0048 and ADR-0068 (ADR-0034 allows only `Superseded by` notes, so the pair rule is a new entry)
+- [x] 2. `ContextPackage.to_messages` merges only within the current-message group (`summary`, `memory`, `user_message`) and among system blocks; a window ending with a user message raises `HistoryEndsWithUserMessage`
+- [x] 3. Tests: retracted pair at the end of history with and without memory hits; summarizer slice ending on a retracted pair; the pair-skip in the window; `to_messages` refusal. Updated to the pair rule: `test_retracted_exchange_is_skipped_by_the_next_turn`, `test_the_summarizer_folds_older_messages_past_the_trigger` (one more turn to pass the trigger), `test_a_retracted_exchange_is_neither_counted_nor_folded`, `test_summary_and_memory_are_user_role_data_blocks_never_system` (the summary is its own user message now)
+- [x] 4. Finding 2 recorded as phase 03 tech debt (above)
+- [x] 5. `make test`, `make smoke` (current profile), `make eval` once; push
+
+Session result (2026-10-06), on the OpenRouter profile the local `.env` is on:
+- **`make test`:** green (exit 0). Agent 234 passed as the `app` role on `agent_test` (229 before; +5: the four new context tests and the summary-plan slice test). Gateway BUILD SUCCESSFUL plus `gateway-db-tests`. Web 56 passed.
+- **`make smoke`:** green, all phase 01 and 02 checks; the memory turn wrote 2 rows, and only it.
+- **`make eval`:** general 28/28 (1.00), threshold 0.85; dataset run `make-eval-20261006T090537Z`.
+
+Human review needed (this session): `docs/DECISIONS.md` ADR-0076 and the status notes on ADR-0048 and ADR-0068. No file under `config/` or `infra/` changed.
+
+How to verify (this session): `make test`; `make up smoke eval`. The pair rule alone: `pytest tests/unit/test_context_pipeline.py tests/unit/test_summary_plan.py tests/unit/test_assembler.py` and `tests/integration/test_turns.py::test_retracted_exchange_is_skipped_by_the_next_turn` in `make test-agent`.
+
+### Fix session: summary position (2026-10-06)
+
+Scope: move the summary block next to the current question; nothing else.
+
+Checklist:
+- [x] `config/context.yaml` pipeline: `sliding_window` before `rolling_summary` (system → window → summary → memory → user message); ADR-0077, status note on ADR-0076
+- [x] Test: with a summary and a window starting on a user message, `to_messages` alternates user/assistant after the system message (with and without memory); two pipeline tests updated to the new order
+- [x] `make test`, `make smoke` (current profile), `make eval` once; push
+
+Session result (2026-10-06), OpenRouter profile: `make test` green (agent 236 passed, +2 for the alternation test with and without memory; gateway BUILD SUCCESSFUL plus `gateway-db-tests`; web 56 passed). `make smoke` green, all phase 01 and 02 checks (a first run started while the agent was still restarting after `make up` and failed on `unhealthy: agent`; re-run once healthy, green). `make eval` general 28/28 (1.00), dataset run `make-eval-20261006T091758Z`.
+
+Human review needed (this session): `config/context.yaml` pipeline order; ADR-0077 and the status note on ADR-0076.
 
 ## Phase 03: Guardrails engine
 

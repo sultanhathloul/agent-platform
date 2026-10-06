@@ -36,3 +36,9 @@ conversation_forbidden:
 turn_not_found:
   ar: "لم يُعثر على هذه الإجابة في المحادثة."
   en: "This reply was not found in the conversation."
+not_found:
+  ar: "المورد المطلوب غير موجود."
+  en: "The requested resource does not exist."
+memory_not_found:
+  ar: "لم يُعثر على هذا العنصر في ذاكرتك."
+  en: "This item was not found in your memory."

@@ -1,10 +1,13 @@
 # Tiers, roles, escalation and caps (README §19.1). Aliases resolve to concrete
 # models in infra/litellm/config.yaml. Code names roles and steps, never models.
-# `window` must not exceed the num_ctx configured for the alias in LiteLLM.
+# `window` and `max_output` are platform budgets (README §19.1), not provider limits:
+# the budget guard assembles within `window`, and a call asks for at most
+# `max_output` tokens. Every alias must accept them; infra/litellm/config.yaml sets
+# Ollama's num_ctx to the same windows (ADR-0067).
 tiers:
-  fast:     {alias: fast,     window: 32000, max_output: 2000, cost_weight: 1}
-  standard: {alias: standard, window: 32000, max_output: 4000, cost_weight: 5}
-  heavy:    {alias: heavy,    window: 65536, max_output: 8000, cost_weight: 20}   # dev host limit; spec example is 131072
+  fast:     {alias: fast,     window: 32768, max_output: 2000, cost_weight: 1}
+  standard: {alias: standard, window: 32768, max_output: 4000, cost_weight: 5}
+  heavy:    {alias: heavy,    window: 65536, max_output: 8000, cost_weight: 20}
 
 # Lowest to highest; "one tier up" follows this order.
 order: [fast, standard, heavy]

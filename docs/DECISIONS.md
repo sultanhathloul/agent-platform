@@ -222,7 +222,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0027: `validate` rejects an Arabic answer that contains CJK characters
 - Date: 2026-09-13
 - Phase: 01
-- Status: decided
+- Status: decided — Superseded by ADR-0060 on 2026-09-15 (the CJK-only check)
 - Context: The drift into Chinese measured in ADR-0024 is a wrong answer, not a phrasing problem. The eval suite's `script` check catches it offline, but at runtime nothing stopped such an answer from reaching the user.
 - Decision: `app/text/script.py` provides `contains_cjk` (CJK ideographs and extension A, compatibility ideographs, kana, hangul). `validation_issues` takes the turn `locale` and adds the issue `cjk_in_arabic_answer` when `locale == "ar"` and the answer holds a CJK character. Deterministic, no model call. Only the Arabic locale is checked, because an English or mixed answer may legitimately quote CJK. Covered by `tests/unit/test_validate.py`.
 - Consequences: Such a turn ends as `validation_failed` instead of showing mixed-script text. From phase 08 this failure is what escalates a tier and retries once, which is the right response to script drift. Other locales need their own rule when they are added.
@@ -238,7 +238,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0029: First-run documentation, `make models`, and remote model endpoints
 - Date: 2026-09-13
 - Phase: 01
-- Status: assumed
+- Status: assumed — Superseded by ADR-0066 on 2026-10-05 (where models are named and what the host scripts read only)
 - Context: README explained the architecture but not how to start from an empty machine, and every model endpoint was assumed to be Ollama on the developer's own host.
 - Decision:
   - README §21 documents prerequisites, the exact first-run commands, URLs and seed users, and a subsection on pointing LiteLLM at a shared model server.
@@ -249,7 +249,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0030: Evaluate `qwen2.5:7b-instruct` as the `fast` model, on helper-role work
 - Date: 2026-09-13
 - Phase: 03 (proposed by the owner while deciding ADR-0024)
-- Status: proposed
+- Status: proposed — Superseded by ADR-0065 on 2026-09-16
 - Context: ADR-0024 rejected `fast` for general knowledge but did not test what `fast` is actually for. Every helper role runs there — router, summarizer, judge, extractor — and the `llm_judge` checker is the primary Arabic topic filter (§10.2), so the quality of `fast` decides the quality of guardrails, routing and memory extraction. `qwen2.5:3b` was only ever measured on general knowledge, the one job it is not meant to do.
 - Proposal: In phase 03, measure `qwen2.5:7b-instruct` against `qwen2.5:3b` as the `fast` alias, using a **helper-role suite** — Arabic classification, Arabic summarization, and judge decisions with known verdicts — not the general-knowledge suite. Decide on that evidence. Pulling the model needs owner approval (ADR-0008 fixes the dev defaults).
 - Consequences: If it wins, guard judging and routing improve for the cost of extra memory resident on the model host; if it does not, `fast` stays at 3B with evidence behind it. `general` stays on `standard` either way (ADR-0024).
@@ -273,7 +273,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0033: `validate` gains a word-level mixed-script rule in phase 02
 - Date: 2026-09-13
 - Phase: 02 (decided in phase 01, deliberately not implemented yet)
-- Status: decided
+- Status: decided — Superseded by ADR-0060 on 2026-09-15
 - Context: The CJK check (ADR-0027) catches an Arabic answer that drifts into Chinese, Japanese or Korean, but it does not catch Latin spliced inside an Arabic word. The measured example is `"العملة الرسمية … هي الريyal السعودي"`, which passes every guard today and would reach a user as broken text.
 - Decision: In phase 02, extend the script check in `app/text/script.py` and `validation_issues` with a **word-level rule**: any whitespace-delimited token that contains both Arabic and Latin letters fails validation. A small configurable allow-list covers tokens that are legitimately mixed; it lives in configuration, not in code (§20).
 - Consequences: A whole-token rule stays deterministic and cheap, and it leaves ordinary mixed *sentences* alone — an Arabic answer may still quote a Latin term as its own word, e.g. `الرياض (Riyadh)`. The allow-list is the escape hatch for real mixed tokens, and it needs Arabic test cases like every other checker (CLAUDE.md rule 7). Not implemented in phase 01, so `"الريyal"` still reaches the user until phase 02.
@@ -397,7 +397,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0048: History holds the post-guard text; a reply whose audit fails is retracted in the agent too
 - Date: 2026-09-13
 - Phase: 01 (second fix session for PR #1)
-- Status: decided
+- Status: decided — Superseded by ADR-0076 on 2026-10-06 (the user message of a retracted turn only)
 - Context: ADR-0039 stored the text the user saw as the message `content`, with the post-guard draft beside it. After a DATA redaction the unredacted text was therefore what every later model call read, and what phase 02's durable checkpointer and memory writer would keep (README §10.1, §16). When the gateway's audit write for a finished turn failed (ADR-0042), the client was sent `retract`, but the agent had already persisted the reply, so the next turn's model saw an answer the user had been told was withdrawn. The web client also kept partial text on screen for every error except the three retract reasons: `model_unavailable` mid-stream, `turn_failed`, and the gateway's `agent_stream_interrupted`.
 - Decision:
   - `persist_state` stores the post-guard `draft_answer` as the assistant message `content`. When it differs from the streamed text, the streamed text is kept as `shown_answer` in the message's `additional_kwargs`, for audit only; Context Assembly reads `content`. The assistant message also carries `turn_id`.
@@ -477,3 +477,231 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - **Third-party capabilities.** Process-level isolation — each capability subgraph in a separate worker process, with its input, `RuntimeContext` calls and output marshalled as JSON over IPC — is the phase-09 hardening option and is required before any third-party capability is loaded. This boundary is shaped for that move: only JSON already crosses it.
   - ADR-0053's open item (`RuntimeContext`'s callables are core objects, so attribute reflection reaches the turn's services; process isolation recorded as the option for third-party code) is covered by this threat model: accepted for first-party code, not a defect to fix in-process. The rest of ADR-0053 stands.
 - Consequences: An output costs one JSON serialization and one validation per capability call; v1 outputs are small. A capability output must be JSON-serializable, which `CapabilityOutput`'s fields already implied (it is streamed and checkpointed). A failure's span and log record carry the exception type only, so debugging a capability exception means reproducing it in the capability's own tests rather than reading the message from the trace. Code review remains the control against a capability that means harm, until the phase-09 worker exists. No API, event or error-code change.
+
+### ADR-0055: State, conversation owners and memory live in schema `agent` of database `app`
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed — Superseded by ADR-0069 on 2026-10-05 (the migration record only); Superseded by ADR-0070 on 2026-10-05 (how tests reach Postgres only)
+- Context: README §2 puts state in the LangGraph Postgres checkpointer, ADR-0016 kept `InMemorySaver` until phase 02, and ADR-0050 recorded that the conversation-owner registry must become durable beside the checkpointer. The spec names the database (`app`) but not the schema, the connection handling, the agent's own tables or how tests reach Postgres.
+- Decision:
+  - The agent connects to database `app` as its owner role with one `psycopg` async pool whose connections set `search_path=agent,public` (`public` holds the `vector` extension). `AsyncPostgresSaver` runs on that pool and creates its tables in schema `agent`; the gateway keeps schema `gateway`.
+  - The agent's own tables (`conversation_owners`, `memory_items`, `memory_settings`, `context_packages`) come from SQL files in `app/db/migrations/`, applied once each, in name order, under a Postgres advisory lock, recorded in `agent.schema_migrations`. The checkpointer applies its own migrations beside them.
+  - `ConversationOwners` keeps its interface (ADR-0050) on the table: the binding is an `INSERT … ON CONFLICT DO NOTHING` followed by a read, so concurrent first turns agree on one owner; an owner the checkpoint records still wins when the row is missing.
+  - `AsyncPostgresSaver` binds to the running event loop, so `build_services` stays synchronous and connects nothing; `start_services` (the app lifespan, or a test fixture) opens the pool, runs both migrations and compiles the main graph. `DATABASE_URL` is set by compose from `APP_DB_PASSWORD`.
+  - Tests use a throwaway database per session, created and dropped as the Postgres superuser like the gateway's JDBC tests (ADR-0051); `make test` passes `AGENT_TEST_DATABASE_ADMIN_URL` and starts Postgres. `test_capability_isolation.py` runs unchanged on the Postgres checkpointer. A restart test builds a second set of services, pool and checkpointer on the same database.
+- Consequences: A conversation, its owner binding and the user's memory survive `docker compose restart agent` and `make down && make up`; `make clean` deletes them. The agent now starts only after Postgres is healthy. The `app` role owns every table in both schemas, as ADR-0013 already noted for audit. `make test` needs Postgres as well as the mock LiteLLM.
+
+### ADR-0056: Context Assembly is configured per block, and every model call takes one path
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §7 lists nine steps, a drop order and a `NeedsMore` that the tier resolver resolves "per config" by compressing or escalating, then assembling "once more". It gives no per-block budgets, no definition of the harder pass, and no place where the resolution happens. Phase 01 raised `context_overflow` on the first `NeedsMore` and each call site repeated resolve → budget → assemble → call.
+- Decision:
+  - `config/context.yaml` names the pipeline (system, state digest, rolling summary, sliding window, memory, semantic retrieval, tool results, findings, user message, budget guard), a token budget per block, the `drop_order`, the `compress` pass (a shorter window, smaller memory and retrieval `top_k`, shorter summary and tool results), the summary trigger and the core nodes (`answer`, `summarizer`, `memory_writer`) with their prompts, evidence forms (`full | summary | reference`) and per-node block budgets. Each step keeps its own block within its budget and records every cut as a `Drop`; the budget guard enforces the tier budget in `drop_order`: window messages oldest first, chunks lowest score first, the memory block, then the summary shortened from its oldest end. System instructions and the user message are never dropped. Over-budget chunks, tool results and findings are compressed extractively (sentences sharing the most words with the question, after Arabic normalization).
+  - `app/graph/calls.py` is the one path for every model call: `prepare_call` resolves the tier, assembles for that tier's budget and resolves a `NeedsMore` once — one tier up (`TierResolver.escalate`, bounded by the same cap and by `max_escalations_per_turn`, recorded in `escalations`) when the overflow action is `escalate` and a higher tier is allowed, otherwise the compress pass — and ends the turn as `context_overflow` if the package still does not fit. `call_model` sends it through the model gateway and records usage once. The answer node, a capability's input package and `call_model`, the summarizer and the memory extractor all use it. The overflow action is the manifest's `on_overflow` (`escalate` wins among several capabilities), else `escalation.context_overflow_default`. This is step 3 of README §19.3; router and validation escalation stay phase 08.
+  - Only the calls a user sees produce a `tier` event (the answer and capability calls). The summarizer and the extractor are helper calls: their tier decision is on the span, not in the stream.
+  - Semantic retrieval and tool-result steps exist now and render what a request carries; no capability produces chunks or tool results until phases 04–07.
+- Consequences: Adding a block budget or changing the drop order is a config change. A capability with `on_overflow: escalate` can move a call one tier up; `general` compresses. A package that fits neither pass ends the turn before any model call, so nothing is persisted. The smoke check that every tier event of the viewer's turn is `standard` still holds, because helper calls stream no tier event.
+
+### ADR-0057: The rolling summary folds what leaves the window once the history passes the trigger
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed — Superseded by ADR-0073 on 2026-10-05 (where the fold runs only)
+- Context: README §7 step 4 summarizes messages older than the window incrementally, with the trigger "history > 8k tokens". Taken literally, a history that fell back under the trigger after a first summary would leave messages that are neither in the summary nor in the window.
+- Decision:
+  - History is the summary plus the unsummarized, unretracted messages. When it exceeds `summary.trigger_tokens` (8000), every message older than the window and not yet summarized is folded; once a summary exists, every later turn folds the messages that left the window. `summary_cursor` (AgentState addition) counts the messages the summary covers, and the sliding window reads only messages after it.
+  - The fold runs in `assemble_context`, before routing, through `prepare_call` with the `summarizer` role (tier and temperature from `config/models.yaml`). The request holds the old summary in the `summary` block, the messages being folded in the `window` block (their own budget in `nodes.summarizer.blocks`), and the versioned `summarizer.request` prompt as the user block. Retracted messages are never folded (ADR-0048). `summary` and `summary_cursor` are checkpointed.
+  - An empty summary keeps the cursor, so the same messages are folded next turn; a model failure ends the turn like any other call.
+- Consequences: A long conversation costs one `fast` call per turn once it passes the trigger, and none before. A reply retracted after it was already folded stays in the summary; retraction happens right after a turn, while the reply is still in the window. Summary quality on `fast` is measured with the Arabic samples recorded in PROGRESS (material for ADR-0030).
+
+### ADR-0058: Memory write, retrieval and policy
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed — Superseded by ADR-0071 on 2026-10-05 (memory extracted from a reply that is later retracted only)
+- Context: README §8 fixes the table, the kinds, the similarity dedupe and the rule never to store what a guard flagged, and describes an asynchronous writer. The owner scoped phase 02 to a synchronous graph node after `persist_state` that reads post-guard content and calls the `extractor` role. Defaults, failure handling and the embedding path were open.
+- Decision:
+  - `agent.memory_items` carries README §8's columns plus `id`; `embedding` is an untyped `vector`, and similarity (cosine) is computed only against vectors of the query's dimension, so the embedding model can change without a migration. Every statement names `(tenant_id, user_id)`; no store method crosses it. `agent.memory_settings` holds the per-user switch; without a row, `enabled_by_default` (true) applies.
+  - Embeddings go through LiteLLM's `embed` alias (`config/models.yaml`), one text per call. An embedding is not a chat call, so it has no ContextPackage.
+  - `write_memory` runs after `persist_state` and reads the two messages that turn persisted, role and `content` only — never `shown_answer`. It writes nothing when the user's memory is off, or when any guard event of the turn has an action other than `allow` or `log_only`. The extractor (`memory.extractor` prompt) answers with a JSON array; candidates of the configured kinds, at or above `min_confidence`, up to `max_items_per_turn`, are embedded and stored unless a live item of the same scope is at least `dedupe_similarity` similar. A malformed answer stores nothing. Its latency is `memory.write_ms` on the turn span. Any failure is recorded on the span and never fails the turn, since the reply is already persisted.
+  - Retrieval is the `memory` block for the request's `memory_scope`, set by core code from the principal: the top `blocks.memory.top_k` items by similarity to the user message, at least `min_similarity`. A user with memory off gets nothing; an embedding failure degrades to no memory for that call, recorded on the span. The prompt marks memory as data, not instructions.
+  - All values live in `config/memory.yaml`. The mock LiteLLM returns one fixed embedding and a valid extraction on `fast`, so tests exercise the write, dedupe and retrieval paths.
+- Consequences: A general turn costs one more `fast` call and two embeddings when memory is on. Retrieval uses the message alone, not the intent, which the router does not produce yet. PII categories are excluded only by the extractor prompt until phase 03 puts memory text through guards; memory extracted from a reply that is later retracted stays until its user deletes it; the write moves to an asynchronous worker in phase 09. There is no ANN index; per-user scans are small in v1.
+
+### ADR-0059: Endpoints without a body name the caller in headers; memory is proxied and audited; the debug endpoint checks ownership itself
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: The memory list/delete/switch and `GET /v1/debug/context/{turn_id}` have no request body in which to carry a principal, unlike `POST /v1/turns`. README §8 says users manage their own memory and admins cannot read it; README §7 calls the debug endpoint admin-only; residual risk 7 requires it to check conversation ownership itself. Debugging is environment-specific, which §20 keeps out of `config/`.
+- Decision:
+  - Agent endpoints without a body take the caller from `X-User-Id` and `X-Tenant-Id`, beside `X-Internal-Token`. Only the gateway sets them, from the verified token; a client's own headers of that name are never forwarded.
+  - Agent: `GET /v1/memory` (switch and items), `DELETE /v1/memory/{id}` (204, or 404 `memory_not_found` for an id the caller does not have, another user's included), `PUT /v1/memory/settings`. Gateway: the same three paths, answered in the envelope and audited like turns (ADR-0042): refused with 503 `audit_unavailable` before the agent is called when the log is unreachable, and answered only once the record (`memory.list`, `memory.delete`, `memory.settings`) is written. A delete of an item the caller does not have is audited as `denied`; a malformed id is rejected by validation and not audited (ADR-0013). There is no endpoint that reads another user's memory, for any role.
+  - `GET /v1/debug/context/{turn_id}` is served, and packages are recorded in `agent.context_packages` by `prepare_call`, only while `DEBUG_CONTEXT_ENABLED` is true (`.env`, default false); otherwise it answers 404 `not_found`. It resolves the turn's conversation, reads that conversation's owner (`TurnRunner.owner_of`) and answers 403 `conversation_forbidden` to anyone else, before returning the exact packages in assembly order. Phase 02 does not proxy it through the gateway; the admin panel of README §13 decides who may call it there.
+- Consequences: An admin reads context packages only for conversations they own until the gateway proxy defines admin access, which is stricter than README §7. Recorded packages hold user content and have no retention yet, so the flag stays off outside development. A delete that succeeds in the agent but whose audit record then fails is answered 503 although the item is gone, the same residual as a turn (ADR-0042). CORS allows `PUT` and `DELETE`.
+
+### ADR-0060: Writing-script rule for Arabic answers; supersedes ADR-0033 and ADR-0027's CJK check
+- Date: 2026-09-15
+- Phase: 02
+- Status: decided
+- Context: ADR-0033 decided a word-level Arabic–Latin rule for phase 02. The owner widened it when scoping the phase: ADR-0027 caught only CJK, and the measured drifts include `الريyal`, `البرتugal` and `لисboa`, where Cyrillic also appears.
+- Decision:
+  - For an Arabic-locale answer the allowed scripts are Arabic, Latin, digits and punctuation. Latin is allowed only as whole tokens: any whitespace-delimited token that mixes letters of two scripts fails (`mixed_script_token`), and a letter of any other script (Cyrillic, Greek, CJK, …) fails anywhere (`disallowed_script`). These codes replace `cjk_in_arabic_answer`.
+  - `config/validation.yaml` holds, per locale, the allowed letter scripts and `mixed_token_allowlist` (tokens compared after trimming punctuation at their ends). A locale without an entry is not script-checked, as English was not under ADR-0027.
+  - A character's script is the first word of its Unicode name for letters and marks; digits, punctuation, symbols, separators, format characters and combining or modifier marks carry none. Deterministic and model-free, in `app/text/script.py`; tests cover the three measured samples and a pure-Cyrillic token.
+- Consequences: `الرياض (Riyadh)`, URLs, SQL and Arabic-Indic digits pass; `الـAPI` fails unless allowlisted. The answer node retries a failure once before `validate` ends the turn (ADR-0061).
+
+### ADR-0061: A script failure is retried once on the same package; the retry replaces the streamed text
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: The owner asked the answer node to retry a script-validation failure once at temperature 0.0 through the same Context Assembly → models.call path, record `answer.retry` on the span, and retract only if the retry also fails. Tokens of the first attempt have already streamed by the time its text can be checked, so the client needs a way to replace them, and ADR-0036 keeps temperatures out of code.
+- Decision:
+  - After the answer streams, the answer node applies the locale's script policy. When an issue listed in `retry.issues` is found and `retry.attempts` is 1, it emits `retract` with reason `answer_retry`, calls the model again on the same prepared package and tier at `retry.temperature` (0.0, `config/validation.yaml`, passed to the model gateway in place of the role's temperature), and streams the retry in place of the first text. The span records `answer.retry`, `answer.retry.issues` and `answer.retry.passed`. `validate` then checks the retry; if it fails too, it retracts with `validation_failed` and ends the turn as before. `attempts: 0` turns the retry off.
+  - The web client already clears streamed text on `retract` and appends later tokens, so no client or event-schema change is needed; the turn's `error` still follows only a failed retry.
+- Consequences: A retracted first attempt does not end the turn: the `retract` event now also marks a replacement. A retried turn costs a second answer call on the same tier; escalating a tier on validation failure stays phase 08. Scores with and without the retry are recorded in PROGRESS.
+
+### ADR-0062: The cross-namespace `cap_state` rule is an AST check in `make test`
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: README §18.4 enforces "each capability reads/writes only `state[state_namespace]`" by a runtime guard and a lint rule. The runtime slice exists (ADR-0047); ruff has no rule for string keys.
+- Decision: `tests/unit/test_cap_state_lint.py` parses every Python file of every capability package (`app/capabilities/*`, and the test-only capabilities under `tests/fixtures/capabilities/*`) and fails on a string constant that is another capability's namespace (`cap.<slug>` other than the manifest's own `state_namespace`) or the AgentState key `cap_state`. A capability uses `runtime.context.cap_state` and returns `CapabilityOutput(cap_state=...)`, neither of which is a string key. Tests prove the rule fires on the forbidden shapes and passes on the allowed ones.
+- Consequences: Building a namespace name dynamically escapes the rule, like any lint; the runtime slice (ADR-0047) still hands a capability its own namespace only, and first-party code review remains the control (ADR-0054).
+
+### ADR-0063: Agent and gateway API versions move to 1.2.0
+- Date: 2026-09-15
+- Phase: 02
+- Status: decided
+- Context: ADR-0046 kept 1.1.0 while its changes had not left the unmerged PR #1. PR #1 is merged, so 1.1.0 is published and phase 02's additions need a new version.
+- Decision: Agent OpenAPI 1.2.0 adds `GET /v1/memory`, `DELETE /v1/memory/{item_id}`, `PUT /v1/memory/settings` and `GET /v1/debug/context/{turn_id}`; gateway OpenAPI 1.2.0 adds the three memory endpoints and the `memory_not_found` code. Every change is additive, so the URL prefix stays `/v1`. `docs/openapi/*` and the web's generated types are regenerated; `docs/events.schema.json` is unchanged (`events.v1`).
+- Consequences: The drift tests (ADR-0044) pin both documents at 1.2.0.
+
+### ADR-0064: A memory candidate must name the user, be grounded in the user's message and keep to the locale's scripts
+- Date: 2026-09-15
+- Phase: 02
+- Status: assumed
+- Context: ADR-0058 keeps candidates by kind, confidence and similarity. Probed on the live stack with four exchanges (PROGRESS), the `fast` extractor (temperature 0) answered `[]` even for an explicit role and preference until the prompt carried worked examples. With examples it extracted the smoke message, but it also produced an inferred fact for a pure general-knowledge question ("المستخدم يرغب في الحصول على معلومة تاريخية حول عاصمة بلد معين"), later the answer itself as a fact ("عاصمة البرتغال هي لشبونة."), turned a formatting preference into "المستخدم معرف بجامعة الملك سعود", and drifted into mixed script ("ي.work على مشروع…"). Every stored item is retrieved into later answers. README §2 keeps the policy over what is worth remembering in our code.
+- Decision: `parse_candidates` keeps a candidate only when, in addition to ADR-0058's rules:
+  - its text names its subject, one of `subject_words` (`المستخدم`, `user`): memory is about the user, not about the topic asked;
+  - its text passes the conversation locale's script policy (`config/validation.yaml`, ADR-0060);
+  - at least `min_grounding` (0.5) of its content words appear in the user's own message of that exchange. Content words have at least three letters, are compared after Arabic normalization with light proclitics (`و`, `ب`, `ل`, `ف`, `ك`, `ال` and their combinations) stripped, and exclude `grounding_ignore`, the words the extractor's phrasing adds to every candidate. The light stemmer lives in `app/text/arabic.py` beside normalization, for the phase 03 keyword checker too.
+  The extractor prompt carries three worked examples (facts, a preference only, a question only), asks that every text start with "المستخدم" / "The user", and that a question alone yield `[]`.
+- Consequences: Inferences, restated answers and drifted text are not stored; a faithful paraphrase whose verbs change person (`أعمل` → `يعمل`) still passes on its nouns. A candidate about the user's project that does not name the user is dropped, a false negative accepted over a false memory. A misattribution built from the user's own words can still pass; that is extractor capacity, recorded as material for ADR-0030. Tests whose mock extraction must be stored send a message containing its words.
+
+### ADR-0065: Dev tiers on OpenRouter with open-weight models that mirror production
+- Date: 2026-09-16
+- Phase: 02
+- Status: assumed — Decided by the owner on 2026-10-05. Note: `evals/run_evals.py` logs in before each case (owner-approved), because a run outlasts the realm's 300 s access token. Superseded by ADR-0066 on 2026-10-05 (the two-file offline profile only); Superseded by ADR-0067 on 2026-10-05 (the tier windows and `max_output` only)
+- Context: On the development host the tiers ran on local Ollama (ADR-0008): `qwen2.5:3b`, `qwen2.5:14b-instruct` and `gemma4:31b` at 32k/32k/65k context. Phase 02 measured defects that come from those models, not from the platform: the `fast` summarizer wrote in the assistant's voice and turned open choices into decisions, the `fast` extractor inferred and misattributed facts (ADR-0064), and the `standard` model drifted into mixed script at temperature 0 (0 of 11 retries rescued an answer, ADR-0061). ADR-0030 proposed measuring a 7B `fast` model on the same host. The owner moved the three chat tiers to OpenRouter instead, with open-weight models of the kind production can host; `infra/litellm/config.yaml` and the `OPENROUTER_API_KEY` in `docker-compose.yml` are the owner's edits.
+- Decision:
+  - `fast`, `standard` and `heavy` resolve to open-weight models on OpenRouter, each with `provider.allow_fallbacks: false`; `embed` stays on local Ollama (`bge-m3`), so no stored vector changes. `infra/litellm/config.yaml` stays the only file that names a model. `OPENROUTER_API_KEY` is in `.env.example`, empty.
+  - No real or ministry data in development while the tiers are on OpenRouter: seed users, synthetic conversations and public facts only. Prompts and completions leave the host.
+  - `config/models.yaml` windows and `max_output` are the smallest context length and completion limit among each model's OpenRouter providers (read from `/api/v1/models/<model>/endpoints` on 2026-09-16), because no provider is pinned: `fast` 131072/8192, `standard` 256000/65536, `heavy` 1000000/32768.
+  - The Ollama aliases are kept as the offline profile, `infra/litellm/config.local.yaml`, selected by the overlay `docker-compose.local.yml`: `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml make up smoke`, then `make up` to switch back. The owner runs `make smoke` on it once per phase before merge (HANDOFF owner checklist), so the stack keeps working without a network.
+  - `config/validation.yaml` sets `retry.attempts: 0`: the retry never rescued an answer on the old `standard` model. The code path and its tests stay; the tests set `attempts` themselves.
+  - ADR-0030 is superseded: the `fast` model is no longer chosen by what the development host can hold. The helper-role suite it asked for is still the right measurement for any `fast` model.
+- Consequences: Development needs network access and OpenRouter credit; OpenRouter holds a call's full `max_tokens` against the balance, so a 65536 ceiling on `standard` fails with 402 (`model_unavailable`) when credit is low. Answers and helper outputs are no longer comparable with phase 01–02 measurements; PROGRESS records both. The `standard` model reasons before answering, which adds hidden output tokens and latency to every general turn. With the offline profile the windows in `config/models.yaml` exceed Ollama's `num_ctx`, which silently truncates longer prompts; the smoke prompts are far shorter. Provider choice is left to OpenRouter, so quantization and latency can vary between calls.
+
+### ADR-0066: One LiteLLM config; models, endpoints and keys come from the environment
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: ADR-0065 kept two LiteLLM configs (`config.yaml` on OpenRouter, `config.local.yaml` on Ollama) and a compose overlay to pick one. Switching profiles meant a `COMPOSE_FILE` incantation, the two files could drift apart, and a fresh clone without an OpenRouter key failed `make smoke`. The owner decided on one config whose values come from the environment, and asked to verify that LiteLLM resolves `os.environ/` in the `model` field before relying on it.
+- Decision:
+  - `infra/litellm/config.yaml` keeps the aliases `fast`, `standard`, `heavy`, `embed` and reads `model`, `api_base` and `api_key` from `FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `MODEL_API_KEY` and `EMBED_API_BASE`. OpenRouter's `extra_body.reasoning.enabled` and `extra_body.provider.allow_fallbacks` come from `MODEL_REASONING_ENABLED` and `MODEL_PROVIDER_ALLOW_FALLBACKS` (both `false`). `docker-compose.yml` passes the variables, failing with a message when a required one is missing. `config.local.yaml` and `docker-compose.local.yml` are deleted.
+  - `.env.example` holds the offline profile (Ollama on the host, no key), so a fresh clone passes `make smoke` without a network. The OpenRouter profile is five `.env` lines (three models, base URL, key), documented in README §21.4 and HANDOFF.
+  - Verified on LiteLLM v1.100.0 with a capturing upstream: `os.environ/` resolves in `model` (the request went to the configured Ollama and OpenRouter models), in `api_base` and `api_key`, and inside nested `extra_body`; `false` arrives as a JSON boolean. A number arrives as a **string**: LiteLLM's `get_secret` converts only booleans, and Ollama rejects `"num_ctx": "32768"` (`option "num_ctx" must be of type integer`). So `num_ctx` stays a literal per alias, equal to the tier windows (ADR-0067); on OpenRouter it is sent as an extra field, which OpenRouter ignores (checked by the OpenRouter smoke run), and Ollama ignores `reasoning` and `provider`.
+  - `scripts/preflight.sh` and `scripts/pull_models.sh` read the resolved values from `.env` through `scripts/models_env.sh`, check or pull only the `ollama/` and `ollama_chat/` models, and reach `host.docker.internal` as `localhost`. The shell variables `OLLAMA_HOST` and `OLLAMA_HOST_URL` are gone.
+  - Model names now live in `.env` and `.env.example`, not in `infra/litellm/config.yaml`; code still names only roles and aliases (CLAUDE.md rule 4). This supersedes ADR-0029's "only file that names a model" and its host-side shell variables.
+- Consequences: Switching profiles is a `.env` edit plus `make up`. An existing `.env` must gain the new variables (compose names the missing one). `num_ctx` is the one provider parameter that cannot move to the environment while LiteLLM resolves numbers as strings.
+
+### ADR-0067: Tier windows and `max_output` are platform budgets, back to README §19.1
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: ADR-0065 set `window` and `max_output` to the smallest provider limits on OpenRouter (131072/8192, 256000/65536, 1000000/32768). Those are what a provider accepts, not what the platform budgets: the budget guard then never pressed, a 65536-token `max_tokens` failed with 402 on low credit, and the offline profile's `num_ctx` was far below the windows.
+- Decision: `config/models.yaml` returns to README §19.1's budgets: `max_output` 2000/4000/8000 and `window` 32768/32768/65536 for `fast`/`standard`/`heavy`, the owner's values (the 32768 and 65536 windows match the offline `num_ctx`). Supersedes ADR-0065's tier values. `test_needs_more_fires_at_the_real_tier_budget` assembles a user message one budget long on `standard` (fits) and 500 tokens over it (`context.needs_more`, then `context_overflow`, since compressing never shortens the user message).
+- Consequences: A provider must accept these values, which all three do. Long answers are cut at `max_output`; the answer reasons without hidden tokens on OpenRouter (`MODEL_REASONING_ENABLED=false`, ADR-0066), so 4000 is the visible answer budget.
+
+### ADR-0068: User-derived text never enters the system role
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided — Superseded by ADR-0076 on 2026-10-06 (the merge rule of `to_messages` only)
+- Context: The summary block (a model's rewrite of the user's own messages) and the memory block (items extracted from them) were system-role blocks (`blocks.py`), merged into the system message. A user could thus place text in the system role of a later turn, or of another conversation through memory, by saying it once.
+- Decision: User-derived text never enters the system role. The summary and memory blocks are user-role blocks, rendered by `context.summary@1.1.0` and `context.memory@1.1.0` inside `<conversation_summary>` and `<user_memory>` delimiters that call them data, not instructions. `ContextPackage.to_messages` merges adjacent blocks of one role into one message, so the summary joins the first window message and memory joins the current user message, and roles still alternate (some chat templates require it). The system message holds only system instructions and the state digest. Tested by `test_summary_and_memory_are_user_role_data_blocks_never_system`.
+- Consequences: The rule binds later blocks too: when a node produces `decisions` or `open_threads` from user text, the state digest needs the same treatment (no node produces them yet). Retrieval, tool results and findings are untrusted tool data, governed by §10.3, and stay where they are in this session.
+
+### ADR-0069: The agent's migration runner records a checksum per file
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: ADR-0055's runner recorded only a migration's name, so an edited, already-applied file was silently skipped and databases could differ while claiming the same version.
+- Decision: `agent.schema_migrations` gains `checksum` (SHA-256 of the file). A new file is applied and recorded with its checksum; an applied file whose checksum differs fails startup with `MigrationChecksumMismatch` naming the file; a row recorded before checksums existed takes the current file as its baseline. Tested in `tests/integration/test_migrations.py`. Supersedes ADR-0055's migration record only.
+- Consequences: A migration is never edited after it is applied; a change is a new file. The column is added in place on existing databases.
+
+### ADR-0070: Agent integration tests run as the app role on a database provisioned by `infra/postgres/init`
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: ADR-0055 had the test fixture connect as the Postgres superuser and create and drop a database per session, so tests ran with privileges the service never has, and a permission the service lacks could pass in tests.
+- Decision: `infra/postgres/init/10-agent-test.sh` creates `agent_test`, owned by `app`, with the `vector` extension; it is idempotent, and `make test-agent` runs it on an existing volume too. `agent-tests` gets `AGENT_TEST_DATABASE_URL` as the `app` role. The fixture empties every table in schema `agent` except the two migration records at the start of a session, instead of creating a database. Supersedes ADR-0055's test database only; the gateway's JDBC tests (ADR-0051) are unchanged.
+- Consequences: The superuser password no longer reaches `agent-tests`. Two test sessions on one database at the same time would interfere. A migration edited during development fails the test database too (ADR-0069); dropping `agent_test` and re-running `make test-agent` resets it.
+
+### ADR-0071: Retracting a reply deletes the memory extracted from that turn, in the same transaction
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: ADR-0058 left memory extracted from a reply that is later retracted (ADR-0048) until its user deleted it, so a withdrawn turn could still shape later answers.
+- Decision: `TurnRunner.retract` sets the retract flag and deletes `memory_items` with `source_turn = turn_id` for the conversation's owner in one transaction: the flag is written through an `AsyncPostgresSaver` on that transaction's connection (the compiled graph copied with that checkpointer), and `MemoryStore.delete_from_turn` runs on the same connection. Either both commit or neither does. Idempotent. Tested: the turn's items go, older items and another user's row with the same `source_turn` stay, and a failure after the delete rolls back the flag too. Supersedes ADR-0058's handling of memory from a retracted reply only.
+- Consequences: A retracted reply leaves no memory behind. A reply already folded into the summary stays there (ADR-0057's consequence, unchanged).
+
+### ADR-0072: `model.call` records the model LiteLLM served
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: `gen_ai.response.model` was taken from the stream chunks, which LiteLLM fills with the alias (`fast`, `standard`), so traces could not say which model answered, least of all after a profile switch (ADR-0066).
+- Decision: The gateway calls `with_raw_response` and records LiteLLM's `x-litellm-model-name` response header (the deployment the alias was routed to, e.g. `openrouter/qwen/qwen3.6-27b` or `ollama_chat/qwen2.5:14b-instruct`) as `gen_ai.response.model` and Langfuse's model name, with `model.served_known=true`. Without the header it records the alias and `model.served_known=false`. `tests/integration/test_model_span.py` asserts `prompts`, `tier_reason` and `gen_ai.response.model` on the answer's `model.call`.
+- Consequences: The header names the configured deployment; which OpenRouter provider served the call is not exposed in a stream and is not recorded.
+
+### ADR-0073: The rolling summary folds at the end of the turn; the turn-start fold is a fallback
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: ADR-0057 ran the fold in `assemble_context`, before routing, so a turn past the trigger waited for a `fast` call (4.15 s measured, PROGRESS) before its first token.
+- Decision: A `fold_summary` node runs after `persist_state` and before `write_memory`, on the history including the turn just persisted, so the next turn starts with its summary ready. A failure there is recorded on the span and never fails the turn; the messages stay unfolded and are taken by the next fold. `assemble_context` keeps the fold as a fallback only when the history already exceeds `summary.trigger_tokens` at the start of a turn (`context.summary.lazy` on its span). Tests check that the end-of-turn summarizer call starts after the answer call ends, and that the fallback folds before the answer. Supersedes ADR-0057's placement only.
+- Consequences: The fold no longer delays the first token; it delays `done` instead, like the memory write. A turn's answer sees the summary built at the end of the previous turn. When an end-of-turn fold fails and the history is under the trigger, the next turn's answer misses the messages that left the window until the following fold.
+
+### ADR-0074: Evals run as a dedicated user with memory off
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: `make eval` ran as `analyst`, whose memory smoke writes and every case could read, so a case's answer depended on earlier runs (PROGRESS recorded 4 to 19 analyst rows across runs).
+- Decision: The realm seeds `evaluator/evaluator` (base `user` role only, tenant `default`). `run_evals.py` logs in as `evaluator`, switches its memory off through the gateway (`PUT /v1/memory/settings`) and checks the switch before the first case. The analyst keeps memory for smoke.
+- Consequences: Eval answers no longer depend on stored memory. The realm file changed: an existing Keycloak volume gets the user only after `make clean && make up` (or by adding it in the admin console).
+
+### ADR-0075: Interpretation of rule 6 — a test may replace a real LiteLLM call's text
+- Date: 2026-10-05
+- Phase: 02 (fix session for PR #2)
+- Status: decided
+- Context: CLAUDE.md rule 6 sends every model call through Context Assembly and LiteLLM, tests included. Some defects of real models are not deterministic (script drift such as `الريyal`), and the mock LiteLLM returns one fixed text per alias, so a test cannot make a model produce them on demand.
+- Decision: Accepted interpretation: a test may let a real call go through Context Assembly and LiteLLM and then replace the returned text, to simulate a non-deterministic model defect. The call itself is never skipped and no model endpoint is called directly.
+- Consequences: Tests such as `tests/integration/test_answer_retry.py` stay within the rule. A test that never makes the LiteLLM call is still a violation.
+
+### ADR-0076: A retracted exchange leaves the context as a pair; only the current message merges
+- Date: 2026-10-06
+- Phase: 02 (second fix session for PR #2)
+- Status: decided — Superseded by ADR-0077 on 2026-10-06 (the summary's position only)
+- Context: ADR-0048 skipped a retracted reply but kept the user message of its turn, and ADR-0068 had `ContextPackage.to_messages` merge every pair of adjacent blocks of one role. After a retract the window ended with that orphan question, so it merged with the memory block and the current message: the model saw `"A\n\nB"` as one user turn (review of PR #2, finding 1).
+- Decision:
+  - `context/messages.py` `visible()` marks, besides each retracted reply, the user message right before it, which `persist_state` stored with it. The sliding window and the summarizer's plan (`plan_summary`: the history count and the fold slice) read history through it, with pairs found on the whole history before the summary cursor or window slice applies. The orphan question never reaches a model either.
+  - `to_messages` merges same-role blocks only within the current-message group (`summary`, `memory`, `user_message`) and among system blocks. A window message is never merged with a neighbour. A window that ends with a user message right before a group block raises `HistoryEndsWithUserMessage`, a core error, instead of merging.
+  - Tested: a history ending in a retracted pair gives `[system, user "B"]`, and with memory hits the memory block joins `"B"` only; a summarizer slice ending on a retracted pair ends on the assistant message before it; the window skips the pair; `to_messages` raises on a window ending with a user message.
+  - Supersedes ADR-0048's "The user message of that turn stays" and ADR-0068's merge rule ("the summary joins the first window message") only.
+- Consequences: A summary block followed by a window that starts with a user message gives two consecutive user messages; roles no longer strictly alternate there. Whether every served model's chat template accepts that is not verified; one that requires strict alternation would need the summary moved into the current-message group, a new decision. A retracted question already folded into the summary stays there (ADR-0071's consequence, unchanged).
+
+### ADR-0077: The summary block sits after the window, inside the current message
+- Date: 2026-10-06
+- Phase: 02 (second fix session for PR #2)
+- Status: decided
+- Context: ADR-0076 left the summary block before the window, so when the window started on a user message the model received two consecutive user messages, and whether every served model's chat template accepts that was not verified.
+- Decision: The pipeline in `config/context.yaml` runs `sliding_window` before `rolling_summary`: system → state digest → history window → summary → memory → (system-role evidence blocks) → user message. The summary is thus adjacent to the memory block and the question and merges with them under ADR-0076's rule; it never precedes history. README §7 already lists the window (step 3) before the summary (step 4) and makes the order configuration, so the README is unchanged. Tested by `test_with_a_summary_the_messages_strictly_alternate_after_the_system_message` (with and without memory hits): after the system message the roles alternate user/assistant and end on the user. Supersedes ADR-0076's summary position and its alternation consequence only.
+- Consequences: With a summary present, roles strictly alternate after the system message. The current user message carries `<conversation_summary>`, then `<user_memory>`, then the question. The summarizer node gets the same order: the fold slice, then the existing summary joined with its request prompt.

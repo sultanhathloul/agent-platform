@@ -3,14 +3,12 @@ conversation to its first caller and refuses anyone else before the graph writes
 anything; the identity node keeps its own check behind it."""
 
 import asyncio
-import dataclasses
 import json
 import uuid
 from types import SimpleNamespace
 
 import pytest
 
-from app.api.ownership import ConversationOwners
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
@@ -73,8 +71,8 @@ async def test_concurrent_first_turns_bind_one_owner(client, services, litellm):
     assert snapshot.values["user_id"] == json.loads(winner.request.content)["principal"]["user_id"]
 
 
-async def test_an_owner_recorded_in_the_thread_wins_over_an_empty_registry(services, litellm):
-    # e.g. a restart with a durable checkpointer, before the bindings are durable too
+async def test_an_owner_recorded_in_the_thread_wins_over_a_lost_binding(services, litellm):
+    # e.g. an owner row lost from agent.conversation_owners while the checkpoint survived
     owner = TurnRequest(
         conversation_id=str(uuid.uuid4()),
         principal=Principal(user_id="u-1", permissions=("cap:general",)),
@@ -83,9 +81,12 @@ async def test_an_owner_recorded_in_the_thread_wins_over_an_empty_registry(servi
     )
     assert [e.type async for e in TurnRunner(services).stream(owner, "req-owner")][-1] == "done"
 
-    restarted = dataclasses.replace(services, owners=ConversationOwners())
+    async with services.db.connection() as conn:
+        await conn.execute(
+            "DELETE FROM agent.conversation_owners WHERE conversation_id = %s", (owner.conversation_id,)
+        )
     intruder = owner.model_copy(update={"principal": Principal(user_id="u-2", permissions=("cap:general",))})
-    events = [e async for e in TurnRunner(restarted).stream(intruder, "req-intruder")]
+    events = [e async for e in TurnRunner(services).stream(intruder, "req-intruder")]
     assert [(e.type, e.data.code) for e in events] == [("error", "conversation_forbidden")]
 
 

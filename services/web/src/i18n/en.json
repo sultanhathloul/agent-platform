@@ -5,6 +5,7 @@
   },
   "header": {
     "newChat": "New chat",
+    "memory": "Memory",
     "signOut": "Sign out",
     "switchLanguage": "Change language"
   },
@@ -59,6 +60,27 @@
     "denied": "Denied",
     "pending_approval": "Awaiting approval"
   },
+  "memory": {
+    "title": "Assistant memory",
+    "description": "The assistant saves what is worth remembering about you from your conversations, such as your preferences and work context, and uses it in later conversations. This memory is yours alone.",
+    "loading": "Loading your memory…",
+    "toggleLabel": "Turn memory on",
+    "enabledHint": "Memory is on: the assistant saves what is worth remembering and uses it in its answers.",
+    "disabledHint": "Memory is off: the assistant saves nothing new and does not use what was saved. Saved items stay until you delete them.",
+    "empty": "Nothing is saved in your memory.",
+    "savedOn": "Saved on {date}",
+    "delete": "Delete",
+    "deleteLabel": "Delete the item: {text}",
+    "deleted": "The item was deleted from your memory.",
+    "saving": "Saving…",
+    "retry": "Try again",
+    "kinds": {
+      "preference": "Preference",
+      "fact_about_user": "About you",
+      "project_context": "Work context",
+      "decision": "Decision"
+    }
+  },
   "errors": {
     "unauthorized": "Your session has expired. Please sign in again.",
     "forbidden": "You do not have permission to perform this request.",
@@ -79,6 +101,7 @@
     "validation_failed": "The answer did not pass verification, so it was not shown.",
     "output_blocked": "The answer was withheld by a content policy.",
     "data_blocked": "The answer was withheld because it contains protected data.",
+    "memory_not_found": "This item was not found in your memory; it may already have been deleted.",
     "unknown": "An unknown error occurred."
   }
 }

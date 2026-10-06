@@ -1,12 +1,20 @@
 """Shared fixtures. Integration tests go through LiteLLM with mock aliases
 (ADR-0007): `make test` starts `litellm-mock`; locally, run
 `docker compose --profile test up -d litellm-mock` and pytest reaches it on
-http://localhost:4001 with the master key from the repo .env."""
+http://localhost:4001 with the master key from the repo .env.
+
+State lives in Postgres (ADR-0055). The tests connect as the `app` role, like the
+service, to the database `agent_test` that infra/postgres/init provisions with
+the vector extension, and empty the agent's tables at the start of a session
+instead of creating a database (ADR-0070). `make test` passes
+AGENT_TEST_DATABASE_URL; locally, the dev overlay publishes Postgres on port 5433."""
 
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
+import psycopg
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -87,11 +95,53 @@ def litellm(settings) -> str:
     return settings.litellm_base_url
 
 
-@pytest.fixture(scope="session")
-def services(settings):
-    from app.main import build_services
+def _test_database_url() -> str:
+    if url := os.environ.get("AGENT_TEST_DATABASE_URL"):
+        return url
+    return f"postgresql://app:{_dotenv('APP_DB_PASSWORD') or ''}@localhost:5433/agent_test"
 
-    return build_services(settings)
+
+# Kept across sessions: what the migrations recorded, so a session does not re-apply them.
+_KEEP = {"schema_migrations", "checkpoint_migrations"}
+
+
+@pytest.fixture(scope="session")
+def database_url() -> str:
+    """The provisioned test database, its agent tables emptied. Fails (never skips)
+    when Postgres or the database is unreachable."""
+    url = _test_database_url()
+    try:
+        with psycopg.connect(url, autocommit=True, connect_timeout=5) as conn:
+            tables = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'agent'"
+                ).fetchall()
+                if row[0] not in _KEEP
+            ]
+            if tables:
+                conn.execute(f"TRUNCATE {', '.join(f'agent.{t}' for t in tables)}")
+    except psycopg.OperationalError as exc:
+        hint = "make test-agent provisions it (infra/postgres/init/10-agent-test.sh)"
+        pytest.fail(f"test database not reachable as the app role ({exc}); {hint}")
+    return url
+
+
+async def _started(settings: Settings, database_url: str, **kwargs):
+    from app.main import build_services, start_services
+
+    return await start_services(
+        build_services(settings.model_copy(update={"database_url": database_url}), **kwargs)
+    )
+
+
+@pytest.fixture(scope="session")
+async def services(settings, database_url) -> AsyncIterator:
+    from app.main import stop_services
+
+    started = await _started(settings, database_url)
+    yield started
+    await stop_services(started)
 
 
 PROBE_CAPABILITIES = (
@@ -101,12 +151,14 @@ PROBE_CAPABILITIES = (
 
 
 @pytest.fixture(scope="session")
-def probe_services(settings):
+async def probe_services(settings, database_url) -> AsyncIterator:
     """Services with the test-only `probe` capability discovered beside the real
     ones; no core file names it (ADR-0038)."""
-    from app.main import build_services
+    from app.main import stop_services
 
-    return build_services(settings, extra_capabilities=[PROBE_CAPABILITIES])
+    started = await _started(settings, database_url, extra_capabilities=[PROBE_CAPABILITIES])
+    yield started
+    await stop_services(started)
 
 
 @pytest.fixture
