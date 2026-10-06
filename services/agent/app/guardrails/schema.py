@@ -1,35 +1,376 @@
-"""Guardrail result types shared by the engine and its call sites (README §10.1)."""
+"""Guardrail contracts (README §10; phase 03 rule G2): the policy model, scopes and
+their precedence, the checker result, the DATA payload and its target, the call
+context of a checkpoint, and the outcome every call site acts on.
 
-from typing import Any, Literal
+Everything here is data. The engine (engine.py) resolves which policies apply and
+combines their results; the checkers (checkers/) only answer whether a text
+matches. No capability-specific logic lives in this package (README §18.4): a
+capability's policies are ordinary rows with scope `tool:{slug}`.
+"""
 
-from pydantic import BaseModel, ConfigDict
+import re
+from dataclasses import dataclass, field
+from typing import Any, Literal, get_args
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.guardrails.checkpoints import Checkpoint
+from app.identity import Principal
+
+# ------------------------------------------------------------------ vocabulary
 
 Action = Literal["allow", "block", "redact", "rewrite", "warn", "require_approval", "log_only"]
+ACTIONS: tuple[str, ...] = get_args(Action)
+# When several policy groups match one payload, the most restrictive action wins.
+ACTION_RANK: dict[str, int] = {
+    "allow": 0,
+    "log_only": 1,
+    "warn": 2,
+    "redact": 3,
+    "rewrite": 4,
+    "require_approval": 5,
+    "block": 6,
+}
+Severity = Literal["low", "medium", "high", "critical"]
+OnError = Literal["open", "closed"]
+CheckerName = Literal["regex", "presidio", "keyword_list", "llm_judge", "tier_ceiling"]
+# D8: deterministic checkers fail closed, the judge fails open, unless a policy says otherwise.
+DEFAULT_ON_ERROR: dict[str, OnError] = {
+    "regex": "closed",
+    "presidio": "closed",
+    "keyword_list": "closed",
+    "llm_judge": "open",
+    "tier_ceiling": "closed",
+}
+
+# A4: what the text at the DATA checkpoint is on its way to become.
+DataTarget = Literal["answer", "memory_candidate", "summary"]
+DATA_TARGETS: tuple[str, ...] = get_args(DataTarget)
+
+# Checkpoints whose payload carries text a redaction can rewrite in place.
+TEXT_CHECKPOINTS = frozenset({Checkpoint.INPUT, Checkpoint.POST_TOOL, Checkpoint.OUTPUT, Checkpoint.DATA})
+
+# ------------------------------------------------------------------ scopes
+
+ScopeKind = Literal["global", "tenant", "role", "kb", "tool"]
+# D2: narrow over wide. `role` keeps its slot although phase 03 rejects it.
+SCOPE_PRECEDENCE: dict[str, int] = {"global": 0, "tenant": 1, "role": 2, "kb": 3, "tool": 4}
+_SCOPE_VALUE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+
+
+class ScopeError(ValueError):
+    pass
+
+
+@dataclass(frozen=True, order=True)
+class Scope:
+    """`global | tenant:{id} | kb:{slug} | tool:{name}` (README §10.1, ADR-0025).
+    `role:{role}` is reserved in the vocabulary and its precedence slot but refused:
+    the agent never sees roles (ADR-0046, D2)."""
+
+    kind: ScopeKind
+    value: str | None = None
+
+    @classmethod
+    def parse(cls, text: str) -> "Scope":
+        if text == "global":
+            return cls("global")
+        kind, sep, value = text.partition(":")
+        if not sep or kind not in SCOPE_PRECEDENCE or kind == "global":
+            raise ScopeError(f"scope {text!r} must be global, tenant:<id>, kb:<slug> or tool:<name>")
+        if kind == "role":
+            raise ScopeError(
+                f"scope {text!r}: role scopes are reserved and not supported; the agent never sees roles "
+                "(phase 03 decision D2). Use global, tenant:<id>, kb:<slug> or tool:<name>"
+            )
+        if not _SCOPE_VALUE.match(value):
+            raise ScopeError(f"scope {text!r}: the value must be 1-128 characters of [A-Za-z0-9_.-]")
+        return cls(kind, value)  # type: ignore[arg-type]
+
+    @property
+    def precedence(self) -> int:
+        return SCOPE_PRECEDENCE[self.kind]
+
+    def __str__(self) -> str:
+        return "global" if self.kind == "global" else f"{self.kind}:{self.value}"
+
+
+# ------------------------------------------------------------------ checker configs
+
+
+class _Config(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # A4: DATA policies may name the targets they guard; None means every target.
+    targets: list[DataTarget] | None = None
+
+
+class RegexPattern(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=r"^[A-Za-z0-9_]{1,64}$", description="Entity type of a whole-match span.")
+    pattern: str = Field(min_length=1)
+    ignore_case: bool = True
+
+    @field_validator("pattern")
+    @classmethod
+    def _compiles(cls, value: str) -> str:
+        try:
+            re.compile(value)
+        except re.error as exc:
+            raise ValueError(f"invalid regular expression: {exc}") from exc
+        return value
+
+
+class RegexConfig(_Config):
+    """Named groups become spans typed by the group name; a pattern without named
+    groups yields one span typed by the pattern's name (README §10.2)."""
+
+    patterns: list[RegexPattern] = Field(min_length=1)
+    fold: bool = Field(
+        default=True,
+        description="Match folded text: Arabic-Indic digits as ASCII, tashkeel and tatweel removed, "
+        "alef, alef maqsura and taa marbuta forms folded.",
+    )
+
+
+class PresidioConfig(_Config):
+    entities: list[str] = Field(min_length=1)
+    score_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    language: str = "en"
+
+
+class KeywordListConfig(_Config):
+    keywords: list[str] = Field(min_length=1)
+    # deny: matched when a keyword occurs; allow: matched when the text is none of the keywords.
+    mode: Literal["deny", "allow"] = "deny"
+
+
+class JudgeExample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    violates: bool
+
+
+class LlmJudgeConfig(_Config):
+    topic_description: str = Field(min_length=1, description="The topic in natural language (README §10.2).")
+    examples: list[JudgeExample] = []
+    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class TierCeilingConfig(_Config):
+    """A MODEL_TIER policy is a ceiling only (D2): it matches when the requested tier is
+    above `max_tier`, and the request is served at `max_tier`."""
+
+    max_tier: str = Field(min_length=1)
+    roles: list[str] | None = Field(default=None, description="Model roles it applies to; None means all.")
+
+
+CONFIG_MODELS: dict[str, type[_Config]] = {
+    "regex": RegexConfig,
+    "presidio": PresidioConfig,
+    "keyword_list": KeywordListConfig,
+    "llm_judge": LlmJudgeConfig,
+    "tier_ceiling": TierCeilingConfig,
+}
+
+# ------------------------------------------------------------------ policy
+
+POLICY_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{1,63}$"
+
+
+class Policy(BaseModel):
+    """One immutable version of a policy (README §10.1, I2). `enabled` is not part
+    of the version: switching a policy on or off never creates a version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=POLICY_ID_PATTERN)
+    version: int = Field(default=1, ge=1)
+    name: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    enabled: bool = True
+    scope: str
+    checkpoints: list[Checkpoint] = Field(min_length=1)
+    checker: CheckerName
+    config: dict[str, Any] = {}
+    action: Action
+    severity: Severity = "medium"
+    message_ar: str | None = None
+    message_en: str | None = None
+    on_error: OnError | None = None
+    group: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$",
+        description="Policies of one group override each other narrow over wide; default: the id.",
+    )
+
+    @field_validator("scope")
+    @classmethod
+    def _scope(cls, value: str) -> str:
+        return str(Scope.parse(value))
+
+    @field_validator("checkpoints")
+    @classmethod
+    def _unique(cls, value: list[Checkpoint]) -> list[Checkpoint]:
+        if len(set(value)) != len(value):
+            raise ValueError("checkpoints must not repeat")
+        return value
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "Policy":
+        checkpoints = set(self.checkpoints)
+        try:
+            CONFIG_MODELS[self.checker].model_validate(self.config)
+        except ValidationError as exc:
+            raise ValueError(f"config for checker {self.checker}: {exc}") from exc
+        if self.action == "block" and not (self.message_ar and self.message_en):
+            raise ValueError("a block policy needs message_ar and message_en")
+        if self.action == "rewrite" and checkpoints != {Checkpoint.OUTPUT}:
+            raise ValueError("rewrite exists only at OUTPUT, in buffered mode (D3)")
+        if self.action == "require_approval" and checkpoints != {Checkpoint.PRE_TOOL}:
+            raise ValueError("require_approval exists only at PRE_TOOL")
+        if self.action == "redact" and not checkpoints <= TEXT_CHECKPOINTS:
+            raise ValueError("redact needs a text checkpoint: INPUT, POST_TOOL, OUTPUT or DATA")
+        tier = Checkpoint.MODEL_TIER in checkpoints
+        if tier != (self.checker == "tier_ceiling") or (tier and checkpoints != {Checkpoint.MODEL_TIER}):
+            raise ValueError("MODEL_TIER policies use the tier_ceiling checker, and only they do")
+        if tier and self.action not in ("log_only", "warn"):
+            raise ValueError("a MODEL_TIER policy is a ceiling (D2); its action is log_only or warn")
+        return self
+
+    @property
+    def ref(self) -> str:
+        return f"{self.id}@{self.version}"
+
+    @property
+    def parsed_scope(self) -> Scope:
+        return Scope.parse(self.scope)
+
+    @property
+    def effective_on_error(self) -> OnError:
+        return self.on_error or DEFAULT_ON_ERROR[self.checker]
+
+    @property
+    def effective_group(self) -> str:
+        return self.group or self.id
+
+    def typed_config(self) -> _Config:
+        return CONFIG_MODELS[self.checker].model_validate(self.config)
+
+    def guards_target(self, target: str | None) -> bool:
+        targets = self.config.get("targets")
+        return target is None or targets is None or target in targets
+
+    def content(self) -> dict[str, Any]:
+        """The fields a version is made of: everything but id, version and enabled."""
+        return self.model_dump(mode="json", exclude={"id", "version", "enabled"})
+
+
+# ------------------------------------------------------------------ results
+
+
+class Span(BaseModel):
+    """A matched region of the checked text, by character offsets. Events carry the
+    entity type only, never the matched text."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    entity: str
+    score: float | None = None
+
+
+class CheckResult(BaseModel):
+    """What a checker returns: `check(payload, config) -> CheckResult` (README §10.2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    matched: bool
+    spans: list[Span] = []
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    explanation: str = ""
+
+
+class DataPayload(BaseModel):
+    """The DATA checkpoint's payload (A4): text, and where it is going."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    target: DataTarget
+
+
+@dataclass(frozen=True)
+class GuardContext:
+    """Where a checkpoint is evaluated, beyond the principal: the KBs selected this
+    turn, the tools or capabilities involved (each a `tool:` scope), the locale, and
+    the running turn when there is one (its usage pays for judge calls)."""
+
+    kbs: tuple[str, ...] = ()
+    tools: tuple[str, ...] = ()
+    locale: str = "ar"
+    turn: Any = None
+    # The admin test panel evaluates one policy, enabled or not, and records nothing.
+    only: Policy | None = None
+
+    def scopes(self, principal: Principal) -> set[str]:
+        scopes = {"global", f"tenant:{principal.tenant_id}"}
+        scopes.update(f"kb:{kb}" for kb in self.kbs)
+        scopes.update(f"tool:{tool}" for tool in self.tools)
+        return scopes
 
 
 class GuardEventRecord(BaseModel):
-    """One policy evaluation, kept in state.guard_events and streamed as a `guard` event."""
+    """One policy evaluation, kept in state.guard_events, streamed as a `guard` event
+    and summarized in the audit delta, with the policy's id and version (A1)."""
 
     model_config = ConfigDict(extra="forbid")
 
     checkpoint: Checkpoint
     policy_id: str | None = None
+    policy_version: int | None = None
     action: Action
     detail: str | None = None
+    target: DataTarget | None = None
+    entities: list[str] = []
+    latency_ms: int | None = None
+
+    @property
+    def policy_ref(self) -> str | None:
+        return f"{self.policy_id}@{self.policy_version}" if self.policy_id else None
 
 
 class GuardOutcome(BaseModel):
-    """The engine's verdict for one checkpoint: the resulting action, the
-    (possibly redacted or filtered) payload, and every policy event."""
+    """The engine's verdict for one checkpoint call: the resulting action, the
+    payload after redaction or filtering, every event, the message of the policy
+    that blocked, and whether a fail-closed policy could not be evaluated (D8)."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     action: Action = "allow"
     payload: Any = None
     events: list[GuardEventRecord] = []
+    message_ar: str | None = None
+    message_en: str | None = None
+    decided_by: str | None = Field(default=None, description="policy_id@version of the deciding policy")
+    unavailable: str | None = Field(default=None, description="policy_id@version that failed closed")
+    results: dict[str, CheckResult] = Field(default_factory=dict, description="policy ref → its CheckResult")
 
     @property
     def blocked(self) -> bool:
         return self.action == "block"
+
+
+@dataclass
+class EvaluatedPolicy:
+    """Internal: one policy's result inside one evaluation."""
+
+    policy: Policy
+    result: CheckResult | None
+    error: str | None = None
+    latency_ms: int = 0
+    overridden_by: str | None = None
+    spans: list[Span] = field(default_factory=list)

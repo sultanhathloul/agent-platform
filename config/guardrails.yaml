@@ -1,0 +1,24 @@
+# Guardrails engine settings (README §10). Policies themselves are rows in
+# agent.guard_policies, seeded from config/policies/ and capabilities/*/policies/.
+
+# POST_TOOL always runs sanitize_untrusted before any policy (README §10.3): HTML and
+# scripts stripped, whitespace collapsed, instruction-like strings removed, size capped.
+# Patterns are matched on Arabic-folded text (tashkeel and tatweel removed, alef, alef
+# maqsura and taa marbuta folded), case-insensitively.
+sanitize:
+  max_chars: 24000
+  instruction_patterns:
+    - "ignore (?:all |any )?(?:the )?(?:previous|prior|above) (?:instructions|prompts?|rules)"
+    - "disregard (?:all |any )?(?:the )?(?:previous|prior|above) (?:instructions|rules)"
+    - "you are now (?:a|an|in) [^.\\n]{0,60}"
+    - "(?:reveal|print|show) (?:your |the )?(?:system prompt|hidden instructions)"
+    - "تجاهل (?:جميع |كل )?(?:التعليمات|الاوامر|القواعد) (?:السابقه|اعلاه)"
+    - "انس (?:جميع |كل )?(?:التعليمات|الاوامر) (?:السابقه|اعلاه)"
+    - "انت الان (?:مساعد|نموذج|في وضع) [^.\\n]{0,60}"
+    - "(?:اكشف|اعرض|اطبع) (?:موجه النظام|تعليمات النظام)"
+
+# The DATA sentence buffer while the answer streams (D3, I5): a sentence is released
+# when a terminator is followed by whitespace, at a newline, or at flush_chars.
+streaming:
+  terminators: [".", "?", "؟", "!", "؛"]
+  flush_chars: 240
