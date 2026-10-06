@@ -19,13 +19,17 @@ ENV GATEWAY_OPENAPI_DOC=/docs/openapi/gateway.json
 COPY --from=config models.yaml /config/models.yaml
 ENV GATEWAY_MODELS_CONFIG=/config/models.yaml
 # Gradle's build cache lives in the cache mount; without --no-build-cache `test` is restored FROM-CACHE (ADR-0043).
+# The JUnit XML totals are printed whether the tests pass or not (phase 03 rule G1).
+COPY junit-totals.sh ./
 RUN --mount=type=cache,target=/home/gradle/.gradle \
-    gradle cleanTest test --no-daemon --no-build-cache
+    gradle cleanTest test --no-daemon --no-build-cache; status=$?; \
+    sh junit-totals.sh gateway build/test-results/test; exit $status
 
 FROM build AS db-test
 # JDBC tests need the compose Postgres, which an image build cannot reach, so they run as a container
 # in the compose `test` profile (`make test-gateway-db`, ADR-0051).
-CMD ["gradle", "dbTest", "--no-daemon", "--no-build-cache"]
+COPY junit-totals.sh ./
+CMD ["sh", "-c", "gradle dbTest --no-daemon --no-build-cache; status=$?; sh junit-totals.sh gateway-db-tests build/test-results/dbTest; exit $status"]
 
 FROM eclipse-temurin:21.0.12_8-jre AS runtime
 RUN apt-get update \

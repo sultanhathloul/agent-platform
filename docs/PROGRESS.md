@@ -563,8 +563,42 @@ Human review needed (this session): `config/context.yaml` pipeline order; ADR-00
 ## Phase 03: Guardrails engine
 
 - Branch: `phase/03-guardrails`
-- Status: not started
+- Status: in progress
 - Done when: policy model in DB + Redis reload; 7 checkpoints; `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge`; admin policy UI with test panel; `guardrails.jsonl` ≥ threshold.
+
+Scope restated (session 2026-10-06):
+1. Engine: versioned policies in `agent.guard_policies` (agent-owned, immutable versions, seeded from `config/policies/`), cached in Redis and reloaded through pub/sub within 2 s; scopes `global`, `tenant:`, `kb:`, `tool:` (`role:` reserved and rejected), narrow over wide; checkers `regex`, `presidio` (Saudi recognizers in `infra/presidio/`), `keyword_list` (Arabic normalization), `llm_judge` (judge role through Context Assembly, cached 24 h); `on_error` closed/open.
+2. Tech debt first: DATA on memory candidates and the rolling summary with a one-time purge (`make purge-pre-guard`); a per-conversation advisory lock with 409 `turn_in_flight`; retention (no memory/summary/extractor content in Langfuse, `context_packages` expiry and deletion with their memory items).
+3. Seven checkpoints wired with all actions; every evaluation in `state.guard_events`, a `guard.check` span, a `guard` event and the audit delta with `policy_id@version`; DATA on a sentence buffer while streaming and the whole answer buffered only when an OUTPUT block/rewrite policy applies; TTFT measured.
+4. Gateway admin policy endpoints (admin-checked, audited fail-closed) and `/admin/policies` in the web with a test panel; guard chips; agent and gateway OpenAPI 1.3.0.
+5. Done = the CLAUDE.md done-check, the three Part B items closed with tests, C2 measured, `make test`, `make eval` (general + guardrails ≥ 60 cases, three runs) and `make smoke` (with the five new checks) green, every count recorded per rule G1.
+
+Checklist:
+- [x] D9: "Accepted on 2026-10-06" on the Status lines of ADR-0055–0059, 0061, 0062, 0064 (first commit)
+- [x] Baseline (G1): `make test` counts; the gateway stages print JUnit XML totals; TTFT of the phase 02 answer path (`scripts/measure_ttft.py`)
+- [ ] G2 contracts with tests before any checker: policy schema, scopes and precedence, `CheckResult`, the checkpoint call signature, the DATA payload `target`
+- [ ] A1 policy store: migration `0002`, immutable versions, enabled head, seeding of absent ids only; `guard_events` table without content
+- [ ] A2 Redis cache + pub/sub reload; test asserts ≤ 2 s across two engine instances
+- [ ] A3 checkers with Arabic cases (G4): `regex`, `presidio` (+ `presidio-analyzer` service, `infra/presidio/` recognizers), `keyword_list`, `llm_judge` (+ prompts, Redis cache); `tier_ceiling` for MODEL_TIER
+- [ ] A4/engine: scope resolution, groups, most-restrictive combination, redaction, `on_error`
+- [ ] B1 DATA on memory candidates and the summary; seed `pii-block-in-memory`, `pii-redact-output`; `make purge-pre-guard` (dry-run, idempotent); run counts recorded
+- [ ] B2 per-conversation lock (D6), 409 `turn_in_flight` (errors.yaml, gateway catalogs, web); tests: 200 + 409, release after error and after disconnect
+- [ ] B3 retention (D5) with tests
+- [ ] C1 checkpoints: INPUT, TOOL_LIST, OUTPUT, DATA in the graph; PRE_TOOL/POST_TOOL in the broker (sanitize first, `approval_required`); MODEL_TIER in the resolver; all actions; events/spans/SSE/audit delta
+- [ ] C2 sentence buffer (I5) and buffered mode (D3), rewrite once; TTFT p50/p95 streaming and buffered vs phase 02
+- [ ] C3 gateway admin endpoints (list, get, create, version, enable, test, import, export, metrics), admin-checked, audited fail-closed; OpenAPI 1.3.0
+- [ ] C4 web `/admin/policies` (list, edit, history, enable, test panel with highlighted spans, import/export, matches per day); guard chips; ar/en strings
+- [ ] C5 seed policies (six)
+- [ ] C6 `evals/golden/guardrails.jsonl` ≥ 60 cases via the gateway test endpoint as admin; thresholds (D8); `make eval` ×3
+- [ ] C7 smoke: PII redacted in every token event; memory candidate with a fake mobile not stored; policy edit live; 409; block with `message_ar`
+- [ ] ADRs (D2–D8, D10, I1–I7, assumptions); README notes; PROGRESS counts per G1; human-review list
+
+Baseline (2026-10-06, before any phase 03 code), per G1:
+- agent (pytest): 236 passed, 0 failed, 0 skipped
+- gateway (JUnit XML): 63 tests, 63 passed, 0 failed, 0 errors, 0 skipped
+- gateway-db-tests (JUnit XML): 5 tests, 5 passed, 0 failed, 0 errors, 0 skipped
+- web (vitest): 56 passed, 0 failed, 0 skipped
+- Time to first token, phase 02 answer path (OpenRouter profile, `evaluator`, 20 general turns, `scripts/measure_ttft.py phase02 20`): p50 1.17 s, p95 3.15 s (mean 1.42 s); to the terminal event p50 1.35 s, p95 3.38 s.
 
 ## Phase 04: UC3 documents (`docs` capability)
 
