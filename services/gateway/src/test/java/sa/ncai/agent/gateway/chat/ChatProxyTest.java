@@ -363,6 +363,58 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(singleAudit().detail()).containsEntry("error_code", "agent_stream_interrupted");
     }
 
+    /** ADR-0118: a terminal event cut off before its closing blank line is discarded with its
+     * guard_audit; the client receives agent_stream_interrupted only. */
+    @Test
+    void anIncompleteTerminalEventIsDiscardedNeverForwarded() throws Exception {
+        String cut = "event: error\nid: 2\ndata: {\"type\":\"error\",\"request_id\":\"r\",\"turn_id\":\"t\",\"seq\":2,"
+                + "\"data\":{\"code\":\"input_blocked\",\"message_ar\":\"م\",\"message_en\":\"m\",\"retryable\":false,"
+                + "\"guard_events\":[],\"guard_audit\":[{\"checkpoint\":\"INPUT\",\"action\":\"block\","
+                + "\"detail\":\"violates (politics, confidence 0.93, cached)\",\"reason\":\"judge_violates_cached\"}]}}\n";
+        AGENT.enqueue(sse(cut));
+
+        String content = mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        for (String removed : List.of("guard_audit", "input_blocked", "cached", "violates")) {
+            assertThat(content).doesNotContain(removed);
+        }
+        assertThat(content).startsWith("event: error\ndata: ").endsWith("\n\n");
+        JsonNode error = mapper.readTree(content.substring("event: error\ndata: ".length()).strip());
+        assertThat(error.path("seq").asInt()).isEqualTo(-1);
+        assertThat(error.path("data").path("code").asText()).isEqualTo("agent_stream_interrupted");
+        assertThat(singleAudit().detail()).containsEntry("error_code", "agent_stream_interrupted");
+    }
+
+    /** ADR-0118: the client's usage leaves the judge out; the audit record holds the turn's full
+     * usage and the guard checks' own. */
+    @Test
+    void theAuditRecordAddsTheGuardChecksUsageTheClientNeverSees() throws Exception {
+        String stream = """
+                event: done
+                id: 1
+                data: {"type":"done","request_id":"r","turn_id":"t","seq":1,"data":{"answer":"a","citations":[],"usage":{"tokens_in":12,"tokens_out":3,"cost_usd":0.0},"guard_events":[{"checkpoint":"INPUT","action":"allow"}],"guard_audit":[{"checkpoint":"INPUT","action":"allow","detail":"1 policies, none matched"},{"checkpoint":"INPUT","policy_id":"topics-politics-llm-judge","policy_version":2,"policy_name":"Politics","action":"allow","detail":"clear (no category, confidence 0.95)","reason":"judge_clear","usage":{"tokens_in":40,"tokens_out":5}}],"state_digest":{},"trace_id":null}}
+
+                """;
+        AGENT.enqueue(sse(stream));
+
+        String content = mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        JsonNode done = mapper.readTree(content.substring(content.indexOf("data: ") + "data: ".length()).strip());
+        assertThat(done.path("data").path("usage").path("tokens_in").asInt()).isEqualTo(12);
+        assertThat(content).doesNotContain("guard_audit").doesNotContain("\"tokens_in\":40");
+
+        AuditEvent event = singleAudit();
+        JsonNode usage = (JsonNode) event.detail().get("usage");
+        assertThat(usage.path("tokens_in").asInt()).isEqualTo(52);
+        assertThat(usage.path("tokens_out").asInt()).isEqualTo(8);
+        assertThat(event.detail().get("guard_usage")).isEqualTo(java.util.Map.of("tokens_in", 40L, "tokens_out", 5L));
+        assertThat(event.detail()).containsEntry("guard_policies", List.of());
+    }
+
     @Test
     void agentErrorEventIsAuditedAsError() throws Exception {
         String stream = """

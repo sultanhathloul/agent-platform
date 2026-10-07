@@ -26,7 +26,9 @@ import sa.ncai.agent.gateway.api.ErrorMessages;
  * receives a checker's detail (ADR-0116). When the audit record fails, the terminal event is replaced
  * by {@code retract} and an {@code audit_unavailable} error, so no turn completes without its
  * audit record (ADR-0042). If the stream breaks or ends without a terminal event, a single
- * {@code agent_stream_interrupted} error event is appended, also after {@code commit}.
+ * {@code agent_stream_interrupted} error event is appended, also after {@code commit}. An event
+ * block cut off before its closing blank line is discarded, never forwarded: a client receives
+ * only complete events, each one as this relay passed it (ADR-0118).
  */
 @Component
 public class SseRelay {
@@ -104,10 +106,10 @@ public class SseRelay {
             }
         }
 
-        // An unfinished event block is forwarded as it arrived.
-        block.writeBytes(line.toByteArray());
-        if (block.size() > 0) {
-            write(downstream, block.toByteArray());
+        // An unfinished event block is discarded: it never went through the checks above, and a
+        // terminal event cut off here would still carry its guard_audit (ADR-0118).
+        if (block.size() > 0 || line.size() > 0) {
+            log.warn("agent stream ended inside an event; {} bytes discarded", block.size() + line.size());
         }
         if (terminal != null) {
             flush(downstream);
