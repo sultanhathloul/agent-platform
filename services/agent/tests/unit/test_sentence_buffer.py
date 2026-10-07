@@ -72,3 +72,38 @@ def test_concatenation_is_lossless():
     text = "الأول. الثاني؟ الثالث!\nالرابع؛ الخامس 3.5 والبريد a.b@example.org. النهاية"
     assert "".join(split_sentences(text, TERMINATORS, 240)) == text
     assert "".join(feed([text[i : i + 3] for i in range(0, len(text), 3)])) == text
+
+
+# ------------------------------------------------------------------ digit runs (review round 1, ADR-0111)
+
+
+def _whole_in_one(parts: list[str], number: str) -> bool:
+    return any(number in part for part in parts)
+
+
+@pytest.mark.parametrize("number", ["050 - 123 - 4567", "٠٥٠ - ١٢٣ - ٤٥٦٧", "050 123 4567", "050٫123٬4567"])
+def test_a_joined_number_across_the_240_boundary_stays_in_one_sentence(number):
+    for offset in range(-len(number), 2):  # the number straddles the limit at every position
+        prefix = "ك" * (240 + offset - 1) + " "
+        text = prefix + number + " ثم بقية الكلام"
+        for size in (1, 3, 7, len(text)):
+            parts = feed([text[i : i + size] for i in range(0, len(text), size)])
+            assert "".join(parts) == text
+            assert _whole_in_one(parts, number), (offset, size, parts)
+
+
+def test_a_buffer_ending_in_a_space_after_a_digit_waits_for_the_next_chunk():
+    buffer = SentenceBuffer(TERMINATORS, 240)
+    head = "ك" * 234 + " 0501 "  # exactly 240 characters, the last one a space after a digit
+    assert len(head) == 240 and buffer.feed(head) == []
+    released = buffer.feed("234 567 ونهاية")
+    rest = buffer.flush()
+    assert _whole_in_one([*released, rest], "0501 234 567")
+
+
+def test_a_sentence_end_inside_a_spaced_number_does_not_cut():
+    assert split_sentences("الرقم 050. 123 4567 للتواصل.", TERMINATORS, 240) == [
+        "الرقم 050. 123 4567 للتواصل."
+    ]
+    # A digit before the terminator and a word after it is an ordinary sentence end.
+    assert split_sentences("في عام 2024. بدأ المشروع.", TERMINATORS, 240) == ["في عام 2024. ", "بدأ المشروع."]

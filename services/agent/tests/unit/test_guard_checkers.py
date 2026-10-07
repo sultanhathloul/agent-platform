@@ -4,7 +4,6 @@ mixed scripts. Every number is fake: it passes the format check and nothing else
 (ADR-0065, rule G3). Presidio runs against the real service in
 tests/integration/test_presidio_checker.py."""
 
-
 import pytest
 
 from app.guardrails.checkers.base import CheckContext, CheckerError

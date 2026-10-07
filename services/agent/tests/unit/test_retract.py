@@ -114,10 +114,34 @@ async def test_a_buffered_block_ends_the_turn_before_any_text_left(node, code):
     assert [w["type"] for w in written] == ["guard"]  # no token, no retract
 
 
-async def test_streaming_data_ran_per_sentence_so_the_whole_answer_node_does_nothing():
-    runtime, written = _runtime(_Engine("block"))
+async def test_streaming_a_clean_final_pass_changes_and_reports_nothing():
+    runtime, written = _runtime(_Engine("allow"))
     assert await guard_data(_state("العاصمة هي الرياض."), runtime) == {}
     assert written == []
+
+
+async def test_streaming_a_final_pass_redaction_retracts_and_resends_the_redacted_text():
+    """ADR-0111: a span no sentence held whole is caught on the whole released text."""
+    redacted = "رقمي [REDACTED:SA_MOBILE] للتجربة."
+    runtime, written = _runtime(_Engine("redact", text=redacted))
+    state = _state("رقمي 050123\n4567 للتجربة.")
+    state["shown_answer"] = state["draft_answer"]
+    update = await guard_data(state, runtime)
+    assert update["draft_answer"] == update["shown_answer"] == redacted
+    types = [w["type"] for w in written]
+    assert types[0] == "guard" and types[1] == "retract" and set(types[2:]) == {"token"}
+    assert written[1]["data"]["reason"] == "answer_redacted"
+    assert "".join(w["data"]["text"] for w in written[2:]) == redacted
+
+
+async def test_streaming_a_final_pass_block_retracts_and_ends_the_turn():
+    runtime, written = _runtime(_Engine("block"))
+    state = _state("العاصمة هي الرياض.")
+    state["shown_answer"] = state["draft_answer"]
+    with pytest.raises(TurnError) as info:
+        await guard_data(state, runtime)
+    assert info.value.code == "data_blocked"
+    assert [w["type"] for w in written] == ["guard", "retract"]
 
 
 async def test_a_buffered_redaction_releases_only_the_redacted_text_and_persists_it():

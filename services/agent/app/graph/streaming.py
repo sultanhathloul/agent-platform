@@ -4,8 +4,11 @@
 `SentenceBuffer` cuts the token stream into sentences: after a terminator
 (. ? ؟ ! ؛ by default) followed by whitespace, at a newline, or at `flush_chars`
 characters. Waiting for the whitespace keeps "3.5", "x.y@example.org" and
-"055.123.4567" whole; a forced cut goes to the last whitespace that is not between
-two digits, so a number written in groups is not split across two checks.
+"055.123.4567" whole. Neither a sentence cut nor a forced one ever falls inside a
+digit run joined by spaces, hyphens, dots, commas or the Arabic separators ٫ ٬ ،
+("050 - 123 - 4567", "٠٥٠ ١٢٣ ٤٥٦٧"): where the run may go on past the end of the
+buffer, the cut waits for the next chunk (ADR-0111). A newline still always cuts;
+the whole-answer pass below catches what it splits.
 
 `DataStream` is the answer node's token callback while streaming: tokens queue,
 and a task releases each complete sentence after the OUTPUT redact policies and
@@ -27,6 +30,28 @@ from app.guardrails.schema import DataPayload, GuardContext, GuardEventRecord
 
 # While streaming, OUTPUT runs per sentence for its redact policies only (ADR-0106).
 SENTENCE_OUTPUT_ACTIONS = frozenset({"redact"})
+
+
+# What may join the digits of one number: whitespace (not a newline), hyphens and dashes,
+# dot, comma, slash, and the Arabic decimal and thousands separators and comma.
+DIGIT_JOINERS = frozenset(" \t\u00a0-\u2010\u2011\u2012\u2013\u2014.,/\u066b\u066c\u060c")
+
+
+def splits_digits(text: str, cut: int) -> bool | None:
+    """Whether cutting `text` before index `cut` splits a digit run joined only by
+    DIGIT_JOINERS: True or False, or None while the run reaches the end of the buffer,
+    so the next chunk decides."""
+    before = cut - 1
+    while before >= 0 and text[before] in DIGIT_JOINERS:
+        before -= 1
+    if before < 0 or not text[before].isdigit():
+        return False
+    after = cut
+    while after < len(text) and text[after] in DIGIT_JOINERS:
+        after += 1
+    if after == len(text):
+        return None
+    return text[after].isdigit()
 
 
 class SentenceBuffer:
@@ -53,13 +78,28 @@ class SentenceBuffer:
             if char == "\n":
                 return i + 1
             if char in self._terminators and i + 1 < len(text) and text[i + 1].isspace():
-                return i + 2
+                split = splits_digits(text, i + 2)
+                if split is None:
+                    return None  # "… 050. " at the end: the next chunk decides
+                if not split:
+                    return i + 2
         if len(text) < self._flush:
             return None
+        # A forced cut: the last whitespace within the limit that splits no digit run.
         for i in range(self._flush - 1, 0, -1):
-            between_digits = text[i - 1].isdigit() and i + 1 < len(text) and text[i + 1].isdigit()
-            if text[i].isspace() and not between_digits:
-                return i + 1
+            if text[i].isspace():
+                split = splits_digits(text, i + 1)
+                if split is None:
+                    return None
+                if not split:
+                    return i + 1
+        # No whitespace to cut at: the last position within the limit outside a digit run.
+        for cut in range(self._flush, 0, -1):
+            split = splits_digits(text, cut)
+            if split is None:
+                return None
+            if not split:
+                return cut
         return self._flush
 
 

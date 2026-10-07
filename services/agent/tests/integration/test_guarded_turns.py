@@ -512,3 +512,36 @@ async def test_an_output_allow_exception_resolves_alike_streaming_and_buffered(s
     assert buffered_holder[-1].type == "done"
     assert "".join(tokens(buffered_holder)) == streaming[0] == reply
     assert marker not in streaming[1] and "[REDACTED:KEYWORD]" in streaming[1]
+
+
+# ------------------------------------------------------------------ the whole-answer pass (ADR-0111)
+
+
+async def test_a_number_split_by_a_newline_is_caught_by_the_final_pass_and_retracted(
+    services, spans, litellm
+):
+    reply = "رقمي 050123\n4567 للتجربة."  # a newline always ends a sentence: no sentence holds it whole
+    replaced, _ = replacing(services, {"reasoning": reply})
+    events, conversation = await turn(replaced, principal())
+    assert events[-1].type == "done"
+    types = [e.type for e in events]
+    retract = types.index("retract")
+    assert events[retract].data.reason == "answer_redacted"
+    before, after = tokens(events[:retract]), tokens(events[retract:])
+    assert "".join(before) == reply  # what streamed first: no sentence matched alone
+    resent = "".join(after)
+    assert "[REDACTED:SA_MOBILE]" in resent and "4567" not in resent
+    assert events[-1].data.answer == resent
+    stored = (await services.graph.aget_state({"configurable": {"thread_id": conversation}})).values[
+        "messages"
+    ]
+    assert stored[-1].content == resent
+    data_span = next(s for s in spans.get_finished_spans() if s.name == "node.guard.DATA")
+    assert data_span.attributes["data.final_pass"] == "resent"
+
+
+async def test_a_clean_answer_passes_the_final_pass_without_a_retract(services, spans, litellm):
+    events, _ = await turn(services, principal())
+    assert events[-1].type == "done" and "retract" not in [e.type for e in events]
+    data_span = next(s for s in spans.get_finished_spans() if s.name == "node.guard.DATA")
+    assert data_span.attributes["data.final_pass"] == "clean"
