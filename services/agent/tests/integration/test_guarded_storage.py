@@ -51,7 +51,7 @@ async def test_a_memory_candidate_with_a_mobile_number_is_dropped_without_a_mess
 
     blocks = [
         g
-        for g in events[-1].data.guard_events
+        for g in events[-1].data.guard_audit  # entity types are audit data (ADR-0116)
         if g.policy_id == "pii-block-in-memory" and g.action == "block"
     ]
     assert len(blocks) == 1 and blocks[0].target == "memory_candidate" and blocks[0].entities == ["SA_MOBILE"]

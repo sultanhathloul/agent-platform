@@ -238,6 +238,13 @@ class GuardEngine:
             latency = int((time.monotonic() - started) * 1000)
             span.set_attribute("guard.latency_ms", latency)
             span.set_attribute("guard.matched", bool(result and result.matched))
+            if result is not None:
+                # The checker's detail lives here and in the audit delta, never in a client event (ADR-0116).
+                span.set_attribute("guard.explanation", result.explanation)
+                span.set_attribute("guard.reason", result.reason)
+                span.set_attribute("guard.score", result.score)
+                for name, value in result.reason_args.items():
+                    span.set_attribute(f"guard.reason.{name}", value)
             if error:
                 span.set_attribute("guard.error", error)
                 span.set_attribute("guard.on_error", policy.effective_on_error)
@@ -300,18 +307,25 @@ class GuardEngine:
         for e in evaluated:
             if not (e.error or (e.result and e.result.matched)):
                 continue
+            event_action = _event_action(e.policy, e.result, e.error, overridden=e.overridden_by is not None)
             events.append(
                 GuardEventRecord(
                     checkpoint=checkpoint,
                     policy_id=e.policy.id,
                     policy_version=e.policy.version,
-                    action=_event_action(e.policy, e.result, e.error, overridden=e.overridden_by is not None),
+                    policy_name=e.policy.name,
+                    action=event_action,
                     detail=_detail(e),
                     target=target,
                     entities=sorted({s.entity for s in (e.result.spans if e.overridden_by else e.spans)})
                     if e.result
                     else [],
                     latency_ms=e.latency_ms,
+                    reason=e.result.reason if e.result else None,
+                    reason_args=dict(e.result.reason_args) if e.result else {},
+                    score=e.result.score if e.result else None,
+                    message_ar=e.policy.message_ar if event_action == "block" else None,
+                    message_en=e.policy.message_en if event_action == "block" else None,
                 )
             )
         if len(events) == len(notes):

@@ -10,10 +10,9 @@ export type Chip =
       checkpoint: string;
       policyId: string | null;
       policyVersion: number | null;
+      policyName: string | null;
       action: string;
-      detail: string | null;
       target: string | null;
-      entities: string[];
     }
   | { kind: "tool"; key: string; callId: string; tool: string; capability: string; status: string; latencyMs: number | null };
 
@@ -80,10 +79,9 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
           checkpoint: event.data.checkpoint,
           policyId: event.data.policy_id ?? null,
           policyVersion: event.data.policy_version ?? null,
+          policyName: event.data.policy_name ?? null,
           action: event.data.action,
-          detail: event.data.detail ?? null,
           target: event.data.target ?? null,
-          entities: event.data.entities ?? [],
         }),
       };
     case "tool_start":

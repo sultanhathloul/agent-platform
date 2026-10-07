@@ -22,7 +22,8 @@ function ChipView({ chip }: { chip: Chip }) {
     case "guard": {
       const actionKey = `guardActions.${chip.action}`;
       const targetKey = `policies.targets.${chip.target}`;
-      const title = [chip.checkpoint, chip.entities.join(", "), chip.detail].filter(Boolean).join(" · ");
+      // A guard event names who decided what, never the checker's detail (ADR-0116).
+      const title = [chip.checkpoint, chip.policyName].filter(Boolean).join(" · ");
       return (
         <li className={chipClass} title={title || undefined}>
           <span>{t("chips.guard")}</span>

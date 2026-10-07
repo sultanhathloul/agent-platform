@@ -71,8 +71,9 @@ def tokens(events) -> list[str]:
 
 
 def guards(events, policy_id: str | None = None):
+    """The terminal event's evaluations in full: `guard_audit`, the gateway's audit list (ADR-0116)."""
     terminal = events[-1].data
-    return [g for g in terminal.guard_events if policy_id is None or g.policy_id == policy_id]
+    return [g for g in terminal.guard_audit if policy_id is None or g.policy_id == policy_id]
 
 
 # ------------------------------------------------------------------ DATA while streaming (C2)
@@ -339,7 +340,7 @@ async def test_a_fail_closed_tool_policy_ends_the_turn_with_guard_unavailable(pr
     assert (events[-1].type, events[-1].data.code) == ("error", "guard_unavailable")
     tool_end = next(e.data for e in events if e.type == "tool_end")
     assert tool_end.status == "denied"
-    assert any("on_error=closed" in (g.detail or "") for g in events[-1].data.guard_events)
+    assert any("on_error=closed" in (g.detail or "") for g in events[-1].data.guard_audit)
 
 
 async def test_an_open_judge_failure_allows_and_logs(services, role, litellm):
@@ -362,9 +363,10 @@ async def test_an_open_judge_failure_allows_and_logs(services, role, litellm):
 
 async def test_every_terminal_event_names_policy_versions_for_the_audit(services, litellm):
     events, _ = await turn(services, principal())
-    records = [json.loads(g.model_dump_json()) for g in events[-1].data.guard_events]
-    assert {r["checkpoint"] for r in records} >= {"INPUT", "TOOL_LIST", "MODEL_TIER", "OUTPUT", "DATA"}
-    assert all(r["policy_version"] for r in records if r["policy_id"])
+    for records in (events[-1].data.guard_events, events[-1].data.guard_audit):
+        records = [json.loads(g.model_dump_json()) for g in records]
+        assert {r["checkpoint"] for r in records} >= {"INPUT", "TOOL_LIST", "MODEL_TIER", "OUTPUT", "DATA"}
+        assert all(r["policy_version"] for r in records if r["policy_id"])
 
 
 async def test_a_data_block_mid_answer_retracts_what_already_left(services, role, litellm):
@@ -545,3 +547,61 @@ async def test_a_clean_answer_passes_the_final_pass_without_a_retract(services, 
     assert events[-1].type == "done" and "retract" not in [e.type for e in events]
     data_span = next(s for s in spans.get_finished_spans() if s.name == "node.guard.DATA")
     assert data_span.attributes["data.final_pass"] == "clean"
+
+
+# ------------------------------------------------------------------ what a client sees (ADR-0116)
+
+CHECKER_DETAIL = {
+    "detail",
+    "reason",
+    "reason_args",
+    "score",
+    "entities",
+    "latency_ms",
+    "confidence",
+    "category",
+}
+JUDGE_VIOLATES = json.dumps({"violates": True, "confidence": 0.93, "category": "politics"})
+
+
+def _client_fields_only(events, policy_id: str) -> None:
+    """Every streamed `guard` event and every terminal guard_events entry of the policy carries
+    who decided what, and none of the checker's detail; the audit list still holds it."""
+    streamed = [e.data for e in events if e.type == "guard" and e.data.policy_id == policy_id]
+    terminal = [g for g in events[-1].data.guard_events if g.policy_id == policy_id]
+    assert streamed and terminal
+    for g in (*streamed, *terminal):
+        sent = json.loads(g.model_dump_json(exclude_none=True))
+        assert not CHECKER_DETAIL & sent.keys(), sent
+        assert "cached" not in json.dumps(sent) and "0.93" not in json.dumps(sent)
+        assert sent["action"] == "block" and sent["policy_name"] == "judge block"
+        assert sent["message_ar"] == "محجوب" and sent["message_en"] == "Blocked"
+    [audited] = guards(events, policy_id)
+    assert audited.reason.startswith("judge_violates") and audited.reason_args["category"] == "politics"
+    assert audited.reason_args["confidence"] == "0.93" and audited.score == 0.93
+    assert "violates" in audited.detail and audited.latency_ms is not None
+
+
+@pytest.mark.parametrize("checkpoint", ["INPUT", "OUTPUT"])
+async def test_a_judge_block_streams_no_checker_detail(services, role, litellm, checkpoint):
+    name, add = role
+    judge = await add(
+        checkpoints=[checkpoint],
+        checker="llm_judge",
+        config={"topic_description": "آراء سياسية", "min_confidence": 0.5},
+        action="block",
+        name="judge block",
+        message_ar="محجوب",
+        message_en="Blocked",
+    )
+    replaced, _ = replacing(services, {"judge": JUDGE_VIOLATES})
+    message = f"ما رأيك في الأحزاب؟ {uuid.uuid4().hex[:6]}"
+    events, _ = await turn(replaced, principal(name), message)
+    assert events[-1].type == "error" and events[-1].data.code == f"{checkpoint.lower()}_blocked"
+    _client_fields_only(events, judge.id)
+    # A second turn reads the cached verdict; the client still cannot tell.
+    again, _ = await turn(replaced, principal(name), message)
+    _client_fields_only(again, judge.id)
+    [audited] = guards(again, judge.id)
+    if checkpoint == "INPUT":
+        assert audited.reason == "judge_violates_cached"

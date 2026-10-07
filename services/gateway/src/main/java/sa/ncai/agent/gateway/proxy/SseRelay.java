@@ -21,7 +21,9 @@ import sa.ncai.agent.gateway.api.ErrorMessages;
 /**
  * Copies the agent's SSE stream to the browser byte for byte (README §6.1.6), one event block at
  * a time, flushing at every event boundary. Before the terminal {@code done}/{@code error} event
- * leaves, {@code commit} writes the audit record; when that fails, the terminal event is replaced
+ * leaves, {@code commit} writes the audit record from it; the terminal event's {@code guard_audit}
+ * (every guard evaluation in full, for that record only) is then removed, so a client never
+ * receives a checker's detail (ADR-0116). When the audit record fails, the terminal event is replaced
  * by {@code retract} and an {@code audit_unavailable} error, so no turn completes without its
  * audit record (ADR-0042). If the stream breaks or ends without a terminal event, a single
  * {@code agent_stream_interrupted} error event is appended, also after {@code commit}.
@@ -30,6 +32,8 @@ import sa.ncai.agent.gateway.api.ErrorMessages;
 public class SseRelay {
 
     private static final Logger log = LoggerFactory.getLogger(SseRelay.class);
+    /** The terminal event's audit-only list of guard evaluations (ADR-0116). */
+    static final String GUARD_AUDIT = "guard_audit";
 
     private final ObjectMapper mapper;
     private final ErrorMessages messages;
@@ -49,6 +53,7 @@ public class SseRelay {
         ByteArrayOutputStream line = new ByteArrayOutputStream(512);
         ByteArrayOutputStream block = new ByteArrayOutputStream(1024);
         String eventType = null;
+        String eventId = null;
         StringBuilder data = new StringBuilder();
         RelayOutcome terminal = null;
 
@@ -76,16 +81,21 @@ public class SseRelay {
                 RelayOutcome outcome = terminal == null ? terminalOutcome(eventType, data) : null;
                 if (outcome != null) {
                     terminal = outcome;
-                    write(downstream, commit.test(outcome) ? block.toByteArray() : auditUnavailable(requestId));
+                    write(downstream, commit.test(outcome)
+                            ? forClient(eventType, eventId, data, block.toByteArray())
+                            : auditUnavailable(requestId));
                 } else {
                     write(downstream, block.toByteArray());
                 }
                 flush(downstream);
                 block.reset();
                 eventType = null;
+                eventId = null;
                 data.setLength(0);
             } else if (text.startsWith("event:")) {
                 eventType = fieldValue(text, "event:".length());
+            } else if (text.startsWith("id:")) {
+                eventId = fieldValue(text, "id:".length());
             } else if (text.startsWith("data:")) {
                 if (!data.isEmpty()) {
                     data.append('\n');
@@ -129,6 +139,30 @@ public class SseRelay {
         }
         JsonNode turnId = envelope.path("turn_id");
         return new RelayOutcome(kind, envelope.path("data"), turnId.isTextual() ? turnId.asText() : null);
+    }
+
+    /**
+     * The terminal event as a client gets it: without {@code data.guard_audit}, which only the
+     * audit record reads (ADR-0116). An event without that field leaves byte for byte.
+     */
+    private byte[] forClient(String eventType, String eventId, StringBuilder data, byte[] block) {
+        JsonNode envelope;
+        try {
+            envelope = mapper.readTree(data.toString());
+        } catch (JsonProcessingException e) {
+            return block;
+        }
+        if (!(envelope.path("data") instanceof ObjectNode payload) || !payload.has(GUARD_AUDIT)) {
+            return block;
+        }
+        payload.remove(GUARD_AUDIT);
+        try {
+            String id = eventId == null ? "" : "id: " + eventId + "\n";
+            return ("event: " + eventType + "\n" + id + "data: " + mapper.writeValueAsString(envelope) + "\n\n")
+                    .getBytes(StandardCharsets.UTF_8);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** Withdraws any streamed text, then reports that the turn could not be audited. */

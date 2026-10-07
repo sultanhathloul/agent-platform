@@ -232,23 +232,30 @@ public class ChatController {
                     detail.put("trace_id", data.get("trace_id").asText());
                 }
                 detail.put("guard_events", data.path("guard_events").size());
-                detail.put("guard_policies", guardPolicies(data.path("guard_events")));
+                detail.put("guard_policies", guardPolicies(auditedGuards(data)));
             }
             case ERROR -> {
                 detail.put("error_code", data.path("code").asText("unknown"));
                 if (data.hasNonNull("policy_id")) {
                     detail.put("policy_id", data.get("policy_id").asText());
                 }
-                detail.put("guard_policies", guardPolicies(data.path("guard_events")));
+                detail.put("guard_policies", guardPolicies(auditedGuards(data)));
             }
             case INTERRUPTED -> detail.put("error_code", ErrorCode.AGENT_STREAM_INTERRUPTED.code());
         }
         return detail;
     }
 
+    /** The terminal event's guard evaluations in full ({@code guard_audit}, ADR-0116). */
+    private static JsonNode auditedGuards(JsonNode data) {
+        return data.has("guard_audit") ? data.path("guard_audit") : data.path("guard_events");
+    }
+
     /**
      * The audit delta of the turn's guards: every policy that did something, as
-     * {@code {checkpoint, policy: id@version, action, target}}; never any matched text (A1, D5).
+     * {@code {checkpoint, policy: id@version, action, target}} with the checker's {@code detail},
+     * {@code reason}, {@code reason_args} (the judge's category and confidence) and {@code score},
+     * which no client event carries (ADR-0116); never any matched text (A1, D5).
      */
     private static List<Map<String, Object>> guardPolicies(JsonNode events) {
         List<Map<String, Object>> policies = new ArrayList<>();
@@ -263,6 +270,20 @@ public class ChatController {
             entry.put("action", action);
             if (event.hasNonNull("target")) {
                 entry.put("target", event.get("target").asText());
+            }
+            if (event.hasNonNull("detail")) {
+                entry.put("detail", event.get("detail").asText());
+            }
+            if (event.hasNonNull("reason") && !event.get("reason").asText().isEmpty()) {
+                entry.put("reason", event.get("reason").asText());
+            }
+            if (event.path("reason_args").isObject() && !event.get("reason_args").isEmpty()) {
+                Map<String, String> args = new LinkedHashMap<>();
+                event.get("reason_args").fields().forEachRemaining(f -> args.put(f.getKey(), f.getValue().asText()));
+                entry.put("reason_args", args);
+            }
+            if (event.hasNonNull("score")) {
+                entry.put("score", event.get("score").asDouble());
             }
             policies.add(entry);
         }

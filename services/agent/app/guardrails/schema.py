@@ -350,24 +350,55 @@ class GuardContext:
         return scopes
 
 
+# What a client sees of an evaluation (ADR-0116): who decided what, never how. The checker's
+# explanation, reason, score, entities and latency (a cached judge verdict is fast) stay on the
+# guard.check span, in state and in the audit delta.
+CLIENT_EVENT_FIELDS = frozenset(
+    {
+        "checkpoint",
+        "policy_id",
+        "policy_version",
+        "policy_name",
+        "action",
+        "target",
+        "message_ar",
+        "message_en",
+    }
+)
+
+
 class GuardEventRecord(BaseModel):
-    """One policy evaluation, kept in state.guard_events, streamed as a `guard` event
-    and summarized in the audit delta, with the policy's id and version (A1)."""
+    """One policy evaluation, kept in state.guard_events and in the audit delta in full, and
+    streamed as a `guard` event with CLIENT_EVENT_FIELDS only (ADR-0116), with the policy's id
+    and version (A1)."""
 
     model_config = ConfigDict(extra="forbid")
 
     checkpoint: Checkpoint
     policy_id: str | None = None
     policy_version: int | None = None
+    policy_name: str | None = None
     action: Action
     detail: str | None = None
     target: DataTarget | None = None
     entities: list[str] = []
     latency_ms: int | None = None
+    # The checker's reason key and arguments (judge: category, confidence; `_cached` suffix on
+    # a cached verdict) and score: audit and trace only.
+    reason: str | None = None
+    reason_args: dict[str, str] = {}
+    score: float | None = None
+    # A block's own message (README §10.1), the one checker-independent text a client gets.
+    message_ar: str | None = None
+    message_en: str | None = None
 
     @property
     def policy_ref(self) -> str | None:
         return f"{self.policy_id}@{self.policy_version}" if self.policy_id else None
+
+    def client_view(self) -> dict:
+        """The fields a `guard` event and a terminal event's guard_events carry (ADR-0116)."""
+        return self.model_dump(mode="json", include=set(CLIENT_EVENT_FIELDS), exclude_none=True)
 
 
 class GuardOutcome(BaseModel):

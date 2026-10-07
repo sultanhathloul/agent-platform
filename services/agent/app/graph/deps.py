@@ -94,11 +94,12 @@ class TurnContext:
             self.writer({"type": type_, "data": data})
 
     def report_guard(self, events: Sequence[GuardEventRecord]) -> None:
-        """Records evaluations; those that did something (not `allow`) stream as `guard` events."""
+        """Records evaluations; those that did something (not `allow`) stream as `guard` events,
+        with the client fields only: no checker detail, score or latency (ADR-0116)."""
         self.guard_log.extend(events)
         for event in events:
             if event.action != "allow":
-                self.emit("guard", event.model_dump(mode="json"))
+                self.emit("guard", event.client_view())
 
     def guard_records(self) -> list[dict]:
         """state.guard_events: every evaluation so far this turn."""

@@ -37,7 +37,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
-from app.api.events import DoneData, ErrorData, GuardData, StateDigest, Usage, build_event
+from app.api.events import DoneData, ErrorData, GuardAuditData, GuardData, StateDigest, Usage, build_event
 from app.api.locks import LockPoolBusy, TurnLease
 from app.api.ownership import Owner, StoredOwner
 from app.api.schemas import TurnRequest
@@ -271,6 +271,7 @@ class TurnRunner:
                         cost_usd=ctx.usage.cost_usd,
                     ),
                     guard_events=self._guard_data(ctx),
+                    guard_audit=self._guard_audit(ctx),
                     state_digest=StateDigest(
                         turn=final["turn"], capabilities=final["intent"]["capabilities"]
                     ),
@@ -296,14 +297,20 @@ class TurnRunner:
 
     @staticmethod
     def _guard_data(ctx: TurnContext) -> list[GuardData]:
-        return [GuardData.model_validate(record) for record in ctx.guard_records()]
+        """The client's view of the turn's evaluations (ADR-0116)."""
+        return [GuardData.model_validate(record.client_view()) for record in ctx.guard_log]
+
+    @staticmethod
+    def _guard_audit(ctx: TurnContext) -> list[GuardAuditData]:
+        """Every evaluation in full, for the gateway's audit record; the gateway strips it (ADR-0116)."""
+        return [GuardAuditData.model_validate(record.model_dump(mode="json")) for record in ctx.guard_log]
 
     def _error(
         self, ctx: TurnContext, code: str, *, retryable: bool, exc: TurnError | None = None
     ) -> ErrorData:
         """errors.yaml's text, or a blocking policy's own message (README §10.1)."""
         error = self.services.messages.error(code, retryable=retryable)
-        update: dict = {"guard_events": self._guard_data(ctx)}
+        update: dict = {"guard_events": self._guard_data(ctx), "guard_audit": self._guard_audit(ctx)}
         if exc is not None and exc.message_ar and exc.message_en:
             update |= {"message_ar": exc.message_ar, "message_en": exc.message_en, "policy_id": exc.policy_id}
         return error.model_copy(update=update)

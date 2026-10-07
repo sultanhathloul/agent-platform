@@ -17,6 +17,7 @@ import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -448,7 +449,7 @@ class ChatProxyTest extends GatewayTestSupport {
         AGENT.enqueue(sse("""
                 event: done
                 id: 1
-                data: {"type":"done","request_id":"r","turn_id":"t","seq":1,"data":{"answer":"[REDACTED:SA_MOBILE]","citations":[],"usage":{"tokens_in":1,"tokens_out":1,"cost_usd":0.0},"guard_events":[{"checkpoint":"INPUT","policy_id":null,"policy_version":null,"action":"allow","detail":"no policy","target":null,"entities":[],"latency_ms":null},{"checkpoint":"DATA","policy_id":"pii-redact-output","policy_version":3,"action":"redact","detail":"entities: SA_MOBILE","target":"answer","entities":["SA_MOBILE"],"latency_ms":4}],"state_digest":{},"trace_id":null}}
+                data: {"type":"done","request_id":"r","turn_id":"t","seq":1,"data":{"answer":"[REDACTED:SA_MOBILE]","citations":[],"usage":{"tokens_in":1,"tokens_out":1,"cost_usd":0.0},"guard_events":[{"checkpoint":"INPUT","action":"allow"},{"checkpoint":"DATA","policy_id":"pii-redact-output","policy_version":3,"policy_name":"PII","action":"redact","target":"answer"}],"guard_audit":[{"checkpoint":"INPUT","policy_id":null,"policy_version":null,"action":"allow","detail":"no policy","target":null,"entities":[],"latency_ms":null},{"checkpoint":"DATA","policy_id":"pii-redact-output","policy_version":3,"policy_name":"PII","action":"redact","detail":"entities: SA_MOBILE","target":"answer","entities":["SA_MOBILE"],"latency_ms":4,"reason":"entities","reason_args":{"items":"SA_MOBILE"},"score":0.0}],"state_digest":{},"trace_id":null}}
 
                 """));
 
@@ -457,7 +458,9 @@ class ChatProxyTest extends GatewayTestSupport {
         AuditEvent event = singleAudit();
         assertThat(event.detail()).containsEntry("guard_events", 2);
         assertThat(event.detail().get("guard_policies")).isEqualTo(List.of(java.util.Map.of(
-                "checkpoint", "DATA", "policy", "pii-redact-output@3", "action", "redact", "target", "answer")));
+                "checkpoint", "DATA", "policy", "pii-redact-output@3", "action", "redact", "target", "answer",
+                "detail", "entities: SA_MOBILE", "reason", "entities", "reason_args",
+                java.util.Map.of("items", "SA_MOBILE"), "score", 0.0)));
     }
 
     @Test
@@ -465,7 +468,7 @@ class ChatProxyTest extends GatewayTestSupport {
         AGENT.enqueue(sse("""
                 event: error
                 id: 1
-                data: {"type":"error","request_id":"r","turn_id":"t","seq":1,"data":{"code":"input_blocked","message_ar":"رسالة السياسة","message_en":"The policy's message","retryable":false,"policy_id":"prompt-injection-input@1","guard_events":[{"checkpoint":"INPUT","policy_id":"prompt-injection-input","policy_version":1,"action":"block","detail":"matched OVERRIDE_AR","target":null,"entities":["OVERRIDE_AR"],"latency_ms":1}]}}
+                data: {"type":"error","request_id":"r","turn_id":"t","seq":1,"data":{"code":"input_blocked","message_ar":"رسالة السياسة","message_en":"The policy's message","retryable":false,"policy_id":"prompt-injection-input@1","guard_events":[{"checkpoint":"INPUT","policy_id":"prompt-injection-input","policy_version":1,"action":"block"}],"guard_audit":[{"checkpoint":"INPUT","policy_id":"prompt-injection-input","policy_version":1,"action":"block","detail":"matched OVERRIDE_AR","target":null,"entities":["OVERRIDE_AR"],"latency_ms":1}]}}
 
                 """));
 
@@ -476,7 +479,63 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(event.detail()).containsEntry("error_code", "input_blocked")
                 .containsEntry("policy_id", "prompt-injection-input@1");
         assertThat(event.detail().get("guard_policies")).isEqualTo(List.of(java.util.Map.of(
-                "checkpoint", "INPUT", "policy", "prompt-injection-input@1", "action", "block")));
+                "checkpoint", "INPUT", "policy", "prompt-injection-input@1", "action", "block",
+                "detail", "matched OVERRIDE_AR")));
+    }
+
+    /** A judge block as the agent streams it (ADR-0116): the guard event in the client's shape, the
+     * terminal event with the client's guard_events and the audit-only guard_audit. */
+    private static String judgeBlockStream(String checkpoint) {
+        String client = "{\"checkpoint\":\"" + checkpoint + "\",\"policy_id\":\"topics-politics-llm-judge\","
+                + "\"policy_version\":2,\"policy_name\":\"Politics\",\"action\":\"block\","
+                + "\"message_ar\":\"لا أستطيع الخوض في هذا الموضوع.\",\"message_en\":\"I cannot discuss this topic.\"}";
+        String audit = client.substring(0, client.length() - 1)
+                + ",\"detail\":\"violates (politics, confidence 0.93, cached)\",\"reason\":\"judge_violates_cached\","
+                + "\"reason_args\":{\"category\":\"politics\",\"confidence\":\"0.93\"},\"score\":0.93,"
+                + "\"entities\":[],\"latency_ms\":2}";
+        String code = checkpoint.toLowerCase(java.util.Locale.ROOT) + "_blocked";
+        return "event: guard\nid: 1\ndata: {\"type\":\"guard\",\"request_id\":\"r\",\"turn_id\":\"t\",\"seq\":1,"
+                + "\"data\":" + client + "}\n\n"
+                + "event: error\nid: 2\ndata: {\"type\":\"error\",\"request_id\":\"r\",\"turn_id\":\"t\",\"seq\":2,"
+                + "\"data\":{\"code\":\"" + code + "\",\"message_ar\":\"لا أستطيع الخوض في هذا الموضوع.\","
+                + "\"message_en\":\"I cannot discuss this topic.\",\"retryable\":false,"
+                + "\"policy_id\":\"topics-politics-llm-judge@2\",\"guard_events\":[" + client + "],"
+                + "\"guard_audit\":[" + audit + "]}}\n\n";
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INPUT", "OUTPUT"})
+    void aJudgeBlockReachesTheClientWithoutCheckerDetailAndTheAuditKeepsIt(String checkpoint) throws Exception {
+        AGENT.enqueue(sse(judgeBlockStream(checkpoint)));
+
+        String body = mvc.perform(chat(body("ما رأيك في الأحزاب؟", List.of()))).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        for (String removed : List.of("guard_audit", "detail", "reason", "confidence", "category", "cached",
+                "score", "entities", "latency_ms")) {
+            assertThat(body).doesNotContain(removed);
+        }
+        List<JsonNode> events = new java.util.ArrayList<>();
+        for (String line : body.split("\n")) {
+            if (line.startsWith("data: ")) {
+                events.add(mapper.readTree(line.substring("data: ".length())));
+            }
+        }
+        assertThat(events).hasSize(2);
+        JsonNode guard = events.get(0).path("data");
+        assertThat(guard.path("policy_name").asText()).isEqualTo("Politics");
+        assertThat(guard.path("message_en").asText()).isEqualTo("I cannot discuss this topic.");
+        JsonNode error = events.get(1);
+        assertThat(error.path("type").asText()).isEqualTo("error");
+        assertThat(error.path("seq").asInt()).isEqualTo(2);
+        assertThat(error.path("data").path("guard_events").get(0)).isEqualTo(guard);
+        assertThat(body).contains("event: error\nid: 2\n");
+
+        AuditEvent event = singleAudit();
+        assertThat(event.detail().get("guard_policies")).isEqualTo(List.of(java.util.Map.of(
+                "checkpoint", checkpoint, "policy", "topics-politics-llm-judge@2", "action", "block",
+                "detail", "violates (politics, confidence 0.93, cached)", "reason", "judge_violates_cached",
+                "reason_args", java.util.Map.of("category", "politics", "confidence", "0.93"), "score", 0.93)));
     }
 
     @Test

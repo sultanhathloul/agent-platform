@@ -74,7 +74,7 @@ describe("applyEvent", () => {
       { ...meta, seq: 51, type: "guard", data: { checkpoint: "OUTPUT", policy_id: "pii-redact-output", action: "redact" } },
     ]);
     expect(m.chips.map((c) => c.kind)).toEqual(["tier", "guard"]);
-    expect(m.chips[1]).toMatchObject({ policyId: "pii-redact-output", action: "redact", detail: null });
+    expect(m.chips[1]).toMatchObject({ policyId: "pii-redact-output", action: "redact", policyName: null });
   });
 
   it("does not duplicate citations sent both as events and in done", () => {
@@ -156,7 +156,7 @@ describe("resolveErrorMessage", () => {
 });
 
 describe("guard events and blocks (phase 03)", () => {
-  it("shows a guard chip with the policy version, action and target", () => {
+  it("shows a guard chip with the policy version, name, action and target", () => {
     const m = run([
       {
         ...meta,
@@ -166,22 +166,23 @@ describe("guard events and blocks (phase 03)", () => {
           checkpoint: "DATA",
           policy_id: "pii-redact-output",
           policy_version: 2,
+          policy_name: "PII redaction",
           action: "redact",
-          detail: "entities: SA_MOBILE",
           target: "answer",
-          entities: ["SA_MOBILE"],
         },
       },
     ]);
     expect(m.chips).toEqual([
-      expect.objectContaining({
+      {
         kind: "guard",
+        key: expect.any(String),
+        checkpoint: "DATA",
         policyId: "pii-redact-output",
         policyVersion: 2,
+        policyName: "PII redaction",
         action: "redact",
         target: "answer",
-        entities: ["SA_MOBILE"],
-      }),
+      },
     ]);
   });
 
