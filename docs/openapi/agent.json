@@ -2364,14 +2364,47 @@
             ],
             "title": "Version"
           },
-          "name": {
-            "type": "string",
-            "title": "Name"
+          "name_ar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Ar"
           },
-          "description": {
+          "name_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name En"
+          },
+          "description_ar": {
             "type": "string",
-            "title": "Description",
+            "title": "Description Ar",
             "default": ""
+          },
+          "description_en": {
+            "type": "string",
+            "title": "Description En",
+            "default": ""
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "production",
+              "test"
+            ],
+            "title": "Purpose",
+            "description": "test: made by a test script, hidden from the admin list by default.",
+            "default": "production"
           },
           "enabled": {
             "type": "boolean",
@@ -2457,7 +2490,6 @@
         "type": "object",
         "required": [
           "id",
-          "name",
           "scope",
           "checkpoints",
           "checker",

@@ -35,7 +35,7 @@ async def role(services, request):
         stores.append(request.getfixturevalue("probe_services").policies)
 
     async def add(**fields) -> Policy:
-        base = {"name": "test", "scope": f"role:{name}", "severity": "medium"}
+        base = {"name_ar": "سياسة اختبار", "name_en": "test", "scope": f"role:{name}", "severity": "medium"}
         policy = Policy.model_validate({"id": f"{name}-{len(created)}", **base, **fields})
         await services.policies.create(policy, actor="test")
         created.append(policy.id)
@@ -590,7 +590,8 @@ async def test_a_judge_block_streams_no_checker_detail(services, role, litellm, 
         checker="llm_judge",
         config={"topic_description": "آراء سياسية", "min_confidence": 0.5},
         action="block",
-        name="judge block",
+        name_ar="سياسة اختبار",
+        name_en="judge block",
         message_ar="محجوب",
         message_en="Blocked",
     )
@@ -621,7 +622,8 @@ async def test_a_cached_judge_verdict_leaves_the_clients_usage_unchanged(service
         checker="llm_judge",
         config={"topic_description": "آراء سياسية", "min_confidence": 0.5},
         action="block",
-        name="judge clear",
+        name_ar="سياسة اختبار",
+        name_en="judge clear",
         message_ar="محجوب",
         message_en="Blocked",
     )

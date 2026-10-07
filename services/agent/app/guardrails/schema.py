@@ -36,6 +36,7 @@ ACTION_RANK: dict[str, int] = {
 Severity = Literal["low", "medium", "high", "critical"]
 OnError = Literal["open", "closed"]
 CheckerName = Literal["regex", "presidio", "keyword_list", "llm_judge", "tier_ceiling"]
+PolicyPurpose = Literal["production", "test"]
 # D8: deterministic checkers fail closed, the judge fails open, unless a policy says otherwise.
 DEFAULT_ON_ERROR: dict[str, OnError] = {
     "regex": "closed",
@@ -203,8 +204,14 @@ class Policy(BaseModel):
 
     id: str = Field(pattern=POLICY_ID_PATTERN)
     version: int = Field(default=1, ge=1)
-    name: str = Field(min_length=1, max_length=200)
-    description: str = ""
+    # Both names are required, both descriptions optional (rule 7); the admin UI shows the
+    # reader's locale. A guard event's `policy_name` is the English one (ADR-0119).
+    name_ar: str = Field(min_length=1, max_length=200)
+    name_en: str = Field(min_length=1, max_length=200)
+    description_ar: str = ""
+    description_en: str = ""
+    # `test`: made by a test script (smoke, TTFT), hidden from the admin list by default (ADR-0119).
+    purpose: PolicyPurpose = "production"
     enabled: bool = True
     scope: str
     checkpoints: list[Checkpoint] = Field(min_length=1)

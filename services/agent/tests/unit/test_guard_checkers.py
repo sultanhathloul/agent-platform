@@ -153,7 +153,8 @@ async def test_tier_ceiling_matches_only_above_the_ceiling_and_for_its_roles():
     checker = TierCeilingChecker(["fast", "standard", "heavy"])
     policy = Policy(
         id="ceiling",
-        name="ceiling",
+        name_ar="سياسة اختبار",
+        name_en="ceiling",
         scope="tenant:t1",
         checkpoints=["MODEL_TIER"],
         checker="tier_ceiling",

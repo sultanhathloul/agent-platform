@@ -102,7 +102,8 @@ async def test_the_pre_guard_purge_counts_exactly_then_is_idempotent(services, l
     marker = f"zq{uuid.uuid4().hex[:8]}"
     redacting = Policy(
         id=f"purge-redact-{marker}",
-        name="purge test redaction",
+        name_ar="سياسة اختبار",
+        name_en="purge test redaction",
         scope="global",  # the purge evaluates global and tenant policies only; inert but for the marker
         checkpoints=[Checkpoint.DATA],
         checker="regex",
@@ -190,7 +191,8 @@ async def test_the_purge_ignores_role_exceptions(services, litellm):
     role = f"p-{uuid.uuid4().hex[:8]}"
     exempt = Policy(
         id=f"purge-exempt-{role}",
-        name="purge test exemption",
+        name_ar="سياسة اختبار",
+        name_en="purge test exemption",
         scope=f"role:{role}",
         checkpoints=[Checkpoint.DATA],
         checker="presidio",

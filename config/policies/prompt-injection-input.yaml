@@ -1,6 +1,11 @@
 id: prompt-injection-input
-name: Block prompt injection in the user message
-description: >-
+name_ar: حظر حقن التعليمات في رسالة المستخدم
+name_en: Block prompt injection in the user message
+description_ar: >-
+  صيغ بالعربية والإنجليزية تحاول تجاوز تعليمات المساعد أو استخراج تعليمات النظام. تُطابَق الأنماط
+  على النص بعد توحيد الحروف العربية (حذف التشكيل والتطويل وتوحيد أشكال الألف والتاء المربوطة)، دون
+  تمييز بين الأحرف اللاتينية الكبيرة والصغيرة.
+description_en: >-
   English and Arabic phrasings that try to override the assistant's instructions or
   extract its system prompt. Patterns are matched on Arabic-folded text (tashkeel and
   tatweel removed, alef and taa marbuta forms folded), case-insensitively.

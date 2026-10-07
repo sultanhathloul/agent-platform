@@ -2,8 +2,12 @@
 # realm role `policy:no-sql` does not see the sql capability, whatever cap:* roles they hold;
 # authorization itself stays cap:{slug} in the gateway (ADR-0006). Disabled by default.
 id: tool-visibility-by-role
-name: Hide the sql capability from the policy role no-sql
-description: >-
+name_ar: إخفاء قدرة sql عن دور الحماية no-sql
+name_en: Hide the sql capability from the policy role no-sql
+description_ar: >-
+  تزيل نقطة TOOL_LIST قدرة sql عن المستخدمين الذين يحملون دور Keycloak المسمى policy:no-sql. لا
+  يمنح الدور أي صلاحية؛ وإنما يحدد هذه السياسة فقط.
+description_en: >-
   TOOL_LIST removes the sql capability for users holding the realm role policy:no-sql.
   The role grants nothing; it only selects this policy.
 enabled: false

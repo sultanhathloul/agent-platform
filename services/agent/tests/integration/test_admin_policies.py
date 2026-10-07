@@ -22,7 +22,8 @@ async def scoped(client):
         made.append(pid)
         base = {
             "id": pid,
-            "name": "admin api test",
+            "name_ar": "سياسة اختبار",
+            "name_en": "admin api test",
             "scope": f"role:{role}",
             "checkpoints": ["INPUT"],
             "checker": "keyword_list",
@@ -93,6 +94,56 @@ async def test_an_invalid_policy_is_refused_with_its_reasons(client, scoped):
     assert any("a role name is a slug" in d for d in error["details"])
     no_message = await client.post("/v1/admin/policies", json=body(message_ar=None), headers=ADMIN)
     assert any("message_ar and message_en" in d for d in no_message.json()["error"]["details"])
+
+
+async def test_a_policy_without_an_arabic_name_is_refused(client, scoped):
+    """ADR-0119: both names are required, on create, on a new version and on import."""
+    _, body = scoped
+    draft = {k: v for k, v in body().items() if k != "name_ar"}
+    refused = await client.post("/v1/admin/policies", json=draft, headers=ADMIN)
+    error = refused.json()["error"]
+    assert (refused.status_code, error["code"], error["details"]) == (
+        400,
+        "policy_invalid",
+        ["name_ar: Field required"],
+    )
+    blank = await client.post("/v1/admin/policies", json=body(name_ar="  "[:0]), headers=ADMIN)
+    assert blank.status_code == 400 and blank.json()["error"]["details"][0].startswith("name_ar:")
+    stored = body()
+    assert (await client.post("/v1/admin/policies", json=stored, headers=ADMIN)).status_code == 201
+    no_ar = {k: v for k, v in stored.items() if k != "name_ar"}
+    version = await client.post(f"/v1/admin/policies/{stored['id']}/versions", json=no_ar, headers=ADMIN)
+    assert version.status_code == 400 and version.json()["error"]["details"] == ["name_ar: Field required"]
+    imported = await client.post(
+        "/v1/admin/policies/import",
+        json={
+            "yaml": yaml.safe_dump({"policies": [{**no_ar, "id": f"{stored['id']}-x"}]}, allow_unicode=True)
+        },
+        headers=ADMIN,
+    )
+    assert (imported.status_code, imported.json()["error"]["code"]) == (400, "policy_invalid")
+
+
+async def test_the_api_carries_both_languages_and_the_purpose(client, scoped):
+    """ADR-0119: what is saved comes back in the view, the detail and the export."""
+    _, body = scoped
+    sent = body(
+        name_ar="حظر كلمة الاختبار",
+        name_en="Block the test word",
+        description_ar="وصف بالعربية",
+        description_en="An English description",
+        purpose="test",
+    )
+    saved = (await client.post("/v1/admin/policies", json=sent, headers=ADMIN)).json()["policy"]
+    texts = ("name_ar", "name_en", "description_ar", "description_en", "purpose")
+    assert {k: saved[k] for k in texts} == {k: sent[k] for k in texts}
+    document = (await client.get("/v1/admin/policies/export", headers=ADMIN)).json()["yaml"]
+    [exported] = [p for p in yaml.safe_load(document)["policies"] if p["id"] == sent["id"]]
+    assert {k: exported[k] for k in texts} == {k: sent[k] for k in texts}
+    seeded = (await client.get("/v1/admin/policies/pii-redact-output", headers=ADMIN)).json()["current"][
+        "policy"
+    ]
+    assert seeded["purpose"] == "production" and seeded["name_ar"] and seeded["name_en"]
 
 
 async def test_the_test_panel_runs_stored_and_draft_policies(client, scoped):

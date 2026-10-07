@@ -120,8 +120,15 @@ class PolicyDocument(BaseModel):
 
     id: str
     version: int | None = None
-    name: str
-    description: str = ""
+    # Both names are required; the policy model says so, with the field named (ADR-0119).
+    name_ar: str | None = None
+    name_en: str | None = None
+    description_ar: str = ""
+    description_en: str = ""
+    purpose: Literal["production", "test"] = Field(
+        default="production",
+        description="test: made by a test script, hidden from the admin list by default.",
+    )
     enabled: bool = True
     scope: str
     checkpoints: list[str]

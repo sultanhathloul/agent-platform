@@ -26,7 +26,8 @@ def judge_policy(version: int = 1, topic: str = "آراء سياسية حول ا
     return Policy(
         id=f"judge-{uuid.uuid4().hex[:8]}",
         version=version,
-        name="politics",
+        name_ar="سياسة اختبار",
+        name_en="politics",
         scope="global",
         checkpoints=["INPUT"],
         checker="llm_judge",
@@ -188,7 +189,8 @@ async def test_a_panel_test_under_a_simulated_tenant_never_reads_its_cached_verd
 def _pii_policies(exempt_action: str = "allow"):
     wide_pii = Policy(
         id="pii-wide",
-        name="pii",
+        name_ar="سياسة اختبار",
+        name_en="pii",
         scope="global",
         checkpoints=["DATA"],
         checker="presidio",
@@ -198,7 +200,8 @@ def _pii_policies(exempt_action: str = "allow"):
     )
     exempt = Policy(
         id="pii-judge-exempt",
-        name="judge exemption",
+        name_ar="سياسة اختبار",
+        name_en="judge exemption",
         scope="role:x",
         checkpoints=["DATA"],
         checker="llm_judge",

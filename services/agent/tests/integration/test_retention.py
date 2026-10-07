@@ -100,7 +100,8 @@ async def _policy(services, *, target: str, role: str) -> str:
     pid = f"judge-{target.replace('_', '-')}-{uuid.uuid4().hex[:8]}"
     policy = Policy(
         id=pid,
-        name="judge on stored text",
+        name_ar="سياسة اختبار",
+        name_en="judge on stored text",
         scope=f"role:{role}",
         checkpoints=[Checkpoint.DATA],
         checker="llm_judge",

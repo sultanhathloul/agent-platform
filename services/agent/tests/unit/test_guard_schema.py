@@ -27,7 +27,8 @@ from app.identity import Principal
 def policy(**overrides) -> Policy:
     fields = {
         "id": "pii-test",
-        "name": "PII test",
+        "name_ar": "سياسة اختبار",
+        "name_en": "PII test",
         "scope": "global",
         "checkpoints": ["DATA"],
         "checker": "regex",
@@ -106,6 +107,30 @@ def test_a_valid_policy_has_a_ref_and_defaults():
         policy(checker="llm_judge", config={"topic_description": "سياسة"}, action="warn").effective_on_error
         == "open"
     )
+
+
+def test_a_policy_needs_both_names_and_may_omit_either_description():
+    """ADR-0119: name_ar and name_en are required; the descriptions are optional."""
+    for missing in ("name_ar", "name_en"):
+        fields = policy().model_dump()
+        del fields[missing]
+        with pytest.raises(ValidationError) as raised:
+            Policy.model_validate(fields)
+        assert [e["loc"] for e in raised.value.errors()] == [(missing,)]
+    with pytest.raises(ValidationError, match="name_ar"):
+        policy(name_ar="")
+    p = policy()
+    assert (p.description_ar, p.description_en) == ("", "")
+    with pytest.raises(ValidationError):
+        policy(name="PII test")  # the single-language field is gone
+
+
+def test_purpose_defaults_to_production_and_is_production_or_test():
+    """ADR-0119: a test script's policy says so; it is part of the version's content."""
+    assert policy().purpose == "production"
+    assert policy(purpose="test").content()["purpose"] == "test"
+    with pytest.raises(ValidationError):
+        policy(purpose="staging")
 
 
 def test_a_block_needs_both_messages():

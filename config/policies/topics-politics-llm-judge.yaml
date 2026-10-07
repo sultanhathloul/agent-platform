@@ -1,8 +1,12 @@
 # Example topic policy, disabled by default (README §10.4). Enabling it makes every
 # answer in scope buffered whole before it streams (D3).
 id: topics-politics-llm-judge
-name: Political opinions (LLM judge)
-description: >-
+name_ar: الآراء السياسية (حكم النموذج اللغوي)
+name_en: Political opinions (LLM judge)
+description_ar: >-
+  يقرر النموذج الحَكَم هل يتناول سؤال أو إجابة آراءً سياسية حول الأحزاب أو الانتخابات أو
+  السياسيين. المعلومات المدنية المحايدة والواقعية مسموحة.
+description_en: >-
   The judge decides whether a question or an answer engages with political opinions
   about parties, elections or politicians. Neutral, factual civic information is allowed.
 enabled: false

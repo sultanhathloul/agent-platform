@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+import yaml
 from redis.asyncio import Redis
 
 from app.guardrails.checkpoints import Checkpoint
@@ -28,7 +29,8 @@ SCOPE = "role:store-test"
 def policy(policy_id: str, **overrides) -> Policy:
     fields = {
         "id": policy_id,
-        "name": "store test",
+        "name_ar": "سياسة اختبار",
+        "name_en": "store test",
         "scope": SCOPE,
         "checkpoints": ["INPUT"],
         "checker": "keyword_list",
@@ -78,13 +80,15 @@ async def test_no_seeded_policy_is_scoped_to_a_tenant(services):
 async def test_seeding_inserts_absent_ids_only_and_never_overwrites(store, tmp_path: Path):
     pid = new_id("seed")
     (tmp_path / "a.yaml").write_text(
-        f"id: {pid}\nname: first\nscope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
+        f"id: {pid}\nname_ar: سياسة اختبار\nname_en: first\n"
+        f"scope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
         "config: {keywords: [x]}\naction: warn\n",
         encoding="utf-8",
     )
     assert await store.seed([tmp_path]) == [pid]
     (tmp_path / "a.yaml").write_text(
-        f"id: {pid}\nname: edited file\nscope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
+        f"id: {pid}\nname_ar: سياسة اختبار\nname_en: edited file\n"
+        f"scope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
         "config: {keywords: [y]}\naction: log_only\nenabled: false\n",
         encoding="utf-8",
     )
@@ -103,7 +107,7 @@ async def test_an_edit_is_a_new_immutable_version_and_the_switch_is_not(store):
     first = await store.create(policy(pid), actor="admin-1")
     assert first.version == 1
     second = await store.add_version(
-        policy(pid, name="edited", config={"keywords": ["أخرى"]}), actor="admin-2"
+        policy(pid, name_en="edited", config={"keywords": ["أخرى"]}), actor="admin-2"
     )
     assert second.version == 2
     versions = await store.versions(pid)
@@ -150,11 +154,14 @@ async def test_import_creates_versions_switches_or_leaves_alone(store):
 async def test_an_invalid_document_is_rejected_whole():
     text = (
         "policies:\n"
-        f"  - {{id: ok-one, name: ok, scope: '{SCOPE}', checkpoints: [INPUT], checker: keyword_list,"
+        "  - {id: ok-one, name_ar: سياسة اختبار, name_en: ok,"
+        f" scope: '{SCOPE}', checkpoints: [INPUT], checker: keyword_list,"
         " config: {keywords: [x]}, action: warn}\n"
-        f"  - {{id: bad-one, name: bad, scope: 'user:viewer', checkpoints: [INPUT], checker: keyword_list,"
+        "  - {id: bad-one, name_ar: سياسة اختبار, name_en: bad,"
+        " scope: 'user:viewer', checkpoints: [INPUT], checker: keyword_list,"
         " config: {keywords: [x]}, action: warn}\n"
-        f"  - {{id: ok-one, name: dup, scope: '{SCOPE}', checkpoints: [INPUT], checker: keyword_list,"
+        "  - {id: ok-one, name_ar: سياسة اختبار, name_en: dup,"
+        f" scope: '{SCOPE}', checkpoints: [INPUT], checker: keyword_list,"
         " config: {keywords: [x]}, action: warn}\n"
     )
     with pytest.raises(PolicyFileError) as raised:
@@ -162,16 +169,72 @@ async def test_an_invalid_document_is_rejected_whole():
     errors = {e["id"]: e["error"] for e in raised.value.errors}
     assert "must be global" in errors["bad-one"] and errors["ok-one"] == "appears twice"
     with pytest.raises(PolicyFileError, match="version is assigned"):
-        parse_policy_documents(f"{{id: v, version: 3, name: v, scope: '{SCOPE}'}}")
+        parse_policy_documents(f"{{id: v, version: 3, name_ar: سياسة اختبار, name_en: v, scope: '{SCOPE}'}}")
 
 
 async def test_export_round_trips_through_import_unchanged(store):
     pid = new_id("export")
-    await store.create(policy(pid, description="وصف عربي"), actor="admin")
+    await store.create(policy(pid, description_ar="وصف عربي"), actor="admin")
     document = export_document([(await store.get(pid)).policy])
     assert "وصف عربي" in document and "version" not in document
     report = await store.import_policies(parse_policy_documents(document), actor="importer")
     assert report.unchanged == [pid]
+
+
+async def test_bilingual_text_and_purpose_round_trip_through_export_and_import(store):
+    """ADR-0119: both names, both descriptions and the purpose leave in the export and come back
+    from an import unchanged; an import that changes only the Arabic name makes a version."""
+    pid = new_id("bilingual")
+    made = policy(
+        pid,
+        name_ar="حظر كلمة الاختبار",
+        name_en="Block the test word",
+        description_ar="تحظر هذه السياسة كلمة اختبار؛ ومعها رقم 123 ونص English.",
+        description_en="Blocks a test word.",
+        purpose="test",
+    )
+    await store.create(made, actor="admin")
+    document = export_document([(await store.get(pid)).policy])
+    exported = yaml.safe_load(document)["policies"][0]
+    texts = ("name_ar", "name_en", "description_ar", "description_en", "purpose")
+    assert {k: exported[k] for k in texts} == {
+        "name_ar": "حظر كلمة الاختبار",
+        "name_en": "Block the test word",
+        "description_ar": "تحظر هذه السياسة كلمة اختبار؛ ومعها رقم 123 ونص English.",
+        "description_en": "Blocks a test word.",
+        "purpose": "test",
+    }
+    assert "name" not in exported and "description" not in exported
+    [parsed] = parse_policy_documents(document)
+    assert parsed.content() == made.content()
+    assert (await store.import_policies([parsed], actor="importer")).unchanged == [pid]
+
+    renamed = parsed.model_copy(update={"name_ar": "حظر كلمة الاختبار المعدّلة"})
+    assert (await store.import_policies([renamed], actor="importer")).versioned == [pid]
+    current = (await store.get(pid)).policy
+    assert (current.version, current.name_en) == (2, "Block the test word")
+    assert current.name_ar == "حظر كلمة الاختبار المعدّلة"
+
+
+async def test_an_import_without_an_arabic_name_is_refused_whole():
+    pid = new_id("noar")
+    fields = policy(pid).model_dump(mode="json", exclude={"name_ar", "version"})
+    document = yaml.safe_dump({"policies": [fields]}, allow_unicode=True)
+    with pytest.raises(PolicyFileError) as raised:
+        parse_policy_documents(document)
+    assert raised.value.errors == [{"id": pid, "error": "Field required"}]
+
+
+async def test_every_seeded_policy_has_its_seed_change_row(services):
+    """ADR-0119: on a clean database the seed writes the row; on an older one migration 0006 does."""
+    seeded = {
+        p.id
+        for path in (services.settings.config_dir / "policies").glob("*.yaml")
+        for p in parse_policy_documents(path.read_text(encoding="utf-8"))
+    }
+    for pid in sorted(seeded):
+        rows = [(c.change, c.version) for c in await services.policies.changes(pid)]
+        assert ("seed", 1) in rows, (pid, rows)
 
 
 async def test_a_change_reaches_another_process_within_two_seconds(services, settings):
@@ -276,7 +339,8 @@ async def test_import_seed_and_enable_each_write_a_change_row_with_the_actor(sto
     await store.import_policies([policy(imported, enabled=False)], actor="importer-2")
     await store.set_enabled(imported, True, actor="admin-x")
     (tmp_path / "s.yaml").write_text(
-        f"id: {seeded}\nname: seeded\nscope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
+        f"id: {seeded}\nname_ar: سياسة اختبار\nname_en: seeded\n"
+        f"scope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
         "config: {keywords: [x]}\naction: warn\n",
         encoding="utf-8",
     )

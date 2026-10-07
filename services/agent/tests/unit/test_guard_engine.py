@@ -31,7 +31,8 @@ class Static:
 def mobile_policy(**overrides) -> Policy:
     fields = {
         "id": "pii-mobile",
-        "name": "mobile",
+        "name_ar": "سياسة اختبار",
+        "name_en": "mobile",
         "scope": "global",
         "checkpoints": ["DATA"],
         "checker": "regex",
@@ -44,7 +45,8 @@ def mobile_policy(**overrides) -> Policy:
 def keyword_policy(**overrides) -> Policy:
     fields = {
         "id": "kw",
-        "name": "keywords",
+        "name_ar": "سياسة اختبار",
+        "name_en": "keywords",
         "scope": "global",
         "checkpoints": ["INPUT"],
         "checker": "keyword_list",
@@ -227,7 +229,8 @@ class Failing:
 def presidio_policy(**overrides) -> Policy:
     fields = {
         "id": "pii-presidio",
-        "name": "presidio",
+        "name_ar": "سياسة اختبار",
+        "name_en": "presidio",
         "scope": "global",
         "checkpoints": ["DATA"],
         "checker": "presidio",
@@ -328,7 +331,8 @@ async def test_a_role_scoped_model_tier_ceiling_lowers_and_never_raises():
     def ceiling(max_tier: str) -> Policy:
         return Policy(
             id=f"role-{max_tier}",
-            name="ceiling",
+            name_ar="سياسة اختبار",
+            name_en="ceiling",
             scope="role:light",
             checkpoints=["MODEL_TIER"],
             checker="tier_ceiling",
@@ -349,7 +353,8 @@ async def test_a_role_scoped_model_tier_ceiling_lowers_and_never_raises():
 async def test_model_tier_policies_lower_the_cap_to_their_ceiling():
     ceiling = Policy(
         id="t1-standard",
-        name="ceiling",
+        name_ar="سياسة اختبار",
+        name_en="ceiling",
         scope="tenant:t1",
         checkpoints=["MODEL_TIER"],
         checker="tier_ceiling",
@@ -450,7 +455,8 @@ class EntityChecker:
 def pii_policy(**overrides) -> Policy:
     fields = {
         "id": "pii-wide",
-        "name": "pii",
+        "name_ar": "سياسة اختبار",
+        "name_en": "pii",
         "scope": "global",
         "checkpoints": ["DATA"],
         "checker": "presidio",

@@ -1,7 +1,12 @@
 # Seeded once into agent.guard_policies; after that the admin UI owns it (I2).
 id: pii-redact-output
-name: Redact personal data in answers and summaries
-description: >-
+name_ar: إخفاء البيانات الشخصية في الإجابات والملخصات
+name_en: Redact personal data in answers and summaries
+description_ar: >-
+  تُستبدل أرقام الجوال السعودية وأرقام الهوية الوطنية والإقامة وأرقام الآيبان السعودية وعناوين
+  البريد الإلكتروني بالوسم [REDACTED:<type>] قبل أن تغادر الإجابة الوكيل (جملةً جملةً أثناء البث)،
+  وقبل حفظ الملخص المتجدد.
+description_en: >-
   Saudi mobile numbers, national ID and iqama numbers, SA IBANs and email addresses are
   replaced with [REDACTED:<type>] before an answer leaves the agent (sentence by sentence
   while it streams) and before the rolling summary is stored.
