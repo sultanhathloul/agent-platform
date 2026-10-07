@@ -94,7 +94,7 @@ async def test_seeding_inserts_absent_ids_only_and_never_overwrites(store, tmp_p
     )
     assert await store.seed([tmp_path]) == []
     view = await store.get(pid)
-    assert (view.policy.name, view.policy.version, view.policy.enabled, view.created_by) == (
+    assert (view.policy.name_en, view.policy.version, view.policy.enabled, view.created_by) == (
         "first",
         1,
         True,
@@ -111,7 +111,7 @@ async def test_an_edit_is_a_new_immutable_version_and_the_switch_is_not(store):
     )
     assert second.version == 2
     versions = await store.versions(pid)
-    assert [(v.policy.version, v.policy.name, v.created_by) for v in versions] == [
+    assert [(v.policy.version, v.policy.name_en, v.created_by) for v in versions] == [
         (2, "edited", "admin-2"),
         (1, "store test", "admin-1"),
     ]
