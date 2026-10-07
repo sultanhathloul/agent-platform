@@ -13,6 +13,7 @@
 #             a role-scoped exception (policy:pii-exempt) reaches the analyst and not the
 #             viewer; a second turn on a busy conversation is 409 turn_in_flight; the
 #             temporary policies end switched off, on success or failure (EXIT trap), and
+#             two buffered TTFT runs leave equal policy rows and their policy off;
 #             the policy row counts are equal across runs (no policy residue; conversations,
 #             guard events, the policy change log, audit rows and sessions grow by design).
 set -euo pipefail
@@ -22,7 +23,8 @@ set -a; source .env; set +a
 GW=$GATEWAY_PUBLIC_URL KC=$KEYCLOAK_PUBLIC_URL LF=$LANGFUSE_PUBLIC_URL WEB=$WEB_PUBLIC_URL
 TMP=$(mktemp -d)
 # Smoke's temporary policies: whatever happens, the run ends with every one of them off.
-SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt)
+# ttft-buffered-output belongs to scripts/measure_ttft.py, which smoke runs below.
+SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt ttft-buffered-output)
 cleanup() {
   if [[ -n ${ADMIN:-} ]]; then
     for id in "${SMOKE_POLICY_IDS[@]}"; do
@@ -345,6 +347,16 @@ check "error code is turn_in_flight" jq -e '.error.code == "turn_in_flight"' "$T
 wait "$FIRST"
 sed -n 's/^data: //p' "$TMP/busy-first.sse" > "$TMP/busy-first.jsonl"
 check "the first turn still ends with done" jq -se 'last.type == "done"' "$TMP/busy-first.jsonl"
+
+step "phase 03: the TTFT script leaves no policy residue (fixed id, switched off in finally)"
+uv run -q scripts/measure_ttft.py smoke-ttft-a 1 --buffered > "$TMP/ttft-a.log" 2>&1 || fail "first TTFT run: $(tail -2 "$TMP/ttft-a.log")"
+ttft_rows_a=$(policy_rows)
+uv run -q scripts/measure_ttft.py smoke-ttft-b 1 --buffered > "$TMP/ttft-b.log" 2>&1 || fail "second TTFT run: $(tail -2 "$TMP/ttft-b.log")"
+ttft_rows_b=$(policy_rows)
+[[ $ttft_rows_a == "$ttft_rows_b" ]] && ok "two TTFT runs leave equal policy rows ($ttft_rows_b)" \
+  || fail "policy rows went from $ttft_rows_a to $ttft_rows_b across two TTFT runs"
+check "the TTFT policy is off after each run" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select enabled from agent.guard_policy_heads where id = 'ttft-buffered-output'\") == f ]]"
 
 step "phase 03: no policy residue (temporary policies off, policy row counts equal across runs)"
 off=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES) and not enabled")

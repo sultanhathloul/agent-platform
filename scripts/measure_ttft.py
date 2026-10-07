@@ -12,12 +12,17 @@ percentiles. Prints n (successful/run), the failures, and p50 and p95 of both
 times over the successful turns, for one-sentence and five-sentence answers alike;
 writes one JSON line per turn. Exits 2 when any turn failed.
 
-    uv run scripts/measure_ttft.py <label> [turns] [out.jsonl] [--long]
+    uv run scripts/measure_ttft.py <label> [turns] [out.jsonl] [--long] [--buffered]
 
 The label names the mode being measured (e.g. phase02, streaming, buffered); which
-mode the agent runs in is decided by the enabled policies, not by this script.
-`--long` asks for five-sentence answers instead of one sentence, where streaming
-and buffered mode differ most.
+mode the agent runs in is decided by the enabled policies. `--long` asks for
+five-sentence answers instead of one sentence, where streaming and buffered mode
+differ most. `--buffered` forces buffered mode with the fixed policy
+`ttft-buffered-output` (a global OUTPUT block on a word no answer holds): it is
+imported as admin before the turns, so a first run creates it and later runs only
+switch it on (a changed content becomes a new version of the same id), and it is
+switched off in a `finally` block, whatever happens, as smoke.sh does: repeated
+runs leave the policy row counts as they were.
 """
 
 import json
@@ -84,8 +89,35 @@ def turn(http: httpx.Client, gateway: str, token: str, message: str) -> dict:
     }
 
 
+# The fixed policy that forces buffered mode (D3): an enabled OUTPUT block policy applies.
+BUFFERED_POLICY = {
+    "id": "ttft-buffered-output",
+    "name": "TTFT: force buffered mode",
+    "scope": "global",
+    "checkpoints": ["OUTPUT"],
+    "checker": "keyword_list",
+    "config": {"keywords": ["كلمةلاتظهرأبدا"]},
+    "action": "block",
+    "message_ar": "محجوب للقياس.",
+    "message_en": "Blocked for the measurement.",
+}
+
+
+def switch_buffered(http: httpx.Client, gateway: str, on: bool) -> None:
+    token = login("admin", "admin")["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    if on:
+        document = json.dumps({"policies": [{**BUFFERED_POLICY, "enabled": True}]}, ensure_ascii=False)
+        response = http.post(f"{gateway}/v1/admin/policies/import", json={"yaml": document}, headers=headers)
+    else:
+        url = f"{gateway}/v1/admin/policies/{BUFFERED_POLICY['id']}/enabled"
+        response = http.put(url, json={"enabled": False}, headers=headers)
+    response.raise_for_status()
+
+
 def main() -> int:
-    args = [a for a in sys.argv[1:] if a != "--long"]
+    args = [a for a in sys.argv[1:] if a not in ("--long", "--buffered")]
+    buffered = "--buffered" in sys.argv
     questions = LONG_QUESTIONS if "--long" in sys.argv else QUESTIONS
     label = args[0]
     count = int(args[1]) if len(args) > 1 else 20
@@ -94,11 +126,18 @@ def main() -> int:
     gateway = cfg["GATEWAY_PUBLIC_URL"]
     rows = []
     with httpx.Client(timeout=300) as http:
-        for i in range(count):
-            token = login("evaluator", "evaluator")["access_token"]
-            row = {"label": label, "i": i, **turn(http, gateway, token, questions[i % len(questions)])}
-            rows.append(row)
-            print(json.dumps(row, ensure_ascii=False), flush=True)
+        if buffered:
+            switch_buffered(http, gateway, on=True)
+            time.sleep(2.5)  # every agent process reloads within 2 s (I3)
+        try:
+            for i in range(count):
+                token = login("evaluator", "evaluator")["access_token"]
+                row = {"label": label, "i": i, **turn(http, gateway, token, questions[i % len(questions)])}
+                rows.append(row)
+                print(json.dumps(row, ensure_ascii=False), flush=True)
+        finally:
+            if buffered:
+                switch_buffered(http, gateway, on=False)
     if out:
         with out.open("a", encoding="utf-8") as fh:
             for row in rows:
