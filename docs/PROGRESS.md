@@ -811,6 +811,30 @@ Results (2026-10-07), per rule 11, OpenRouter profile:
 
 Human review needed: ADR-0115 and the status note on ADR-0108; `services/agent/app/db/migrations/0005_induced_changes.sql` (`induced` on `agent.guard_policy_changes`, the `flagged` and `unflagged` change kinds).
 
+### Narrow fix for review round 2 (2026-10-07)
+
+Scope: the round 2 finding (a cross-tenant signal through the judge cache), nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Judge cache key includes the tenant (ADR-0116, status note on ADR-0110); the panel keys by its simulated tenant and never writes; test: one global judge policy, t1 then t2, two model calls, two entries, t2 never reads t1's
+- [x] 2 Client guard events carry checkpoint, policy id, version, name, action, target and a block's messages only; the checker detail stays on the `guard.check` span, in state and in the audit delta (`guard_audit`, removed by the gateway relay); `docs/events.schema.json` and web types regenerated; web chip; tests: judge block at INPUT and OUTPUT (agent turns, gateway relay), smoke on the live relay and audit row
+- [x] make test, make eval ×1, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack stopped):
+  - agent (pytest): **443 passed, 0 failed, 0 skipped** (439 before; +4: a verdict per tenant under one global judge policy, the panel keyed by its simulated tenant, a judge block at INPUT and at OUTPUT with no checker detail in client events; the turn and storage tests now read the detail from `guard_audit`). The first run of this session failed 1 test (`test_a_memory_candidate_with_a_mobile_number_is_dropped_without_a_message` read `entities` from the client view). It was fixed and the whole suite was rerun.
+  - gateway (JUnit XML): **89 tests, 89 passed, 0 failed, 0 errors, 0 skipped** (87 before; +2: a judge block at INPUT and at OUTPUT through the relay, with `guard_audit` removed and the audit record keeping the detail)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped**
+- `make up`: green.
+- `make eval`, one run: **guardrails 103/103 PASS** (deterministic 1.00, 66 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 37 cases, 24 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**; Langfuse dataset run `make-eval-20261007T104618Z`.
+- `make smoke`, two consecutive runs: **73/73 checks passed** each (71 before; +2: the relayed guard event and terminal event carry no checker detail and no `guard_audit`; the blocked turn's audit row keeps the checker's detail). Policy rows 10 10 in both runs, equal to the stored reference; neither run added a row.
+
+How to verify: `make test`, `make up`, `make eval`, `make smoke` (twice).
+
+Human review needed: ADR-0116 and the status notes on ADR-0091, ADR-0096 and ADR-0110; `docs/events.schema.json` (`guard` loses `detail`, `entities` and `latency_ms` and gains `policy_name`, `message_ar` and `message_en`; `done` and `error` gain `guard_audit`, agent to gateway only).
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
