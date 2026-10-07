@@ -327,6 +327,8 @@ class GuardContext:
     turn: Any = None
     # The admin test panel evaluates one policy, enabled or not, and records nothing.
     only: Policy | None = None
+    # `only` is an unsaved draft, so its id@version names no stored content (judge cache, ADR-0110).
+    draft: bool = False
     # Executes only these actions (None: all). Every applicable policy of a group that holds one
     # of them still takes part in the group's resolution, so an exception weighs the same in
     # both answer modes; only the execution is limited (ADR-0108). While the answer streams,

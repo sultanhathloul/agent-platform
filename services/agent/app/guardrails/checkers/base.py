@@ -22,6 +22,9 @@ class CheckContext:
     policy: Policy
     locale: str = "ar"
     turn: Any = None  # the running TurnContext, when there is one
+    target: str | None = None  # the DATA target, when the checkpoint is DATA
+    panel: bool = False  # the admin test panel: nothing is recorded or cached
+    draft: bool = False  # the policy is an unsaved draft: its id@version names nothing stored
 
 
 class Checker(Protocol):

@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     agent_internal_token: str = ""
     config_dir: Path = Field(default_factory=_default_config_dir)
     user_id_hash_salt: str = ""
+    # Key of the HMAC-SHA256 content hashes in traces (D5, ADR-0110); the agent refuses to start without it.
+    content_hash_key: str = ""
     observability_capture_content: bool = True
     otel_sdk_disabled: bool = False
     model_timeout_s: float = 300.0

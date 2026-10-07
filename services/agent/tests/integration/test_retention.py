@@ -1,15 +1,20 @@
 """Retention (D5, phase 03 B3): no memory, summary or extractor content goes to Langfuse,
-only ids, token counts and content hashes; recorded context packages expire, name the
-memory items they used, and go when such an item is deleted."""
+only ids, token counts and keyed content hashes (ADR-0110), whatever span carries it;
+recorded context packages expire, name the memory items they used, and go when such an
+item is deleted."""
 
 import json
 import uuid
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
+from app.context.compress import truncate
+from app.guardrails.checkpoints import Checkpoint
+from app.guardrails.schema import Policy
 from app.identity import Principal
 from app.memory.types import MemoryScope
 from tests.fixtures.http import identity
+from tests.fixtures.replace import replacing
 
 SECRET_PROJECT = "مشروع النخلة الذهبية"
 SECRET_SUMMARY = "ناقش المستخدم خطة سرية لمشروع الواحة الزرقاء"
@@ -48,7 +53,29 @@ async def _seed_memory(services, principal) -> str:
     )
 
 
-async def test_memory_and_summary_text_never_reach_a_generation_span(services, spans, litellm):
+MEMORY_TEXT = f"المستخدم يعمل على {SECRET_PROJECT}"
+VERDICT = json.dumps({"violates": False, "confidence": 0.9, "category": "none"})
+
+
+def _span_text(spans) -> str:
+    """Every string attribute of every exported span, as one text to search."""
+    return "\n".join(
+        value
+        for span in spans.get_finished_spans()
+        for value in (span.attributes or {}).values()
+        if isinstance(value, str)
+    )
+
+
+def _assert_content_free(call) -> None:
+    assert "langfuse.observation.input" not in call.attributes
+    assert "langfuse.observation.output" not in call.attributes
+    assert call.attributes["model.content_free"] is True
+    assert len(call.attributes["langfuse.observation.metadata.input_hmac"]) == 64
+    assert len(call.attributes["langfuse.observation.metadata.output_hmac"]) == 64
+
+
+async def test_memory_and_summary_text_never_reach_any_span(services, spans, litellm):
     principal = _principal()
     item = await _seed_memory(services, principal)
     conversation, _ = await _turn(services, principal, "ما عاصمة الأردن؟")
@@ -61,23 +88,96 @@ async def test_memory_and_summary_text_never_reach_a_generation_span(services, s
     [answer] = _calls(spans, "reasoning")
     shown = answer.attributes["langfuse.observation.input"]
     assert SECRET_PROJECT in shown  # the user's own message is content, captured as before
-    messages = json.loads(shown)
-    data = messages[-1]["content"]
-    assert "النخلة الذهبية" not in data.split(f"أخبرني عن {SECRET_PROJECT}")[0]
-    assert "الواحة الزرقاء" not in shown
-    assert "[memory:" in data and item in data and "[summary:" in data and "sha256" in data
-    assert answer.attributes["langfuse.observation.metadata.input_sha256"]
+    data = json.loads(shown)[-1]["content"]
+    assert "[memory:" in data and item in data and "[summary:" in data and "hmac" in data
+    exported = _span_text(spans)
+    assert "المستخدم يعمل على" not in exported and "الواحة الزرقاء" not in exported
+    assert answer.attributes["langfuse.observation.metadata.input_hmac"]
 
 
-async def test_extractor_and_summarizer_calls_carry_no_content(services, spans, litellm):
-    principal = _principal()
-    await _turn(services, principal, "أفضّل أن تكون الإجابات مختصرة جدًا.")
-    [extractor] = _calls(spans, "extractor")
-    assert "langfuse.observation.input" not in extractor.attributes
-    assert "langfuse.observation.output" not in extractor.attributes
-    assert len(extractor.attributes["langfuse.observation.metadata.input_sha256"]) == 64
-    assert len(extractor.attributes["langfuse.observation.metadata.output_sha256"]) == 64
-    assert extractor.attributes["gen_ai.usage.output_tokens"] > 0
+async def _policy(services, *, target: str, role: str) -> str:
+    """A DATA llm_judge policy on `target`, held by a policy role of its own (ADR-0107)."""
+    pid = f"judge-{target.replace('_', '-')}-{uuid.uuid4().hex[:8]}"
+    policy = Policy(
+        id=pid,
+        name="judge on stored text",
+        scope=f"role:{role}",
+        checkpoints=[Checkpoint.DATA],
+        checker="llm_judge",
+        config={"topic_description": "أي موضوع سري", "targets": [target]},
+        action="log_only",
+    )
+    await services.policies.create(policy, actor="test")
+    return pid
+
+
+async def test_a_judged_memory_candidate_reaches_no_span_and_no_package(debug_services, spans, litellm):
+    role = f"j-{uuid.uuid4().hex[:8]}"
+    pid = await _policy(debug_services, target="memory_candidate", role=role)
+    candidate = json.dumps(
+        [{"kind": "project_context", "text": MEMORY_TEXT, "confidence": 0.9}], ensure_ascii=False
+    )
+    replaced, gateway = replacing(debug_services, {"extractor": candidate, "judge": VERDICT})
+    principal = _principal().model_copy(update={"policy_roles": (f"policy:{role}",)})
+    try:
+        spans.clear()
+        _, events = await _turn(replaced, principal, f"أنا أعمل على {SECRET_PROJECT}.")
+        assert "judge" in gateway.calls
+        [judge] = _calls(spans, "judge")
+        _assert_content_free(judge)
+        [extractor] = _calls(spans, "extractor")
+        _assert_content_free(extractor)
+        assert "المستخدم يعمل على" not in _span_text(spans)
+        async with debug_services.db.connection() as conn:
+            nodes = {
+                r["node"]
+                for r in await (
+                    await conn.execute(
+                        "SELECT node FROM agent.context_packages WHERE turn_id = %s", (events[-1].turn_id,)
+                    )
+                ).fetchall()
+            }
+        assert "answer" in nodes and "guard_judge" not in nodes
+    finally:
+        await debug_services.policies.set_enabled(pid, False, actor="test")
+
+
+async def test_the_extractor_summarizer_and_a_judged_summary_carry_no_content(debug_services, spans, litellm):
+    """Both halves exercised: the extractor on every turn, the summarizer once the history
+    passes its trigger; a judge on the summary target is content-free too (D5, ADR-0110)."""
+    counter, trigger = (
+        debug_services.assembler.counter,
+        debug_services.assembler.config.summary.trigger_tokens,
+    )
+    message = truncate("الرياض عاصمة المملكة العربية السعودية وأكبر مدنها. " * 400, 1750, counter)
+    assert 4 * counter.count(message) + 400 <= trigger < 5 * counter.count(message)
+    role = f"j-{uuid.uuid4().hex[:8]}"
+    pid = await _policy(debug_services, target="summary", role=role)
+    replaced, gateway = replacing(debug_services, {"summarizer": SECRET_SUMMARY, "judge": VERDICT})
+    principal = _principal().model_copy(update={"policy_roles": (f"policy:{role}",)})
+    conversation = str(uuid.uuid4())
+    try:
+        spans.clear()
+        for _ in range(6):
+            conversation, _ = await _turn(replaced, principal, message, conversation)
+        assert {"summarizer", "extractor", "judge"} <= set(gateway.calls)
+        for role_name in ("summarizer", "extractor", "judge"):
+            calls = _calls(spans, role_name)
+            assert calls, role_name
+            for call in calls:
+                _assert_content_free(call)
+        assert "الواحة الزرقاء" not in _span_text(spans)
+        async with debug_services.db.connection() as conn:
+            judged = await (
+                await conn.execute(
+                    "SELECT count(*) AS n FROM agent.context_packages "
+                    "WHERE conversation_id = %s AND node = %s",
+                    (conversation, "guard_judge"),
+                )
+            ).fetchone()
+        assert judged["n"] == 0
+    finally:
+        await debug_services.policies.set_enabled(pid, False, actor="test")
 
 
 async def test_packages_name_their_memory_items_and_go_with_them(debug_client, debug_services, litellm):

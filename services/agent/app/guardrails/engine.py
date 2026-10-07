@@ -149,6 +149,7 @@ class GuardEngine:
                 locale=context.locale,
                 turn=context.turn,
                 only=context.only,
+                draft=context.draft,
                 actions=context.actions,
             )
             outcome = await self._evaluate(Checkpoint.TOOL_LIST, slug, principal, scoped)
@@ -218,7 +219,15 @@ class GuardEngine:
             span.set_attribute("guard.scope", policy.scope)
             if target:
                 span.set_attribute("guard.target", target)
-            ctx = CheckContext(principal=principal, policy=policy, locale=context.locale, turn=context.turn)
+            ctx = CheckContext(
+                principal=principal,
+                policy=policy,
+                locale=context.locale,
+                turn=context.turn,
+                target=target,
+                panel=context.only is not None,
+                draft=context.draft,
+            )
             try:
                 checker = self.checkers[policy.checker]
                 result: CheckResult | None = await checker.check(subject, policy.typed_config(), ctx)

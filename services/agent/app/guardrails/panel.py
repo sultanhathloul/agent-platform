@@ -71,6 +71,7 @@ async def try_policy(
     principal: Principal,
     checkpoint: str | None = None,
     target: str | None = None,
+    draft: bool = False,
 ) -> PanelResult:
     point = Checkpoint(checkpoint) if checkpoint else policy.checkpoints[0]
     if point not in policy.checkpoints:
@@ -79,7 +80,10 @@ async def try_policy(
     default = (policy.config.get("targets") or ["answer"])[0]
     target = (target or default) if point == Checkpoint.DATA else None
     outcome = await engine.evaluate(
-        point, _payload(point, text, target), principal=principal, context=GuardContext(only=policy)
+        point,
+        _payload(point, text, target),
+        principal=principal,
+        context=GuardContext(only=policy, draft=draft),
     )
     result = outcome.results.get(policy.ref)
     error = None

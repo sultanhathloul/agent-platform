@@ -3,10 +3,14 @@ the fast tier, temperature 0) reads the policy's topic description and examples
 and the text, through Context Assembly and models.call (CLAUDE.md rule 6), with
 the versioned prompts `guardrails.judge.system` and `guardrails.judge.request`,
 and answers JSON {violates, confidence, category}. The prompt locale follows the
-text's script. Verdicts are cached in Redis for 24 hours, keyed by a hash of the
-policy's id@version and the normalized text (I4), so a policy edit never reuses
-an old verdict. A malformed answer is a CheckerError: the policy's `on_error`
-decides (open by default, D8)."""
+text's script. Verdicts are cached in Redis for 24 hours (I4), keyed by a hash of
+the policy's id@version, the judge prompts' id@version and the model alias the call
+resolves to, and the normalized text (ADR-0110): a policy edit, a prompt edit or a
+new alias never reuses an old verdict. The admin test panel never writes the cache,
+and a draft, whose id@version names nothing stored, never reads it either. A judge
+call on a memory candidate or a summary is content-free in traces (D5, ADR-0110).
+A malformed answer is a CheckerError: the policy's `on_error` decides (open by
+default, D8)."""
 
 import hashlib
 import json
@@ -35,8 +39,16 @@ class Verdict(BaseModel):
     category: str = ""
 
 
+# DATA targets whose text must never reach a trace (D5).
+CONTENT_FREE_TARGETS = frozenset({"memory_candidate", "summary"})
+
+
 class JudgeModel(Protocol):
     """Runs the judge prompt through Context Assembly and LiteLLM (app/graph/judge.py)."""
+
+    async def identity(self, *, principal: Principal, locale: str) -> str:
+        """What else a verdict depends on: the judge prompts' id@version and the model alias."""
+        ...
 
     async def judge(
         self,
@@ -47,6 +59,7 @@ class JudgeModel(Protocol):
         examples: list[dict[str, Any]],
         text: str,
         turn: Any = None,
+        content_free: bool = False,
     ) -> str: ...
 
 
@@ -66,9 +79,15 @@ def parse_verdict(output: str) -> Verdict:
         raise CheckerError(f"judge answer is not a verdict: {type(exc).__name__}") from exc
 
 
-def cache_key(namespace: str, policy_ref: str, text: str) -> str:
-    digest = hashlib.sha256(f"{policy_ref}\n{normalize(text)}".encode()).hexdigest()
+def cache_key(namespace: str, policy_ref: str, judge_identity: str, text: str) -> str:
+    digest = hashlib.sha256(f"{policy_ref}\n{judge_identity}\n{normalize(text)}".encode()).hexdigest()
     return f"{namespace}:guard:judge:{digest}"
+
+
+def draft_ref(policy: Any) -> str:
+    """A draft's stand-in for id@version: its id and a hash of its content."""
+    content = json.dumps(policy.content(), ensure_ascii=False, sort_keys=True)
+    return f"{policy.id}@draft-{hashlib.sha256(content.encode()).hexdigest()[:16]}"
 
 
 def text_locale(text: str, fallback: str) -> str:
@@ -90,20 +109,25 @@ class LlmJudgeChecker:
     async def check(self, payload: str, config: LlmJudgeConfig, ctx: CheckContext) -> CheckResult:
         if not payload.strip():
             return CheckResult(matched=False, explanation="empty text")
-        key = cache_key(self._namespace, ctx.policy.ref, payload)
-        verdict = await self._cached(key)
+        locale = text_locale(payload, ctx.locale)
+        policy_ref = draft_ref(ctx.policy) if ctx.draft else ctx.policy.ref
+        identity = await self._model.identity(principal=ctx.principal, locale=locale)
+        key = cache_key(self._namespace, policy_ref, identity, payload)
+        verdict = None if ctx.draft else await self._cached(key)
         cached = verdict is not None
         if verdict is None:
             raw = await self._model.judge(
                 principal=ctx.principal,
-                locale=text_locale(payload, ctx.locale),
+                locale=locale,
                 topic=config.topic_description,
                 examples=[example.model_dump() for example in config.examples],
                 text=payload,
                 turn=ctx.turn,
+                content_free=ctx.target in CONTENT_FREE_TARGETS,
             )
             verdict = parse_verdict(raw)
-            await self._store(key, verdict)
+            if not ctx.panel:
+                await self._store(key, verdict)
         matched = verdict.violates and verdict.confidence >= config.min_confidence
         return CheckResult(
             matched=matched,

@@ -79,6 +79,11 @@ class AssemblyRequest(BaseModel):
     memory_scope: MemoryScope | None = Field(
         default=None, description="Whose memory the memory step reads; set by core code from the principal."
     )
+    content_free: bool = Field(
+        default=False,
+        description="The call carries memory, summary or extractor text: no messages or output in its "
+        "trace and no recorded package (D5).",
+    )
     window_messages: int | None = Field(
         default=None, ge=0, description="Overrides the configured window size for this request."
     )

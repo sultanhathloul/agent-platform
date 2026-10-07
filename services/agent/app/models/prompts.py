@@ -88,6 +88,13 @@ class PromptLibrary:
         if missing:
             raise PromptError(f"prompt {prompt_id} missing locale(s): {', '.join(missing)}")
 
+    def ref(self, prompt_id: str, locale: str) -> str:
+        """`id@version` of a prompt in a locale, e.g. for a cache key that must change with it."""
+        entry = self._entries.get((prompt_id, locale))
+        if entry is None:
+            raise PromptError(f"no prompt {prompt_id} for locale {locale}")
+        return f"{entry.id}@{entry.version}"
+
     def render(self, prompt_id: str, locale: str, **variables: object) -> RenderedPrompt:
         entry = self._entries.get((prompt_id, locale))
         if entry is None:

@@ -64,6 +64,7 @@ def settings() -> Settings:
         agent_internal_token="test-internal-token",
         config_dir=Path(os.environ.get("CONFIG_DIR") or _default_config_dir()),
         user_id_hash_salt="test-salt",
+        content_hash_key="test-content-hash-key",
         observability_capture_content=True,
         otel_sdk_disabled=True,
         redis_url=os.environ.get("REDIS_URL") or f"redis://:{_dotenv('REDIS_PASSWORD') or ''}@localhost:6380/15",

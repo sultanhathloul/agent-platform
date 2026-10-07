@@ -200,6 +200,7 @@ async def test_policy(body: PolicyTestRequest, call: Admin):
             principal=principal,
             checkpoint=body.checkpoint,
             target=body.target,
+            draft=body.policy is not None,
         )
     except (PanelError, ValueError) as exc:
         return call.error("invalid_request", 400, [str(exc)])

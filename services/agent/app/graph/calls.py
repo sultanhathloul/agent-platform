@@ -80,9 +80,10 @@ async def prepare_call(
             raise TurnError(
                 "context_overflow", detail=f"{request.node}: {package.deficit_tokens} tokens over the budget"
             )
-    await services.context_log.record(
-        turn_id=ctx.turn_id, conversation_id=ctx.conversation_id, package=package
-    )
+    if not request.content_free:  # D5: memory and summary text is never recorded (ADR-0110)
+        await services.context_log.record(
+            turn_id=ctx.turn_id, conversation_id=ctx.conversation_id, package=package
+        )
     return PreparedCall(decision, package)
 
 

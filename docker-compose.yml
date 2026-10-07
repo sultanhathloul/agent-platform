@@ -37,6 +37,8 @@ x-agent-env: &agent-env
   AGENT_INTERNAL_TOKEN: ${AGENT_INTERNAL_TOKEN}
   CONFIG_DIR: /srv/config
   USER_ID_HASH_SALT: ${USER_ID_HASH_SALT}
+  # HMAC key of the content hashes in traces (D5, ADR-0110).
+  CONTENT_HASH_KEY: ${CONTENT_HASH_KEY}
   OBSERVABILITY_CAPTURE_CONTENT: ${OBSERVABILITY_CAPTURE_CONTENT:-true}
   # Guard policies: presidio-analyzer with the Saudi recognizers (README §10.2).
   PRESIDIO_URL: http://presidio-analyzer:3000

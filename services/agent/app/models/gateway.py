@@ -16,7 +16,7 @@ from app.models.config import ModelsConfig
 from app.models.routing import TierDecision
 from app.observability.langfuse import set_generation, set_metadata
 from app.observability.otel import tracer
-from app.observability.redaction import CONTENT_FREE_ROLES, messages_digest, observable_messages, sha256
+from app.observability.redaction import content_hash, is_content_free, messages_digest, observable_messages
 from app.settings import Settings
 
 # The deployment LiteLLM routed the alias to (its `model` in infra/litellm/config.yaml,
@@ -48,6 +48,9 @@ class ModelGateway:
         self._config = config
         self._counter = counter
         self._capture = settings.observability_capture_content
+        if not settings.content_hash_key:
+            raise ValueError("CONTENT_HASH_KEY is not set (.env, ADR-0110)")
+        self._hash_key = settings.content_hash_key
 
     async def call(
         self,
@@ -114,18 +117,24 @@ class ModelGateway:
             span.set_attribute("model.usage_reported", usage is not None)
             # The upstream model when LiteLLM names it; otherwise the alias, marked unknown.
             span.set_attribute("model.served_known", served is not None)
-            # D5: no memory, summary or extractor content reaches Langfuse; hashes stand in.
-            content_free = decision.role in CONTENT_FREE_ROLES
+            # D5: no memory, summary or extractor content reaches Langfuse; keyed hashes stand in.
+            content_free = is_content_free(context, decision.role)
+            span.set_attribute("model.content_free", content_free)
             set_metadata(
                 span,
-                {"input_sha256": messages_digest(messages), "output_sha256": sha256(text)},
+                {
+                    "input_hmac": messages_digest(messages, self._hash_key),
+                    "output_hmac": content_hash(text, self._hash_key),
+                },
             )
             set_generation(
                 span,
                 model=served or tier.alias,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
-                input_messages=observable_messages(context) if self._capture and not content_free else None,
+                input_messages=observable_messages(context, self._hash_key)
+                if self._capture and not content_free
+                else None,
                 output_text=text if self._capture and not content_free else None,
             )
             return ModelResult(
