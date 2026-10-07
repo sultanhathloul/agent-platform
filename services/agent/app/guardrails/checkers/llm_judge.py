@@ -4,10 +4,12 @@ and the text, through Context Assembly and models.call (CLAUDE.md rule 6), with
 the versioned prompts `guardrails.judge.system` and `guardrails.judge.request`,
 and answers JSON {violates, confidence, category}. The prompt locale follows the
 text's script. Verdicts are cached in Redis for 24 hours (I4), keyed by a hash of
-the policy's id@version, the judge prompts' id@version and the model alias the call
-resolves to, and the normalized text (ADR-0110): a policy edit, a prompt edit or a
-new alias never reuses an old verdict. The admin test panel never writes the cache,
-and a draft, whose id@version names nothing stored, never reads it either. A judge
+the principal's tenant, the policy's id@version, the judge prompts' id@version and the
+model alias the call resolves to, and the normalized text (ADR-0110, ADR-0116): a policy
+edit, a prompt edit or a new alias never reuses an old verdict, and one tenant never
+reads a verdict another tenant's text produced. The admin test panel keys by its
+simulated tenant and never writes the cache, and a draft, whose id@version names
+nothing stored, never reads it either. A judge
 call on a memory candidate or a summary is content-free in traces (D5, ADR-0110).
 A malformed answer is a CheckerError: the policy's `on_error` decides (open by
 default, D8)."""
@@ -79,8 +81,10 @@ def parse_verdict(output: str) -> Verdict:
         raise CheckerError(f"judge answer is not a verdict: {type(exc).__name__}") from exc
 
 
-def cache_key(namespace: str, policy_ref: str, judge_identity: str, text: str) -> str:
-    digest = hashlib.sha256(f"{policy_ref}\n{judge_identity}\n{normalize(text)}".encode()).hexdigest()
+def cache_key(namespace: str, tenant_id: str, policy_ref: str, judge_identity: str, text: str) -> str:
+    """The verdict's key (ADR-0116): one tenant's entries are never another tenant's."""
+    material = "\n".join((tenant_id, policy_ref, judge_identity, normalize(text)))
+    digest = hashlib.sha256(material.encode()).hexdigest()
     return f"{namespace}:guard:judge:{digest}"
 
 
@@ -112,7 +116,7 @@ class LlmJudgeChecker:
         locale = text_locale(payload, ctx.locale)
         policy_ref = draft_ref(ctx.policy) if ctx.draft else ctx.policy.ref
         identity = await self._model.identity(principal=ctx.principal, locale=locale)
-        key = cache_key(self._namespace, policy_ref, identity, payload)
+        key = cache_key(self._namespace, ctx.principal.tenant_id, policy_ref, identity, payload)
         verdict = None if ctx.draft else await self._cached(key)
         cached = verdict is not None
         if verdict is None:

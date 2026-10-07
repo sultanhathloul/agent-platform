@@ -131,6 +131,53 @@ async def test_a_panel_test_of_an_edited_draft_does_not_change_the_live_verdict(
     assert again.blocked and live_gateway.calls.count("judge") == 1  # the cached live verdict, unchanged
 
 
+async def _keys(services, namespace: str) -> list[str]:
+    return [key async for key in services.redis.scan_iter(match=f"{namespace}:guard:judge:*")]
+
+
+async def test_one_global_judge_policy_keeps_a_verdict_per_tenant(services, litellm):
+    """ADR-0116: the same text under one global judge policy from tenant t1, then t2, costs two
+    model calls and leaves two entries; t2's verdict is never t1's."""
+    namespace, cache = _namespace(), RedisVerdictCache(services.redis)
+    policy = judge_policy()
+    payload = {"message": "ما رأيك في الأحزاب السياسية؟", "attachments": []}
+    t1, t2 = Principal(user_id="a", tenant_id="t1"), Principal(user_id="b", tenant_id="t2")
+
+    judge1, gateway1 = judged(services, VIOLATES)
+    engine1 = GuardEngine(Static(policy), {"llm_judge": LlmJudgeChecker(judge1, cache, namespace=namespace)})
+    assert (await engine1.evaluate(Checkpoint.INPUT, payload, principal=t1)).blocked
+    assert gateway1.calls.count("judge") == 1 and len(await _keys(services, namespace)) == 1
+
+    # t2's model answers differently: had t2 read t1's entry, it would be blocked.
+    judge2, gateway2 = judged(services, CLEAR)
+    engine2 = GuardEngine(Static(policy), {"llm_judge": LlmJudgeChecker(judge2, cache, namespace=namespace)})
+    first = await engine2.evaluate(Checkpoint.INPUT, payload, principal=t2)
+    assert first.action == "allow" and gateway2.calls.count("judge") == 1
+    assert len(await _keys(services, namespace)) == 2
+    # Each tenant now reads its own entry only.
+    assert (await engine2.evaluate(Checkpoint.INPUT, payload, principal=t2)).action == "allow"
+    assert (await engine1.evaluate(Checkpoint.INPUT, payload, principal=t1)).blocked
+    assert gateway1.calls.count("judge") == 1 and gateway2.calls.count("judge") == 1
+
+
+async def test_the_panel_keys_by_its_simulated_tenant_and_never_writes(services, litellm):
+    namespace, cache = _namespace(), RedisVerdictCache(services.redis)
+    stored, text = judge_policy(), "ما رأيك في الأحزاب السياسية؟"
+    live_judge, _ = judged(services, VIOLATES)
+    live = GuardEngine(Static(stored), {"llm_judge": LlmJudgeChecker(live_judge, cache, namespace=namespace)})
+    t1 = Principal(user_id="a", tenant_id="t1")
+    assert (await live.evaluate(Checkpoint.INPUT, {"message": text, "attachments": []}, principal=t1)).blocked
+
+    panel_judge, panel_gateway = judged(services, CLEAR)
+    panel = GuardEngine(Static(), {"llm_judge": LlmJudgeChecker(panel_judge, cache, namespace=namespace)})
+    # Simulating t1 reads t1's entry; simulating t2 asks the model and writes nothing.
+    assert (await try_policy(panel, stored, text, principal=t1)).action == "block"
+    assert panel_gateway.calls.count("judge") == 0
+    t2 = Principal(user_id="admin", tenant_id="t2")
+    assert (await try_policy(panel, stored, text, principal=t2)).action == "allow"
+    assert panel_gateway.calls.count("judge") == 1 and len(await _keys(services, namespace)) == 1
+
+
 # ------------------------------------------------------------------ whole text against spans (ADR-0115)
 
 

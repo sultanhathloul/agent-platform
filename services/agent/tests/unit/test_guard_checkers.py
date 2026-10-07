@@ -192,12 +192,16 @@ def test_a_malformed_verdict_is_a_checker_error(answer):
         parse_verdict(answer)
 
 
-def test_the_cache_key_changes_with_the_policy_version_prompts_and_alias():
-    base = cache_key("t", "topics-politics@1", "guardrails.judge.system@1.0.0;alias=fast", "x")
-    assert base != cache_key("t", "topics-politics@2", "guardrails.judge.system@1.0.0;alias=fast", "x")
-    assert base != cache_key("t", "topics-politics@1", "guardrails.judge.system@1.1.0;alias=fast", "x")
-    assert base != cache_key("t", "topics-politics@1", "guardrails.judge.system@1.0.0;alias=standard", "x")
-    assert base == cache_key("t", "topics-politics@1", "guardrails.judge.system@1.0.0;alias=fast", "x")
+def test_the_cache_key_changes_with_the_tenant_policy_version_prompts_and_alias():
+    ident = "guardrails.judge.system@1.0.0;alias=fast"
+    base = cache_key("t", "t1", "topics-politics@1", ident, "x")
+    assert base != cache_key("t", "t2", "topics-politics@1", ident, "x")
+    assert base != cache_key("t", "t1", "topics-politics@2", ident, "x")
+    assert base != cache_key("t", "t1", "topics-politics@1", "guardrails.judge.system@1.1.0;alias=fast", "x")
+    assert base != cache_key(
+        "t", "t1", "topics-politics@1", "guardrails.judge.system@1.0.0;alias=standard", "x"
+    )
+    assert base == cache_key("t", "t1", "topics-politics@1", ident, "x")
 
 
 # The judge's model call is tested on the real path in tests/integration/test_judge.py (rule 6).
