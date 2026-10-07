@@ -11,6 +11,7 @@ import type {
   PolicyList,
   PolicyMetrics,
   PolicyOverrides,
+  PolicyChanges,
   PolicyRoles,
   PolicyTestRequest,
   PolicyTestResult,
@@ -199,6 +200,12 @@ export async function previewOverrides({
 }: Authorized & { policy: PolicyDocument }): Promise<PolicyOverrides> {
   const url = `${gatewayUrl}${POLICIES}/overrides`;
   return required(await callJson<PolicyOverrides>(url, token, { method: "POST", body: JSON.stringify(policy), signal }), 200);
+}
+
+/** The policy's change log, newest first, with every change's actor (ADR-0108). */
+export async function getPolicyChanges({ gatewayUrl, token, signal, id }: Authorized & { id: string }): Promise<PolicyChanges> {
+  const url = `${gatewayUrl}${POLICIES}/${encodeURIComponent(id)}/changes`;
+  return required(await callJson<PolicyChanges>(url, token, { method: "GET", signal }), 200);
 }
 
 /** The realm's policy:* roles, which role-scoped policies name (ADR-0107). */

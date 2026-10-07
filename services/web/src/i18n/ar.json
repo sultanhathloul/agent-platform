@@ -138,9 +138,9 @@
       "name": "الاسم",
       "description": "الوصف",
       "scope": "النطاق",
-      "scopeHint": "global أو tenant:معرّف أو role:اسم أو kb:اسم أو tool:اسم. نطاق role يطبَّق على من يحمل دور الحماية policy:الاسم.",
+      "scopeHint": "global أو tenant:<المعرّف من سمة Keycloak المسماة tenant_id> (مثل tenant:default) أو role:اسم أو kb:اسم أو tool:اسم. نطاق role يطبَّق على من يحمل دور الحماية policy:الاسم.",
       "group": "المجموعة",
-      "groupHint": "سياسات المجموعة الواحدة يغلب فيها النطاق الأضيق؛ تُترك فارغة لتكون المجموعة هي المعرّف.",
+      "groupHint": "في المجموعة الواحدة تتجاوز السياسة ذات النطاق الأضيق السياسةَ العامة global، فيما طابقته أداة فحصها فقط؛ ولا يتجاوز أيٌّ من نطاقات tenant وrole وkb وtool الآخر، ويغلب بينها الإجراء الأشد. تُترك فارغة لتكون المجموعة هي المعرّف.",
       "checkpoints": "نقاط التفتيش",
       "checker": "أداة الفحص",
       "action": "الإجراء",
@@ -204,7 +204,11 @@
       "spans": "المقاطع المطابِقة",
       "noSpans": "لم تُحدَّد مقاطع.",
       "output": "النص بعد الحجب",
-      "message": "رسالة السياسة:"
+      "message": "رسالة السياسة:",
+      "principal": "التقييم لـ",
+      "tenant": "المستأجر",
+      "roles": "أدوار الحماية",
+      "rolesHint": "افصل بينها بمسافة، مثل policy:pii-exempt"
     },
     "history": {
       "title": "سجل الإصدارات",
@@ -236,6 +240,38 @@
       "nothing": "لا تتجاوز أي سياسة.",
       "check": "عرض ما تتجاوزه",
       "saved": "وتتجاوز: {list}."
+    },
+    "explanation": {
+      "empty_text": "النص فارغ.",
+      "keywords": "كلمات وُجدت: {items}",
+      "no_keyword": "لم تُوجد أي كلمة.",
+      "allowed": "ضمن قائمة المسموح: {items}",
+      "outside_allow_list": "النص خارج قائمة المسموح.",
+      "patterns": "أنماط طابقت: {items}",
+      "no_pattern": "لم يطابق أي نمط.",
+      "entities": "كيانات وُجدت: {items}",
+      "no_entity": "لم يُوجد أي كيان.",
+      "judge_violates": "وجد المحكِّم الموضوع ({category})، بثقة {confidence}.",
+      "judge_violates_cached": "وجد المحكِّم الموضوع ({category})، بثقة {confidence}؛ حكم محفوظ.",
+      "judge_clear": "لم يجد المحكِّم الموضوع، بثقة {confidence}.",
+      "judge_clear_cached": "لم يجد المحكِّم الموضوع، بثقة {confidence}؛ حكم محفوظ.",
+      "role_not_covered": "دور النموذج {role} لا يشمله هذا السقف.",
+      "above_ceiling": "المستوى المطلوب {tier} أعلى من السقف {ceiling}.",
+      "within_ceiling": "المستوى المطلوب {tier} ضمن السقف {ceiling}."
+    },
+    "changes": {
+      "title": "سجل التغييرات",
+      "empty": "لا تغييرات مسجلة.",
+      "by": "بواسطة {user} في {date}",
+      "exception": "استثناء",
+      "kinds": {
+        "create": "أُنشئت",
+        "version": "نسخة جديدة",
+        "enable": "فُعِّلت",
+        "disable": "أُوقفت",
+        "import": "استُوردت",
+        "seed": "بُذرت"
+      }
     }
   }
 }

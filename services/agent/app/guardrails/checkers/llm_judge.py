@@ -108,7 +108,7 @@ class LlmJudgeChecker:
 
     async def check(self, payload: str, config: LlmJudgeConfig, ctx: CheckContext) -> CheckResult:
         if not payload.strip():
-            return CheckResult(matched=False, explanation="empty text")
+            return CheckResult(matched=False, explanation="empty text", reason="empty_text")
         locale = text_locale(payload, ctx.locale)
         policy_ref = draft_ref(ctx.policy) if ctx.draft else ctx.policy.ref
         identity = await self._model.identity(principal=ctx.principal, locale=locale)
@@ -135,6 +135,8 @@ class LlmJudgeChecker:
             explanation=f"{'violates' if verdict.violates else 'clear'}"
             f" ({verdict.category or 'no category'}, confidence {verdict.confidence:.2f}"
             f"{', cached' if cached else ''})",
+            reason=("judge_violates" if verdict.violates else "judge_clear") + ("_cached" if cached else ""),
+            reason_args={"category": verdict.category, "confidence": f"{verdict.confidence:.2f}"},
         )
 
     async def _cached(self, key: str) -> Verdict | None:

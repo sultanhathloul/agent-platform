@@ -16,7 +16,6 @@ _COMMENTS = re.compile(r"<!--.*?-->", re.S)
 _TAGS = re.compile(r"<[^>]{0,2000}>")
 _SPACES = re.compile(r"[ \t\f\v ​‌‍⁠﻿]+")
 _LINES = re.compile(r"\n\s*\n\s*(\n\s*)+")
-REMOVED = "[removed: instruction-like text]"
 
 
 @dataclass(frozen=True)
@@ -30,16 +29,21 @@ class Sanitizer:
     def __init__(self, config: SanitizeConfig):
         self._max = config.max_chars
         self._patterns = [re.compile(fold_with_map(p)[0], re.I) for p in config.instruction_patterns]
+        self._markers = config.removed_marker
 
-    def sanitize(self, text: str) -> Sanitized:
+    def marker(self, locale: str) -> str:
+        """The configured marker in the turn's locale (config/messages/sanitize.yaml)."""
+        return self._markers.get(locale) or next(iter(self._markers.values()))
+
+    def sanitize(self, text: str, locale: str = "ar") -> Sanitized:
         text = _COMMENTS.sub(" ", _BLOCKS.sub(" ", text))
         text = html.unescape(_TAGS.sub(" ", text))
-        text, removed = self._strip_instructions(text)
+        text, removed = self._strip_instructions(text, self.marker(locale))
         text = _LINES.sub("\n\n", _SPACES.sub(" ", text)).strip()
         truncated = len(text) > self._max
         return Sanitized(text[: self._max], removed, truncated)
 
-    def _strip_instructions(self, text: str) -> tuple[str, int]:
+    def _strip_instructions(self, text: str, marker: str) -> tuple[str, int]:
         folded, mapping = fold_with_map(text)
         regions = []
         for pattern in self._patterns:
@@ -51,5 +55,5 @@ class Sanitizer:
             else:
                 merged.append([start, end])
         for start, end in reversed(merged):
-            text = text[:start] + REMOVED + text[end:]
+            text = text[:start] + marker + text[end:]
         return text, len(merged)

@@ -178,6 +178,8 @@ async def start_services(services: Services) -> Services:
     to the running event loop, so this runs inside it rather than in build_services."""
     if services.graph is not None:
         return services
+    if not services.settings.content_hash_key:
+        raise RuntimeError("CONTENT_HASH_KEY is not set (.env, ADR-0110): traces would carry unkeyed hashes")
     await services.db.open()
     checkpointer = AsyncPostgresSaver(services.db.pool)
     await checkpointer.setup()

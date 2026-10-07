@@ -135,3 +135,32 @@ export function unknownPolicyRole(scope: string, realmRoles: string[] | null): s
   const role = `policy:${scope.slice("role:".length)}`;
   return realmRoles.includes(role) ? null : role;
 }
+
+/** A list for a reader in `locale`: the Arabic comma in Arabic, a comma in English (rule 7). */
+export function formatList(items: readonly string[], locale: string): string {
+  return items.join(locale === "ar" ? "، " : ", ");
+}
+
+/** The policy's own message in the reader's locale, the other one only when it is missing. */
+export function messageFor(
+  messages: { message_ar?: string | null; message_en?: string | null },
+  locale: string,
+): string | null {
+  const [first, second] = locale === "ar" ? [messages.message_ar, messages.message_en] : [messages.message_en, messages.message_ar];
+  return first || second || null;
+}
+
+/**
+ * The arguments of a checker explanation key for the reader's locale: `items` arrives as names
+ * separated by newlines and is joined with the locale's separator.
+ */
+export function explanationArgs(args: Record<string, string> | null | undefined, locale: string): Record<string, string> {
+  const out: Record<string, string> = { ...(args ?? {}) };
+  if (out.items !== undefined) out.items = formatList(out.items.split("\n").filter(Boolean), locale);
+  return out;
+}
+
+/** Policy roles typed in the test panel: full names separated by spaces or commas, deduplicated. */
+export function parsePolicyRoles(text: string): string[] {
+  return [...new Set(text.split(/[\s,،]+/).filter(Boolean))].sort();
+}

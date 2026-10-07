@@ -235,7 +235,13 @@ class PolicyTestResult(BaseModel):
     action: str = Field(description="What the engine decided for this text.")
     matched: bool
     score: float
-    explanation: str
+    explanation: str = Field(description="The checker's explanation in English, as traces record it.")
+    explanation_key: str = Field(
+        default="", description="The explanation as a key under the web's policies.explanation.* (rule 7)."
+    )
+    explanation_args: dict[str, str] = Field(
+        default={}, description="Arguments of explanation_key; `items` lists names separated by newlines."
+    )
     spans: list[SpanView] = Field(description="Matched regions of `text`, by character offsets.")
     output_text: str | None = Field(
         default=None, description="The text after redaction, for text checkpoints."

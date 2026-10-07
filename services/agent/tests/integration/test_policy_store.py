@@ -69,6 +69,12 @@ async def test_the_service_seeded_every_policy_file_once(services):
     assert "topics-politics-llm-judge" not in active and "pii-redact-output" in active
 
 
+async def test_no_seeded_policy_is_scoped_to_a_tenant(services):
+    """ADR-0107: tenants are not policy groups; what the service seeded holds no tenant scope."""
+    seeded = [v.policy for v in await services.policies.list_policies() if v.created_by == "seed"]
+    assert seeded and all(not p.scope.startswith("tenant:") for p in seeded), [p.scope for p in seeded]
+
+
 async def test_seeding_inserts_absent_ids_only_and_never_overwrites(store, tmp_path: Path):
     pid = new_id("seed")
     (tmp_path / "a.yaml").write_text(
@@ -178,19 +184,20 @@ async def test_a_change_reaches_another_process_within_two_seconds(services, set
     try:
         await asyncio.sleep(0.2)  # the reader's subscription is up
         pid = new_id("reload")
-        started = time.monotonic()
-        await writer.create(policy(pid), actor="admin")
-        while pid not in {p.id for p in reader.active()}:
-            assert time.monotonic() - started < 2.0, "the reader did not see the new policy within 2 s"
-            await asyncio.sleep(0.02)
-        created_after = time.monotonic() - started
 
-        started = time.monotonic()
+        async def seen_within(condition, limit_s: float = 2.0) -> float:
+            """Seconds until `condition()` holds in the reader; polls past the limit, so the one
+            assertion below measures the bound instead of a loop stopping at it."""
+            started = time.monotonic()
+            while not condition() and time.monotonic() - started < limit_s + 3.0:
+                await asyncio.sleep(0.02)
+            return time.monotonic() - started
+
+        await writer.create(policy(pid), actor="admin")
+        created = await seen_within(lambda: pid in {p.id for p in reader.active()})
         await writer.set_enabled(pid, False, actor="admin")
-        while pid in {p.id for p in reader.active()}:
-            assert time.monotonic() - started < 2.0, "the reader did not see the switch within 2 s"
-            await asyncio.sleep(0.02)
-        assert created_after < 2.0
+        switched = await seen_within(lambda: pid not in {p.id for p in reader.active()})
+        assert max(created, switched) < 2.0, (created, switched)
     finally:
         await writer.stop()
         await reader.stop()

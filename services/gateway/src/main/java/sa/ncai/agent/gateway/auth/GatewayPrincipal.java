@@ -22,6 +22,11 @@ public record GatewayPrincipal(
     public static final String DEFAULT_TENANT = "default";
     public static final String ADMIN_ROLE = "admin";
     public static final String POLICY_ROLE_PREFIX = "policy:";
+    /** The policy roles the gateway forwards (ADR-0107); the admin form lists the same ones. */
+    public static boolean isPolicyRole(String role) {
+        return POLICY_ROLE.matcher(role).matches();
+    }
+
     private static final Pattern POLICY_ROLE = Pattern.compile("policy:[a-z0-9][a-z0-9_-]{0,63}");
 
     private static final Pattern PERMISSION = Pattern.compile("cap:[a-z0-9_]+|kb:[a-z0-9_-]+:read");
@@ -34,7 +39,7 @@ public record GatewayPrincipal(
                 .sorted()
                 .toList();
         List<String> policyRoles = roles.stream()
-                .filter(role -> POLICY_ROLE.matcher(role).matches())
+                .filter(GatewayPrincipal::isPolicyRole)
                 .distinct()
                 .sorted()
                 .toList();

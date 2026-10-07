@@ -124,6 +124,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/policies/{policyId}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A policy's change log: every save, switch, import and seed, with its actor (ADR-0108) */
+        get: operations["getPolicyChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/policies/{policyId}/enabled": {
         parameters: {
             query?: never;
@@ -299,6 +316,11 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopePolicyChanges: {
+            data?: components["schemas"]["PolicyChanges"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiEnvelopePolicyDetail: {
             data?: components["schemas"]["PolicyDetail"];
             error?: components["schemas"]["ApiError"];
@@ -411,6 +433,20 @@ export interface components {
         MemorySettings: {
             enabled: boolean;
         };
+        PolicyChange: {
+            actor: string;
+            /** @enum {string} */
+            change: "create" | "version" | "enable" | "disable" | "import" | "seed";
+            /** Format: date-time */
+            changed_at: string;
+            exception: boolean;
+            overrides: string[];
+            /** @description id@version the change left current */
+            policy_ref: string;
+        };
+        PolicyChanges: {
+            changes: components["schemas"]["PolicyChange"][];
+        };
         PolicyDetail: {
             current: components["schemas"]["PolicyView"];
             versions: components["schemas"]["PolicyVersionView"][];
@@ -433,7 +469,7 @@ export interface components {
             name: string;
             /** @description open | closed; default by checker (D8) */
             on_error?: string;
-            /** @description global | tenant:<id> | kb:<slug> | tool:<name>; role:<role> is reserved and refused */
+            /** @description global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to holders of the realm role policy:<name> (ADR-0107); only global contains another scope (ADR-0108) */
             scope: string;
             /** @description low | medium | high | critical */
             severity?: string;
@@ -489,6 +525,7 @@ export interface components {
             checkpoint?: string;
             policy?: components["schemas"]["PolicyDocument"];
             policy_id?: string;
+            principal?: components["schemas"]["SimulatedPrincipal"];
             /** @description DATA only: answer | memory_candidate | summary. */
             target?: string;
             text: string;
@@ -498,7 +535,14 @@ export interface components {
             checkpoint: string;
             /** @description The checker's error, when it failed. */
             error?: string;
+            /** @description The checker's explanation in English, as traces record it. */
             explanation: string;
+            /** @description Arguments of explanation_key; `items` lists names separated by newlines. */
+            explanation_args?: {
+                [key: string]: string;
+            };
+            /** @description The explanation as a key under the web's policies.explanation.* (rule 7). */
+            explanation_key?: string;
             matched: boolean;
             message_ar?: string;
             message_en?: string;
@@ -514,7 +558,9 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string;
+            /** @description Whether it was an exception when it was saved */
             exception?: boolean;
+            /** @description What this version overrode when it was saved */
             overrides?: string[];
             policy: components["schemas"]["PolicyDocument"];
         };
@@ -522,9 +568,9 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string;
-            /** @description It overrides a stricter policy of its group (ADR-0105) */
+            /** @description It overrides a stricter policy of its group (ADR-0105, ADR-0108) */
             exception?: boolean;
-            /** @description id@version of the wider policies of its group this version overrides */
+            /** @description id@version of the wider policies of its group it overrides now */
             overrides?: string[];
             policy: components["schemas"]["PolicyDocument"];
             /** Format: date-time */
@@ -533,6 +579,13 @@ export interface components {
         };
         PolicyYaml: {
             yaml: string;
+        };
+        /** @description Whom to evaluate for; default: the admin, with no policy roles. */
+        SimulatedPrincipal: {
+            /** @description Full names, policy:{name} */
+            policy_roles?: string[];
+            /** @description Default: default */
+            tenant_id?: string;
         };
     };
     responses: never;
@@ -903,6 +956,55 @@ export interface operations {
             };
         };
     };
+    getPolicyChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The changes, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyChanges"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     setPolicyEnabled: {
         parameters: {
             query?: never;
@@ -1123,7 +1225,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
-            /** @description audit_unavailable */
+            /** @description audit_unavailable or service_busy */
             503: {
                 headers: {
                     [name: string]: unknown;

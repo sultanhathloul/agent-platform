@@ -138,9 +138,9 @@
       "name": "Name",
       "description": "Description",
       "scope": "Scope",
-      "scopeHint": "global, tenant:ID, role:NAME, kb:SLUG or tool:NAME. A role scope applies to holders of the policy role policy:NAME.",
+      "scopeHint": "global, tenant:<id from the Keycloak attribute tenant_id> (e.g. tenant:default), role:NAME, kb:SLUG or tool:NAME. A role scope applies to holders of the policy role policy:NAME.",
       "group": "Group",
-      "groupHint": "Within one group the narrowest scope wins; leave empty to make the id the group.",
+      "groupHint": "Within one group a policy at any narrower scope overrides a global one, only for what its own checker matched; tenant, role, kb and tool scopes never override each other, and the stricter action wins between them. Leave empty to make the id the group.",
       "checkpoints": "Checkpoints",
       "checker": "Checker",
       "action": "Action",
@@ -204,7 +204,11 @@
       "spans": "Matched spans",
       "noSpans": "No spans were marked.",
       "output": "Text after redaction",
-      "message": "Policy message:"
+      "message": "Policy message:",
+      "principal": "Evaluate for",
+      "tenant": "Tenant",
+      "roles": "Policy roles",
+      "rolesHint": "Separate with spaces, e.g. policy:pii-exempt"
     },
     "history": {
       "title": "Version history",
@@ -236,6 +240,38 @@
       "nothing": "Overrides nothing.",
       "check": "Show what it overrides",
       "saved": "It overrides: {list}."
+    },
+    "explanation": {
+      "empty_text": "The text is empty.",
+      "keywords": "Keywords found: {items}",
+      "no_keyword": "No keyword was found.",
+      "allowed": "Within the allow list: {items}",
+      "outside_allow_list": "The text is outside the allow list.",
+      "patterns": "Patterns matched: {items}",
+      "no_pattern": "No pattern matched.",
+      "entities": "Entities found: {items}",
+      "no_entity": "No entity was found.",
+      "judge_violates": "The judge found the topic ({category}), confidence {confidence}.",
+      "judge_violates_cached": "The judge found the topic ({category}), confidence {confidence}; a saved verdict.",
+      "judge_clear": "The judge did not find the topic, confidence {confidence}.",
+      "judge_clear_cached": "The judge did not find the topic, confidence {confidence}; a saved verdict.",
+      "role_not_covered": "The model role {role} is not covered by this ceiling.",
+      "above_ceiling": "The requested tier {tier} is above the ceiling {ceiling}.",
+      "within_ceiling": "The requested tier {tier} is within the ceiling {ceiling}."
+    },
+    "changes": {
+      "title": "Change log",
+      "empty": "No changes are recorded.",
+      "by": "by {user} on {date}",
+      "exception": "Exception",
+      "kinds": {
+        "create": "Created",
+        "version": "New version",
+        "enable": "Switched on",
+        "disable": "Switched off",
+        "import": "Imported",
+        "seed": "Seeded"
+      }
     }
   }
 }

@@ -42,10 +42,14 @@ def check_keywords(text: str, config: KeywordListConfig) -> CheckResult:
             matched=matched,
             score=1.0 if matched else 0.0,
             explanation="outside the allow list" if matched else f"allowed: {', '.join(sorted(found))}",
+            reason="outside_allow_list" if matched else "allowed",
+            reason_args={} if matched else {"items": "\n".join(sorted(found))},
         )
     return CheckResult(
         matched=bool(spans),
         spans=spans,
         score=1.0 if spans else 0.0,
         explanation=f"keywords: {', '.join(sorted(found))}" if found else "no keyword",
+        reason="keywords" if found else "no_keyword",
+        reason_args={"items": "\n".join(sorted(found))} if found else {},
     )

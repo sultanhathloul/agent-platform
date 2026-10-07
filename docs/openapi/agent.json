@@ -103,8 +103,28 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "conversation_forbidden: another owner's conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "409": {
             "description": "turn_in_flight: another turn holds the conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_busy: every turn lock connection is in use",
             "content": {
               "application/json": {
                 "schema": {
@@ -231,6 +251,16 @@
           },
           "409": {
             "description": "turn_in_flight: a turn kept the conversation locked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_busy: every turn lock connection is in use",
             "content": {
               "application/json": {
                 "schema": {
@@ -1855,6 +1885,128 @@
           }
         }
       }
+    },
+    "/v1/admin/policies/{policy_id}/changes": {
+      "get": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Policy Changes",
+        "description": "The policy's change log (ADR-0108): every create, version, switch, import and seed,\nwith its actor and the exception flag it left.",
+        "operationId": "policy_changes_v1_admin_policies__policy_id__changes_get",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyChanges"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2074,6 +2226,75 @@
           "enabled"
         ],
         "title": "MemorySettings"
+      },
+      "PolicyChangeView": {
+        "properties": {
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Changed At"
+          },
+          "policy_ref": {
+            "type": "string",
+            "title": "Policy Ref",
+            "description": "id@version the change left current."
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "create",
+              "version",
+              "enable",
+              "disable",
+              "import",
+              "seed"
+            ],
+            "title": "Change"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides"
+          }
+        },
+        "type": "object",
+        "required": [
+          "changed_at",
+          "policy_ref",
+          "change",
+          "actor",
+          "exception",
+          "overrides"
+        ],
+        "title": "PolicyChangeView",
+        "description": "One change of a policy, written by the agent in the change's transaction (ADR-0108)."
+      },
+      "PolicyChanges": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyChangeView"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "Newest first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "changes"
+        ],
+        "title": "PolicyChanges"
       },
       "PolicyDetail": {
         "properties": {
@@ -2386,6 +2607,17 @@
             "minLength": 1,
             "title": "Text"
           },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulatedPrincipal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whom to evaluate for; default: the admin, with no policy roles."
+          },
           "checkpoint": {
             "anyOf": [
               {
@@ -2455,7 +2687,23 @@
           },
           "explanation": {
             "type": "string",
-            "title": "Explanation"
+            "title": "Explanation",
+            "description": "The checker's explanation in English, as traces record it."
+          },
+          "explanation_key": {
+            "type": "string",
+            "title": "Explanation Key",
+            "description": "The explanation as a key under the web's policies.explanation.* (rule 7).",
+            "default": ""
+          },
+          "explanation_args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Explanation Args",
+            "description": "Arguments of explanation_key; `items` lists names separated by newlines.",
+            "default": {}
           },
           "spans": {
             "items": {
@@ -2544,11 +2792,13 @@
             },
             "type": "array",
             "title": "Overrides",
+            "description": "What this version overrode when it was saved.",
             "default": []
           },
           "exception": {
             "type": "boolean",
             "title": "Exception",
+            "description": "Whether it was an exception when it was saved.",
             "default": false
           }
         },
@@ -2591,13 +2841,13 @@
             },
             "type": "array",
             "title": "Overrides",
-            "description": "id@version of the wider policies of its group this version overrides, at save time.",
+            "description": "id@version of the wider policies of its group it overrides among the current versions, recomputed for the whole group on every change (ADR-0108).",
             "default": []
           },
           "exception": {
             "type": "boolean",
             "title": "Exception",
-            "description": "It overrides a stricter policy of its group (ADR-0105).",
+            "description": "It overrides a stricter policy of its group (ADR-0105, ADR-0108).",
             "default": false
           }
         },
@@ -2740,6 +2990,31 @@
           "reason"
         ],
         "title": "RetractRequest"
+      },
+      "SimulatedPrincipal": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "default": "default"
+          },
+          "policy_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Policy Roles",
+            "description": "Full names, policy:{name}.",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SimulatedPrincipal",
+        "description": "A principal for the test panel: which tenant and policy roles to evaluate the policy for."
       },
       "SpanView": {
         "properties": {

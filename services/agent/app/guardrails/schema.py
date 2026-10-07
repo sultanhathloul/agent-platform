@@ -304,6 +304,10 @@ class CheckResult(BaseModel):
     spans: list[Span] = []
     score: float = Field(default=0.0, ge=0.0, le=1.0)
     explanation: str = ""
+    # The explanation for a reader in either language: a key under the web's
+    # `policies.explanation.*` and its arguments (rule 7); `explanation` stays for traces.
+    reason: str = ""
+    reason_args: dict[str, str] = {}
 
 
 class DataPayload(BaseModel):

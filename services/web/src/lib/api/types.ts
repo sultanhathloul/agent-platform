@@ -37,3 +37,6 @@ export type PolicyMetrics = Schemas["PolicyMetrics"];
 export type PolicyMatchRow = Schemas["PolicyMatchRow"];
 export type PolicyOverrides = Schemas["PolicyOverrides"];
 export type PolicyRoles = Schemas["PolicyRoles"];
+export type PolicyChanges = Schemas["PolicyChanges"];
+export type PolicyChange = Schemas["PolicyChange"];
+export type SimulatedPrincipal = Schemas["SimulatedPrincipal"];

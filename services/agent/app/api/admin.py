@@ -213,6 +213,8 @@ async def test_policy(body: PolicyTestRequest, call: Admin):
         matched=bool(result and result.matched),
         score=result.score if result else 0.0,
         explanation=result.explanation if result else "",
+        explanation_key=result.reason if result else "",
+        explanation_args=result.reason_args if result else {},
         spans=[SpanView(**s.model_dump()) for s in (result.spans if result else [])],
         output_text=tried.output_text,
         message_ar=outcome.message_ar,

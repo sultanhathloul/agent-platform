@@ -167,7 +167,7 @@ class GuardEngine:
         target = payload.target if isinstance(payload, DataPayload) else None
         notes: list[GuardEventRecord] = []
         if checkpoint == Checkpoint.POST_TOOL and self.sanitizer is not None:
-            payload, note = self._sanitize(payload)
+            payload, note = self._sanitize(payload, context.locale)
             if note:
                 notes.append(note)
 
@@ -192,8 +192,8 @@ class GuardEngine:
         )
         return self._combine(checkpoint, payload, list(evaluated), notes, target, context.actions)
 
-    def _sanitize(self, payload: Any) -> tuple[Any, GuardEventRecord | None]:
-        result = self.sanitizer.sanitize(payload.content)
+    def _sanitize(self, payload: Any, locale: str) -> tuple[Any, GuardEventRecord | None]:
+        result = self.sanitizer.sanitize(payload.content, locale)
         payload = payload.model_copy(update={"content": result.text})
         if not (result.removed_instructions or result.truncated):
             return payload, None

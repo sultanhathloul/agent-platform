@@ -48,8 +48,7 @@ class ModelGateway:
         self._config = config
         self._counter = counter
         self._capture = settings.observability_capture_content
-        if not settings.content_hash_key:
-            raise ValueError("CONTENT_HASH_KEY is not set (.env, ADR-0110)")
+        # Checked at startup (app.main.start_services), so the spec export can build without it.
         self._hash_key = settings.content_hash_key
 
     async def call(

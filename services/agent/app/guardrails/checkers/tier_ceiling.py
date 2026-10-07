@@ -19,7 +19,12 @@ class TierCeilingChecker:
         if config.max_tier not in self._rank:
             raise ValueError(f"unknown tier {config.max_tier!r}")
         if config.roles is not None and payload["role"] not in config.roles:
-            return CheckResult(matched=False, explanation=f"role {payload['role']} not covered")
+            return CheckResult(
+                matched=False,
+                explanation=f"role {payload['role']} not covered",
+                reason="role_not_covered",
+                reason_args={"role": payload["role"]},
+            )
         above = self._rank[payload["tier"]] > self._rank[config.max_tier]
         return CheckResult(
             matched=above,
@@ -27,4 +32,6 @@ class TierCeilingChecker:
             explanation=f"{payload['tier']} above ceiling {config.max_tier}"
             if above
             else "within the ceiling",
+            reason="above_ceiling" if above else "within_ceiling",
+            reason_args={"tier": payload["tier"], "ceiling": config.max_tier},
         )

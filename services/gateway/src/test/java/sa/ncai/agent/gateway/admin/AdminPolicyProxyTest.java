@@ -23,6 +23,7 @@ import sa.ncai.agent.gateway.GatewayTestSupport;
 import sa.ncai.agent.gateway.InMemoryAuditRepository;
 import sa.ncai.agent.gateway.audit.AuditEvent;
 import sa.ncai.agent.gateway.audit.AuditStatus;
+import sa.ncai.agent.gateway.auth.KeycloakAdminClient;
 
 /** Guard policy administration: admin-only, proxied with the caller from the token, audited fail-closed. */
 class AdminPolicyProxyTest extends GatewayTestSupport {
@@ -286,6 +287,40 @@ class AdminPolicyProxyTest extends GatewayTestSupport {
         assertThat(rolesCall.getPath()).startsWith("/admin/realms/agent/roles?search=policy%3A");
         assertThat(rolesCall.getHeader("Authorization")).isEqualTo("Bearer service-token");
         assertThat(singleAudit().action()).isEqualTo("policy.roles");
+    }
+
+    @Test
+    void policyRolesArePagedAndFilteredByTheForwardingRule() throws Exception {
+        StringBuilder page = new StringBuilder("[");
+        for (int i = 0; i < KeycloakAdminClient.PAGE; i++) {
+            page.append(i == 0 ? "" : ",").append(String.format("{\"name\":\"policy:r%03d\"}", i));
+        }
+        page.append("]");
+        KEYCLOAK_ADMIN.enqueue(json(200, "{\"access_token\":\"service-token\",\"expires_in\":60}"));
+        KEYCLOAK_ADMIN.enqueue(json(200, page.toString()));
+        // Keycloak's search is a substring match: names the gateway would never forward are left out.
+        KEYCLOAK_ADMIN.enqueue(json(200, "[{\"name\":\"policy:last\"},{\"name\":\"policy:Upper\"},{\"name\":\"xpolicy:a\"}]"));
+        mvc.perform(get("/v1/admin/policy-roles").header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.roles.length()").value(KeycloakAdminClient.PAGE + 1))
+                .andExpect(jsonPath("$.data.roles[0]").value("policy:last"));
+        KEYCLOAK_ADMIN.takeRequest(5, TimeUnit.SECONDS);  // the token
+        assertThat(KEYCLOAK_ADMIN.takeRequest(5, TimeUnit.SECONDS).getPath()).contains("first=0&max=100");
+        assertThat(KEYCLOAK_ADMIN.takeRequest(5, TimeUnit.SECONDS).getPath()).contains("first=100&max=100");
+    }
+
+    @Test
+    void theChangeLogIsProxiedAndAudited() throws Exception {
+        AGENT.enqueue(json(200, "{\"changes\":[{\"changed_at\":\"2026-10-07T10:00:00Z\",\"policy_ref\":\"p-one@2\","
+                + "\"change\":\"version\",\"actor\":\"user-123\",\"exception\":true,\"overrides\":[\"wide@1\"]}]}"));
+        mvc.perform(get("/v1/admin/policies/p-one/changes").header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.changes[0].actor").value("user-123"))
+                .andExpect(jsonPath("$.data.changes[0].exception").value(true));
+        assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath()).isEqualTo("/v1/admin/policies/p-one/changes");
+        AuditEvent event = singleAudit();
+        assertThat(event.action()).isEqualTo("policy.changes");
+        assertThat(event.detail()).containsEntry("changes", 1);
     }
 
     @Test

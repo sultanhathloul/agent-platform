@@ -20,7 +20,7 @@ class PresidioChecker:
 
     async def check(self, payload: str, config: PresidioConfig, ctx: CheckContext) -> CheckResult:
         if not payload.strip():
-            return CheckResult(matched=False, explanation="empty text")
+            return CheckResult(matched=False, explanation="empty text", reason="empty_text")
         folded, mapping = fold_with_map(payload, letters=False)
         body = {
             "text": folded,
@@ -49,6 +49,8 @@ class PresidioChecker:
             spans=spans,
             score=max((span.score or 0.0 for span in spans), default=0.0),
             explanation=f"entities: {', '.join(names)}" if spans else "no entity",
+            reason="entities" if spans else "no_entity",
+            reason_args={"items": "\n".join(names)} if spans else {},
         )
 
     async def close(self) -> None:

@@ -45,4 +45,6 @@ def check_regex(text: str, config: RegexConfig) -> CheckResult:
         spans=spans,
         score=1.0 if spans else 0.0,
         explanation=f"matched {', '.join(names)}" if spans else "no pattern matched",
+        reason="patterns" if spans else "no_pattern",
+        reason_args={"items": "\n".join(names)} if spans else {},
     )

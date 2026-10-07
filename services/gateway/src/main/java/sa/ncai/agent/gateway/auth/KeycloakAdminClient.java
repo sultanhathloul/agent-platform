@@ -26,6 +26,9 @@ public class KeycloakAdminClient {
         }
     }
 
+    /** Roles per Admin API page. */
+    public static final int PAGE = 100;
+
     private final GatewayProperties.Admin admin;
     private final RestClient client;
 
@@ -50,23 +53,33 @@ public class KeycloakAdminClient {
                     .body(form)
                     .retrieve()
                     .body(JsonNode.class);
-            JsonNode roles = client.get()
-                    .uri(admin.baseUrl() + "/admin/realms/{realm}/roles?search={search}&briefRepresentation=true&max=500",
-                            admin.realm(), GatewayPrincipal.POLICY_ROLE_PREFIX)
-                    .header("Authorization", "Bearer " + token.path("access_token").asText())
-                    .retrieve()
-                    .body(JsonNode.class);
+            String bearer = "Bearer " + token.path("access_token").asText();
             List<String> names = new ArrayList<>();
-            if (roles != null) {
+            // Page through every match: a realm may hold more policy roles than one page.
+            for (int first = 0; ; first += PAGE) {
+                JsonNode roles = client.get()
+                        .uri(admin.baseUrl() + "/admin/realms/{realm}/roles?search={search}"
+                                        + "&briefRepresentation=true&first={first}&max={max}",
+                                admin.realm(), GatewayPrincipal.POLICY_ROLE_PREFIX, first, PAGE)
+                        .header("Authorization", bearer)
+                        .retrieve()
+                        .body(JsonNode.class);
+                if (roles == null || roles.isEmpty()) {
+                    break;
+                }
                 roles.forEach(role -> {
                     String name = role.path("name").asText("");
-                    if (name.startsWith(GatewayPrincipal.POLICY_ROLE_PREFIX)) {
+                    // The same rule the gateway forwards by, so the form never offers a role that selects nothing.
+                    if (GatewayPrincipal.isPolicyRole(name)) {
                         names.add(name);
                     }
                 });
+                if (roles.size() < PAGE) {
+                    break;
+                }
             }
             names.sort(null);
-            return names;
+            return names.stream().distinct().toList();
         } catch (RestClientException | NullPointerException e) {
             throw new IdentityUnavailableException("Keycloak Admin API: " + e.getMessage(), e);
         }

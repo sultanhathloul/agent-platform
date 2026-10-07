@@ -420,6 +420,63 @@
         "tags" : [ "admin-policies" ]
       }
     },
+    "/v1/admin/policies/{policyId}/changes" : {
+      "get" : {
+        "operationId" : "getPolicyChanges",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "policyId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyChanges"
+                }
+              }
+            },
+            "description" : "The changes, newest first"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_not_found"
+          }
+        },
+        "summary" : "A policy's change log: every save, switch, import and seed, with its actor (ADR-0108)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
     "/v1/admin/policies/{policyId}/enabled" : {
       "put" : {
         "operationId" : "setPolicyEnabled",
@@ -686,7 +743,7 @@
                 }
               }
             },
-            "description" : "audit_unavailable"
+            "description" : "audit_unavailable or service_busy"
           }
         },
         "summary" : "Run one chat turn",
@@ -955,6 +1012,20 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/MemorySettings"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyChanges" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyChanges"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -1269,6 +1340,46 @@
         },
         "required" : [ "enabled" ]
       },
+      "PolicyChange" : {
+        "properties" : {
+          "actor" : {
+            "type" : "string"
+          },
+          "change" : {
+            "type" : "string",
+            "enum" : [ "create", "version", "enable", "disable", "import", "seed" ]
+          },
+          "changed_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "exception" : {
+            "type" : "boolean"
+          },
+          "overrides" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "policy_ref" : {
+            "type" : "string",
+            "description" : "id@version the change left current"
+          }
+        },
+        "required" : [ "actor", "change", "changed_at", "exception", "overrides", "policy_ref" ]
+      },
+      "PolicyChanges" : {
+        "properties" : {
+          "changes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyChange"
+            }
+          }
+        },
+        "required" : [ "changes" ]
+      },
       "PolicyDetail" : {
         "properties" : {
           "current" : {
@@ -1333,7 +1444,7 @@
           },
           "scope" : {
             "type" : "string",
-            "description" : "global | tenant:<id> | kb:<slug> | tool:<name>; role:<role> is reserved and refused"
+            "description" : "global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to holders of the realm role policy:<name> (ADR-0107); only global contains another scope (ADR-0108)"
           },
           "severity" : {
             "type" : "string",
@@ -1486,6 +1597,9 @@
           "policy_id" : {
             "type" : "string"
           },
+          "principal" : {
+            "$ref" : "#/components/schemas/SimulatedPrincipal"
+          },
           "target" : {
             "type" : "string",
             "description" : "DATA only: answer | memory_candidate | summary."
@@ -1511,7 +1625,20 @@
             "description" : "The checker's error, when it failed."
           },
           "explanation" : {
-            "type" : "string"
+            "type" : "string",
+            "description" : "The checker's explanation in English, as traces record it."
+          },
+          "explanation_args" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string",
+              "description" : "Arguments of explanation_key; `items` lists names separated by newlines."
+            },
+            "description" : "Arguments of explanation_key; `items` lists names separated by newlines."
+          },
+          "explanation_key" : {
+            "type" : "string",
+            "description" : "The explanation as a key under the web's policies.explanation.* (rule 7)."
           },
           "matched" : {
             "type" : "boolean"
@@ -1555,12 +1682,15 @@
             "type" : "string"
           },
           "exception" : {
-            "type" : "boolean"
+            "type" : "boolean",
+            "description" : "Whether it was an exception when it was saved"
           },
           "overrides" : {
             "type" : "array",
+            "description" : "What this version overrode when it was saved",
             "items" : {
-              "type" : "string"
+              "type" : "string",
+              "description" : "What this version overrode when it was saved"
             }
           },
           "policy" : {
@@ -1580,14 +1710,14 @@
           },
           "exception" : {
             "type" : "boolean",
-            "description" : "It overrides a stricter policy of its group (ADR-0105)"
+            "description" : "It overrides a stricter policy of its group (ADR-0105, ADR-0108)"
           },
           "overrides" : {
             "type" : "array",
-            "description" : "id@version of the wider policies of its group this version overrides",
+            "description" : "id@version of the wider policies of its group it overrides now",
             "items" : {
               "type" : "string",
-              "description" : "id@version of the wider policies of its group this version overrides"
+              "description" : "id@version of the wider policies of its group it overrides now"
             }
           },
           "policy" : {
@@ -1612,6 +1742,27 @@
           }
         },
         "required" : [ "yaml" ]
+      },
+      "SimulatedPrincipal" : {
+        "description" : "Whom to evaluate for; default: the admin, with no policy roles.",
+        "properties" : {
+          "policy_roles" : {
+            "type" : "array",
+            "description" : "Full names, policy:{name}",
+            "items" : {
+              "type" : "string",
+              "description" : "Full names, policy:{name}"
+            },
+            "maxItems" : 32,
+            "minItems" : 0
+          },
+          "tenant_id" : {
+            "type" : "string",
+            "description" : "Default: default",
+            "maxLength" : 128,
+            "minLength" : 1
+          }
+        }
       }
     },
     "securitySchemes" : {

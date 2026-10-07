@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  PolicyChange,
   PolicyDetail,
   PolicyImportReport,
   PolicyMetrics,
@@ -18,6 +19,7 @@ import {
   createPolicy,
   exportPolicies,
   getPolicy,
+  getPolicyChanges,
   importPolicies,
   listPolicies,
   listPolicyRoles,
@@ -35,10 +37,14 @@ import {
   SEVERITIES,
   TARGETS,
   emptyForm,
+  explanationArgs,
+  formatList,
   formFromPolicy,
   highlight,
   lastDays,
   matchesByPolicy,
+  messageFor,
+  parsePolicyRoles,
   policyFromForm,
   unknownPolicyRole,
   type PolicyForm,
@@ -181,7 +187,7 @@ export function PolicyAdmin() {
       [
         t("policies.saved", { version: result.value.policy.version ?? 1 }),
         overrides.length
-          ? t("policies.overrides.saved", { list: overrides.join("، ") })
+          ? t("policies.overrides.saved", { list: formatList(overrides, locale) })
           : t("policies.overrides.nothing"),
       ].join(" "),
     );
@@ -263,7 +269,7 @@ export function PolicyAdmin() {
                         <span>·</span>
                         <bdi className="font-mono">{p.checker}</bdi>
                         <span>·</span>
-                        <bdi className="font-mono">{p.checkpoints.join(", ")}</bdi>
+                        <bdi className="font-mono">{formatList(p.checkpoints, locale)}</bdi>
                         <span>·</span>
                         <bdi className="font-mono">{p.scope}</bdi>
                         <span>·</span>
@@ -271,7 +277,7 @@ export function PolicyAdmin() {
                         {view.exception && (
                           <span
                             className="rounded-full bg-amber-100 px-1.5 text-amber-900"
-                            title={(view.overrides ?? []).join(", ")}
+                            title={formatList(view.overrides ?? [], locale)}
                           >
                             {t("policies.overrides.badge")}
                           </span>
@@ -355,6 +361,15 @@ export function PolicyAdmin() {
 
           {detail && !editing && (
             <History detail={detail} onRestore={(form) => setEditing({ mode: "version", form })} />
+          )}
+
+          {detail && !editing && (
+            <ChangeLog
+              key={`${detail.current.policy.id}@${detail.current.policy.version}:${detail.current.updated_at}`}
+              authorized={authorized}
+              gatewayUrl={gatewayUrl}
+              policyId={detail.current.policy.id}
+            />
           )}
         </div>
       </div>
@@ -594,8 +609,12 @@ function TestPanel({
   form: PolicyForm | null;
 }) {
   const t = useTranslations();
+  const rawLocale = useLocale();
+  const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   const checkpoints = form?.checkpoints.length ? form.checkpoints : ["INPUT"];
   const [text, setText] = useState("");
+  const [tenant, setTenant] = useState("default");
+  const [roles, setRoles] = useState("");
   const [checkpoint, setCheckpoint] = useState<string>(checkpoints[0] ?? "INPUT");
   const [target, setTarget] = useState<string>("answer");
   const [result, setResult] = useState<PolicyTestResult | null>(null);
@@ -604,13 +623,16 @@ function TestPanel({
 
   async function run() {
     if (!form || !text.trim()) return;
+    // Whom to evaluate for: a tenant and policy roles (README §10.4, ADR-0108).
+    const principal = { tenant_id: tenant.trim() || "default", policy_roles: parsePolicyRoles(roles) };
+    const common = { text, checkpoint, target: checkpoint === "DATA" ? target : undefined, principal };
     let request;
     if (policyId) {
-      request = { policy_id: policyId, text, checkpoint, target: checkpoint === "DATA" ? target : undefined };
+      request = { policy_id: policyId, ...common };
     } else {
       const parsed = policyFromForm(form);
       if (!parsed.ok) return;
-      request = { policy: parsed.policy, text, checkpoint, target: checkpoint === "DATA" ? target : undefined };
+      request = { policy: parsed.policy, ...common };
     }
     setRunning(true);
     const outcome = await authorized((token) => testPolicy({ gatewayUrl, token, request }));
@@ -665,6 +687,23 @@ function TestPanel({
           {running ? t("policies.test.running") : t("policies.test.run")}
         </button>
       </div>
+      <fieldset className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <legend className="text-xs text-slate-500">{t("policies.test.principal")}</legend>
+        <label className="flex items-center gap-1">
+          {t("policies.test.tenant")}
+          <input dir="ltr" className="rounded-md border border-slate-300 px-2 py-1 font-mono" value={tenant} onChange={(e) => setTenant(e.target.value)} />
+        </label>
+        <label className="flex min-w-0 flex-1 items-center gap-1">
+          {t("policies.test.roles")}
+          <input
+            dir="ltr"
+            className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 font-mono"
+            value={roles}
+            placeholder={t("policies.test.rolesHint")}
+            onChange={(e) => setRoles(e.target.value)}
+          />
+        </label>
+      </fieldset>
 
       {result && (
         <div className="mt-3 space-y-2 text-sm" aria-live="polite">
@@ -681,9 +720,14 @@ function TestPanel({
             </span>
             <bdi className="font-mono text-xs text-slate-500">{result.policy_ref}</bdi>
           </p>
-          {result.explanation && (
+          {(result.explanation_key || result.explanation) && (
             <p className="text-xs text-slate-600">
-              {t("policies.test.explanation")} <bdi dir="auto">{result.explanation}</bdi>
+              {t("policies.test.explanation")}{" "}
+              <bdi dir="auto">
+                {result.explanation_key && t.has(`policies.explanation.${result.explanation_key}`)
+                  ? t(`policies.explanation.${result.explanation_key}`, explanationArgs(result.explanation_args, locale))
+                  : result.explanation}
+              </bdi>
             </p>
           )}
           {result.error && (
@@ -715,9 +759,9 @@ function TestPanel({
               </p>
             </div>
           )}
-          {(result.message_ar || result.message_en) && (
+          {messageFor(result, locale) && (
             <p className="text-xs text-slate-600">
-              {t("policies.test.message")} <span dir="auto">{result.message_ar ?? result.message_en}</span>
+              {t("policies.test.message")} <span dir="auto">{messageFor(result, locale)}</span>
             </p>
           )}
         </div>
@@ -770,6 +814,52 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
                 {JSON.stringify(v.policy, null, 2)}
               </pre>
             )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** The policy's change log (ADR-0108): every save, switch, import and seed, with its actor. */
+function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorized; gatewayUrl: string; policyId: string }) {
+  const t = useTranslations();
+  const rawLocale = useLocale();
+  const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
+  const [changes, setChanges] = useState<PolicyChange[] | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void authorized((token) => getPolicyChanges({ gatewayUrl, token, id: policyId })).then((result) => {
+      if (live && result.ok) setChanges(result.value.changes);
+    });
+    return () => {
+      live = false;
+    };
+  }, [authorized, gatewayUrl, policyId]);
+
+  return (
+    <section className={card} aria-labelledby="policy-changes">
+      <h2 id="policy-changes" className="font-semibold text-slate-800">
+        {t("policies.changes.title")}
+      </h2>
+      {changes !== null && changes.length === 0 && <p className="mt-2 text-sm text-slate-500">{t("policies.changes.empty")}</p>}
+      <ol className="mt-2 divide-y divide-slate-100">
+        {(changes ?? []).map((c, i) => (
+          <li key={`${c.changed_at}-${i}`} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+            <span>{t.has(`policies.changes.kinds.${c.change}`) ? t(`policies.changes.kinds.${c.change}`) : c.change}</span>
+            <bdi className="font-mono text-xs">{c.policy_ref}</bdi>
+            {c.exception && (
+              <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-900" title={formatList(c.overrides, locale)}>
+                {t("policies.changes.exception")}
+              </span>
+            )}
+            <span className="text-xs text-slate-500">
+              {t("policies.changes.by", {
+                user: c.actor,
+                date: new Date(c.changed_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
+              })}
+            </span>
           </li>
         ))}
       </ol>

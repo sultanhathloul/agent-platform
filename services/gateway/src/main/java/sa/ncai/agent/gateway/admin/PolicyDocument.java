@@ -15,7 +15,9 @@ public record PolicyDocument(
         String description,
         Boolean enabled,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
-                description = "global | tenant:<id> | kb:<slug> | tool:<name>; role:<role> is reserved and refused")
+                description = "global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to "
+                        + "holders of the realm role policy:<name> (ADR-0107); only global contains another scope "
+                        + "(ADR-0108)")
                 String scope,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
                 description = "INPUT, TOOL_LIST, PRE_TOOL, POST_TOOL, OUTPUT, DATA, MODEL_TIER") List<String> checkpoints,

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyForm,
+  explanationArgs,
+  formatList,
   formFromPolicy,
   highlight,
   lastDays,
   matchesByPolicy,
+  messageFor,
+  parsePolicyRoles,
   policyFromForm,
   unknownPolicyRole,
 } from "./policies";
@@ -96,5 +100,30 @@ describe("role scopes", () => {
     expect(unknownPolicyRole("role:typo", roles)).toBe("policy:typo");
     expect(unknownPolicyRole("global", roles)).toBeNull();
     expect(unknownPolicyRole("role:typo", null)).toBeNull(); // roles not loaded yet: no warning
+  });
+});
+
+describe("locale-aware texts (rule 7)", () => {
+  it("joins a list with the locale's separator", () => {
+    expect(formatList(["pii-redact-output@1", "names@2"], "ar")).toBe("pii-redact-output@1، names@2");
+    expect(formatList(["pii-redact-output@1", "names@2"], "en")).toBe("pii-redact-output@1, names@2");
+  });
+
+  it("shows the policy message in the reader's locale, the other only when missing", () => {
+    const both = { message_ar: "محجوب", message_en: "Blocked" };
+    expect(messageFor(both, "ar")).toBe("محجوب");
+    expect(messageFor(both, "en")).toBe("Blocked");
+    expect(messageFor({ message_ar: "محجوب", message_en: null }, "en")).toBe("محجوب");
+    expect(messageFor({}, "en")).toBeNull();
+  });
+
+  it("joins explanation items per locale and keeps other arguments", () => {
+    const args = { items: "EMAIL_ADDRESS\nSA_MOBILE", confidence: "0.90" };
+    expect(explanationArgs(args, "ar")).toEqual({ items: "EMAIL_ADDRESS، SA_MOBILE", confidence: "0.90" });
+    expect(explanationArgs(undefined, "en")).toEqual({});
+  });
+
+  it("parses policy roles typed with spaces or commas", () => {
+    expect(parsePolicyRoles(" policy:b, policy:a policy:b ")).toEqual(["policy:a", "policy:b"]);
   });
 });

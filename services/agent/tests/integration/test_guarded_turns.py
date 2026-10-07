@@ -309,7 +309,7 @@ async def test_post_tool_sanitizes_then_redacts_what_the_capability_receives(pro
     )
     assert result.status == "ok"
     assert "<script>" not in result.content and "alert" not in result.content
-    assert "[removed: instruction-like text]" in result.content
+    assert probe_services.guard_config.sanitize.removed_marker["ar"] in result.content
     assert "[REDACTED:SA_MOBILE]" in result.content and MOBILE not in result.content
 
 
