@@ -92,7 +92,9 @@ def turn(http: httpx.Client, gateway: str, token: str, message: str) -> dict:
 # The fixed policy that forces buffered mode (D3): an enabled OUTPUT block policy applies.
 BUFFERED_POLICY = {
     "id": "ttft-buffered-output",
-    "name": "TTFT: force buffered mode",
+    "name_ar": "قياس زمن أول رمز: فرض الوضع المخزَّن",
+    "name_en": "TTFT: force buffered mode",
+    "purpose": "test",  # hidden from the admin list by default (ADR-0119)
     "scope": "global",
     "checkpoints": ["OUTPUT"],
     "checker": "keyword_list",

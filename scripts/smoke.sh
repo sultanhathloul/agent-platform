@@ -15,7 +15,9 @@
 #             temporary policies end switched off, on success or failure (EXIT trap), and
 #             two buffered TTFT runs leave equal policy rows and their policy off;
 #             the policy row counts are equal across runs (no policy residue; conversations,
-#             guard events, the policy change log, audit rows and sessions grow by design).
+#             guard events, the policy change log, audit rows and sessions grow by design);
+#             every seed policy has both names, purpose production and its seed row in the
+#             change log; smoke's own policies are test policies (ADR-0119).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -249,6 +251,18 @@ code=$(status -H "Authorization: Bearer $VIEWER" "$GW/v1/admin/policies")
 curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies" > "$TMP/policies.json" || fail "admin GET /v1/admin/policies"
 check "the seed policies are listed" jq -e \
   '[.data.policies[].policy.id] as $ids | ["pii-redact-output","pii-block-in-memory","prompt-injection-input","topics-politics-llm-judge","web-domain-denylist","tool-visibility-by-role"] | all(. as $x | $ids | index($x))' "$TMP/policies.json"
+# ADR-0119: every seed carries both names, is a production policy and has its seed row in the
+# change log (written by the seed on a clean database, by migration 0006 on an older one).
+SEED_IDS=$(sed -n 's/^id: //p' config/policies/*.yaml | tr -d '\r')
+check "every seed policy has an Arabic and an English name and is a production policy" jq -e --arg ids "$SEED_IDS" \
+  '($ids | split("\n")) as $seeds | [.data.policies[].policy | select(.id as $i | $seeds | index($i))]
+   | length == ($seeds | length) and all(.name_ar != "" and .name_en != "" and .purpose == "production")' "$TMP/policies.json"
+for id in $SEED_IDS; do
+  curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies/$id/changes" > "$TMP/changes.json" \
+    || fail "admin GET /v1/admin/policies/$id/changes"
+  jq -e 'any(.data.changes[]; .change == "seed")' "$TMP/changes.json" >/dev/null || fail "$id has no seed row in its change log"
+done
+ok "every seed policy has its seed row in the change log ($(wc -w <<< "$SEED_IDS" | tr -d ' ') policies)"
 
 # Smoke's temporary policies have fixed ids and go through the import endpoint: the first run
 # creates them, later runs only switch them on, and every run ends with them off (the EXIT
@@ -276,7 +290,8 @@ switch_off() {
 step "phase 03: a policy edit takes effect without a restart, and its block returns message_ar"
 POLICY_ID=smoke-live-block
 MESSAGE_AR="حُجب هذا الطلب بسياسة اختبار الفحص الشامل."
-POLICY=$(jq -cn --arg id "$POLICY_ID" --arg ar "$MESSAGE_AR" '{id: $id, name: "Smoke: live keyword block", scope: "global",
+POLICY=$(jq -cn --arg id "$POLICY_ID" --arg ar "$MESSAGE_AR" '{id: $id, name_ar: "الفحص الشامل: حظر كلمة مباشرة",
+  name_en: "Smoke: live keyword block", purpose: "test", scope: "global",
   checkpoints: ["INPUT"], checker: "keyword_list", config: {keywords: ["كلمةالفحصالشامل"]}, action: "block",
   message_ar: $ar, message_en: "Blocked by the smoke test policy.", enabled: true}')
 code=$(import_policy "$POLICY")
@@ -319,7 +334,8 @@ import base64, json, sys
 payload = sys.argv[1].split(".")[1]
 claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
 sys.exit(0 if "policy:pii-exempt" in claims.get("realm_access", {}).get("roles", []) else 1)' "$ANALYST"
-EXEMPT=$(jq -cn '{id: "smoke-pii-exempt", name: "Smoke: PII exception for policy:pii-exempt", scope: "role:pii-exempt",
+EXEMPT=$(jq -cn '{id: "smoke-pii-exempt", name_ar: "الفحص الشامل: استثناء البيانات الشخصية لدور policy:pii-exempt",
+  name_en: "Smoke: PII exception for policy:pii-exempt", purpose: "test", scope: "role:pii-exempt",
   checkpoints: ["DATA"], checker: "presidio",
   config: {entities: ["SA_MOBILE", "SA_NATIONAL_ID", "SA_IBAN", "EMAIL_ADDRESS"], score_threshold: 0.5, targets: ["answer", "summary"]},
   action: "allow", severity: "high", group: "pii-output", enabled: true}')
@@ -328,6 +344,8 @@ code=$(import_policy "$EXEMPT")
 curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies/smoke-pii-exempt" > "$TMP/exempt.json" || fail "GET smoke-pii-exempt"
 check "it is flagged an exception over pii-redact-output" jq -e \
   '.data.current.exception == true and (.data.current.overrides | any(startswith("pii-redact-output@")))' "$TMP/exempt.json"
+check "smoke's policies are test policies (ADR-0119)" bash -c \
+  "curl -fsS -H 'Authorization: Bearer $ADMIN' '$GW/v1/admin/policies' | jq -e '[.data.policies[].policy | select(.id == \"smoke-live-block\" or .id == \"smoke-pii-exempt\") | .purpose] == [\"test\", \"test\"]'"
 exempt_turn() {  # $1: token, $2: output file
   curl -sN -H "Authorization: Bearer $1" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
     -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"انسخ النص التالي حرفيًا كما هو دون أي تعليق أو تغيير: رقم التواصل 0501234567\",\"locale\":\"ar\"}" \
