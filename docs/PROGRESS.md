@@ -644,7 +644,7 @@ Time to first token (C2, `scripts/measure_ttft.py`, `evaluator`, OpenRouter prof
 | phase 03 buffered, set A | 1.94 / 6.82 | 6.46 / 31.25 | 6.47 / 31.26 |
 | phase 03 buffered, set B | 1.95 / 20.09 | 6.52 / 14.40 | 6.53 / 14.41 |
 
-What the numbers say: the provider was slower and much noisier this afternoon than in the morning (the same phase 02 path gave p50 1.17 s then, 1.66 s now), so the p95 values swing between sets and say little; the p50 values are stable. With the sentence buffer the first token waits for the first complete sentence and its guard calls: +0.2 to +0.4 s at p50 over phase 02 on five-sentence answers (2.26–2.33 s against 2.08 s), more on one-sentence answers, where the first sentence is the whole answer (2.02–2.37 s against 1.66 s). Buffering costs the whole generation on long answers: p50 6.5 s against 2.3 s streaming. On one-sentence answers streaming and buffered are the same, as before.
+Superseded by the measurement of the review round 1 fix session (2026-10-07, below), which reports n per row and the one-sentence time to the terminal event; its conclusions rest on p50 only. The table above is kept as measured.
 
 Pre-guard purge (D4) on the development database, `make purge-pre-guard DRY_RUN=1`, then `make purge-pre-guard`, then once more:
 
@@ -694,7 +694,7 @@ Checklist:
 - [x] Decision 2 (ADR-0106): OUTPUT redact per sentence; only block and rewrite buffer; test: an OUTPUT redact policy keeps streaming and no token holds the span
 - [x] Decision 3 (ADR-0107): `policy:` realm roles forwarded as `principal.policy_roles` (only those, from the token only), `role:{name}` scopes, two-role conflicts to the stricter action, role-scoped MODEL_TIER ceilings, `GET /v1/admin/policy-roles` through the gateway's Keycloak Admin API client with a warning in the form, realm role `policy:pii-exempt` for `analyst`; README amendment notes under §10.1 and §11; APIs stay 1.3.0; tests as listed
 - [x] Decision 4: tenant `restricted` removed; `tool-visibility-by-role` is `role:no-sql`, hides sql, disabled; test that no seed, fixture or realm entry uses a tenant to serve a policy; the integration tests isolate their policies with policy roles
-- [x] Decision 5: purge test with dry-run and real-run counts matching; TTFT table replaced with a `main` baseline for both lengths; smoke leaves no residue (two runs, same row count); 20 borderline or Gulf-dialect judge cases; smoke exception check for analyst and viewer
+- [x] Decision 5: purge test with dry-run and real-run counts matching; TTFT table replaced with a `main` baseline for both lengths; smoke leaves no policy residue (two runs, same policy row count; conversations, events and sessions grow by design); 20 borderline or Gulf-dialect judge cases; smoke exception check for analyst and viewer
 - [x] `make test`, `make eval` ×3, `make smoke` (twice); push
 
 Results, per G1 (OpenRouter profile):
@@ -706,7 +706,7 @@ Results, per G1 (OpenRouter profile):
   - Agent runs while building: 401 / 2 failed / 0 (the store's read path dropped the new columns; fixed), then 403 / 0 / 0.
 - `make up`: green; the agent applied `0003_policy_exceptions.sql`. The running Keycloak volume predates `policy:pii-exempt`, so it was added to the live realm with `kcadm` and assigned to `analyst` (the realm file is the source of truth: `make clean && make up` seeds it). The live `tool-visibility-by-role` was given the new seed as version 2 through the admin import (seeding never overwrites, I2).
 - `GET /v1/admin/policy-roles` on the live stack: `["policy:pii-exempt"]`, read with the gateway client's service account.
-- `make smoke`, two consecutive runs: **68/68 checks passed** each (60 before; +8: the role exception's six checks and the two residue checks). `agent.guard_policies` / `guard_policy_heads` rows: 13 / 9 before run 1, 14 / 10 after it (it created `smoke-pii-exempt` once), **14 / 10 after run 2**: a repeated run adds no rows. In the exception check the analyst's answer held the fake mobile and the viewer's tokens held `[REDACTED:SA_MOBILE]` only.
+- `make smoke`, two consecutive runs: **68/68 checks passed** each (60 before; +8: the role exception's six checks and the two residue checks). `agent.guard_policies` / `guard_policy_heads` rows: 13 / 9 before run 1, 14 / 10 after it (it created `smoke-pii-exempt` once), **14 / 10 after run 2**: a repeated run adds no policy rows (no policy residue; conversations, guard events, audit rows and Keycloak sessions grow by design). In the exception check the analyst's answer held the fake mobile and the viewer's tokens held `[REDACTED:SA_MOBILE]` only.
 - `make eval`, three runs, the judge's verdict cache flushed before each:
 
 | Run | guardrails (97 cases) | deterministic (66) | llm_judge accuracy / FPR (31) | borderline or Gulf (20) | general (28) | Langfuse dataset run |
@@ -727,24 +727,66 @@ Human review needed (this session):
 - `evals/golden/guardrails.jsonl`: the 17 new judge cases and their tags.
 - Also: `services/agent/app/db/migrations/0003_policy_exceptions.sql`; `docker-compose.yml` (the gateway's `GATEWAY_KEYCLOAK_ADMIN_*`, the realm mounted read-only into `agent-tests`); the gateway's `identity_unavailable` code and texts.
 
-How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up`, `make smoke` twice (the residue check), `make eval`. On an existing Keycloak volume, add `policy:pii-exempt` to `analyst` first (or `make clean && make up`), or the smoke exception check fails on the analyst's token.
+How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up`, `make smoke` twice (the policy residue check), `make eval`. On an existing Keycloak volume, add `policy:pii-exempt` to `analyst` first (or `make clean && make up`), or the smoke exception check fails on the analyst's token.
 
 ### Fix session: PR #3 review round 1 (2026-10-07)
 
 Scope: the owner's decisions 0–9 on the round 1 review, nothing else; `docs/HANDOFF.md` untouched.
 
 Checklist:
-- [ ] 0 Ground rules: CLAUDE.md rule 11 and the OpenAPI exception; G2–G5 verbatim above
-- [ ] 1 Exceptions (new ADR): containment, span-level overrides, kb:/tool: weakening refused at OUTPUT/DATA, one group resolution in both answer modes, flag recomputed for the group on every save/import/seed/enable, `agent.guard_policy_changes` in the change's transaction, change log in the admin UI; the seven tests
-- [ ] 2 Turn lock: ownership before the lock (403), release inside the task before the end of the stream, pool reset with pg_advisory_unlock_all(), 503 `service_busy`; the four tests
-- [ ] 3 Judge cache: key with id, version or draft hash, prompt id@version, model alias; the panel never writes, a draft never reads; test
-- [ ] 4 Langfuse: judge calls on memory_candidate/summary content-free with no package; HMAC-SHA256 hashes with CONTENT_HASH_KEY; tests
-- [ ] 5 Sentence buffer: no cut inside a joined digit run; final DATA pass with retract and re-send; tests
-- [ ] 6 Purge: summary read and written under the lock; redact in place; rowcounts; global and tenant policies only; tests
-- [ ] 7 Rule 6: no Broken() gateway, no FakeJudge
-- [ ] 8 Smaller fixes (stale texts, i18n, realm ADR, policy-role listing, panel principal, tenant guard test, propagation test, test rename, tenant hint)
-- [ ] 9 Smoke trap, run-scoped audit check, cross-run residue check; PROGRESS wording; guardrails.jsonl edits with OUTPUT judge cases; TTFT n, failures, one-sentence terminal time
-- [ ] make test, make eval ×3, make smoke ×2; record per rule 11; push
+- [x] 0 Ground rules: CLAUDE.md rule 11 and the OpenAPI exception; G2–G5 verbatim above
+- [x] 1 Exceptions (new ADR): containment, span-level overrides, kb:/tool: weakening refused at OUTPUT/DATA, one group resolution in both answer modes, flag recomputed for the group on every save/import/seed/enable, `agent.guard_policy_changes` in the change's transaction, change log in the admin UI; the seven tests
+- [x] 2 Turn lock: ownership before the lock (403), release inside the task before the end of the stream, pool reset with pg_advisory_unlock_all(), 503 `service_busy`; the four tests
+- [x] 3 Judge cache: key with id, version or draft hash, prompt id@version, model alias; the panel never writes, a draft never reads; test
+- [x] 4 Langfuse: judge calls on memory_candidate/summary content-free with no package; HMAC-SHA256 hashes with CONTENT_HASH_KEY; tests
+- [x] 5 Sentence buffer: no cut inside a joined digit run; final DATA pass with retract and re-send; tests
+- [x] 6 Purge: summary read and written under the lock; redact in place; rowcounts; global and tenant policies only; tests
+- [x] 7 Rule 6: no Broken() gateway, no FakeJudge
+- [x] 8 Smaller fixes (stale texts, i18n, realm ADR, policy-role listing, panel principal, tenant guard test, propagation test, test rename, tenant hint)
+- [x] 9 Smoke trap, run-scoped audit check, cross-run residue check; PROGRESS wording; guardrails.jsonl edits with OUTPUT judge cases; TTFT n, failures, one-sentence terminal time
+- [x] make test, make eval ×3, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, on the OpenRouter profile the local `.env` is on:
+
+- `make test` (exit 0; run with the stack stopped):
+  - agent (pytest): **436 passed, 0 failed, 0 skipped** (403 before; +33: containment, span-level and refusal tests, the change log, the lock's four tests and the non-owner order, the judge on its real path and the draft cache, the content-free judge and summarizer spans, the digit-run buffer and the final pass, the purge's exact counts and role exceptions, the realm and seeded-scope checks; the three FakeJudge unit tests moved to `tests/integration/test_judge.py`)
+  - gateway (JUnit XML): **87 tests, 87 passed, 0 failed, 0 errors, 0 skipped** (83 before; +4: 503 `service_busy`, the agent's 403, policy roles paged and filtered, the change log proxy)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped** (66 before; +4 locale-aware helper tests)
+  - While building, one gateway run had 86/87 (the OpenAPI drift test, before `make openapi` regenerated the specs).
+- `make up`: green; the agent applied `0004_policy_changes.sql`. The local `.env` needed `CONTENT_HASH_KEY` (added once; `make env` generates it for a new `.env`). The development database had been recreated before this session (seeds at 07:45 UTC today, one smoke run at 07:49), so it held 9 policy versions and 9 heads, not the 14 / 10 recorded above.
+- `make smoke`, two consecutive runs: **69/69 checks passed** each (68 before; +1, the cross-run policy row check; the residue check now compares all policy rows). Policy rows (versions heads): 9 9 before and after run 1 (smoke's two policies existed), **9 9 after run 2, equal to run 1's**. The audit check matched this run's two request ids.
+- `make eval`, three runs. The judge's verdict cache held 0 keys before each run: the suite runs through the test panel, which no longer writes the cache (ADR-0110), so every run judged afresh.
+
+| Run | guardrails (103 cases) | deterministic (66) | llm_judge accuracy / FPR (37, 8 at OUTPUT) | borderline or Gulf (24) | general (28) | Langfuse dataset run |
+|---|---|---|---|---|---|---|
+| 1 | 103/103 PASS | 1.00 | 1.00 / 0.00 | 24/24 | 28/28 (1.00) PASS | `make-eval-20261007T090307Z` |
+| 2 | 103/103 PASS | 1.00 | 1.00 / 0.00 | 24/24 | 27/28 (0.96) PASS | `make-eval-20261007T090502Z` |
+| 3 | 103/103 PASS | 1.00 | 1.00 / 0.00 | 24/24 | 28/28 (1.00) PASS | `make-eval-20261007T090703Z` |
+
+  Run 2's general miss: `general-ar-boiling` answered "100" alone (not mostly Arabic); the threshold is 0.85.
+- Time to first token (`scripts/measure_ttft.py`, `evaluator`, 20 turns per row, each in a new conversation). The phase 02 baseline ran on `main` (`c4eb5b4`) in a worktree whose agent replaced the stack's agent, right after the phase 03 rows; "buffered" is forced by the global OUTPUT block policy `ttft-buffered-output` (imported on, switched off after). Seconds, p50 / p95:
+
+| Answer path | n | One sentence, TTFT | One sentence, to the terminal event | Five sentences, TTFT | Five sentences, to the terminal event |
+|---|---|---|---|---|---|
+| phase 02, `main` | 20/20, 20/20 | 1.58 / 2.74 | 1.92 / 3.10 | 1.54 / 2.95 | 5.09 / 8.41 |
+| phase 03 streaming | 20/20, 20/20 | 1.85 / 2.35 | 1.86 / 2.37 | 2.23 / 3.03 | 4.95 / 6.77 |
+| phase 03 buffered | 20/20, 20/20 | 1.75 / 2.60 | 1.76 / 2.61 | 4.86 / 6.95 | 4.87 / 6.96 |
+
+  No turn failed (no turn without a token, none without `done`). At p50: the sentence buffer delays the first token by 0.27 s on one-sentence answers and 0.69 s on five-sentence answers against `main`; the time to the terminal event is unchanged (1.86 s against 1.92 s, 4.95 s against 5.09 s), so the whole-answer DATA pass (ADR-0111) costs nothing visible. Buffering costs the whole generation on long answers: first token at 4.86 s against 2.23 s streaming. p95 values are reported, not interpreted.
+
+Left behind in the development database: `ttft-buffered-output` (created by the measurement, switched off). It adds one version and one head after the second smoke run, so **the next `make smoke` flags it once** ("policy rows 10 10 differ from the previous run's 9 9"), as the check is meant to; remove `build/smoke/policy-rows` to take the new counts as the reference.
+
+Human review needed (this session):
+- New ADRs: ADR-0108 (exceptions by containment, per span; kb:/tool: refusal), ADR-0109 (turn lock), ADR-0110 (judge cache, content-free judge, HMAC hashes), ADR-0111 (sentence buffer, whole-answer pass), ADR-0112 (purge), ADR-0113 (gateway service account grants), ADR-0114 (assumed: smaller choices); the status notes on ADR-0079, 0080, 0081, 0082, 0088, 0089, 0092, 0105, 0106, 0107.
+- `CLAUDE.md`: rule 11 and the OpenAPI exception.
+- `config/policies/**` (unchanged this session, under the new resolution rule), `config/messages/sanitize.yaml` (new).
+- `evals/golden/guardrails.jsonl`: two few-shot repeats removed, two Gulf negatives replaced, eight OUTPUT judge cases.
+- `services/agent/app/db/migrations/0004_policy_changes.sql`: heads' `overrides` and `exception`, `agent.guard_policy_changes`.
+- `config/messages/errors.yaml`: `service_busy` (and the gateway's `messages_{ar,en}.properties`, the web catalogs).
+- `.env.example`: `CONTENT_HASH_KEY`; `docker-compose.yml` passes it to the agent.
+
+How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up` (an existing `.env` needs `CONTENT_HASH_KEY=<openssl rand -hex 32>`), `make smoke` twice (remove `build/smoke/policy-rows` first if policies changed since the last run), `make eval`, `uv run scripts/measure_ttft.py streaming 20` (and `--long`).
 
 ## Phase 04: UC3 documents (`docs` capability)
 
