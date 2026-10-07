@@ -261,7 +261,7 @@ async def test_save_and_preview_report_what_a_policy_overrides(client, scoped):
         "group": wide["id"],
     }
     preview = (await client.post("/v1/admin/policies/overrides", json=exempt, headers=ADMIN)).json()
-    assert preview == {"overrides": [f"{wide['id']}@1"], "exception": True}
+    assert preview == {"overrides": [f"{wide['id']}@1"], "exception": True, "warnings": []}
     saved = (await client.post("/v1/admin/policies", json=exempt, headers=identity("admin-2"))).json()
     assert saved["exception"] is True and saved["overrides"] == [f"{wide['id']}@1"]
     listed = {
@@ -272,7 +272,7 @@ async def test_save_and_preview_report_what_a_policy_overrides(client, scoped):
 
     elsewhere = {**exempt, "id": body()["id"], "group": "another-group"}
     other = (await client.post("/v1/admin/policies/overrides", json=elsewhere, headers=ADMIN)).json()
-    assert other == {"overrides": [], "exception": False}
+    assert other == {"overrides": [], "exception": False, "warnings": []}
 
     weak_kb = {**exempt, "id": body()["id"], "scope": f"kb:{role}"}
     refused = await client.post("/v1/admin/policies", json=weak_kb, headers=ADMIN)
@@ -288,3 +288,38 @@ async def test_save_and_preview_report_what_a_policy_overrides(client, scoped):
     await client.put(f"/v1/admin/policies/{wide['id']}/enabled", json={"enabled": False}, headers=ADMIN)
     changes = (await client.get(f"/v1/admin/policies/{wide['id']}/changes", headers=ADMIN)).json()["changes"]
     assert [(c["change"], c["actor"]) for c in changes] == [("disable", "admin-1"), ("create", "admin-1")]
+
+
+async def test_a_whole_text_exception_over_span_redaction_is_saved_with_a_warning(client, scoped):
+    """ADR-0115: an llm_judge allow cannot lift a regex redaction; the save says so, as does the preview."""
+    role, body = scoped
+    marker = {"patterns": [{"name": "MARK", "pattern": f"zq{uuid.uuid4().hex[:8]}"}]}
+    wide = body(
+        checkpoints=["DATA"],
+        checker="regex",
+        config=marker,
+        action="redact",
+        scope="global",
+        message_ar=None,
+        message_en=None,
+    )
+    wide["group"] = wide["id"]
+    assert (await client.post("/v1/admin/policies", json=wide, headers=ADMIN)).status_code == 201
+    judge = {
+        **body(
+            checkpoints=["DATA"],
+            checker="llm_judge",
+            config={"topic_description": "أي نص"},
+            action="allow",
+            message_ar=None,
+            message_en=None,
+        ),
+        "group": wide["id"],
+    }
+    expected = [{"code": "whole_text_cannot_lift_spans", "policies": [f"{wide['id']}@1"]}]
+    preview = (await client.post("/v1/admin/policies/overrides", json=judge, headers=ADMIN)).json()
+    assert preview["warnings"] == expected
+    saved = await client.post("/v1/admin/policies", json=judge, headers=ADMIN)
+    assert saved.status_code == 201 and saved.json()["warnings"] == expected
+    listed = (await client.get(f"/v1/admin/policies/{judge['id']}", headers=ADMIN)).json()
+    assert listed["current"]["warnings"] == []  # a save response carries it, not every view

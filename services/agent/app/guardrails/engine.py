@@ -42,6 +42,7 @@ from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.sanitize import Sanitizer
 from app.guardrails.schema import (
     ACTION_RANK,
+    WHOLE_TEXT_CHECKERS,
     CheckResult,
     DataPayload,
     EvaluatedPolicy,
@@ -337,20 +338,23 @@ class GuardEngine:
 
 
 def _resolve_group(members: list[EvaluatedPolicy]) -> None:
-    """ADR-0108, inside one group of matched policies: each policy cancels, in every policy
-    whose scope contains its own, the spans it covers. A whole-text verdict (no spans)
-    cancels a whole-text verdict; spans never cancel a whole-text verdict, and a whole-text
-    verdict cancels every span. A policy left with nothing is overridden."""
+    """ADR-0108, ADR-0115, inside one group of matched policies: each policy cancels, in every
+    policy whose scope contains its own, the spans it covers. A whole-text checker
+    (WHOLE_TEXT_CHECKERS) cancels only a wider whole-text verdict, never span-based actions;
+    span matches never cancel a wider whole-text verdict. A policy left with nothing is
+    overridden."""
     for wide in members:
         cancelled_by: list[str] = []
+        wide_whole = wide.policy.checker in WHOLE_TEXT_CHECKERS
         for narrow in members:
             if narrow is wide or not wide.policy.parsed_scope.contains(narrow.policy.parsed_scope):
                 continue
             before = len(wide.spans)
-            if not narrow.result.spans:
+            narrow_whole = narrow.policy.checker in WHOLE_TEXT_CHECKERS
+            if narrow_whole and wide_whole:
                 wide.spans, whole = [], True
-            elif not wide.result.spans:
-                continue  # a whole-text verdict stands against span matches
+            elif narrow_whole or wide_whole:
+                continue  # a whole-text verdict and span matches never cancel each other
             else:
                 wide.spans, whole = [s for s in wide.spans if not _covers(narrow, s)], False
             if whole or len(wide.spans) < before:

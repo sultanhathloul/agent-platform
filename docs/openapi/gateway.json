@@ -1263,6 +1263,18 @@
           }
         }
       },
+      "InducedFlag" : {
+        "description" : "Policies whose exception flag this change set or cleared (ADR-0115)",
+        "properties" : {
+          "exception" : {
+            "type" : "boolean"
+          },
+          "policy_ref" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "exception", "policy_ref" ]
+      },
       "JsonNode" : {
         "description" : "The checker's settings; DATA policies may name `targets`."
       },
@@ -1347,7 +1359,8 @@
           },
           "change" : {
             "type" : "string",
-            "enum" : [ "create", "version", "enable", "disable", "import", "seed" ]
+            "description" : "flagged / unflagged: another policy's change made this one an exception, or cleared it",
+            "enum" : [ "create", "version", "enable", "disable", "import", "seed", "flagged", "unflagged" ]
           },
           "changed_at" : {
             "type" : "string",
@@ -1355,6 +1368,13 @@
           },
           "exception" : {
             "type" : "boolean"
+          },
+          "induced" : {
+            "type" : "array",
+            "description" : "Policies whose exception flag this change set or cleared (ADR-0115)",
+            "items" : {
+              "$ref" : "#/components/schemas/InducedFlag"
+            }
           },
           "overrides" : {
             "type" : "array",
@@ -1550,6 +1570,13 @@
             "items" : {
               "type" : "string"
             }
+          },
+          "warnings" : {
+            "type" : "array",
+            "description" : "Saved anyway, but worth knowing (ADR-0115)",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyWarning"
+            }
           }
         },
         "required" : [ "exception", "overrides" ]
@@ -1729,9 +1756,35 @@
           },
           "updated_by" : {
             "type" : "string"
+          },
+          "warnings" : {
+            "type" : "array",
+            "description" : "On a save response only (ADR-0115)",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyWarning"
+            }
           }
         },
         "required" : [ "created_at", "created_by", "policy", "updated_at", "updated_by" ]
+      },
+      "PolicyWarning" : {
+        "description" : "On a save response only (ADR-0115)",
+        "properties" : {
+          "code" : {
+            "type" : "string",
+            "description" : "whole_text_cannot_lift_spans: this exception cannot lift span-based redaction",
+            "enum" : [ "whole_text_cannot_lift_spans" ]
+          },
+          "policies" : {
+            "type" : "array",
+            "description" : "id@version of the span-based policies it cannot lift",
+            "items" : {
+              "type" : "string",
+              "description" : "id@version of the span-based policies it cannot lift"
+            }
+          }
+        },
+        "required" : [ "code", "policies" ]
       },
       "PolicyYaml" : {
         "properties" : {

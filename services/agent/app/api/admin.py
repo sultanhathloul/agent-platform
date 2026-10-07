@@ -17,6 +17,7 @@ from app.api.routes import _authorized
 from app.api.schemas import (
     POLICY_ID_PATH,
     ErrorEnvelope,
+    InducedFlag,
     PolicyChanges,
     PolicyChangeView,
     PolicyDetail,
@@ -31,6 +32,7 @@ from app.api.schemas import (
     PolicyTestResult,
     PolicyVersionView,
     PolicyView,
+    PolicyWarning,
     PolicyYaml,
     SpanView,
 )
@@ -109,6 +111,20 @@ def _validated(call: AdminCall, document: PolicyDocument) -> Policy | JSONRespon
         )
 
 
+def _warnings(found) -> list[PolicyWarning]:
+    if not found.cannot_lift:
+        return []
+    return [PolicyWarning(code="whole_text_cannot_lift_spans", policies=found.cannot_lift)]
+
+
+async def _saved(call: AdminCall, policy_id: str) -> JSONResponse:
+    """The saved version's view, with the warnings a save carries (ADR-0115)."""
+    stored = await call.services.policies.get(policy_id)
+    view = _view(stored)
+    view.warnings = _warnings(await call.services.policies.overrides(stored.policy))
+    return JSONResponse(view.model_dump(mode="json"), status_code=201)
+
+
 @router.get("", response_model=PolicyList, responses=_ERRORS)
 async def list_policies(call: Admin):
     if isinstance(call, JSONResponse):
@@ -164,7 +180,7 @@ async def preview_overrides(body: PolicyDocument, call: Admin):
     if isinstance(policy, JSONResponse):
         return policy
     found = await call.services.policies.overrides(policy)
-    return PolicyOverrides(overrides=found.refs, exception=found.exception)
+    return PolicyOverrides(overrides=found.refs, exception=found.exception, warnings=_warnings(found))
 
 
 @router.post("/test", response_model=PolicyTestResult, responses={**_ERRORS, 404: {"model": ErrorEnvelope}})
@@ -239,9 +255,7 @@ async def create_policy(body: PolicyDocument, call: Admin):
         return call.error("policy_exists", 409)
     except PolicyRejected as exc:
         return call.error("policy_invalid", 400, exc.reasons)
-    return JSONResponse(
-        _view(await call.services.policies.get(policy.id)).model_dump(mode="json"), status_code=201
-    )
+    return await _saved(call, policy.id)
 
 
 @router.get("/{policy_id}", response_model=PolicyDetail, responses={**_ERRORS, 404: {"model": ErrorEnvelope}})
@@ -289,9 +303,7 @@ async def add_version(policy_id: PolicyId, body: PolicyDocument, call: Admin):
         return call.error("policy_not_found", 404)
     except PolicyRejected as exc:
         return call.error("policy_invalid", 400, exc.reasons)
-    return JSONResponse(
-        _view(await call.services.policies.get(policy_id)).model_dump(mode="json"), status_code=201
-    )
+    return await _saved(call, policy_id)
 
 
 @router.put(
@@ -329,6 +341,7 @@ async def policy_changes(policy_id: PolicyId, call: Admin):
                 actor=c.actor,
                 exception=c.exception,
                 overrides=c.overrides,
+                induced=[InducedFlag(policy_ref=i["policy"], exception=i["exception"]) for i in c.induced],
             )
             for c in changes
         ]

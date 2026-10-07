@@ -45,6 +45,9 @@ DEFAULT_ON_ERROR: dict[str, OnError] = {
     "tier_ceiling": "closed",
 }
 
+# Checkers that answer for the whole text, without spans (ADR-0115); the others match spans.
+WHOLE_TEXT_CHECKERS = frozenset({"llm_judge", "tier_ceiling"})
+
 # A4: what the text at the DATA checkpoint is on its way to become.
 DataTarget = Literal["answer", "memory_candidate", "summary"]
 DATA_TARGETS: tuple[str, ...] = get_args(DataTarget)
@@ -415,6 +418,19 @@ def _targets(policy: Policy) -> set[str]:
 def is_exception(policy: Policy, overrides: "list[Policy]") -> bool:
     """A narrower policy that weakens a wider one of its group, by design (ADR-0105)."""
     return any(ACTION_RANK[policy.action] < ACTION_RANK[other.action] for other in overrides)
+
+
+def whole_text_cannot_lift(policy: Policy, overrides: "list[Policy]") -> "list[Policy]":
+    """The span-based policies a whole-text exception would weaken but cannot (ADR-0115): it
+    cancels only a whole-text verdict, so their redactions and blocks stand. A warning, not a
+    refusal."""
+    if policy.checker not in WHOLE_TEXT_CHECKERS:
+        return []
+    return [
+        other
+        for other in overrides
+        if other.checker not in WHOLE_TEXT_CHECKERS and ACTION_RANK[policy.action] < ACTION_RANK[other.action]
+    ]
 
 
 # Until phase 04 attributes each part of an answer to its source, a kb: or tool: policy may not

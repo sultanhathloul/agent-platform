@@ -32,7 +32,14 @@ from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from app.db import Database
-from app.guardrails.schema import GuardEventRecord, Policy, is_exception, overridden, weakening_refusals
+from app.guardrails.schema import (
+    GuardEventRecord,
+    Policy,
+    is_exception,
+    overridden,
+    weakening_refusals,
+    whole_text_cannot_lift,
+)
 
 log = logging.getLogger(__name__)
 
@@ -88,11 +95,24 @@ class PolicyVersion:
 
 @dataclass(frozen=True)
 class Overrides:
-    """What a policy overrides (refs of the wider policies of its group) and whether that
-    makes it an exception (ADR-0105)."""
+    """What a policy overrides (refs of the wider, enabled policies of its group), whether that
+    makes it an exception (ADR-0105, ADR-0115), and the span-based ones among them a
+    whole-text policy cannot lift (a warning, ADR-0115)."""
 
     refs: list[str]
     exception: bool
+    cannot_lift: list[str] = field(default_factory=list)
+
+
+def flags(policy: Policy, others: Sequence[Policy]) -> Overrides:
+    """Against the other policies' current versions: only enabled ones can be weakened, so
+    switching a wider policy off clears the exception it made (ADR-0115)."""
+    wider = [o for o in overridden(policy, list(others)) if o.enabled and o.id != policy.id]
+    return Overrides(
+        sorted(p.ref for p in wider),
+        is_exception(policy, wider),
+        sorted(p.ref for p in whole_text_cannot_lift(policy, wider)),
+    )
 
 
 @dataclass(frozen=True)
@@ -106,6 +126,7 @@ class PolicyChange:
     actor: str
     exception: bool
     overrides: list[str]
+    induced: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -184,6 +205,16 @@ async def _lock(conn) -> None:
     changing (ADR-0108). Transaction-scoped: released at commit or rollback. The two-key form
     lives apart from the one-key space of the conversation locks (app/api/locks.py)."""
     await conn.execute("SELECT pg_advisory_xact_lock(hashtext('agent'), hashtext('guard_policies'))")
+
+
+async def _change_row(conn, policy: Policy, change: str, actor: str, found: Overrides, induced: list) -> None:
+    """One row of agent.guard_policy_changes, in the change's transaction (ADR-0108, ADR-0115)."""
+    await conn.execute(
+        "INSERT INTO agent.guard_policy_changes "
+        "(policy_id, version, change, actor, exception, overrides, induced) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (policy.id, policy.version, change, actor, found.exception, Jsonb(found.refs), Jsonb(induced)),
+    )
 
 
 async def _current_versions(conn) -> list[Policy]:
@@ -326,7 +357,7 @@ class PolicyStore:
                 raise PolicyNotFound(policy_id)
             rows = await (
                 await conn.execute(
-                    "SELECT changed_at, policy_id, version, change, actor, exception, overrides "
+                    "SELECT changed_at, policy_id, version, change, actor, exception, overrides, induced "
                     "FROM agent.guard_policy_changes WHERE policy_id = %s ORDER BY changed_at DESC, id DESC",
                     (policy_id,),
                 )
@@ -340,6 +371,7 @@ class PolicyStore:
                 r["actor"],
                 r["exception"],
                 list(r["overrides"]),
+                list(r["induced"]),
             )
             for r in rows
         ]
@@ -444,9 +476,7 @@ class PolicyStore:
     async def overrides(self, policy: Policy) -> Overrides:
         """What `policy`, saved now, would override (the admin form's preview)."""
         async with self._db.connection() as conn:
-            others = [p for p in await _current_versions(conn) if p.id != policy.id]
-        wider = overridden(policy, others)
-        return Overrides(sorted(p.ref for p in wider), is_exception(policy, wider))
+            return flags(policy, await _current_versions(conn))
 
     async def _current(self, conn, policy_id: str) -> Policy:
         row = await (await conn.execute(_SELECT_CURRENT + " WHERE h.id = %s", (policy_id,))).fetchone()
@@ -474,27 +504,37 @@ class PolicyStore:
             raise PolicyRejected(reasons)
         groups = {p.effective_group for p in current} if every_group else touched
         members = [p for p in current if p.effective_group in groups]
-        flags: dict[str, Overrides] = {}
+        rows = await (
+            await conn.execute(
+                "SELECT id, exception FROM agent.guard_policy_heads WHERE id = ANY(%s)",
+                ([p.id for p in members],),
+            )
+        ).fetchall()
+        before = {r["id"]: r["exception"] for r in rows}
+        found: dict[str, Overrides] = {}
         for policy in members:
-            wider = overridden(policy, members)
-            flags[policy.id] = Overrides(sorted(p.ref for p in wider), is_exception(policy, wider))
+            found[policy.id] = flags(policy, members)
             await conn.execute(
                 "UPDATE agent.guard_policy_heads SET overrides = %s, exception = %s WHERE id = %s",
-                (Jsonb(flags[policy.id].refs), flags[policy.id].exception, policy.id),
+                (Jsonb(found[policy.id].refs), found[policy.id].exception, policy.id),
             )
+        # Induced (ADR-0115): policies this change turned into exceptions, or whose flag it cleared.
+        acting = {p.id for p, _ in changed}
+        induced = [p for p in members if p.id not in acting and before.get(p.id) != found[p.id].exception]
         for policy, change in changed:
-            found = flags[policy.id]
-            await conn.execute(
-                "INSERT INTO agent.guard_policy_changes "
-                "(policy_id, version, change, actor, exception, overrides) VALUES (%s, %s, %s, %s, %s, %s)",
-                (policy.id, policy.version, change, actor, found.exception, Jsonb(found.refs)),
-            )
+            mine = [
+                {"policy": p.ref, "exception": found[p.id].exception}
+                for p in induced
+                if p.effective_group == policy.effective_group
+            ]
+            await _change_row(conn, policy, change, actor, found[policy.id], mine)
+        for policy in induced:
+            change = "flagged" if found[policy.id].exception else "unflagged"
+            await _change_row(conn, policy, change, actor, found[policy.id], [])
 
     async def _at_save(self, conn, policy: Policy) -> Overrides:
         """The version's own record of what it overrode when saved (agent.guard_policies)."""
-        others = [p for p in await _current_versions(conn) if p.id != policy.id]
-        wider = overridden(policy, others)
-        return Overrides(sorted(p.ref for p in wider), is_exception(policy, wider))
+        return flags(policy, await _current_versions(conn))
 
     async def _insert_new(self, conn, policy: Policy, actor: str) -> Policy | None:
         """Version 1 and its head; None when the id exists (concurrent seeders agree)."""

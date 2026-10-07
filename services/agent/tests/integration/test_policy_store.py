@@ -232,6 +232,9 @@ async def _change_rows(store: PolicyStore, pid: str) -> list[tuple[str, str, int
 
 
 async def test_the_flag_appears_on_an_older_narrow_policy_when_a_wider_one_is_saved_later(store):
+    """ADR-0115: the change that turns another policy into an exception names it (`induced`),
+    and that policy gets a `flagged` row with the saver as its actor; switching the wider one
+    off clears the flag with an `unflagged` row."""
     group = new_id("grp")
     narrow, wide = new_id("narrow"), new_id("wide")
     marker = f"kw{uuid.uuid4().hex[:8]}"  # matches no other test's text, so the global policy is inert
@@ -247,13 +250,22 @@ async def test_the_flag_appears_on_an_older_narrow_policy_when_a_wider_one_is_sa
         older = await store.get(narrow)
         assert older.exception is True and older.overrides == [f"{wide}@1"]
         assert (await store.get(wide)).exception is False
-        # The narrow policy's own change row stays what its save left: it named no exception.
-        assert await _change_rows(store, narrow) == [("create", "admin-1", 1, False)]
-        assert await _change_rows(store, wide) == [("create", "admin-2", 1, False)]
-        # Switching the wider one off recomputes the group, on or off alike (ADR-0105).
+        assert await _change_rows(store, narrow) == [
+            ("create", "admin-1", 1, False),
+            ("flagged", "admin-2", 1, True),
+        ]
+        [created] = await store.changes(wide)
+        assert (created.change, created.induced) == ("create", [{"policy": f"{narrow}@1", "exception": True}])
+
         await store.set_enabled(wide, False, actor="admin-3")
-        assert (await store.get(narrow)).exception is True
-        assert (await _change_rows(store, wide))[-1] == ("disable", "admin-3", 1, False)
+        assert (await store.get(narrow)).exception is False  # nothing enabled is weakened any more
+        assert (await _change_rows(store, narrow))[-1] == ("unflagged", "admin-3", 1, False)
+        disabled = (await store.changes(wide))[0]
+        assert (disabled.change, disabled.actor, disabled.induced) == (
+            "disable",
+            "admin-3",
+            [{"policy": f"{narrow}@1", "exception": False}],
+        )
     finally:
         await store.set_enabled(wide, False, actor="test")
 

@@ -135,6 +135,15 @@ class PolicyDocument(BaseModel):
     group: str | None = None
 
 
+class PolicyWarning(BaseModel):
+    """Saved anyway, but worth knowing (ADR-0115)."""
+
+    code: Literal["whole_text_cannot_lift_spans"] = Field(
+        description="whole_text_cannot_lift_spans: this exception cannot lift span-based redaction."
+    )
+    policies: list[str] = Field(description="id@version of the span-based policies it cannot lift.")
+
+
 class PolicyView(BaseModel):
     policy: PolicyDocument
     created_at: datetime = Field(description="When this version was created.")
@@ -149,6 +158,7 @@ class PolicyView(BaseModel):
     exception: bool = Field(
         default=False, description="It overrides a stricter policy of its group (ADR-0105, ADR-0108)."
     )
+    warnings: list[PolicyWarning] = Field(default=[], description="On a save response only (ADR-0115).")
 
 
 class PolicyVersionView(BaseModel):
@@ -159,15 +169,29 @@ class PolicyVersionView(BaseModel):
     exception: bool = Field(default=False, description="Whether it was an exception when it was saved.")
 
 
+ChangeKind = Literal["create", "version", "enable", "disable", "import", "seed", "flagged", "unflagged"]
+
+
 class PolicyChangeView(BaseModel):
     """One change of a policy, written by the agent in the change's transaction (ADR-0108)."""
 
     changed_at: datetime
     policy_ref: str = Field(description="id@version the change left current.")
-    change: Literal["create", "version", "enable", "disable", "import", "seed"]
+    change: ChangeKind = Field(
+        description="flagged / unflagged: another policy's change made this one an exception, "
+        "or cleared it (ADR-0115)."
+    )
     actor: str
     exception: bool
     overrides: list[str]
+    induced: list["InducedFlag"] = Field(
+        default=[], description="Policies whose exception flag this change set or cleared (ADR-0115)."
+    )
+
+
+class InducedFlag(BaseModel):
+    policy_ref: str
+    exception: bool
 
 
 class PolicyChanges(BaseModel):
@@ -179,6 +203,7 @@ class PolicyOverrides(BaseModel):
 
     overrides: list[str]
     exception: bool
+    warnings: list[PolicyWarning] = []
 
 
 class PolicyList(BaseModel):

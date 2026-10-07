@@ -11,6 +11,7 @@ import type {
   PolicyOverrides,
   PolicyTestResult,
   PolicyView,
+  PolicyWarning,
 } from "@/lib/api/types";
 import { resolveErrorMessage, type ErrorInfo } from "@/lib/errors";
 import {
@@ -189,6 +190,10 @@ export function PolicyAdmin() {
         overrides.length
           ? t("policies.overrides.saved", { list: formatList(overrides, locale) })
           : t("policies.overrides.nothing"),
+        // ADR-0115: saved, with a warning the admin must see.
+        ...(result.value.warnings ?? []).map((w) =>
+          t("policies.warnings.wholeTextCannotLift", { list: formatList(w.policies, locale) }),
+        ),
       ].join(" "),
     );
     setPreview(null);
@@ -402,6 +407,21 @@ function OverridesNote({ overrides, exception }: { overrides: string[]; exceptio
   );
 }
 
+/** Save warnings (ADR-0115): saved anyway, but the admin must know. */
+function WarningsNote({ warnings }: { warnings: PolicyWarning[] }) {
+  const t = useTranslations();
+  const rawLocale = useLocale();
+  const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
+  if (warnings.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-1 text-xs text-amber-800" role="status">
+      {warnings.map((w) => (
+        <li key={w.code}>{t("policies.warnings.wholeTextCannotLift", { list: formatList(w.policies, locale) })}</li>
+      ))}
+    </ul>
+  );
+}
+
 function PolicyEditor({
   form,
   mode,
@@ -583,6 +603,7 @@ function PolicyEditor({
             {t("policies.overrides.check")}
           </button>
           {preview && <OverridesNote overrides={preview.overrides} exception={preview.exception} />}
+          {preview && <WarningsNote warnings={preview.warnings ?? []} />}
         </div>
         <div className="flex justify-end gap-2 sm:col-span-2">
           <button type="button" className={quiet} onClick={onCancel}>
@@ -852,6 +873,20 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
             {c.exception && (
               <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-900" title={formatList(c.overrides, locale)}>
                 {t("policies.changes.exception")}
+              </span>
+            )}
+            {(c.induced ?? []).length > 0 && (
+              <span className="text-xs text-slate-600">
+                {t("policies.changes.induced", {
+                  list: formatList(
+                    (c.induced ?? []).map((i) =>
+                      t(i.exception ? "policies.changes.inducedFlagged" : "policies.changes.inducedUnflagged", {
+                        policy: i.policy_ref,
+                      }),
+                    ),
+                    locale,
+                  ),
+                })}
               </span>
             )}
             <span className="text-xs text-slate-500">

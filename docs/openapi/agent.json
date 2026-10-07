@@ -2144,6 +2144,24 @@
         ],
         "title": "HealthResponse"
       },
+      "InducedFlag": {
+        "properties": {
+          "policy_ref": {
+            "type": "string",
+            "title": "Policy Ref"
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception"
+          }
+        },
+        "type": "object",
+        "required": [
+          "policy_ref",
+          "exception"
+        ],
+        "title": "InducedFlag"
+      },
       "MemoryItemView": {
         "properties": {
           "id": {
@@ -2247,9 +2265,12 @@
               "enable",
               "disable",
               "import",
-              "seed"
+              "seed",
+              "flagged",
+              "unflagged"
             ],
-            "title": "Change"
+            "title": "Change",
+            "description": "flagged / unflagged: another policy's change made this one an exception, or cleared it (ADR-0115)."
           },
           "actor": {
             "type": "string",
@@ -2265,6 +2286,15 @@
             },
             "type": "array",
             "title": "Overrides"
+          },
+          "induced": {
+            "items": {
+              "$ref": "#/components/schemas/InducedFlag"
+            },
+            "type": "array",
+            "title": "Induced",
+            "description": "Policies whose exception flag this change set or cleared (ADR-0115).",
+            "default": []
           }
         },
         "type": "object",
@@ -2568,6 +2598,14 @@
           "exception": {
             "type": "boolean",
             "title": "Exception"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "default": []
           }
         },
         "type": "object",
@@ -2849,6 +2887,15 @@
             "title": "Exception",
             "description": "It overrides a stricter policy of its group (ADR-0105, ADR-0108).",
             "default": false
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "On a save response only (ADR-0115).",
+            "default": []
           }
         },
         "type": "object",
@@ -2860,6 +2907,31 @@
           "updated_by"
         ],
         "title": "PolicyView"
+      },
+      "PolicyWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "whole_text_cannot_lift_spans",
+            "title": "Code",
+            "description": "whole_text_cannot_lift_spans: this exception cannot lift span-based redaction."
+          },
+          "policies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Policies",
+            "description": "id@version of the span-based policies it cannot lift."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "policies"
+        ],
+        "title": "PolicyWarning",
+        "description": "Saved anyway, but worth knowing (ADR-0115)."
       },
       "PolicyYaml": {
         "properties": {

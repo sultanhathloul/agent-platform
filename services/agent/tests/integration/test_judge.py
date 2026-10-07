@@ -13,7 +13,7 @@ from app.guardrails.checkers.llm_judge import LlmJudgeChecker
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.engine import GuardEngine
 from app.guardrails.panel import try_policy
-from app.guardrails.schema import LlmJudgeConfig, Policy
+from app.guardrails.schema import DataPayload, LlmJudgeConfig, Policy
 from app.identity import Principal
 from tests.fixtures.replace import replacing
 
@@ -129,3 +129,60 @@ async def test_a_panel_test_of_an_edited_draft_does_not_change_the_live_verdict(
 
     again = await live.evaluate(Checkpoint.INPUT, payload, principal=PRINCIPAL)
     assert again.blocked and live_gateway.calls.count("judge") == 1  # the cached live verdict, unchanged
+
+
+# ------------------------------------------------------------------ whole text against spans (ADR-0115)
+
+
+def _pii_policies(exempt_action: str = "allow"):
+    wide_pii = Policy(
+        id="pii-wide",
+        name="pii",
+        scope="global",
+        checkpoints=["DATA"],
+        checker="presidio",
+        config={"entities": ["SA_MOBILE"]},
+        action="redact",
+        group="pii",
+    )
+    exempt = Policy(
+        id="pii-judge-exempt",
+        name="judge exemption",
+        scope="role:x",
+        checkpoints=["DATA"],
+        checker="llm_judge",
+        config={"topic_description": "أي نص", "min_confidence": 0.5},
+        action=exempt_action,
+        group="pii",
+    )
+    return wide_pii, exempt
+
+
+async def test_a_judge_exception_leaves_presidio_redaction_in_place(services, litellm):
+    wide_pii, exempt = _pii_policies()
+    judge, gateway = judged(services, VIOLATES)  # the exception matches: it would apply if it could
+    guard = GuardEngine(
+        Static(wide_pii, exempt),
+        {"presidio": services.guard.checkers["presidio"], "llm_judge": LlmJudgeChecker(judge)},
+    )
+    holder = Principal(user_id="u", policy_roles=("policy:x",))
+    outcome = await guard.evaluate(
+        Checkpoint.DATA, DataPayload(text="رقمي 0501234567 للتجربة", target="answer"), principal=holder
+    )
+    assert gateway.calls.count("judge") == 1
+    assert outcome.action == "redact" and outcome.payload.text == "رقمي [REDACTED:SA_MOBILE] للتجربة"
+    wide = next(e for e in outcome.events if e.policy_id == "pii-wide")
+    assert wide.action == "redact" and "overridden" not in (wide.detail or "")
+
+
+async def test_a_judge_exception_still_cancels_a_wider_judge_block(services, litellm):
+    wide = judge_policy().model_copy(update={"id": "topic-wide", "group": "topics"})
+    exempt = judge_policy().model_copy(
+        update={"id": "topic-exempt", "group": "topics", "scope": "role:x", "action": "allow"}
+    )
+    judge, _ = judged(services, VIOLATES)
+    guard = GuardEngine(Static(wide, exempt), {"llm_judge": LlmJudgeChecker(judge)})
+    payload = {"message": "ما رأيك في الأحزاب؟", "attachments": []}
+    holder = Principal(user_id="u", policy_roles=("policy:x",))
+    assert (await guard.evaluate(Checkpoint.INPUT, payload, principal=holder)).action == "allow"
+    assert (await guard.evaluate(Checkpoint.INPUT, payload, principal=Principal(user_id="c"))).blocked

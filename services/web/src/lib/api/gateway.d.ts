@@ -401,6 +401,11 @@ export interface components {
         HealthResponse: {
             status?: string;
         };
+        /** @description Policies whose exception flag this change set or cleared (ADR-0115) */
+        InducedFlag: {
+            exception: boolean;
+            policy_ref: string;
+        };
         /** @description The checker's settings; DATA policies may name `targets`. */
         JsonNode: unknown;
         MeResponse: {
@@ -435,11 +440,16 @@ export interface components {
         };
         PolicyChange: {
             actor: string;
-            /** @enum {string} */
-            change: "create" | "version" | "enable" | "disable" | "import" | "seed";
+            /**
+             * @description flagged / unflagged: another policy's change made this one an exception, or cleared it
+             * @enum {string}
+             */
+            change: "create" | "version" | "enable" | "disable" | "import" | "seed" | "flagged" | "unflagged";
             /** Format: date-time */
             changed_at: string;
             exception: boolean;
+            /** @description Policies whose exception flag this change set or cleared (ADR-0115) */
+            induced?: components["schemas"]["InducedFlag"][];
             overrides: string[];
             /** @description id@version the change left current */
             policy_ref: string;
@@ -507,6 +517,8 @@ export interface components {
         PolicyOverrides: {
             exception: boolean;
             overrides: string[];
+            /** @description Saved anyway, but worth knowing (ADR-0115) */
+            warnings?: components["schemas"]["PolicyWarning"][];
         };
         PolicyRoles: {
             roles: string[];
@@ -576,6 +588,18 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             updated_by: string;
+            /** @description On a save response only (ADR-0115) */
+            warnings?: components["schemas"]["PolicyWarning"][];
+        };
+        /** @description On a save response only (ADR-0115) */
+        PolicyWarning: {
+            /**
+             * @description whole_text_cannot_lift_spans: this exception cannot lift span-based redaction
+             * @enum {string}
+             */
+            code: "whole_text_cannot_lift_spans";
+            /** @description id@version of the span-based policies it cannot lift */
+            policies: string[];
         };
         PolicyYaml: {
             yaml: string;

@@ -6,4 +6,5 @@ import java.util.List;
 /** What a draft would override if saved now, and whether that makes it an exception (ADR-0105). */
 public record PolicyOverrides(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<String> overrides,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean exception) {}
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean exception,
+        @Schema(description = "Saved anyway, but worth knowing (ADR-0115)") List<PolicyWarning> warnings) {}

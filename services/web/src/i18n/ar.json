@@ -270,8 +270,16 @@
         "enable": "فُعِّلت",
         "disable": "أُوقفت",
         "import": "استُوردت",
-        "seed": "بُذرت"
-      }
+        "seed": "بُذرت",
+        "flagged": "أصبحت استثناءً",
+        "unflagged": "لم تعد استثناءً"
+      },
+      "induced": "غيّر علامة الاستثناء لـ: {list}",
+      "inducedFlagged": "{policy} (أصبحت استثناءً)",
+      "inducedUnflagged": "{policy} (لم تعد استثناءً)"
+    },
+    "warnings": {
+      "wholeTextCannotLift": "هذا الاستثناء لا يرفع الإخفاء القائم على المقاطع: {list} تبقى تُخفي أو تحجب ما تطابقه."
     }
   }
 }

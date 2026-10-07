@@ -270,8 +270,16 @@
         "enable": "Switched on",
         "disable": "Switched off",
         "import": "Imported",
-        "seed": "Seeded"
-      }
+        "seed": "Seeded",
+        "flagged": "Became an exception",
+        "unflagged": "No longer an exception"
+      },
+      "induced": "Changed the exception flag of: {list}",
+      "inducedFlagged": "{policy} (now an exception)",
+      "inducedUnflagged": "{policy} (no longer an exception)"
+    },
+    "warnings": {
+      "wholeTextCannotLift": "This exception cannot lift span-based redaction: {list} still redact or block what they match."
     }
   }
 }
