@@ -298,6 +298,16 @@ class Span(BaseModel):
     score: float | None = None
 
 
+class CheckUsage(BaseModel):
+    """The tokens of the model calls one check made (the judge's): on the guard.check span and in
+    the audit delta, never in the turn usage a client receives (ADR-0118)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
 class CheckResult(BaseModel):
     """What a checker returns: `check(payload, config) -> CheckResult` (README §10.2)."""
 
@@ -311,6 +321,8 @@ class CheckResult(BaseModel):
     # `policies.explanation.*` and its arguments (rule 7); `explanation` stays for traces.
     reason: str = ""
     reason_args: dict[str, str] = {}
+    # The model calls this check made; None when it made none (a cached judge verdict) (ADR-0118).
+    usage: CheckUsage | None = None
 
 
 class DataPayload(BaseModel):
@@ -391,13 +403,20 @@ class GuardEventRecord(BaseModel):
     # A block's own message (README §10.1), the one checker-independent text a client gets.
     message_ar: str | None = None
     message_en: str | None = None
+    # The check's own model calls (ADR-0118): audit and trace only.
+    usage: CheckUsage | None = None
+    # A record the audit delta needs and a client never sees (ADR-0118): a check that made a model
+    # call but matched nothing, so its usage is audited, or the tier evaluation of a guard checker's
+    # own model call. Never streamed, never in guard_events.
+    audit_only: bool = False
 
     @property
     def policy_ref(self) -> str | None:
         return f"{self.policy_id}@{self.policy_version}" if self.policy_id else None
 
     def client_view(self) -> dict:
-        """The fields a `guard` event and a terminal event's guard_events carry (ADR-0116)."""
+        """The fields a `guard` event and a terminal event's guard_events carry (ADR-0116).
+        An audit-only record never gets one: callers leave it out (ADR-0118)."""
         return self.model_dump(mode="json", include=set(CLIENT_EVENT_FIELDS), exclude_none=True)
 
 

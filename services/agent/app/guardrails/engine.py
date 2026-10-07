@@ -245,6 +245,10 @@ class GuardEngine:
                 span.set_attribute("guard.score", result.score)
                 for name, value in result.reason_args.items():
                     span.set_attribute(f"guard.reason.{name}", value)
+                if result.usage is not None:
+                    # The check's model calls: here and in the audit delta, never client usage (ADR-0118).
+                    span.set_attribute("guard.tokens_in", result.usage.tokens_in)
+                    span.set_attribute("guard.tokens_out", result.usage.tokens_out)
             if error:
                 span.set_attribute("guard.error", error)
                 span.set_attribute("guard.on_error", policy.effective_on_error)
@@ -326,6 +330,7 @@ class GuardEngine:
                     score=e.result.score if e.result else None,
                     message_ar=e.policy.message_ar if event_action == "block" else None,
                     message_en=e.policy.message_en if event_action == "block" else None,
+                    usage=e.result.usage if e.result else None,
                 )
             )
         if len(events) == len(notes):
@@ -335,6 +340,28 @@ class GuardEngine:
                     action="allow",
                     detail=f"{len(evaluated)} policies, none matched",
                     target=target,
+                )
+            )
+        # A check that made a model call and matched nothing: its usage is audited, and the record
+        # never reaches a client, so whether a verdict was cached never shows there (ADR-0118).
+        for e in evaluated:
+            if e.error or not (e.result and e.result.usage and not e.result.matched):
+                continue
+            events.append(
+                GuardEventRecord(
+                    checkpoint=checkpoint,
+                    policy_id=e.policy.id,
+                    policy_version=e.policy.version,
+                    policy_name=e.policy.name,
+                    action="allow",
+                    detail=_detail(e),
+                    target=target,
+                    latency_ms=e.latency_ms,
+                    reason=e.result.reason,
+                    reason_args=dict(e.result.reason_args),
+                    score=e.result.score,
+                    usage=e.result.usage,
+                    audit_only=True,
                 )
             )
         outcome.events = events

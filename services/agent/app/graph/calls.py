@@ -47,11 +47,20 @@ async def prepare_call(
     step: str | None = None,
     capabilities: Sequence[LoadedCapability] = (),
     max_input: int | None = None,
+    audit_only: bool = False,
 ) -> PreparedCall:
+    """`audit_only`: a guard checker's call (the judge), which runs only when no verdict is
+    cached, so its tier evaluations go to the audit delta and never to a client (ADR-0118)."""
     services = ctx.services
     specs = [cap.model_spec() for cap in capabilities]
     decision = await services.resolver.resolve(role, step=step, capabilities=specs, principal=ctx.principal)
-    ctx.report_guard(decision.guard_events)
+
+    def report(events) -> None:
+        ctx.report_guard(
+            [e.model_copy(update={"audit_only": True}) for e in events] if audit_only else events
+        )
+
+    report(decision.guard_events)
     package = await services.assembler.assemble(request, _budget(ctx, decision, max_input))
     if isinstance(package, NeedsMore):
         action = services.resolver.overflow_action(specs)
@@ -68,7 +77,7 @@ async def prepare_call(
                 decision, principal=ctx.principal, reason="context_overflow"
             )
         if escalated is not None:
-            ctx.report_guard(escalated.guard_events)
+            report(escalated.guard_events)
         if escalated is not None and escalated.final != decision.final:
             ctx.escalations += 1
             decision = escalated
@@ -93,12 +102,16 @@ async def call_model(
     *,
     on_token: Callable[[str], None] | None = None,
     temperature: float | None = None,
+    account: bool = True,
 ) -> ModelResult:
+    """`account=False`: a guard checker's call (the judge), whose tokens go to its check's audit
+    record and span, never to the turn usage a client receives (ADR-0118)."""
     try:
         result = await ctx.services.gateway.call(
             prepared.decision, prepared.package, on_token=on_token, temperature=temperature
         )
     except ModelUnavailable as exc:
         raise TurnError("model_unavailable", retryable=True, detail=str(exc)) from exc
-    ctx.usage.add(result.tokens_in, result.tokens_out)
+    if account:
+        ctx.usage.add(result.tokens_in, result.tokens_out)
     return result

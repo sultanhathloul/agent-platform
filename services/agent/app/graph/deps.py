@@ -95,10 +95,11 @@ class TurnContext:
 
     def report_guard(self, events: Sequence[GuardEventRecord]) -> None:
         """Records evaluations; those that did something (not `allow`) stream as `guard` events,
-        with the client fields only: no checker detail, score or latency (ADR-0116)."""
+        with the client fields only: no checker detail, score or latency (ADR-0116). An audit-only
+        record is never streamed (ADR-0118)."""
         self.guard_log.extend(events)
         for event in events:
-            if event.action != "allow":
+            if event.action != "allow" and not event.audit_only:
                 self.emit("guard", event.client_view())
 
     def guard_records(self) -> list[dict]:

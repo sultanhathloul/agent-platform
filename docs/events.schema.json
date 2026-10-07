@@ -466,6 +466,18 @@
           ],
           "default": null,
           "title": "Latency Ms"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuardUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The check's own model calls (the judge's), absent for a cached verdict; never part of the turn usage a client receives (ADR-0118)."
         }
       },
       "required": [
@@ -611,6 +623,25 @@
         "data"
       ],
       "title": "GuardEvent",
+      "type": "object"
+    },
+    "GuardUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "tokens_in": {
+          "title": "Tokens In",
+          "type": "integer"
+        },
+        "tokens_out": {
+          "title": "Tokens Out",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens_in",
+        "tokens_out"
+      ],
+      "title": "GuardUsage",
       "type": "object"
     },
     "ProgressData": {

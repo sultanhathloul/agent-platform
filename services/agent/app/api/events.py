@@ -49,6 +49,11 @@ class GuardData(_Model):
     message_en: str | None = Field(default=None, description="Block only: the policy's own message.")
 
 
+class GuardUsage(_Model):
+    tokens_in: int
+    tokens_out: int
+
+
 class GuardAuditData(GuardData):
     """A guard evaluation in full, for the gateway's audit record only (ADR-0116). It travels in
     the terminal event's `guard_audit`, which the gateway removes before the event reaches a
@@ -62,6 +67,11 @@ class GuardAuditData(GuardData):
     score: float | None = None
     entities: list[str] = Field(default=[], description="Entity types matched; never the matched text.")
     latency_ms: int | None = None
+    usage: GuardUsage | None = Field(
+        default=None,
+        description="The check's own model calls (the judge's), absent for a cached verdict; never part "
+        "of the turn usage a client receives (ADR-0118).",
+    )
 
 
 _GUARD_AUDIT_DESCRIPTION = (

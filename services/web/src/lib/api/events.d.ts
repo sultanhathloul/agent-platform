@@ -167,6 +167,8 @@ export type Score = number | null;
  */
 export type Entities = string[];
 export type LatencyMs1 = number | null;
+export type TokensIn1 = number;
+export type TokensOut1 = number;
 /**
  * Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
  */
@@ -354,12 +356,20 @@ export interface GuardAuditData {
   score?: Score;
   entities?: Entities;
   latency_ms?: LatencyMs1;
+  /**
+   * The check's own model calls (the judge's), absent for a cached verdict; never part of the turn usage a client receives (ADR-0118).
+   */
+  usage?: GuardUsage | null;
 }
 /**
  * Judge: category and confidence.
  */
 export interface ReasonArgs {
   [k: string]: string;
+}
+export interface GuardUsage {
+  tokens_in: TokensIn1;
+  tokens_out: TokensOut1;
 }
 export interface StateDigest {
   turn: Turn;

@@ -1,6 +1,7 @@
 package sa.ncai.agent.gateway.chat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -225,8 +226,12 @@ public class ChatController {
         JsonNode data = outcome.data();
         switch (outcome.kind()) {
             case DONE -> {
+                Map<String, Object> guardUsage = guardUsage(auditedGuards(data));
                 if (data.hasNonNull("usage")) {
-                    detail.put("usage", data.get("usage"));
+                    detail.put("usage", fullUsage(data.get("usage"), guardUsage));
+                }
+                if (guardUsage != null) {
+                    detail.put("guard_usage", guardUsage);
                 }
                 if (data.hasNonNull("trace_id")) {
                     detail.put("trace_id", data.get("trace_id").asText());
@@ -240,6 +245,10 @@ public class ChatController {
                     detail.put("policy_id", data.get("policy_id").asText());
                 }
                 detail.put("guard_policies", guardPolicies(auditedGuards(data)));
+                Map<String, Object> guardUsage = guardUsage(auditedGuards(data));
+                if (guardUsage != null) {
+                    detail.put("guard_usage", guardUsage);
+                }
             }
             case INTERRUPTED -> detail.put("error_code", ErrorCode.AGENT_STREAM_INTERRUPTED.code());
         }
@@ -249,6 +258,42 @@ public class ChatController {
     /** The terminal event's guard evaluations in full ({@code guard_audit}, ADR-0116). */
     private static JsonNode auditedGuards(JsonNode data) {
         return data.has("guard_audit") ? data.path("guard_audit") : data.path("guard_events");
+    }
+
+    /**
+     * The tokens of the guard checks' own model calls (the judge's), summed over {@code guard_audit};
+     * null when no check made one. A client's usage never includes them (ADR-0118).
+     */
+    private static Map<String, Object> guardUsage(JsonNode events) {
+        long tokensIn = 0;
+        long tokensOut = 0;
+        boolean any = false;
+        for (JsonNode event : events) {
+            JsonNode usage = event.path("usage");
+            if (usage.isObject()) {
+                any = true;
+                tokensIn += usage.path("tokens_in").asLong();
+                tokensOut += usage.path("tokens_out").asLong();
+            }
+        }
+        if (!any) {
+            return null;
+        }
+        Map<String, Object> sum = new LinkedHashMap<>();
+        sum.put("tokens_in", tokensIn);
+        sum.put("tokens_out", tokensOut);
+        return sum;
+    }
+
+    /** The turn's full usage for the audit record: the client's usage plus the guard checks' (ADR-0118). */
+    private static JsonNode fullUsage(JsonNode usage, Map<String, Object> guardUsage) {
+        if (guardUsage == null || !(usage instanceof ObjectNode client)) {
+            return usage;
+        }
+        ObjectNode full = client.deepCopy();
+        full.put("tokens_in", client.path("tokens_in").asLong() + (long) guardUsage.get("tokens_in"));
+        full.put("tokens_out", client.path("tokens_out").asLong() + (long) guardUsage.get("tokens_out"));
+        return full;
     }
 
     /**

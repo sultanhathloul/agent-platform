@@ -170,8 +170,10 @@ async def _final_data_pass(state: AgentState, runtime: Runtime[TurnContext]) -> 
         ctx.report_guard(matched)
         raise _late_block(state, runtime, outcome, "data_blocked")
     if outcome.payload.text == released:
-        # Everything matched here was already redacted sentence by sentence: report nothing twice.
+        # Everything matched here was already redacted sentence by sentence: report nothing twice,
+        # except a clear judge call's audit-only usage record, which is new (ADR-0118).
         span.set_attribute("data.final_pass", "clean")
+        ctx.report_guard([e for e in matched if e.audit_only])
         return {}
     ctx.report_guard(matched)
     text = outcome.payload.text

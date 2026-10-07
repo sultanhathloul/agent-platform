@@ -79,5 +79,9 @@ def parse_candidates(
 
 
 def guard_flagged(guard_events: Iterable[dict]) -> bool:
-    """README §8: never store anything a guard flagged."""
-    return any(event.get("action") not in _UNFLAGGED_ACTIONS for event in guard_events)
+    """README §8: never store anything a guard flagged. An audit-only record (a guard checker's own
+    model call, made only when no verdict was cached) never decides it (ADR-0118)."""
+    return any(
+        event.get("action") not in _UNFLAGGED_ACTIONS and not event.get("audit_only")
+        for event in guard_events
+    )

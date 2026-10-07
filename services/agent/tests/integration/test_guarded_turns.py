@@ -605,3 +605,40 @@ async def test_a_judge_block_streams_no_checker_detail(services, role, litellm, 
     [audited] = guards(again, judge.id)
     if checkpoint == "INPUT":
         assert audited.reason == "judge_violates_cached"
+
+
+# ------------------------------------------------------------------ guard usage (ADR-0118)
+
+JUDGE_CLEAR = json.dumps({"violates": False, "confidence": 0.95, "category": ""})
+
+
+async def test_a_cached_judge_verdict_leaves_the_clients_usage_unchanged(services, role, litellm):
+    """The same text twice in one tenant, the second verdict cached: both turns report the same
+    usage to the client, and only the first turn's audit list holds the judge call."""
+    name, add = role
+    judge = await add(
+        checkpoints=["INPUT"],
+        checker="llm_judge",
+        config={"topic_description": "آراء سياسية", "min_confidence": 0.5},
+        action="block",
+        name="judge clear",
+        message_ar="محجوب",
+        message_en="Blocked",
+    )
+    replaced, gateway = replacing(services, {"judge": JUDGE_CLEAR})
+    message = f"ما عاصمة المملكة؟ {uuid.uuid4().hex[:6]}"
+    # Two users of the tenant, so neither turn reads the other's memory.
+    first, _ = await turn(replaced, principal(name), message)
+    second, _ = await turn(replaced, principal(name), message)
+    assert first[-1].type == "done" and second[-1].type == "done"
+    assert gateway.calls.count("judge") == 1  # the second verdict came from the cache
+
+    assert first[-1].data.usage == second[-1].data.usage
+    assert first[-1].data.usage.tokens_in > 0
+    assert first[-1].data.guard_events == second[-1].data.guard_events
+    assert not [g for g in first[-1].data.guard_events if g.policy_id == judge.id]
+
+    [audited] = guards(first, judge.id)
+    assert audited.action == "allow" and audited.reason == "judge_clear"
+    assert audited.usage is not None and audited.usage.tokens_in > 0 and audited.usage.tokens_out > 0
+    assert guards(second, judge.id) == []

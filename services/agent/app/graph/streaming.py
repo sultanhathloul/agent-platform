@@ -185,7 +185,9 @@ class DataStream:
         )
         matched = [e for e in outcome.events if e.policy_id]
         if matched:
-            self._matched = True
+            # An audit-only record (a clear judge call's usage) is not a match: the client's
+            # `allow` record must not depend on whether a verdict was cached (ADR-0118).
+            self._matched = self._matched or any(not e.audit_only for e in matched)
             ctx.report_guard(matched)
         if outcome.unavailable:
             raise TurnError("guard_unavailable", retryable=True, detail=f"{label}: {outcome.unavailable}")

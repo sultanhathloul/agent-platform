@@ -4,7 +4,8 @@ config/context.yaml, Context Assembly, the tier resolver (so MODEL_TIER ceilings
 apply) and LiteLLM. Inside a turn the call is accounted to that turn; the admin
 test panel runs it in a turn of its own. A call on a memory candidate or a summary
 is content-free: no messages or output in its trace and no recorded context
-package (D5, ADR-0110)."""
+package (D5, ADR-0110). Its tokens are returned with the answer for the check's
+audit and span; they are never added to the turn's client usage (ADR-0118)."""
 
 import uuid
 from typing import Any
@@ -12,6 +13,8 @@ from typing import Any
 from app.context.package import AssemblyRequest
 from app.graph.calls import call_model, prepare_call
 from app.graph.deps import Services, TurnContext
+from app.guardrails.checkers.llm_judge import JudgeAnswer
+from app.guardrails.schema import CheckUsage
 from app.identity import Principal
 
 
@@ -43,7 +46,7 @@ class GraphJudge:
         text: str,
         turn: TurnContext | None = None,
         content_free: bool = False,
-    ) -> str:
+    ) -> JudgeAnswer:
         ctx = turn or TurnContext(
             services=self._services, principal=principal, request_id="guard-judge", turn_id=uuid.uuid4().hex
         )
@@ -58,5 +61,7 @@ class GraphJudge:
             prompt_vars={"topic": topic, "examples": examples, "text": text},
             content_free=content_free,
         )
-        result = await call_model(ctx, await prepare_call(ctx, request, role="judge"))
-        return result.text
+        result = await call_model(
+            ctx, await prepare_call(ctx, request, role="judge", audit_only=True), account=False
+        )
+        return JudgeAnswer(result.text, CheckUsage(tokens_in=result.tokens_in, tokens_out=result.tokens_out))

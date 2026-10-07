@@ -298,12 +298,19 @@ class TurnRunner:
     @staticmethod
     def _guard_data(ctx: TurnContext) -> list[GuardData]:
         """The client's view of the turn's evaluations (ADR-0116)."""
-        return [GuardData.model_validate(record.client_view()) for record in ctx.guard_log]
+        return [
+            GuardData.model_validate(record.client_view())
+            for record in ctx.guard_log
+            if not record.audit_only
+        ]
 
     @staticmethod
     def _guard_audit(ctx: TurnContext) -> list[GuardAuditData]:
         """Every evaluation in full, for the gateway's audit record; the gateway strips it (ADR-0116)."""
-        return [GuardAuditData.model_validate(record.model_dump(mode="json")) for record in ctx.guard_log]
+        return [
+            GuardAuditData.model_validate(record.model_dump(mode="json", exclude={"audit_only"}))
+            for record in ctx.guard_log
+        ]
 
     def _error(
         self, ctx: TurnContext, code: str, *, retryable: bool, exc: TurnError | None = None
