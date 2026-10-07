@@ -566,6 +566,12 @@ Human review needed (this session): `config/context.yaml` pipeline order; ADR-00
 - Status: **done, awaiting review.** `make up`, `make test`, `make smoke` and `make eval` (three runs) are green; the three Part B items are closed with tests; time to first token is measured.
 - Done when: policy model in DB + Redis reload; 7 checkpoints; `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge`; admin policy UI with test panel; `guardrails.jsonl` ≥ threshold.
 
+Phase 03 ground rules (from the phase prompt, verbatim; G1 is CLAUDE.md rule 11 since the review round 1 fix session):
+- G2. Contracts first: policy schema, CheckResult, the checkpoint call signature, the DATA target field and scope resolution are written as types with tests before any checker.
+- G3. Fake PII only, in code, tests, evals and smoke (ADR-0065): numbers that pass format checks, never real ones.
+- G4. Every checker gets Arabic test cases (rule 7): Arabic-Indic digits, separators and spaces inside numbers, tashkeel and tatweel, mixed scripts.
+- G5. No capability-specific logic in app/guardrails/ (§18.4). A capability's policies use scope tool:{slug}.
+
 Scope restated (session 2026-10-06):
 1. Engine: versioned policies in `agent.guard_policies` (agent-owned, immutable versions, seeded from `config/policies/`), cached in Redis and reloaded through pub/sub within 2 s; scopes `global`, `tenant:`, `kb:`, `tool:` (`role:` reserved and rejected), narrow over wide; checkers `regex`, `presidio` (Saudi recognizers in `infra/presidio/`), `keyword_list` (Arabic normalization), `llm_judge` (judge role through Context Assembly, cached 24 h); `on_error` closed/open.
 2. Tech debt first: DATA on memory candidates and the rolling summary with a one-time purge (`make purge-pre-guard`); a per-conversation advisory lock with 409 `turn_in_flight`; retention (no memory/summary/extractor content in Langfuse, `context_packages` expiry and deletion with their memory items).
@@ -722,6 +728,23 @@ Human review needed (this session):
 - Also: `services/agent/app/db/migrations/0003_policy_exceptions.sql`; `docker-compose.yml` (the gateway's `GATEWAY_KEYCLOAK_ADMIN_*`, the realm mounted read-only into `agent-tests`); the gateway's `identity_unavailable` code and texts.
 
 How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up`, `make smoke` twice (the residue check), `make eval`. On an existing Keycloak volume, add `policy:pii-exempt` to `analyst` first (or `make clean && make up`), or the smoke exception check fails on the analyst's token.
+
+### Fix session: PR #3 review round 1 (2026-10-07)
+
+Scope: the owner's decisions 0–9 on the round 1 review, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [ ] 0 Ground rules: CLAUDE.md rule 11 and the OpenAPI exception; G2–G5 verbatim above
+- [ ] 1 Exceptions (new ADR): containment, span-level overrides, kb:/tool: weakening refused at OUTPUT/DATA, one group resolution in both answer modes, flag recomputed for the group on every save/import/seed/enable, `agent.guard_policy_changes` in the change's transaction, change log in the admin UI; the seven tests
+- [ ] 2 Turn lock: ownership before the lock (403), release inside the task before the end of the stream, pool reset with pg_advisory_unlock_all(), 503 `service_busy`; the four tests
+- [ ] 3 Judge cache: key with id, version or draft hash, prompt id@version, model alias; the panel never writes, a draft never reads; test
+- [ ] 4 Langfuse: judge calls on memory_candidate/summary content-free with no package; HMAC-SHA256 hashes with CONTENT_HASH_KEY; tests
+- [ ] 5 Sentence buffer: no cut inside a joined digit run; final DATA pass with retract and re-send; tests
+- [ ] 6 Purge: summary read and written under the lock; redact in place; rowcounts; global and tenant policies only; tests
+- [ ] 7 Rule 6: no Broken() gateway, no FakeJudge
+- [ ] 8 Smaller fixes (stale texts, i18n, realm ADR, policy-role listing, panel principal, tenant guard test, propagation test, test rename, tenant hint)
+- [ ] 9 Smoke trap, run-scoped audit check, cross-run residue check; PROGRESS wording; guardrails.jsonl edits with OUTPUT judge cases; TTFT n, failures, one-sentence terminal time
+- [ ] make test, make eval ×3, make smoke ×2; record per rule 11; push
 
 ## Phase 04: UC3 documents (`docs` capability)
 
