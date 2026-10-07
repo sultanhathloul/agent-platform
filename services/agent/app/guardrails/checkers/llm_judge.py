@@ -7,10 +7,10 @@ text's script. Verdicts are cached in Redis for 24 hours (I4), keyed by a hash o
 the principal's tenant, the policy's id@version, the judge prompts' id@version and the
 model alias the call resolves to, and the normalized text (ADR-0110, ADR-0116): a policy
 edit, a prompt edit or a new alias never reuses an old verdict, and one tenant never
-reads a verdict another tenant's text produced. The admin test panel keys by its
-simulated tenant and never writes the cache, and a draft, whose id@version names
-nothing stored, never reads it either. A judge
-call on a memory candidate or a summary is content-free in traces (D5, ADR-0110).
+reads a verdict another tenant's text produced. The admin test panel never reads or
+writes the cache, for a stored policy and a draft alike: every panel test calls the
+judge (ADR-0117). A judge call on a memory candidate or a summary is content-free in traces (D5, ADR-0110).
+The judge call's tokens are the check's `usage`, never the turn's client usage (ADR-0118).
 A malformed answer is a CheckerError: the policy's `on_error` decides (open by
 default, D8)."""
 
@@ -18,12 +18,12 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.guardrails.checkers.base import CheckContext, CheckerError
-from app.guardrails.schema import CheckResult, LlmJudgeConfig
+from app.guardrails.schema import CheckResult, CheckUsage, LlmJudgeConfig
 from app.identity import Principal
 from app.text.arabic import normalize
 
@@ -45,6 +45,11 @@ class Verdict(BaseModel):
 CONTENT_FREE_TARGETS = frozenset({"memory_candidate", "summary"})
 
 
+class JudgeAnswer(NamedTuple):
+    text: str
+    usage: CheckUsage
+
+
 class JudgeModel(Protocol):
     """Runs the judge prompt through Context Assembly and LiteLLM (app/graph/judge.py)."""
 
@@ -62,7 +67,7 @@ class JudgeModel(Protocol):
         text: str,
         turn: Any = None,
         content_free: bool = False,
-    ) -> str: ...
+    ) -> JudgeAnswer: ...
 
 
 class VerdictCache(Protocol):
@@ -117,10 +122,12 @@ class LlmJudgeChecker:
         policy_ref = draft_ref(ctx.policy) if ctx.draft else ctx.policy.ref
         identity = await self._model.identity(principal=ctx.principal, locale=locale)
         key = cache_key(self._namespace, ctx.principal.tenant_id, policy_ref, identity, payload)
-        verdict = None if ctx.draft else await self._cached(key)
+        # The panel, stored policy or draft, never reads the cache: no cache marker (ADR-0117).
+        verdict = None if ctx.panel or ctx.draft else await self._cached(key)
         cached = verdict is not None
+        usage = None
         if verdict is None:
-            raw = await self._model.judge(
+            answer = await self._model.judge(
                 principal=ctx.principal,
                 locale=locale,
                 topic=config.topic_description,
@@ -129,7 +136,8 @@ class LlmJudgeChecker:
                 turn=ctx.turn,
                 content_free=ctx.target in CONTENT_FREE_TARGETS,
             )
-            verdict = parse_verdict(raw)
+            usage = answer.usage
+            verdict = parse_verdict(answer.text)
             if not ctx.panel:
                 await self._store(key, verdict)
         matched = verdict.violates and verdict.confidence >= config.min_confidence
@@ -141,6 +149,7 @@ class LlmJudgeChecker:
             f"{', cached' if cached else ''})",
             reason=("judge_violates" if verdict.violates else "judge_clear") + ("_cached" if cached else ""),
             reason_args={"category": verdict.category, "confidence": f"{verdict.confidence:.2f}"},
+            usage=usage,
         )
 
     async def _cached(self, key: str) -> Verdict | None:

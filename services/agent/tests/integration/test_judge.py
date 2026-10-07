@@ -105,7 +105,7 @@ async def test_a_cache_outage_costs_a_model_call_not_the_check(services, litellm
 
 
 async def test_a_panel_test_of_an_edited_draft_does_not_change_the_live_verdict(services, litellm):
-    """ADR-0110: the panel never writes the cache, and a draft never reads it."""
+    """ADR-0110, ADR-0117: the panel never writes the cache and never reads it."""
     namespace, cache = _namespace(), RedisVerdictCache(services.redis)
     stored = judge_policy()
     text = "ما رأيك في الأحزاب السياسية؟"
@@ -124,8 +124,9 @@ async def test_a_panel_test_of_an_edited_draft_does_not_change_the_live_verdict(
     # ... and an edited draft's clear verdict is written nowhere a live turn reads.
     edited = stored.model_copy(update={"config": {**stored.config, "topic_description": "موضوع آخر تمامًا"}})
     assert (await try_policy(panel, edited, text, principal=PRINCIPAL, draft=True)).action == "allow"
-    # A panel test of the stored policy may read the cache but never writes it.
-    assert (await try_policy(panel, stored, text, principal=PRINCIPAL)).action == "block"
+    # A panel test of the stored policy neither reads nor writes the cache (ADR-0117): it asks the model.
+    assert (await try_policy(panel, stored, text, principal=PRINCIPAL)).action == "allow"
+    assert panel_gateway.calls.count("judge") == 3
 
     again = await live.evaluate(Checkpoint.INPUT, payload, principal=PRINCIPAL)
     assert again.blocked and live_gateway.calls.count("judge") == 1  # the cached live verdict, unchanged
@@ -160,22 +161,25 @@ async def test_one_global_judge_policy_keeps_a_verdict_per_tenant(services, lite
     assert gateway1.calls.count("judge") == 1 and gateway2.calls.count("judge") == 1
 
 
-async def test_the_panel_keys_by_its_simulated_tenant_and_never_writes(services, litellm):
+async def test_a_panel_test_under_a_simulated_tenant_never_reads_its_cached_verdict(services, litellm):
+    """ADR-0117: after a live turn in t1 cached the text, a panel test of the stored judge policy
+    simulating t1 makes a fresh judge call, returns no cache marker and writes nothing."""
     namespace, cache = _namespace(), RedisVerdictCache(services.redis)
     stored, text = judge_policy(), "ما رأيك في الأحزاب السياسية؟"
-    live_judge, _ = judged(services, VIOLATES)
+    live_judge, live_gateway = judged(services, VIOLATES)
     live = GuardEngine(Static(stored), {"llm_judge": LlmJudgeChecker(live_judge, cache, namespace=namespace)})
     t1 = Principal(user_id="a", tenant_id="t1")
     assert (await live.evaluate(Checkpoint.INPUT, {"message": text, "attachments": []}, principal=t1)).blocked
+    assert live_gateway.calls.count("judge") == 1 and len(await _keys(services, namespace)) == 1
 
-    panel_judge, panel_gateway = judged(services, CLEAR)
+    panel_judge, panel_gateway = judged(services, VIOLATES)
     panel = GuardEngine(Static(), {"llm_judge": LlmJudgeChecker(panel_judge, cache, namespace=namespace)})
-    # Simulating t1 reads t1's entry; simulating t2 asks the model and writes nothing.
-    assert (await try_policy(panel, stored, text, principal=t1)).action == "block"
-    assert panel_gateway.calls.count("judge") == 0
-    t2 = Principal(user_id="admin", tenant_id="t2")
-    assert (await try_policy(panel, stored, text, principal=t2)).action == "allow"
-    assert panel_gateway.calls.count("judge") == 1 and len(await _keys(services, namespace)) == 1
+    simulated = Principal(user_id="admin", tenant_id="t1")
+    tried = await try_policy(panel, stored, text, principal=simulated)
+    assert tried.action == "block" and panel_gateway.calls.count("judge") == 1
+    assert "cached" not in tried.result.explanation and not tried.result.reason.endswith("_cached")
+    assert tried.result.reason == "judge_violates"
+    assert len(await _keys(services, namespace)) == 1  # the panel wrote nothing
 
 
 # ------------------------------------------------------------------ whole text against spans (ADR-0115)
