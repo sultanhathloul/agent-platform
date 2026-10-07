@@ -17,6 +17,7 @@ public enum ErrorCode {
     AGENT_STREAM_INTERRUPTED("agent_stream_interrupted", 502),
     IDENTITY_UNAVAILABLE("identity_unavailable", 502),
     AUDIT_UNAVAILABLE("audit_unavailable", 503),
+    SERVICE_BUSY("service_busy", 503),
     INTERNAL_ERROR("internal_error", 500);
 
     private final String code;

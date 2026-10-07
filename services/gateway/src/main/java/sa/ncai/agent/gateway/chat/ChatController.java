@@ -37,13 +37,13 @@ import sa.ncai.agent.gateway.auth.KeycloakRoles;
 import sa.ncai.agent.gateway.auth.TierCaps;
 import sa.ncai.agent.gateway.authz.KbAccessPolicy;
 import sa.ncai.agent.gateway.proxy.AgentClient;
+import sa.ncai.agent.gateway.proxy.AgentRefusedException;
 import sa.ncai.agent.gateway.proxy.AgentRetractRequest;
 import sa.ncai.agent.gateway.proxy.AgentTurnRequest;
 import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
 import sa.ncai.agent.gateway.proxy.ClientGoneException;
 import sa.ncai.agent.gateway.proxy.RelayOutcome;
 import sa.ncai.agent.gateway.proxy.SseRelay;
-import sa.ncai.agent.gateway.proxy.TurnInFlightException;
 
 /**
  * One chat turn: authorize, forward to the agent, stream the agent's events back
@@ -115,7 +115,7 @@ public class ChatController {
                 @ApiResponse(responseCode = "502", description = "agent_unavailable",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "503", description = "audit_unavailable",
+                @ApiResponse(responseCode = "503", description = "audit_unavailable or service_busy",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class)))
             })
@@ -173,11 +173,14 @@ public class ChatController {
                     return recorded;
                 });
             });
-        } catch (TurnInFlightException e) {
-            // One turn at a time per conversation (D6); nothing streamed, nothing ran.
-            detail.put("error_code", ErrorCode.TURN_IN_FLIGHT.code());
-            refuse(request, response, ErrorCode.TURN_IN_FLIGHT,
-                    auditEvent(requestId, principal, body, AuditStatus.DENIED, detail, started), audited);
+        } catch (AgentRefusedException e) {
+            // Refused before any stream (ADR-0109): another owner's conversation, a turn in flight (D6),
+            // or no free turn lock; nothing streamed, nothing ran.
+            detail.put("error_code", e.code().code());
+            AuditStatus refusedStatus =
+                    e.code() == ErrorCode.SERVICE_BUSY ? AuditStatus.ERROR : AuditStatus.DENIED;
+            refuse(request, response, e.code(),
+                    auditEvent(requestId, principal, body, refusedStatus, detail, started), audited);
         } catch (AgentUnavailableException e) {
             log.warn("{}", e.getMessage());
             detail.put("error_code", ErrorCode.AGENT_UNAVAILABLE.code());

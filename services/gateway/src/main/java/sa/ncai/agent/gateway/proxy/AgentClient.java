@@ -54,7 +54,7 @@ public class AgentClient {
      * Posts a turn and hands the SSE body to {@code handler}.
      *
      * @throws AgentUnavailableException if the agent is unreachable or answers non-2xx
-     * @throws TurnInFlightException if another turn holds the conversation (409, D6)
+     * @throws AgentRefusedException if the agent refused the turn before streaming (403, 409, 503)
      */
     public <T> T streamTurn(AgentTurnRequest request, String requestId, StreamHandler<T> handler) {
         try {
@@ -66,8 +66,10 @@ public class AgentClient {
                     .header(RequestIdFilter.HEADER, requestId)
                     .body(request)
                     .exchange((clientRequest, response) -> {
-                        if (response.getStatusCode().value() == 409) {
-                            throw new TurnInFlightException();
+                        AgentRefusedException refused =
+                                AgentRefusedException.forStatus(response.getStatusCode().value());
+                        if (refused != null) {
+                            throw refused;
                         }
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             throw new AgentUnavailableException(

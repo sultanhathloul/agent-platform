@@ -45,6 +45,9 @@ memory_not_found:
 turn_in_flight:
   ar: "ما زال طلب سابق في هذه المحادثة قيد المعالجة. انتظر حتى يكتمل ثم أعد المحاولة."
   en: "An earlier request in this conversation is still being processed. Wait for it to finish, then try again."
+service_busy:
+  ar: "الخدمة مشغولة الآن بطلبات أخرى. أعد المحاولة بعد لحظات."
+  en: "The service is busy with other requests right now. Try again in a moment."
 input_blocked:
   ar: "لم يُنفَّذ الطلب بموجب سياسة المحتوى."
   en: "The request was not carried out under a content policy."

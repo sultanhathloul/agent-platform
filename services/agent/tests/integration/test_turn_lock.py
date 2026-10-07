@@ -7,6 +7,7 @@ and then makes the real LiteLLM call, so nothing bypasses Context Assembly or Li
 (CLAUDE.md rule 6, ADR-0075)."""
 
 import asyncio
+import contextlib
 import dataclasses
 import time
 import uuid
@@ -15,9 +16,12 @@ import httpx
 import pytest
 
 from app.api import runner as runner_module
+from app.api.locks import TurnLocks, lock_key
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
+from app.context.tokens import default_counter
 from app.identity import Principal
+from app.models.gateway import ModelGateway
 from tests.fixtures.http import TOKEN, parse_sse
 
 PRINCIPAL = {"user_id": "u-lock", "tenant_id": "default", "permissions": ["cap:general"]}
@@ -112,18 +116,19 @@ async def test_the_lock_is_released_after_an_error(client, services, litellm):
     assert parse_sse(again.text)[-1]["type"] == "done"
 
 
-async def test_the_lock_is_released_after_an_unexpected_failure(services, litellm):
-    class Broken:
-        async def call(self, decision, package, **kwargs):
-            raise RuntimeError("boom")
-
-    broken = dataclasses.replace(services, gateway=Broken())
+async def test_the_lock_is_released_after_the_model_call_fails(services, litellm):
+    """The real client path to the mock LiteLLM, which answers 401 to a wrong key (CLAUDE.md
+    rule 6, ADR-0007): the call fails at LiteLLM, the turn ends with an error, the lock is free."""
+    settings = services.settings.model_copy(update={"litellm_api_key": "not-the-master-key"})
+    failing = dataclasses.replace(
+        services, gateway=ModelGateway(settings, services.models_config, default_counter())
+    )
     request = TurnRequest(
         conversation_id=str(uuid.uuid4()), principal=Principal(**PRINCIPAL), message="سؤال", locale="ar"
     )
-    events = [e async for e in TurnRunner(broken).stream(request, "req-broken")]
-    assert (events[-1].type, events[-1].data.code) == ("error", "turn_failed")
-    assert await _released(services, request.conversation_id)
+    events = [e async for e in TurnRunner(failing).stream(request, "req-failing")]
+    assert (events[-1].type, events[-1].data.code) == ("error", "model_unavailable")
+    assert not await services.locks.held(request.conversation_id)  # released before the stream ended
 
 
 async def test_the_lock_is_released_when_the_client_disconnects(services, litellm):
@@ -185,3 +190,99 @@ async def _drain(stream) -> list:
 def _lock_pool_is_separate(services):
     """The locks never borrow the checkpointer's connections (D6)."""
     assert services.locks.pool is not services.db.pool
+
+
+# ------------------------------------------------------------------ review round 1 (ADR-0109)
+
+
+@pytest.fixture
+async def small_locks(services):
+    """A lock pool of two connections, so every connection is reused within one test."""
+    locks = TurnLocks(services.settings.database_url, size=2, getconn_timeout_s=0.3)
+    await locks.open()
+    yield locks
+    await locks.close()
+
+
+async def _advisory_locks_held(services) -> int:
+    async with services.db.connection() as conn:
+        row = await (
+            await conn.execute("SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND granted")
+        ).fetchone()
+    return row["n"]
+
+
+async def test_normal_completion_releases_and_a_next_turn_succeeds_on_every_connection(
+    services, small_locks, litellm
+):
+    local = dataclasses.replace(services, locks=small_locks)
+    client = await _client(local)
+    conversation = str(uuid.uuid4())
+    async with client:
+        for _ in range(5):  # more turns than connections: every connection is reused
+            response = await client.post(
+                "/v1/turns", json=_body(conversation), headers={"X-Internal-Token": TOKEN}
+            )
+            assert response.status_code == 200 and parse_sse(response.text)[-1]["type"] == "done"
+            # Right after the stream ended the lock is free, with no wait.
+            assert not await small_locks.held(conversation)
+
+
+async def test_a_cancellation_during_unlock_leaves_no_held_lock(services, small_locks):
+    conversation = str(uuid.uuid4())
+    for _ in range(3):
+        lease = await small_locks.acquire(conversation)
+        releasing = asyncio.create_task(lease.release())
+        await asyncio.sleep(0)  # the release has started
+        releasing.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await releasing
+        await lease.release()  # idempotent; waits for the shielded release to finish
+        assert lease.released
+        assert not await small_locks.held(conversation)
+
+
+async def test_a_connection_returned_with_a_lock_is_reset_by_the_pool(services, small_locks):
+    """Even a connection given back without its unlock holds nothing (pg_advisory_unlock_all)."""
+    conversation = str(uuid.uuid4())
+    before = await _advisory_locks_held(services)
+    conn = await small_locks.pool.getconn()
+    await conn.execute("SELECT pg_advisory_lock(%s)", (lock_key(conversation),))
+    await small_locks.pool.putconn(conn)
+    assert not await small_locks.held(conversation)
+    assert await _advisory_locks_held(services) <= before
+
+
+async def test_pool_exhaustion_is_503_service_busy(services, small_locks, litellm):
+    local = dataclasses.replace(services, locks=small_locks)
+    holders = [await small_locks.acquire(str(uuid.uuid4())) for _ in range(2)]
+    try:
+        async with await _client(local) as client:
+            busy = await client.post(
+                "/v1/turns", json=_body(str(uuid.uuid4())), headers={"X-Internal-Token": TOKEN}
+            )
+        assert busy.status_code == 503 and busy.json()["error"]["code"] == "service_busy"
+        assert busy.json()["error"]["message_ar"]
+    finally:
+        for lease in holders:
+            await lease.release()
+
+
+async def test_a_non_owner_gets_403_and_never_takes_the_lock(services, litellm):
+    gated, gateway, gate = _gated(services)
+    conversation = str(uuid.uuid4())
+    async with await _client(gated) as client:
+        owner_turn = asyncio.create_task(
+            client.post("/v1/turns", json=_body(conversation), headers={"X-Internal-Token": TOKEN})
+        )
+        await asyncio.wait_for(gateway.entered.wait(), timeout=10)
+        other = {**_body(conversation), "principal": {**PRINCIPAL, "user_id": "u-someone-else"}}
+        refused = await client.post("/v1/turns", json=other, headers={"X-Internal-Token": TOKEN})
+        assert refused.status_code == 403 and refused.json()["error"]["code"] == "conversation_forbidden"
+        gate.set()
+        assert (await owner_turn).status_code == 200
+    # After the owner's turn the conversation is free, and the stranger is still refused.
+    assert await _released(services, conversation)
+    async with await _client(services) as client:
+        again = await client.post("/v1/turns", json=other, headers={"X-Internal-Token": TOKEN})
+    assert again.status_code == 403

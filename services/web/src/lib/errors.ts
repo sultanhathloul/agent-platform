@@ -23,6 +23,7 @@ export const KNOWN_ERROR_CODES = [
   "data_blocked",
   "memory_not_found",
   "turn_in_flight",
+  "service_busy",
   "input_blocked",
   "guard_unavailable",
   "policy_not_found",

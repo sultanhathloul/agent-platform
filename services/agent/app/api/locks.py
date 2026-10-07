@@ -12,14 +12,21 @@ the checkpointer's pool: a held lock pins its connection for the whole turn. A
 turn that finds the lock held fails at once with `turn_in_flight` (HTTP 409 at
 the gateway); a retract waits a few seconds for the turn it follows to finish.
 Postgres releases a session lock when its connection ends, so a crashed process
-never leaves a conversation locked."""
+never leaves a conversation locked.
+
+Release is shielded and runs once: a cancellation that lands while it runs cannot
+stop it halfway, and every connection the pool takes back is reset with
+pg_advisory_unlock_all(), so no pooled connection ever holds a conversation's lock
+(review round 1, ADR-0109). When every lock connection is in use for
+`getconn_timeout_s`, `acquire` raises LockPoolBusy, which the route answers with
+503 `service_busy`."""
 
 import asyncio
 import logging
 import time
 import uuid
 
-from psycopg_pool import AsyncConnectionPool
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
 log = logging.getLogger(__name__)
 
@@ -30,31 +37,47 @@ def lock_key(conversation_id: str) -> int:
     return value - (1 << 64) if value >= 1 << 63 else value
 
 
+class LockPoolBusy(RuntimeError):
+    """Every lock connection stayed in use for the pool timeout (503 `service_busy`)."""
+
+
+async def _reset(conn) -> None:
+    """Runs on every connection the pool takes back: no session lock survives a return."""
+    await conn.execute("SELECT pg_advisory_unlock_all()")
+
+
 class TurnLease:
-    """A held lock. `release` is idempotent and may be called from several places
-    (the stream's end, the response's background task)."""
+    """A held lock. `release` may be called from several places (the turn task, the
+    response's background task) and any number of times: the unlock and the return of
+    the connection run once, in a task of their own that a cancellation cannot stop."""
 
     def __init__(self, pool: AsyncConnectionPool, conn, key: int, conversation_id: str):
         self._pool = pool
         self._conn = conn
         self._key = key
         self.conversation_id = conversation_id
-        self.released = False
+        self._releasing: asyncio.Future | None = None
+
+    @property
+    def released(self) -> bool:
+        return self._releasing is not None and self._releasing.done()
 
     async def release(self) -> None:
-        if self.released:
-            return
-        self.released = True
+        if self._releasing is None:
+            self._releasing = asyncio.ensure_future(self._release())
+        await asyncio.shield(self._releasing)
+
+    async def _release(self) -> None:
         try:
             await self._conn.execute("SELECT pg_advisory_unlock(%s)", (self._key,))
-        except Exception as exc:  # the session ending releases the lock anyway
+        except Exception as exc:  # the pool's reset, or the session's end, releases it anyway
             log.warning("turn lock unlock failed for %s: %s", self.conversation_id, type(exc).__name__)
         finally:
             await self._pool.putconn(self._conn)
 
 
 class TurnLocks:
-    def __init__(self, conninfo: str, *, size: int, getconn_timeout_s: float = 30.0):
+    def __init__(self, conninfo: str, *, size: int, getconn_timeout_s: float = 5.0):
         self._timeout = getconn_timeout_s
         self.pool = AsyncConnectionPool(
             conninfo,
@@ -62,6 +85,7 @@ class TurnLocks:
             min_size=0,
             max_size=size,
             kwargs={"autocommit": True, "prepare_threshold": 0},
+            reset=_reset,
         )
 
     async def open(self) -> None:
@@ -71,10 +95,14 @@ class TurnLocks:
         await self.pool.close()
 
     async def acquire(self, conversation_id: str, *, wait_s: float = 0.0) -> TurnLease | None:
-        """The lease, or None when another turn holds the conversation for longer than `wait_s`."""
+        """The lease, or None when another turn holds the conversation for longer than `wait_s`.
+        Raises LockPoolBusy when no lock connection frees up within the pool timeout."""
         key = lock_key(conversation_id)
         deadline = time.monotonic() + wait_s
-        conn = await self.pool.getconn(timeout=self._timeout)
+        try:
+            conn = await self.pool.getconn(timeout=self._timeout)
+        except PoolTimeout as exc:
+            raise LockPoolBusy(f"no lock connection within {self._timeout} s") from exc
         try:
             while True:
                 row = await (await conn.execute("SELECT pg_try_advisory_lock(%s)", (key,))).fetchone()

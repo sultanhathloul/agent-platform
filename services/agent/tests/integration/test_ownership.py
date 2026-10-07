@@ -51,17 +51,18 @@ async def test_a_refused_turn_writes_nothing_to_the_thread(client, services, lit
     values = (await services.graph.aget_state(config)).values
 
     for intruder in (_principal(user_id="u-2"), _principal(tenant_id="tenant-b")):
-        events = _events(await _turn(client, conversation, intruder, message="ماذا سأل صاحب المحادثة؟"))
-        assert [(e["type"], e["data"]["code"]) for e in events] == [("error", "conversation_forbidden")]
+        # Refused before the lock and before any stream (ADR-0109).
+        refused = await _turn(client, conversation, intruder, message="ماذا سأل صاحب المحادثة؟")
+        assert refused.status_code == 403 and refused.json()["error"]["code"] == "conversation_forbidden"
 
     assert await _checkpoints(services, conversation) == checkpoints
     assert (await services.graph.aget_state(config)).values == values
 
 
 async def test_concurrent_first_turns_bind_one_owner(client, services, litellm):
-    """Overlapping turns on one conversation are serialized by the turn lock (D6): one
-    runs, an overlapping one is refused with 409 turn_in_flight, and one that comes after
-    the winner finished is refused as conversation_forbidden. Either way one owner."""
+    """Concurrent first turns of different users: the atomic binding picks one owner before
+    any lock is taken, so every other caller is refused with 403 conversation_forbidden,
+    never 409 turn_in_flight (ADR-0109). One owner, one turn."""
     conversation = str(uuid.uuid4())
     responses = await asyncio.gather(
         *(_turn(client, conversation, _principal(user_id=f"u-race-{i}")) for i in range(4))
@@ -71,10 +72,7 @@ async def test_concurrent_first_turns_bind_one_owner(client, services, litellm):
     for response in responses:
         if response in winners:
             continue
-        if response.status_code == 409:
-            assert response.json()["error"]["code"] == "turn_in_flight"
-        else:
-            assert [e["data"]["code"] for e in _events(response)] == ["conversation_forbidden"]
+        assert response.status_code == 403 and response.json()["error"]["code"] == "conversation_forbidden"
     snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
     assert snapshot.values["user_id"] == json.loads(winners[0].request.content)["principal"]["user_id"]
 

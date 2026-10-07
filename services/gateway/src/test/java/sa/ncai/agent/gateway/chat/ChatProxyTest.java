@@ -411,6 +411,39 @@ class ChatProxyTest extends GatewayTestSupport {
     }
 
     @Test
+    void aTurnWhenEveryTurnLockIsInUseIs503ServiceBusy() throws Exception {
+        AGENT.enqueue(new MockResponse()
+                .setResponseCode(503)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"request_id\":\"r\",\"error\":{\"code\":\"service_busy\",\"message_ar\":\"x\",\"message_en\":\"x\"}}"));
+
+        mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("service_busy"))
+                .andExpect(jsonPath("$.error.message_ar").value("الخدمة مشغولة الآن بطلبات أخرى. أعد المحاولة بعد لحظات."));
+
+        AuditEvent event = singleAudit();
+        assertThat(event.status()).isEqualTo(AuditStatus.ERROR);
+        assertThat(event.detail()).containsEntry("error_code", "service_busy");
+    }
+
+    @Test
+    void anAgentOwnershipRefusalIs403ConversationForbidden() throws Exception {
+        AGENT.enqueue(new MockResponse()
+                .setResponseCode(403)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"request_id\":\"r\",\"error\":{\"code\":\"conversation_forbidden\",\"message_ar\":\"x\",\"message_en\":\"x\"}}"));
+
+        mvc.perform(chat(body("سؤال", List.of())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("conversation_forbidden"));
+
+        AuditEvent event = singleAudit();
+        assertThat(event.status()).isEqualTo(AuditStatus.DENIED);
+        assertThat(event.detail()).containsEntry("error_code", "conversation_forbidden");
+    }
+
+    @Test
     void theAuditRecordNamesEveryGuardPolicyThatActedWithItsVersion() throws Exception {
         AGENT.enqueue(sse("""
                 event: done

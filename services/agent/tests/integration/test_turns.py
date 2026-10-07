@@ -92,10 +92,9 @@ async def test_thread_of_another_user_or_tenant_is_rejected(client, services, li
         response = await post_turn(
             client, conversation_id=conversation, principal=intruder, message="ماذا سألتُ قبل قليل؟"
         )
-        events = parse_sse(response.text)
-        assert [e["type"] for e in events] == ["error"]
-        assert events[0]["data"]["code"] == "conversation_forbidden"
-        assert events[0]["data"]["message_ar"] and events[0]["data"]["message_en"]
+        assert response.status_code == 403  # before the lock and any stream (ADR-0109)
+        error = response.json()["error"]
+        assert error["code"] == "conversation_forbidden" and error["message_ar"] and error["message_en"]
 
     snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
     assert (snapshot.values["user_id"], snapshot.values["tenant_id"]) == ("u-1", "default")
