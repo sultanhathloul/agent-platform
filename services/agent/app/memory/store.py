@@ -141,6 +141,17 @@ class MemoryStore:
         await delete_packages_using(conn, deleted)
         return len(deleted)
 
+    async def redact_item(self, item_id: str, text: str, embedding: Sequence[float], *, conn) -> int:
+        """Rewrites an item's text and vector in place, and deletes the packages that hold its
+        old text: the pre-guard purge only (review round 1, ADR-0112). Returns the rows changed."""
+        cursor = await conn.execute(
+            "UPDATE agent.memory_items SET text = %s, embedding = %s::vector WHERE id = %s::uuid",
+            (text, _vector(embedding), item_id),
+        )
+        if cursor.rowcount:
+            await delete_packages_using(conn, [item_id])
+        return cursor.rowcount
+
     async def search(
         self, scope: MemoryScope, embedding: Sequence[float], *, limit: int, min_similarity: float
     ) -> list[MemoryHit]:
