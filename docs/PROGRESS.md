@@ -835,6 +835,32 @@ How to verify: `make test`, `make up`, `make eval`, `make smoke` (twice).
 
 Human review needed: ADR-0116 and the status notes on ADR-0091, ADR-0096 and ADR-0110; `docs/events.schema.json` (`guard` loses `detail`, `entities` and `latency_ms` and gains `policy_name`, `message_ar` and `message_en`; `done` and `error` gain `guard_audit`, agent to gateway only).
 
+### Narrow fix for the verification review of round 2 (2026-10-07)
+
+Scope: the three findings of the verification review, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 The test panel never reads or writes the judge verdict cache (stored policies and drafts); new ADR: the `admin` realm role is a platform operator above all tenants; test: a panel test under a simulated tenant, after a live turn in that tenant cached the text, calls the judge and shows no cache marker
+- [x] 2 Guard checker model calls are not in the client's turn usage; they are on the `guard.check` span and in `guard_audit` (per check `usage`, a clear judge verdict as an audit-only record); the audit record keeps the turn's full usage and `guard_usage`; test: the same text twice in one tenant gives the same client usage, the audit shows the judge call on the first turn only
+- [x] 3 `SseRelay` discards an event block without its closing blank line on EOF or a broken stream; the client gets `agent_stream_interrupted` only; permanent test in `ChatProxyTest` (the verification reproduction)
+- [x] 4 New ADR superseding ADR-0116's claims: what is closed and what remains
+- [x] make test, make eval ×1, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack stopped):
+  - agent (pytest): **444 passed, 0 failed, 0 skipped** (443 before; +1: the same text twice in one tenant gives the same client usage and guard events, and only the first turn's `guard_audit` holds the judge call; the panel tenant test was replaced by the ADR-0117 test, and the draft test now expects the stored policy's panel test to call the judge). The first run of this session failed 1 test, the new usage test: the judge call's own MODEL_TIER evaluation reached the client's `guard_events` only when the judge ran (a second cache-status signal). Those evaluations are now audit-only (ADR-0118) and the whole suite was rerun.
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped** (89 before; +2: an incomplete terminal event with `guard_audit` is discarded and the client gets `agent_stream_interrupted` only; the audit record's `usage` adds the guard checks' `guard_usage`, the client's does not)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped**
+- `make up`: green.
+- `make eval`, one run: **guardrails 103/103 PASS** (deterministic 1.00, 66 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 37 cases, 24 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**; Langfuse dataset run `make-eval-20261007T130552Z`.
+- `make smoke`, two consecutive runs: **73/73 checks passed** each. Policy rows 10 10 in both runs, equal to the stored reference; neither run added a row.
+
+How to verify: `make test`, `make up`, `make eval`, `make smoke` (twice).
+
+Human review needed: ADR-0117 (the `admin` role is a platform operator; the panel never touches the verdict cache), ADR-0118 (guard checks out of client usage, complete events only, what is closed and what remains) and the status note on ADR-0116; `services/gateway/src/main/java/sa/ncai/agent/gateway/proxy/SseRelay.java`; `docs/events.schema.json` (`guard_audit[].usage`, agent to gateway only).
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
