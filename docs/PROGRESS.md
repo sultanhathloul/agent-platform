@@ -788,6 +788,29 @@ Human review needed (this session):
 
 How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up` (an existing `.env` needs `CONTENT_HASH_KEY=<openssl rand -hex 32>`), `make smoke` twice (remove `build/smoke/policy-rows` first if policies changed since the last run), `make eval`, `uv run scripts/measure_ttft.py streaming 20` (and `--long`).
 
+### Narrow fix before review round 2 (2026-10-07)
+
+Scope: three owner items, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Whole-text vs span (new ADR, status note on ADR-0108): a whole-text exception cancels only a wider whole-text verdict; a save of a whole-text policy that would weaken a span-based one carries a warning (save response, edit form); tests
+- [x] 2 Induced exceptions: the acting change row carries `induced[]`; each affected policy gets a `flagged`/`unflagged` row with the acting actor; shown in the change log; flags count only enabled wider policies, so a disable can unflag (owner item 2); tests
+- [x] 3 `measure_ttft.py --buffered` imports the fixed policy `ttft-buffered-output` and switches it off in `finally`; two runs leave equal policy rows (smoke check)
+- [x] make test, make eval ×1, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile:
+
+- `make test` (exit 0, stack stopped):
+  - agent (pytest): **439 passed, 0 failed, 0 skipped** (436 before; +3: a judge exception leaves presidio redaction in place, a judge exception still cancels a wider judge block, the save-and-preview warning; the flag test now asserts the `flagged` and `unflagged` rows and `induced`)
+  - gateway (JUnit XML): **87 tests, 87 passed, 0 failed, 0 errors, 0 skipped**
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped**
+- `make up`: green; the agent applied `0005_induced_changes.sql`.
+- `make smoke`, two consecutive runs: **71/71 checks passed** each (69 before; +2: two buffered TTFT runs leave equal policy rows, 10 10, and the TTFT policy off). The stored reference (9 9) predated `ttft-buffered-output` (last session's note), so it was removed before run 1, which recorded 10 10; **run 2's policy rows equal run 1's (10 10)**. The TTFT import reused the existing version (versions 10 → 10).
+- `make eval`, one run: **guardrails 103/103 PASS** (deterministic 1.00, 66 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 37 cases, 24 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**; Langfuse dataset run `make-eval-20261007T095219Z`.
+
+Human review needed: ADR-0115 and the status note on ADR-0108; `services/agent/app/db/migrations/0005_induced_changes.sql` (`induced` on `agent.guard_policy_changes`, the `flagged` and `unflagged` change kinds).
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
