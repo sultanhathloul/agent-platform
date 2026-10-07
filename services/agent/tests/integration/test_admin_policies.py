@@ -14,16 +14,16 @@ ADMIN = identity("admin-1")
 
 @pytest.fixture
 async def scoped(client):
-    tenant = f"r-{uuid.uuid4().hex[:10]}"  # the policy role this test's principals hold
+    role = f"r-{uuid.uuid4().hex[:10]}"  # the policy role this test's principals hold
     made: list[str] = []
 
     def body(**fields) -> dict:
-        pid = f"{tenant}-{len(made)}"
+        pid = f"{role}-{len(made)}"
         made.append(pid)
         base = {
             "id": pid,
             "name": "admin api test",
-            "scope": f"role:{tenant}",
+            "scope": f"role:{role}",
             "checkpoints": ["INPUT"],
             "checker": "keyword_list",
             "config": {"keywords": ["كلمةاختبار"]},
@@ -33,7 +33,7 @@ async def scoped(client):
         }
         return {**base, **fields}
 
-    yield tenant, body
+    yield role, body
     for pid in made:
         await client.put(f"/v1/admin/policies/{pid}/enabled", json={"enabled": False}, headers=ADMIN)
 
@@ -141,7 +141,7 @@ async def test_the_test_panel_runs_stored_and_draft_policies(client, scoped):
 
 
 async def test_export_then_import_round_trips_and_import_is_all_or_nothing(client, scoped):
-    tenant, body = scoped
+    role, body = scoped
     document = (await client.get("/v1/admin/policies/export", headers=ADMIN)).json()["yaml"]
     parsed = yaml.safe_load(document)["policies"]
     assert {"pii-redact-output", "prompt-injection-input"} <= {p["id"] for p in parsed}
@@ -176,9 +176,9 @@ async def test_export_then_import_round_trips_and_import_is_all_or_nothing(clien
 
 
 async def test_a_policy_change_takes_effect_on_the_next_turn_without_a_restart(client, scoped):
-    tenant, body = scoped
+    role, body = scoped
     draft = body()
-    principal = {"user_id": "u-live", "permissions": ["cap:general"], "policy_roles": [f"policy:{tenant}"]}
+    principal = {"user_id": "u-live", "permissions": ["cap:general"], "policy_roles": [f"policy:{role}"]}
 
     async def ask():
         response = await client.post(
@@ -232,30 +232,33 @@ async def test_matches_per_day_count_real_turns_not_panel_tests(client, scoped):
 
 
 async def test_save_and_preview_report_what_a_policy_overrides(client, scoped):
-    """ADR-0105: an exception is flagged and its overrides named; another group overrides nothing."""
+    """ADR-0105, ADR-0108: an exception is flagged and its overrides named; another group
+    overrides nothing; a kb: policy that would weaken it at DATA is refused; every save is in
+    the policy's change log with its actor."""
     role, body = scoped
+    marker = {"patterns": [{"name": "MARK", "pattern": f"zq{uuid.uuid4().hex[:8]}"}]}
+    # Global, so a role policy can override it; its pattern matches no other test's text.
     wide = body(
         checkpoints=["DATA"],
-        checker="presidio",
-        config={"entities": ["SA_MOBILE"]},
+        checker="regex",
+        config=marker,
         action="redact",
+        scope="global",
         message_ar=None,
         message_en=None,
     )
     wide["group"] = wide["id"]
     assert (await client.post("/v1/admin/policies", json=wide, headers=ADMIN)).status_code == 201
-    # Narrower than the role scope: a kb scope of the same name (ADR-0105).
     exempt = {
         **body(
             checkpoints=["DATA"],
-            checker="presidio",
-            config={"entities": ["SA_MOBILE"]},
+            checker="regex",
+            config=marker,
             action="allow",
             message_ar=None,
             message_en=None,
         ),
         "group": wide["id"],
-        "scope": f"kb:{role}",
     }
     preview = (await client.post("/v1/admin/policies/overrides", json=exempt, headers=ADMIN)).json()
     assert preview == {"overrides": [f"{wide['id']}@1"], "exception": True}
@@ -270,3 +273,18 @@ async def test_save_and_preview_report_what_a_policy_overrides(client, scoped):
     elsewhere = {**exempt, "id": body()["id"], "group": "another-group"}
     other = (await client.post("/v1/admin/policies/overrides", json=elsewhere, headers=ADMIN)).json()
     assert other == {"overrides": [], "exception": False}
+
+    weak_kb = {**exempt, "id": body()["id"], "scope": f"kb:{role}"}
+    refused = await client.post("/v1/admin/policies", json=weak_kb, headers=ADMIN)
+    assert refused.status_code == 400 and refused.json()["error"]["code"] == "policy_invalid"
+    assert any("ADR-0108" in d for d in refused.json()["error"]["details"])
+
+    changes = (await client.get(f"/v1/admin/policies/{exempt['id']}/changes", headers=ADMIN)).json()[
+        "changes"
+    ]
+    assert [(c["change"], c["actor"], c["policy_ref"], c["exception"]) for c in changes] == [
+        ("create", "admin-2", f"{exempt['id']}@1", True)
+    ]
+    await client.put(f"/v1/admin/policies/{wide['id']}/enabled", json={"enabled": False}, headers=ADMIN)
+    changes = (await client.get(f"/v1/admin/policies/{wide['id']}/changes", headers=ADMIN)).json()["changes"]
+    assert [(c["change"], c["actor"]) for c in changes] == [("disable", "admin-1"), ("create", "admin-1")]

@@ -442,3 +442,73 @@ async def test_an_output_redact_policy_keeps_streaming_and_redacts_every_sentenc
     assert answer_span.attributes["answer.mode"] == "streaming"
     redactions = [g for g in guards(events) if g.checkpoint == "OUTPUT" and g.action == "redact"]
     assert len(redactions) == 2  # one per sentence, none again on the whole answer
+
+
+# ------------------------------------------------------------------ containment and spans in turns (ADR-0108)
+
+
+async def test_a_mobile_exception_keeps_the_email_redaction_in_a_turn(services, role, litellm):
+    """Real presidio: an exception for SA_MOBILE cancels only those spans of pii-redact-output."""
+    name, add = role
+    await add(
+        checkpoints=["DATA"],
+        checker="presidio",
+        config={"entities": ["SA_MOBILE"], "targets": ["answer"]},
+        action="allow",
+        group="pii-output",
+    )
+    reply = f"الجوال {MOBILE} والبريد {EMAIL}."
+    replaced, _ = replacing(services, {"reasoning": reply})
+    events, _ = await turn(replaced, principal(name))
+    answer = "".join(tokens(events))
+    assert events[-1].type == "done"
+    assert MOBILE in answer and EMAIL not in answer and "[REDACTED:EMAIL_ADDRESS]" in answer
+    wide = [g for g in guards(events, "pii-redact-output") if g.action == "redact"]
+    assert wide and all(g.entities == ["EMAIL_ADDRESS"] for g in wide)
+
+
+async def test_an_output_allow_exception_resolves_alike_streaming_and_buffered(services, role, litellm):
+    """ADR-0108: the per-sentence OUTPUT call resolves the whole group, as the buffered call does."""
+    name, add = role
+    letters = "ابتثجحخدذرزسشصضطظعغفقكلمنهوي"
+    marker = "رمز" + "".join(letters[b % len(letters)] for b in uuid.uuid4().bytes[:6])  # one script
+    group = f"g-{uuid.uuid4().hex[:8]}"
+    # The wider policy is global, on a marker no other test's text holds, and switched off after.
+    await add(
+        scope="global",
+        checkpoints=["OUTPUT"],
+        checker="keyword_list",
+        config={"keywords": [marker]},
+        action="redact",
+        group=group,
+    )
+    await add(
+        checkpoints=["OUTPUT"],
+        checker="keyword_list",
+        config={"keywords": [marker]},
+        action="allow",
+        group=group,
+    )
+    reply = f"الجملة الأولى فيها {marker} واضح. والثانية عادية."
+    replaced, _ = replacing(services, {"reasoning": reply})
+
+    async def answers() -> tuple[str, str]:
+        holder, _ = await turn(replaced, principal(name))
+        colleague, _ = await turn(replaced, principal())
+        assert holder[-1].type == colleague[-1].type == "done"
+        return "".join(tokens(holder)), "".join(tokens(colleague))
+
+    streaming = await answers()
+    # Buffered mode: an OUTPUT block policy on the policy role, matching nothing, buffers the answer.
+    await add(
+        checkpoints=["OUTPUT"],
+        checker="keyword_list",
+        config={"keywords": ["لنتطابقأبدا"]},
+        action="block",
+        message_ar="محجوب",
+        message_en="Blocked",
+    )
+    buffered_holder, _ = await turn(replaced, principal(name))
+    assert buffered_holder[-1].type == "done"
+    assert "".join(tokens(buffered_holder)) == streaming[0] == reply
+    assert marker not in streaming[1] and "[REDACTED:KEYWORD]" in streaming[1]

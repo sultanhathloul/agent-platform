@@ -297,7 +297,7 @@ async def test_an_exception_applies_in_its_own_scope_only():
     assert other.action == "redact" and "[REDACTED:SA_MOBILE]" in other.payload.text
 
 
-async def test_a_role_exception_applies_to_its_holders_only_in_the_same_tenant():
+async def test_a_role_exception_reaches_its_holders_and_not_their_colleagues():
     wide = mobile_policy(id="pii-global", group="pii")
     exempt = mobile_policy(id="pii-role-exempt", group="pii", scope="role:pii-exempt", action="allow")
     guard = engine(wide, exempt)
@@ -414,3 +414,136 @@ async def test_only_respects_the_targets_a_data_policy_guards():
         Checkpoint.DATA, data(target="answer"), principal=PRINCIPAL, context=GuardContext(only=memory_only)
     )
     assert outcome.action == "allow" and outcome.results == {}
+
+
+# ------------------------------------------------------------------ containment and spans (ADR-0108)
+
+
+class EntityChecker:
+    """A deterministic stand-in for the presidio service in unit tests: one regex per entity,
+    only the policy's configured entities reported (the real checker is in test_guard_checkers)."""
+
+    name = "presidio"
+    PATTERNS = {"SA_MOBILE": MOBILE, "EMAIL_ADDRESS": r"[\w.]+@[\w.]+\.\w+"}
+
+    async def check(self, payload, config, ctx):
+        import re
+
+        text = payload.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))  # length-preserving
+        spans = [
+            Span(start=m.start(), end=m.end(), entity=entity, score=0.9)
+            for entity in config.entities
+            for m in re.finditer(self.PATTERNS[entity], text)
+        ]
+        return CheckResult(matched=bool(spans), spans=spans, score=0.9 if spans else 0.0)
+
+
+def pii_policy(**overrides) -> Policy:
+    fields = {
+        "id": "pii-wide",
+        "name": "pii",
+        "scope": "global",
+        "checkpoints": ["DATA"],
+        "checker": "presidio",
+        "config": {"entities": ["SA_MOBILE", "EMAIL_ADDRESS"]},
+        "action": "redact",
+        "group": "pii",
+    }
+    return Policy.model_validate({**fields, **overrides})
+
+
+def pii_engine(*policies: Policy) -> GuardEngine:
+    return engine(*policies, presidio=EntityChecker())
+
+
+async def test_a_role_exception_loses_to_a_stricter_tenant_policy_in_every_tenant():
+    """Role and tenant scopes do not contain each other: the stricter action wins."""
+    wide = pii_policy()
+    t1 = pii_policy(id="pii-t1", scope="tenant:t1")
+    t2 = pii_policy(id="pii-t2", scope="tenant:t2", action="block", message_ar="محجوب", message_en="Blocked")
+    exempt = pii_policy(id="pii-role", scope="role:pii-exempt", action="allow")
+    guard = pii_engine(wide, t1, t2, exempt)
+    for tenant, action in (("t1", "redact"), ("t2", "block")):
+        holder = Principal(user_id="h", tenant_id=tenant, policy_roles=("policy:pii-exempt",))
+        outcome = await guard.evaluate(Checkpoint.DATA, data(), principal=holder)
+        assert outcome.action == action
+        if action == "redact":
+            assert "[REDACTED:SA_MOBILE]" in outcome.payload.text
+        by_id = {e.policy_id: e for e in outcome.events}
+        assert by_id["pii-wide"].detail.startswith("overridden by")  # only global is contained
+
+
+async def test_a_role_exception_weakens_the_global_policy_for_its_holder():
+    guard = pii_engine(pii_policy(), pii_policy(id="pii-role", scope="role:pii-exempt", action="allow"))
+    holder = Principal(user_id="h", tenant_id="t3", policy_roles=("policy:pii-exempt",))
+    outcome = await guard.evaluate(Checkpoint.DATA, data(), principal=holder)
+    assert outcome.action == "allow" and outcome.payload.text == TEXT
+
+
+async def test_a_mobile_exception_keeps_the_email_redaction():
+    exempt = pii_policy(id="pii-role", scope="role:x", action="allow", config={"entities": ["SA_MOBILE"]})
+    guard = pii_engine(pii_policy(), exempt)
+    holder = Principal(user_id="h", policy_roles=("policy:x",))
+    outcome = await guard.evaluate(Checkpoint.DATA, data(), principal=holder)
+    assert outcome.action == "redact"
+    assert outcome.payload.text == "رقمي ٠٥٠١٢٣٤٥٦٧ وبريدي [REDACTED:EMAIL_ADDRESS]"
+    wide = next(e for e in outcome.events if e.policy_id == "pii-wide")
+    assert wide.action == "redact" and wide.entities == ["EMAIL_ADDRESS"]
+    assert "partly overridden by pii-role@1" in wide.detail
+
+
+async def test_an_exception_whose_checker_matched_nothing_overrides_nothing():
+    exempt = keyword_policy(
+        id="kw-exempt",
+        scope="role:x",
+        action="allow",
+        checkpoints=["DATA"],
+        group="pii",
+        config={"keywords": ["لاشيء"]},
+    )
+    guard = pii_engine(pii_policy(), exempt)
+    outcome = await guard.evaluate(
+        Checkpoint.DATA, data(), principal=Principal(user_id="h", policy_roles=("policy:x",))
+    )
+    assert outcome.action == "redact" and "[REDACTED:SA_MOBILE]" in outcome.payload.text
+    assert all(e.policy_id != "kw-exempt" for e in outcome.events)
+
+
+async def test_a_keyword_exception_cancels_only_the_spans_it_covers():
+    """A non-presidio exception cancels the wider policy's spans its own spans overlap."""
+    exempt = keyword_policy(
+        id="kw-exempt",
+        scope="role:x",
+        action="allow",
+        checkpoints=["DATA"],
+        group="pii",
+        config={"keywords": ["بريدي"]},
+    )
+    guard = pii_engine(pii_policy(), exempt)
+    outcome = await guard.evaluate(
+        Checkpoint.DATA, data(), principal=Principal(user_id="h", policy_roles=("policy:x",))
+    )
+    # "بريدي" overlaps no PII span, so both redactions stand.
+    assert outcome.payload.text.count("[REDACTED:") == 2
+
+
+async def test_execution_limited_to_redact_still_resolves_the_whole_group():
+    """ADR-0108: a per-sentence call that executes redact only still weighs the group's allow."""
+    exempt = pii_policy(id="pii-role", scope="role:x", action="allow")
+    guard = pii_engine(
+        pii_policy(checkpoints=["OUTPUT"]), exempt.model_copy(update={"checkpoints": [Checkpoint.OUTPUT]})
+    )
+    holder = Principal(user_id="h", policy_roles=("policy:x",))
+    payload = {"answer": TEXT, "citations": []}
+    limited = await guard.evaluate(
+        Checkpoint.OUTPUT, payload, principal=holder, context=GuardContext(actions=frozenset({"redact"}))
+    )
+    whole = await guard.evaluate(Checkpoint.OUTPUT, payload, principal=holder)
+    assert limited.payload["answer"] == whole.payload["answer"] == TEXT
+    colleague = await guard.evaluate(
+        Checkpoint.OUTPUT,
+        payload,
+        principal=Principal(user_id="c"),
+        context=GuardContext(actions=frozenset({"redact"})),
+    )
+    assert "[REDACTED:SA_MOBILE]" in colleague.payload["answer"]

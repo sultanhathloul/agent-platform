@@ -96,6 +96,13 @@ class Scope:
     def precedence(self) -> int:
         return SCOPE_PRECEDENCE[self.kind]
 
+    def contains(self, other: "Scope") -> bool:
+        """Containment (owner decision, ADR-0108): `global` contains every other scope;
+        tenant, role, kb and tool scopes contain nothing but themselves, and a scope does
+        not override itself. So only a policy at a non-global scope can override, and only
+        a global policy of its group."""
+        return self.kind == "global" and other.kind != "global"
+
     def __str__(self) -> str:
         return "global" if self.kind == "global" else f"{self.kind}:{self.value}"
 
@@ -320,8 +327,10 @@ class GuardContext:
     turn: Any = None
     # The admin test panel evaluates one policy, enabled or not, and records nothing.
     only: Policy | None = None
-    # Restricts the call to policies with these actions (None: all). While the answer streams,
-    # OUTPUT redact runs per sentence and the whole-answer OUTPUT check skips it (ADR-0106).
+    # Executes only these actions (None: all). Every applicable policy of a group that holds one
+    # of them still takes part in the group's resolution, so an exception weighs the same in
+    # both answer modes; only the execution is limited (ADR-0108). While the answer streams,
+    # OUTPUT runs per sentence executing redact only (ADR-0106).
     actions: frozenset[str] | None = None
 
     def scopes(self, principal: Principal) -> set[str]:
@@ -374,24 +383,27 @@ class GuardOutcome(BaseModel):
 
 
 def overridden(policy: Policy, others: "list[Policy]") -> "list[Policy]":
-    """The policies `policy` overrides (ADR-0105): same group, a wider scope, a shared
-    checkpoint and, at DATA alone, a shared target. Where both apply, the narrower wins."""
-    mine = policy.parsed_scope.precedence
+    """The policies `policy` overrides (ADR-0108): same group, a scope that contains its own
+    (only `global` contains another scope), a shared checkpoint and, at DATA alone, a shared
+    target."""
+    mine = policy.parsed_scope
     out = []
     for other in others:
         if other.id == policy.id or other.effective_group != policy.effective_group:
             continue
-        if other.parsed_scope.precedence >= mine:
+        if not other.parsed_scope.contains(mine):
             continue
         shared = set(other.checkpoints) & set(policy.checkpoints)
         if not shared:
             continue
-        if shared == {Checkpoint.DATA}:
-            targets = set(policy.config.get("targets") or DATA_TARGETS)
-            if not targets & set(other.config.get("targets") or DATA_TARGETS):
-                continue
+        if shared == {Checkpoint.DATA} and not _targets(policy) & _targets(other):
+            continue
         out.append(other)
     return out
+
+
+def _targets(policy: Policy) -> set[str]:
+    return set(policy.config.get("targets") or DATA_TARGETS)
 
 
 def is_exception(policy: Policy, overrides: "list[Policy]") -> bool:
@@ -399,13 +411,40 @@ def is_exception(policy: Policy, overrides: "list[Policy]") -> bool:
     return any(ACTION_RANK[policy.action] < ACTION_RANK[other.action] for other in overrides)
 
 
+# Until phase 04 attributes each part of an answer to its source, a kb: or tool: policy may not
+# weaken a wider one where the whole answer is checked (ADR-0108).
+_SOURCE_SCOPES = frozenset({"kb", "tool"})
+_ANSWER_CHECKPOINTS = frozenset({Checkpoint.OUTPUT, Checkpoint.DATA})
+
+
+def weakening_refusals(policies: "list[Policy]") -> list[str]:
+    """Why this set of current versions cannot be saved: each kb: or tool: policy that would
+    weaken a wider policy of its group at OUTPUT or DATA (ADR-0108)."""
+    reasons = []
+    for policy in policies:
+        if policy.parsed_scope.kind not in _SOURCE_SCOPES:
+            continue
+        for other in overridden(policy, policies):
+            shared = set(policy.checkpoints) & set(other.checkpoints) & _ANSWER_CHECKPOINTS
+            if shared and ACTION_RANK[policy.action] < ACTION_RANK[other.action]:
+                points = ", ".join(sorted(c.value for c in shared))
+                reasons.append(
+                    f"{policy.id}: a {policy.parsed_scope.kind}: policy may not weaken {other.id} "
+                    f"({policy.action} under {other.action}) at {points} before phase 04 "
+                    "attributes answers to their sources (ADR-0108)"
+                )
+    return reasons
+
+
 @dataclass
 class EvaluatedPolicy:
-    """Internal: one policy's result inside one evaluation."""
+    """Internal: one policy's result inside one evaluation. `spans` are the spans that still
+    stand after narrower policies of the group cancelled theirs (ADR-0108)."""
 
     policy: Policy
     result: CheckResult | None
     error: str | None = None
     latency_ms: int = 0
     overridden_by: str | None = None
+    partly_overridden_by: list[str] = field(default_factory=list)
     spans: list[Span] = field(default_factory=list)

@@ -1,7 +1,7 @@
 """Request and response bodies of the internal agent API (README §6.2)."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -143,10 +143,11 @@ class PolicyView(BaseModel):
     updated_by: str
     overrides: list[str] = Field(
         default=[],
-        description="id@version of the wider policies of its group this version overrides, at save time.",
+        description="id@version of the wider policies of its group it overrides among the current "
+        "versions, recomputed for the whole group on every change (ADR-0108).",
     )
     exception: bool = Field(
-        default=False, description="It overrides a stricter policy of its group (ADR-0105)."
+        default=False, description="It overrides a stricter policy of its group (ADR-0105, ADR-0108)."
     )
 
 
@@ -154,8 +155,23 @@ class PolicyVersionView(BaseModel):
     policy: PolicyDocument
     created_at: datetime
     created_by: str
-    overrides: list[str] = []
-    exception: bool = False
+    overrides: list[str] = Field(default=[], description="What this version overrode when it was saved.")
+    exception: bool = Field(default=False, description="Whether it was an exception when it was saved.")
+
+
+class PolicyChangeView(BaseModel):
+    """One change of a policy, written by the agent in the change's transaction (ADR-0108)."""
+
+    changed_at: datetime
+    policy_ref: str = Field(description="id@version the change left current.")
+    change: Literal["create", "version", "enable", "disable", "import", "seed"]
+    actor: str
+    exception: bool
+    overrides: list[str]
+
+
+class PolicyChanges(BaseModel):
+    changes: list[PolicyChangeView] = Field(description="Newest first.")
 
 
 class PolicyOverrides(BaseModel):
@@ -180,6 +196,15 @@ class PolicyEnabled(BaseModel):
     enabled: bool
 
 
+class SimulatedPrincipal(BaseModel):
+    """A principal for the test panel: which tenant and policy roles to evaluate the policy for."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str = Field(default="default", min_length=1, max_length=128)
+    policy_roles: list[str] = Field(default=[], max_length=32, description="Full names, policy:{name}.")
+
+
 class PolicyTestRequest(BaseModel):
     """Evaluates one policy, stored (`policy_id`, its current version, on or off) or a draft
     (`policy`), against sample text on the runtime engine path; nothing is recorded."""
@@ -189,6 +214,9 @@ class PolicyTestRequest(BaseModel):
     policy_id: str | None = None
     policy: PolicyDocument | None = None
     text: str = Field(min_length=1, max_length=20000)
+    principal: SimulatedPrincipal | None = Field(
+        default=None, description="Whom to evaluate for; default: the admin, with no policy roles."
+    )
     checkpoint: str | None = Field(default=None, description="Default: the policy's first checkpoint.")
     target: str | None = Field(default=None, description="DATA only; default: the first target, else answer.")
 

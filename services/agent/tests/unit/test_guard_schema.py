@@ -19,6 +19,7 @@ from app.guardrails.schema import (
     Span,
     is_exception,
     overridden,
+    weakening_refusals,
 )
 from app.identity import Principal
 
@@ -221,8 +222,34 @@ def test_a_narrower_weaker_policy_of_the_same_group_is_an_exception():
     exempt = policy(id="pii-exempt", group="pii", scope="role:pii-exempt", action="allow")
     stricter = policy(id="pii-tool", group="pii", scope="tool:web", action="redact")
     assert overridden(exempt, [wide, stricter]) == [wide] and is_exception(exempt, [wide])
-    assert overridden(stricter, [wide, exempt]) == [wide, exempt]
+    # Containment (ADR-0108): only global contains another scope; tool and role do not.
+    assert overridden(stricter, [wide, exempt]) == [wide]
     assert not is_exception(stricter, [wide])  # redact over redact: no weaker action
+
+
+def test_only_global_contains_another_scope():
+    scopes = [Scope.parse(s) for s in ("global", "tenant:t1", "role:a", "kb:hr", "tool:web")]
+    contained = {(str(a), str(b)) for a in scopes for b in scopes if a.contains(b)}
+    assert contained == {("global", str(b)) for b in scopes[1:]}
+    narrow = [
+        policy(id=f"n-{i}", group="pii", scope=str(s), action="allow") for i, s in enumerate(scopes[1:])
+    ]
+    for one in narrow:
+        assert overridden(one, narrow) == []  # tenant, role, kb and tool never override each other
+
+
+def test_a_kb_or_tool_policy_may_not_weaken_a_wider_one_at_output_or_data():
+    wide = policy(id="pii-global", group="pii", checkpoints=["DATA", "OUTPUT"])
+    for scope in ("kb:hr", "tool:web"):
+        weak = policy(id="pii-weak", group="pii", scope=scope, action="allow", checkpoints=["DATA"])
+        [reason] = weakening_refusals([wide, weak])
+        assert reason.startswith("pii-weak:") and "ADR-0108" in reason
+    # A role or tenant exception is allowed; so is a kb/tool policy elsewhere or not weaker.
+    role = policy(id="pii-role", group="pii", scope="role:x", action="allow")
+    stricter = policy(id="pii-kb", group="pii", scope="kb:hr", action="redact")
+    at_input = policy(id="in-g", group="in", checkpoints=["INPUT"])
+    input_kb = policy(id="in-kb", group="in", scope="kb:hr", action="allow", checkpoints=["INPUT"])
+    assert weakening_refusals([wide, role, stricter, at_input, input_kb]) == []
 
 
 def test_a_policy_in_another_group_or_wider_scope_overrides_nothing():

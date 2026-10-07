@@ -9,11 +9,18 @@ One call per checkpoint: `evaluate(checkpoint, payload, principal=..., context=.
    `guard.check` span (policy id@version, action, latency). A checker that fails
    applies the policy's `on_error` (D8): `closed` makes the outcome unavailable and
    the call site ends the turn with `guard_unavailable`; `open` allows and logs.
-3. Within a policy group (default: the policy's own id) a match at a narrower scope
-   overrides matches at wider scopes: tool > kb > role > tenant > global (D2).
-   Across groups the most restrictive action wins (block > require_approval >
-   rewrite > redact > warn > log_only > allow), and every redacting winner's spans
-   are replaced with `[REDACTED:{type}]`.
+3. Within a policy group (default: the policy's own id) a policy overrides another only
+   when its scope is contained by the other's, and only `global` contains another scope
+   (ADR-0108). The override is per span: a narrower policy that matched cancels the
+   wider one's spans that its own spans cover (a presidio exception only for its
+   configured entity types); the wider policy keeps its action on every other span, and
+   is overridden whole only when none is left. A narrower policy that matched nothing
+   overrides nothing. Policies whose scopes do not contain each other (tenant, role, kb,
+   tool) all stand. Across everything that stands the most restrictive action wins
+   (block > rewrite > redact > require_approval > warn > log_only > allow, ADR-0105),
+   and every standing redaction's spans are replaced with `[REDACTED:{type}]`.
+   A call that executes only some actions (GuardContext.actions) still resolves every
+   group that holds one of them in full, so both answer modes resolve alike.
 4. TOOL_LIST filters: each capability is evaluated with its own `tool:` scope, and a
    blocked one is removed. MODEL_TIER lowers the request's cap to the ceiling of
    every matching `tier_ceiling` policy (D2). POST_TOOL runs sanitize_untrusted first,
@@ -94,21 +101,11 @@ class GuardEngine:
 
     # ------------------------------------------------------------------ queries
 
-    def applicable(
-        self,
-        checkpoint: Checkpoint,
-        scopes: set[str],
-        target: str | None = None,
-        actions: frozenset[str] | None = None,
-    ) -> list[Policy]:
+    def applicable(self, checkpoint: Checkpoint, scopes: set[str], target: str | None = None) -> list[Policy]:
         return [
             p
             for p in self.policies.active()
-            if p.enabled
-            and checkpoint in p.checkpoints
-            and p.scope in scopes
-            and p.guards_target(target)
-            and (actions is None or p.action in actions)
+            if p.enabled and checkpoint in p.checkpoints and p.scope in scopes and p.guards_target(target)
         ]
 
     def requires_buffering(self, principal: Principal, context: GuardContext = NO_CONTEXT) -> bool:
@@ -177,7 +174,11 @@ class GuardEngine:
             # The test panel: this one policy, on or off, but still only for the targets it guards.
             policies = [context.only] if context.only.guards_target(target) else []
         else:
-            policies = self.applicable(checkpoint, context.scopes(principal), target, context.actions)
+            policies = self.applicable(checkpoint, context.scopes(principal), target)
+            if context.actions is not None:
+                # Whole groups: a group takes part when one of its policies may act here.
+                groups = {p.effective_group for p in policies if p.action in context.actions}
+                policies = [p for p in policies if p.effective_group in groups]
         if not policies:
             return GuardOutcome(
                 payload=payload,
@@ -188,7 +189,7 @@ class GuardEngine:
         evaluated = await asyncio.gather(
             *(self._check(policy, checkpoint, subject, principal, context, target) for policy in policies)
         )
-        return self._combine(checkpoint, payload, list(evaluated), notes, target)
+        return self._combine(checkpoint, payload, list(evaluated), notes, target, context.actions)
 
     def _sanitize(self, payload: Any) -> tuple[Any, GuardEventRecord | None]:
         result = self.sanitizer.sanitize(payload.content)
@@ -240,25 +241,25 @@ class GuardEngine:
         evaluated: list[EvaluatedPolicy],
         notes: list[GuardEventRecord],
         target: str | None,
+        actions: frozenset[str] | None = None,
     ) -> GuardOutcome:
         unavailable = next(
             (e.policy.ref for e in evaluated if e.error and e.policy.effective_on_error == "closed"), None
         )
         matched = [e for e in evaluated if e.result and e.result.matched]
-        # Narrow over wide inside a group (D2); groups never override each other.
-        winners: list[EvaluatedPolicy] = []
+        for e in matched:
+            e.spans = list(e.result.spans)
         for group in {e.policy.effective_group for e in matched}:
-            members = [e for e in matched if e.policy.effective_group == group]
-            narrowest = max(e.policy.parsed_scope.precedence for e in members)
-            for e in members:
-                if e.policy.parsed_scope.precedence == narrowest:
-                    winners.append(e)
-                else:
-                    e.overridden_by = next(
-                        w.policy.ref for w in members if w.policy.parsed_scope.precedence == narrowest
-                    )
+            _resolve_group([e for e in matched if e.policy.effective_group == group])
+        standing = [e for e in matched if e.overridden_by is None]
+        if actions is not None:
+            # Only these actions execute; the rest of each group weighed in its resolution.
+            standing = [e for e in standing if e.policy.action in actions]
+            acting = [e for e in evaluated if e.policy.action in actions]
+            overriders = {ref for e in acting for ref in [e.overridden_by, *e.partly_overridden_by] if ref}
+            evaluated = [e for e in evaluated if e in acting or e.policy.ref in overriders]
 
-        action = max((e.policy.action for e in winners), key=ACTION_RANK.__getitem__, default="allow")
+        action = max((e.policy.action for e in standing), key=ACTION_RANK.__getitem__, default="allow")
         if unavailable:
             action = "block"
         outcome = GuardOutcome(
@@ -267,7 +268,7 @@ class GuardEngine:
             unavailable=unavailable,
             results={e.policy.ref: e.result for e in evaluated if e.result is not None},
         )
-        deciding = [e for e in winners if e.policy.action == action]
+        deciding = [e for e in standing if e.policy.action == action]
         if deciding:
             decider = max(
                 deciding, key=lambda e: (_SEVERITY[e.policy.severity], e.policy.parsed_scope.precedence)
@@ -277,9 +278,9 @@ class GuardEngine:
                 outcome.message_ar, outcome.message_en = decider.policy.message_ar, decider.policy.message_en
 
         if checkpoint == Checkpoint.MODEL_TIER:
-            outcome.payload = self._ceiling(payload, winners)
+            outcome.payload = self._ceiling(payload, standing)
         elif action != "block":
-            spans = [s for e in winners if e.policy.action == "redact" for s in e.result.spans]
+            spans = [s for e in standing if e.policy.action == "redact" for s in e.spans]
             if spans:
                 outcome.payload = _with_text(
                     checkpoint, payload, redact(_subject(checkpoint, payload), spans)
@@ -297,7 +298,9 @@ class GuardEngine:
                     action=_event_action(e.policy, e.result, e.error, overridden=e.overridden_by is not None),
                     detail=_detail(e),
                     target=target,
-                    entities=sorted({s.entity for s in e.result.spans}) if e.result else [],
+                    entities=sorted({s.entity for s in (e.result.spans if e.overridden_by else e.spans)})
+                    if e.result
+                    else [],
                     latency_ms=e.latency_ms,
                 )
             )
@@ -324,6 +327,42 @@ class GuardEngine:
         return {**payload, "cap": cap, "capped_by": ",".join(e.policy.ref for e in winners)}
 
 
+def _resolve_group(members: list[EvaluatedPolicy]) -> None:
+    """ADR-0108, inside one group of matched policies: each policy cancels, in every policy
+    whose scope contains its own, the spans it covers. A whole-text verdict (no spans)
+    cancels a whole-text verdict; spans never cancel a whole-text verdict, and a whole-text
+    verdict cancels every span. A policy left with nothing is overridden."""
+    for wide in members:
+        cancelled_by: list[str] = []
+        for narrow in members:
+            if narrow is wide or not wide.policy.parsed_scope.contains(narrow.policy.parsed_scope):
+                continue
+            before = len(wide.spans)
+            if not narrow.result.spans:
+                wide.spans, whole = [], True
+            elif not wide.result.spans:
+                continue  # a whole-text verdict stands against span matches
+            else:
+                wide.spans, whole = [s for s in wide.spans if not _covers(narrow, s)], False
+            if whole or len(wide.spans) < before:
+                cancelled_by.append(narrow.policy.ref)
+        if not cancelled_by:
+            continue
+        if wide.spans:
+            wide.partly_overridden_by = cancelled_by
+        else:
+            wide.overridden_by = cancelled_by[0]
+
+
+def _covers(narrow: EvaluatedPolicy, span: Span) -> bool:
+    """Whether a narrower policy's match cancels this span of a wider one: its own spans
+    overlap it and, for presidio, the span is of an entity type the narrower one names."""
+    entities = set(narrow.policy.config.get("entities") or ())
+    if narrow.policy.checker == "presidio" and span.entity not in entities:
+        return False
+    return any(s.start < span.end and span.start < s.end for s in narrow.result.spans)
+
+
 def _event_action(
     policy: Policy, result: CheckResult | None, error: str | None, *, overridden: bool = False
 ) -> str:
@@ -339,6 +378,8 @@ def _detail(e: EvaluatedPolicy) -> str:
         return f"checker error ({e.error}); on_error={e.policy.effective_on_error}"
     if e.overridden_by:
         return f"overridden by {e.overridden_by}"
+    if e.partly_overridden_by:
+        return f"{e.result.explanation}; partly overridden by {', '.join(e.partly_overridden_by)}"
     return e.result.explanation
 
 

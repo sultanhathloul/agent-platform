@@ -1,6 +1,7 @@
 package sa.ncai.agent.gateway.admin;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -14,4 +15,6 @@ public record PolicyTestRequest(
         PolicyDocument policy,
         @NotBlank @Size(max = 20000) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String text,
         @Schema(description = "Default: the policy's first checkpoint.") String checkpoint,
-        @Schema(description = "DATA only: answer | memory_candidate | summary.") String target) {}
+        @Schema(description = "DATA only: answer | memory_candidate | summary.") String target,
+        @Valid @Schema(description = "Whom to evaluate for; default: the admin, with no policy roles.")
+                SimulatedPrincipal principal) {}

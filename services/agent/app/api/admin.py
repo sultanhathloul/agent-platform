@@ -17,6 +17,8 @@ from app.api.routes import _authorized
 from app.api.schemas import (
     POLICY_ID_PATH,
     ErrorEnvelope,
+    PolicyChanges,
+    PolicyChangeView,
     PolicyDetail,
     PolicyDocument,
     PolicyEnabled,
@@ -38,6 +40,7 @@ from app.guardrails.store import (
     PolicyExists,
     PolicyFileError,
     PolicyNotFound,
+    PolicyRejected,
     export_document,
     parse_policy_documents,
 )
@@ -140,7 +143,10 @@ async def import_policies(body: PolicyYaml, call: Admin):
         policies = parse_policy_documents(body.yaml, source="import")
     except PolicyFileError as exc:
         return call.error("policy_invalid", 400, [f"{e['id']}: {e['error']}" for e in exc.errors])
-    report = await call.services.policies.import_policies(policies, actor=call.actor)
+    try:
+        report = await call.services.policies.import_policies(policies, actor=call.actor)
+    except PolicyRejected as exc:
+        return call.error("policy_invalid", 400, exc.reasons)
     return PolicyImportReport(
         created=report.created,
         versioned=report.versioned,
@@ -176,7 +182,16 @@ async def test_policy(body: PolicyTestRequest, call: Admin):
             policy = (await call.services.policies.get(body.policy_id)).policy
         except PolicyNotFound:
             return call.error("policy_not_found", 404)
-    principal = Principal(user_id=call.actor, tenant_id=call.tenant)
+    # The panel may simulate whom it evaluates for: a tenant and policy roles (README §10.4).
+    simulated = body.principal
+    try:
+        principal = Principal(
+            user_id=call.actor,
+            tenant_id=simulated.tenant_id if simulated else call.tenant,
+            policy_roles=tuple(sorted(set(simulated.policy_roles))) if simulated else (),
+        )
+    except ValidationError as exc:
+        return call.error("invalid_request", 400, [f"principal: {e['msg']}" for e in exc.errors()])
     try:
         tried = await try_policy(
             call.services.guard,
@@ -219,6 +234,8 @@ async def create_policy(body: PolicyDocument, call: Admin):
         await call.services.policies.create(policy, actor=call.actor)
     except PolicyExists:
         return call.error("policy_exists", 409)
+    except PolicyRejected as exc:
+        return call.error("policy_invalid", 400, exc.reasons)
     return JSONResponse(
         _view(await call.services.policies.get(policy.id)).model_dump(mode="json"), status_code=201
     )
@@ -267,6 +284,8 @@ async def add_version(policy_id: PolicyId, body: PolicyDocument, call: Admin):
         await call.services.policies.add_version(policy, actor=call.actor)
     except PolicyNotFound:
         return call.error("policy_not_found", 404)
+    except PolicyRejected as exc:
+        return call.error("policy_invalid", 400, exc.reasons)
     return JSONResponse(
         _view(await call.services.policies.get(policy_id)).model_dump(mode="json"), status_code=201
     )
@@ -284,3 +303,30 @@ async def set_enabled(policy_id: PolicyId, body: PolicyEnabled, call: Admin):
     except PolicyNotFound:
         return call.error("policy_not_found", 404)
     return _view(await call.services.policies.get(policy_id))
+
+
+@router.get(
+    "/{policy_id}/changes", response_model=PolicyChanges, responses={**_ERRORS, 404: {"model": ErrorEnvelope}}
+)
+async def policy_changes(policy_id: PolicyId, call: Admin):
+    """The policy's change log (ADR-0108): every create, version, switch, import and seed,
+    with its actor and the exception flag it left."""
+    if isinstance(call, JSONResponse):
+        return call
+    try:
+        changes = await call.services.policies.changes(policy_id)
+    except PolicyNotFound:
+        return call.error("policy_not_found", 404)
+    return PolicyChanges(
+        changes=[
+            PolicyChangeView(
+                changed_at=c.changed_at,
+                policy_ref=f"{c.policy_id}@{c.version}",
+                change=c.change,
+                actor=c.actor,
+                exception=c.exception,
+                overrides=c.overrides,
+            )
+            for c in changes
+        ]
+    )

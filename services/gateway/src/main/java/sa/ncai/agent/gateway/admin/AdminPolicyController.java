@@ -125,6 +125,29 @@ public class AdminPolicyController {
                 PolicyDetail.class, 200, detail, (d, found) -> d.put("version", found.current().policy().version()));
     }
 
+    @GetMapping(path = BASE + "/{policyId}/changes", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "A policy's change log: every save, switch, import and seed, with its actor (ADR-0108)",
+            responses = {
+        @ApiResponse(responseCode = "200", description = "The changes, newest first"),
+        @ApiResponse(responseCode = "400", description = "invalid_request", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "403", description = "forbidden: not an admin", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "404", description = "policy_not_found", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class)))
+    })
+    public ResponseEntity<ApiEnvelope<PolicyChanges>> getPolicyChanges(
+            @PathVariable("policyId") String policyId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        if (!POLICY_ID.matcher(policyId).matches()) {
+            return failed(request, response, ErrorCode.INVALID_REQUEST, null);
+        }
+        return proxy(jwt, request, response, "policy.changes", HttpMethod.GET, BASE + "/" + policyId + "/changes",
+                null, PolicyChanges.class, 200, withPolicy(policyId), (d, log) -> d.put("changes", log.changes().size()));
+    }
+
     @PostMapping(path = BASE, consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Creates a policy (version 1)", responses = {
         @ApiResponse(responseCode = "201", description = "The created policy"),
@@ -278,6 +301,12 @@ public class AdminPolicyController {
         detail.put("policy_id", body.policyId() != null ? body.policyId()
                 : body.policy() != null ? body.policy().id() + " (draft)" : null);
         detail.put("text_chars", body.text().length());  // the text itself never enters the audit log
+        if (body.principal() != null) {
+            Map<String, Object> simulated = new LinkedHashMap<>();
+            simulated.put("tenant_id", body.principal().tenantId());
+            simulated.put("policy_roles", body.principal().policyRoles());
+            detail.put("simulated_principal", simulated);
+        }
         return proxy(jwt, request, response, "policy.test", HttpMethod.POST, BASE + "/test", body,
                 PolicyTestResult.class, 200, detail, (d, result) -> {
                     d.put("policy_ref", result.policyRef());

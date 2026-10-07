@@ -16,6 +16,7 @@ from app.guardrails.schema import GuardEventRecord, Policy
 from app.guardrails.store import (
     PolicyExists,
     PolicyFileError,
+    PolicyRejected,
     PolicyStore,
     export_document,
     parse_policy_documents,
@@ -214,3 +215,78 @@ async def test_matched_events_are_counted_per_day_without_content(store):
     assert stored == 2
     rows = [r for r in await store.matches_per_day(7) if r["policy_id"] == pid]
     assert [(r["action"], r["matches"]) for r in rows] == [("redact", 2)]
+
+
+# ------------------------------------------------------------------ exceptions and the change log (ADR-0108)
+
+
+async def _change_rows(store: PolicyStore, pid: str) -> list[tuple[str, str, int, bool]]:
+    return [(c.change, c.actor, c.version, c.exception) for c in reversed(await store.changes(pid))]
+
+
+async def test_the_flag_appears_on_an_older_narrow_policy_when_a_wider_one_is_saved_later(store):
+    group = new_id("grp")
+    narrow, wide = new_id("narrow"), new_id("wide")
+    marker = f"kw{uuid.uuid4().hex[:8]}"  # matches no other test's text, so the global policy is inert
+    await store.create(
+        policy(narrow, group=group, action="allow", config={"keywords": [marker]}), actor="admin-1"
+    )
+    assert (await store.get(narrow)).exception is False
+    try:
+        await store.create(
+            policy(wide, group=group, scope="global", action="warn", config={"keywords": [marker]}),
+            actor="admin-2",
+        )
+        older = await store.get(narrow)
+        assert older.exception is True and older.overrides == [f"{wide}@1"]
+        assert (await store.get(wide)).exception is False
+        # The narrow policy's own change row stays what its save left: it named no exception.
+        assert await _change_rows(store, narrow) == [("create", "admin-1", 1, False)]
+        assert await _change_rows(store, wide) == [("create", "admin-2", 1, False)]
+        # Switching the wider one off recomputes the group, on or off alike (ADR-0105).
+        await store.set_enabled(wide, False, actor="admin-3")
+        assert (await store.get(narrow)).exception is True
+        assert (await _change_rows(store, wide))[-1] == ("disable", "admin-3", 1, False)
+    finally:
+        await store.set_enabled(wide, False, actor="test")
+
+
+async def test_import_seed_and_enable_each_write_a_change_row_with_the_actor(store, tmp_path: Path):
+    imported, seeded = new_id("imp"), new_id("seed")
+    await store.import_policies([policy(imported)], actor="importer")
+    await store.import_policies([policy(imported, enabled=False)], actor="importer-2")
+    await store.set_enabled(imported, True, actor="admin-x")
+    (tmp_path / "s.yaml").write_text(
+        f"id: {seeded}\nname: seeded\nscope: '{SCOPE}'\ncheckpoints: [INPUT]\nchecker: keyword_list\n"
+        "config: {keywords: [x]}\naction: warn\n",
+        encoding="utf-8",
+    )
+    await store.seed([tmp_path])
+    assert await _change_rows(store, imported) == [
+        ("import", "importer", 1, False),
+        ("import", "importer-2", 1, False),
+        ("enable", "admin-x", 1, False),
+    ]
+    assert await _change_rows(store, seeded) == [("seed", "seed", 1, False)]
+
+
+async def test_a_kb_or_tool_policy_that_would_weaken_a_wider_one_at_data_is_refused(store):
+    group, wide, weak = new_id("grp"), new_id("wide"), new_id("weak")
+    data = {
+        "checkpoints": ["DATA"],
+        "checker": "regex",
+        "config": {"patterns": [{"name": "X", "pattern": "zz9"}]},
+    }
+    await store.create(policy(wide, group=group, scope=SCOPE, action="redact", **data), actor="admin")
+    await store.create(policy(weak, group=group, scope="kb:hr", action="allow", **data), actor="admin")
+    try:
+        # A global redact over the kb allow would make it an exception at DATA: refused, nothing written.
+        with pytest.raises(PolicyRejected) as refused:
+            await store.add_version(
+                policy(wide, group=group, scope="global", action="redact", **data), actor="admin"
+            )
+        assert "ADR-0108" in str(refused.value)
+        assert (await store.get(wide)).policy.version == 1
+        assert [c.change for c in await store.changes(wide)] == ["create"]
+    finally:
+        await store.set_enabled(weak, False, actor="test")
