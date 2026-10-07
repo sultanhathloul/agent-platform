@@ -6,13 +6,20 @@ import java.util.List;
 
 /**
  * A guard policy (README §10.1) as the admin API reads and writes it. The agent owns and
- * validates it (I1); on create and on a new version {@code version} is ignored (I2).
+ * validates it (I1); on create and on a new version {@code version} is ignored (I2). Both names
+ * are required; the agent refuses a policy without one (ADR-0119).
  */
 public record PolicyDocument(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, pattern = "^[a-z0-9][a-z0-9-]{1,63}$") String id,
         @Schema(description = "Assigned by the agent; ignored on create and on a new version.") Integer version,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String name,
-        String description,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The name in Arabic (ADR-0119).") String nameAr,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The name in English (ADR-0119).") String nameEn,
+        @Schema(description = "The description in Arabic; may be empty.") String descriptionAr,
+        @Schema(description = "The description in English; may be empty.") String descriptionEn,
+        @Schema(allowableValues = {"production", "test"},
+                description = "test: made by a test script (smoke, TTFT), hidden from the admin list by default; "
+                        + "default production (ADR-0119)")
+                String purpose,
         Boolean enabled,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
                 description = "global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to "

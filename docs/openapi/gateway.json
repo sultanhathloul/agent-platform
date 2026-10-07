@@ -1435,8 +1435,13 @@
           "config" : {
             "$ref" : "#/components/schemas/JsonNode"
           },
-          "description" : {
-            "type" : "string"
+          "description_ar" : {
+            "type" : "string",
+            "description" : "The description in Arabic; may be empty."
+          },
+          "description_en" : {
+            "type" : "string",
+            "description" : "The description in English; may be empty."
           },
           "enabled" : {
             "type" : "boolean"
@@ -1455,12 +1460,22 @@
           "message_en" : {
             "type" : "string"
           },
-          "name" : {
-            "type" : "string"
+          "name_ar" : {
+            "type" : "string",
+            "description" : "The name in Arabic (ADR-0119)."
+          },
+          "name_en" : {
+            "type" : "string",
+            "description" : "The name in English (ADR-0119)."
           },
           "on_error" : {
             "type" : "string",
             "description" : "open | closed; default by checker (D8)"
+          },
+          "purpose" : {
+            "type" : "string",
+            "description" : "test: made by a test script (smoke, TTFT), hidden from the admin list by default; default production (ADR-0119)",
+            "enum" : [ "production", "test" ]
           },
           "scope" : {
             "type" : "string",
@@ -1476,7 +1491,7 @@
             "description" : "Assigned by the agent; ignored on create and on a new version."
           }
         },
-        "required" : [ "action", "checker", "checkpoints", "id", "name", "scope" ]
+        "required" : [ "action", "checker", "checkpoints", "id", "name_ar", "name_en", "scope" ]
       },
       "PolicyEnabled" : {
         "properties" : {

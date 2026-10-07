@@ -29,14 +29,15 @@ import sa.ncai.agent.gateway.auth.KeycloakAdminClient;
 class AdminPolicyProxyTest extends GatewayTestSupport {
 
     private static final String POLICY = """
-            {"id":"pii-redact-output","version":2,"name":"Redact PII","description":"","enabled":true,\
+            {"id":"pii-redact-output","version":2,"name_ar":"إخفاء البيانات الشخصية","name_en":"Redact PII",\
+            "description_ar":"","description_en":"","purpose":"production","enabled":true,\
             "scope":"global","checkpoints":["DATA"],"checker":"presidio",\
             "config":{"entities":["SA_MOBILE"],"targets":["answer","summary"]},"action":"redact",\
             "severity":"high","message_ar":null,"message_en":null,"on_error":null,"group":"pii-output"}""";
     private static final String VIEW = "{\"policy\":" + POLICY + ",\"created_at\":\"2026-10-06T10:00:00Z\","
             + "\"created_by\":\"seed\",\"updated_at\":\"2026-10-06T11:00:00Z\",\"updated_by\":\"admin-1\"}";
     private static final String DRAFT = """
-            {"id":"keyword-test","name":"Keyword test","scope":"tenant:moe","checkpoints":["INPUT"],\
+            {"id":"keyword-test","name_ar":"اختبار الكلمات","name_en":"Keyword test","scope":"tenant:moe","checkpoints":["INPUT"],\
             "checker":"keyword_list","config":{"keywords":["كلمة"]},"action":"block",\
             "message_ar":"محجوب","message_en":"Blocked"}""";
 
@@ -89,11 +90,19 @@ class AdminPolicyProxyTest extends GatewayTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(DRAFT))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.policy.version").value(1));
+                .andExpect(jsonPath("$.data.policy.version").value(1))
+                // ADR-0119: both names and the purpose reach the admin as the agent returned them.
+                .andExpect(jsonPath("$.data.policy.name_ar").value("إخفاء البيانات الشخصية"))
+                .andExpect(jsonPath("$.data.policy.name_en").value("Redact PII"))
+                .andExpect(jsonPath("$.data.policy.purpose").value("production"));
         RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
         assertThat(upstream.getMethod()).isEqualTo("POST");
         JsonNode sent = mapper.readTree(upstream.getBody().readUtf8());
         assertThat(sent.path("message_ar").asText()).isEqualTo("محجوب");
+        assertThat(sent.path("name_ar").asText()).isEqualTo("اختبار الكلمات");
+        assertThat(sent.path("name_en").asText()).isEqualTo("Keyword test");
+        assertThat(sent.has("name")).isFalse();
+        assertThat(sent.has("purpose")).isFalse();  // left to the agent's default
         assertThat(sent.path("config").path("keywords").get(0).asText()).isEqualTo("كلمة");
         AuditEvent event = singleAudit();
         assertThat(event.action()).isEqualTo("policy.create");
