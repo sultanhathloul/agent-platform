@@ -46,13 +46,13 @@
     "latency": "{ms} ملّي ثانية"
   },
   "guardActions": {
-    "allow": "سُمح",
-    "block": "حُظر",
-    "redact": "حُجبت بيانات",
-    "rewrite": "أُعيدت الصياغة",
-    "warn": "تنبيه",
-    "require_approval": "بانتظار الموافقة",
-    "log_only": "سُجّل فقط"
+    "allow": "سماح",
+    "block": "حظر",
+    "redact": "إخفاء",
+    "rewrite": "إعادة صياغة",
+    "warn": "تحذير",
+    "require_approval": "طلب موافقة",
+    "log_only": "تسجيل فقط"
   },
   "toolStatus": {
     "running": "قيد التنفيذ",
@@ -135,8 +135,11 @@
     "configInvalid": "الإعدادات ليست كائن JSON صالحًا.",
     "fields": {
       "id": "المعرّف",
-      "name": "الاسم",
-      "description": "الوصف",
+      "nameAr": "الاسم بالعربية",
+      "nameEn": "الاسم بالإنجليزية",
+      "descriptionAr": "الوصف بالعربية",
+      "descriptionEn": "الوصف بالإنجليزية",
+      "purpose": "الغرض",
       "scope": "النطاق",
       "scopeHint": "global أو tenant:<المعرّف من سمة Keycloak المسماة tenant_id> (مثل tenant:default) أو role:اسم أو kb:اسم أو tool:اسم. نطاق role يطبَّق على من يحمل دور الحماية policy:الاسم.",
       "group": "المجموعة",
@@ -208,12 +211,13 @@
       "principal": "التقييم لـ",
       "tenant": "المستأجر",
       "roles": "أدوار الحماية",
-      "rolesHint": "افصل بينها بمسافة، مثل policy:pii-exempt"
+      "rolesHint": "افصل بين الأدوار بمسافة",
+      "rolesExample": "مثال:"
     },
     "history": {
       "title": "سجل الإصدارات",
       "current": "الحالي",
-      "by": "بواسطة {user} في {date}",
+      "by": "بواسطة <who>{user}</who> في {date}",
       "view": "عرض",
       "hide": "إخفاء",
       "restore": "استعادته إصدارًا جديدًا",
@@ -262,7 +266,7 @@
     "changes": {
       "title": "سجل التغييرات",
       "empty": "لا تغييرات مسجلة.",
-      "by": "بواسطة {user} في {date}",
+      "by": "بواسطة <who>{user}</who> في {date}",
       "exception": "استثناء",
       "kinds": {
         "create": "أُنشئت",
@@ -280,6 +284,11 @@
     },
     "warnings": {
       "wholeTextCannotLift": "هذا الاستثناء لا يرفع الإخفاء القائم على المقاطع: {list} تبقى تُخفي أو تحجب ما تطابقه."
-    }
+    },
+    "purposes": {
+      "production": "تشغيلية",
+      "test": "اختبار"
+    },
+    "showTest": "إظهار سياسات الاختبار"
   }
 }

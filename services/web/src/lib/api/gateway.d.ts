@@ -469,16 +469,27 @@ export interface components {
             /** @description INPUT, TOOL_LIST, PRE_TOOL, POST_TOOL, OUTPUT, DATA, MODEL_TIER */
             checkpoints: string[];
             config?: components["schemas"]["JsonNode"];
-            description?: string;
+            /** @description The description in Arabic; may be empty. */
+            description_ar?: string;
+            /** @description The description in English; may be empty. */
+            description_en?: string;
             enabled?: boolean;
             /** @description Policies of one group override each other narrow over wide; default: the id. */
             group?: string;
             id: string;
             message_ar?: string;
             message_en?: string;
-            name: string;
+            /** @description The name in Arabic (ADR-0119). */
+            name_ar: string;
+            /** @description The name in English (ADR-0119). */
+            name_en: string;
             /** @description open | closed; default by checker (D8) */
             on_error?: string;
+            /**
+             * @description test: made by a test script (smoke, TTFT), hidden from the admin list by default; default production (ADR-0119)
+             * @enum {string}
+             */
+            purpose?: "production" | "test";
             /** @description global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to holders of the realm role policy:<name> (ADR-0107); only global contains another scope (ADR-0108) */
             scope: string;
             /** @description low | medium | high | critical */

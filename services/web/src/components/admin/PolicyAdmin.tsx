@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   PolicyChange,
   PolicyDetail,
@@ -35,6 +35,7 @@ import {
   CHECKERS,
   CHECKPOINTS,
   ON_ERROR,
+  PURPOSES,
   SEVERITIES,
   TARGETS,
   emptyForm,
@@ -46,19 +47,21 @@ import {
   matchesByPolicy,
   messageFor,
   parsePolicyRoles,
+  policyDescription,
   policyFromForm,
+  policyName,
   unknownPolicyRole,
   type PolicyForm,
 } from "@/lib/policies";
 import { useAuth } from "../AuthProvider";
 import { useRuntimeConfig } from "../ConfigProvider";
+import { PolicyList } from "./PolicyList";
+import { PolicyMeta } from "./PolicyMeta";
 
 const METRIC_DAYS = 14;
+// Role names are identifiers, the same in both locales: shown as an example under the field.
+const POLICY_ROLES_EXAMPLE = "policy:pii-exempt policy:no-sql";
 
-/** `id@version`, how policies are named in events, traces and the audit log (A1). */
-function policyRef(id: string, version: number | null | undefined): string {
-  return [id, version ?? 1].join("@");
-}
 const card = "rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200";
 const button =
   "rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50";
@@ -252,57 +255,14 @@ export function PolicyAdmin() {
           </div>
           {policies === null ? (
             <p className="text-sm text-slate-500">{t("policies.loading")}</p>
-          ) : policies.length === 0 ? (
-            <p className="text-sm text-slate-500">{t("policies.empty")}</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {policies.map((view) => {
-                const p = view.policy;
-                const on = p.enabled ?? true;
-                return (
-                  <li key={p.id} className="flex items-start justify-between gap-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => void open(p.id)}
-                      className={`min-w-0 flex-1 text-start ${selected === p.id ? "text-emerald-800" : "text-slate-800"}`}
-                    >
-                      <span dir="auto" className="block truncate font-medium">
-                        {p.name}
-                      </span>
-                      <span className="mt-0.5 flex flex-wrap gap-1 text-[11px] text-slate-500">
-                        <bdi className="font-mono">{policyRef(p.id, p.version)}</bdi>
-                        <span>·</span>
-                        <bdi className="font-mono">{p.checker}</bdi>
-                        <span>·</span>
-                        <bdi className="font-mono">{formatList(p.checkpoints, locale)}</bdi>
-                        <span>·</span>
-                        <bdi className="font-mono">{p.scope}</bdi>
-                        <span>·</span>
-                        <span>{t.has(`guardActions.${p.action}`) ? t(`guardActions.${p.action}`) : p.action}</span>
-                        {view.exception && (
-                          <span
-                            className="rounded-full bg-amber-100 px-1.5 text-amber-900"
-                            title={formatList(view.overrides ?? [], locale)}
-                          >
-                            {t("policies.overrides.badge")}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                    <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        disabled={busy === `toggle:${p.id}`}
-                        onChange={() => void toggle(view)}
-                        aria-label={t("policies.toggleLabel", { name: p.name })}
-                      />
-                      {on ? t("policies.enabled") : t("policies.disabled")}
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <PolicyList
+              policies={policies}
+              selected={selected}
+              busy={busy}
+              onOpen={(id) => void open(id)}
+              onToggle={(view) => void toggle(view)}
+            />
           )}
           <ImportExport authorized={authorized} gatewayUrl={gatewayUrl} onImported={reload} />
         </section>
@@ -327,8 +287,7 @@ export function PolicyAdmin() {
             <section className={card} aria-labelledby="policy-detail">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 id="policy-detail" dir="auto" className="font-semibold text-slate-800">
-                  {current.name}{" "}
-                  <bdi className="font-mono text-xs text-slate-500">{policyRef(current.id, current.version)}</bdi>
+                  {policyName(current, locale)}
                 </h2>
                 <button
                   type="button"
@@ -338,9 +297,16 @@ export function PolicyAdmin() {
                   {t("policies.edit")}
                 </button>
               </div>
-              {current.description && (
-                <p dir="auto" className="mt-1 text-sm text-slate-600">
-                  {current.description}
+              <div className="mt-1">
+                <PolicyMeta
+                  policy={current}
+                  exception={Boolean(detail?.current.exception)}
+                  overrides={detail?.current.overrides ?? []}
+                />
+              </div>
+              {policyDescription(current, locale) && (
+                <p dir="auto" className="mt-2 text-sm text-slate-600">
+                  {policyDescription(current, locale)}
                 </p>
               )}
               <OverridesNote overrides={detail?.current.overrides ?? []} exception={Boolean(detail?.current.exception)} />
@@ -472,17 +438,43 @@ function PolicyEditor({
           />
         </label>
         <label className={field}>
-          {t("policies.fields.name")}
-          <input dir="auto" className={input} value={form.name} onChange={(e) => set("name", e.target.value)} required />
+          {t("policies.fields.purpose")}
+          <select className={input} value={form.purpose ?? "production"} onChange={(e) => set("purpose", e.target.value as PolicyForm["purpose"])}>
+            {PURPOSES.map((purpose) => (
+              <option key={purpose} value={purpose}>
+                {t(`policies.purposes.${purpose}`)}
+              </option>
+            ))}
+          </select>
         </label>
-        <label className={`${field} sm:col-span-2`}>
-          {t("policies.fields.description")}
+        <label className={field}>
+          {t("policies.fields.nameAr")}
+          <input dir="rtl" lang="ar" className={input} value={form.name_ar} onChange={(e) => set("name_ar", e.target.value)} required />
+        </label>
+        <label className={field}>
+          {t("policies.fields.nameEn")}
+          <input dir="ltr" lang="en" className={input} value={form.name_en} onChange={(e) => set("name_en", e.target.value)} required />
+        </label>
+        <label className={field}>
+          {t("policies.fields.descriptionAr")}
           <textarea
-            dir="auto"
-            rows={2}
+            dir="rtl"
+            lang="ar"
+            rows={3}
             className={input}
-            value={form.description ?? ""}
-            onChange={(e) => set("description", e.target.value)}
+            value={form.description_ar ?? ""}
+            onChange={(e) => set("description_ar", e.target.value)}
+          />
+        </label>
+        <label className={field}>
+          {t("policies.fields.descriptionEn")}
+          <textarea
+            dir="ltr"
+            lang="en"
+            rows={3}
+            className={input}
+            value={form.description_en ?? ""}
+            onChange={(e) => set("description_en", e.target.value)}
           />
         </label>
         <label className={field}>
@@ -714,15 +706,22 @@ function TestPanel({
           {t("policies.test.tenant")}
           <input dir="ltr" className="rounded-md border border-slate-300 px-2 py-1 font-mono" value={tenant} onChange={(e) => setTenant(e.target.value)} />
         </label>
-        <label className="flex min-w-0 flex-1 items-center gap-1">
+        <label className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {t("policies.test.roles")}
           <input
             dir="ltr"
-            className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 font-mono"
+            className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 font-mono placeholder:font-sans"
             value={roles}
             placeholder={t("policies.test.rolesHint")}
+            aria-describedby="policy-roles-example"
             onChange={(e) => setRoles(e.target.value)}
           />
+          <span id="policy-roles-example" className="basis-full text-[11px] text-slate-500">
+            {t("policies.test.rolesExample")}{" "}
+            <bdi dir="ltr" className="font-mono">
+              {POLICY_ROLES_EXAMPLE}
+            </bdi>
+          </span>
         </label>
       </fieldset>
 
@@ -794,6 +793,8 @@ function TestPanel({
 function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form: PolicyForm) => void }) {
   const t = useTranslations();
   const locale = useLocale();
+  // The actor is free text: its direction follows its own first strong character.
+  const who = (chunks: ReactNode) => <bdi dir="auto">{chunks}</bdi>;
   const [shown, setShown] = useState<number | null>(null);
   const currentVersion = detail.current.policy.version;
   return (
@@ -806,16 +807,18 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
           <li key={v.policy.version} className="py-2 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>
-                <bdi className="font-mono">{t("policies.history.version", { version: v.policy.version ?? 1 })}</bdi>
+                {/* A label that holds Arabic: the sans face, never monospace (ADR-0119). */}
+                <span className="font-medium">{t("policies.history.version", { version: v.policy.version ?? 1 })}</span>
                 {v.policy.version === currentVersion && (
                   <span className="ms-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
                     {t("policies.history.current")}
                   </span>
                 )}
                 <span className="ms-2 text-xs text-slate-500">
-                  {t("policies.history.by", {
+                  {t.rich("policies.history.by", {
                     user: v.created_by,
                     date: new Date(v.created_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
+                    who,
                   })}
                 </span>
               </span>
@@ -829,6 +832,9 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
                   </button>
                 )}
               </span>
+            </div>
+            <div className="mt-1">
+              <PolicyMeta policy={v.policy} exception={Boolean(v.exception)} overrides={v.overrides ?? []} />
             </div>
             {shown === v.policy.version && (
               <pre dir="ltr" className="mt-2 max-h-56 overflow-auto rounded-md bg-slate-50 p-2 text-xs text-slate-700">
@@ -848,6 +854,7 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   const [changes, setChanges] = useState<PolicyChange[] | null>(null);
+  const who = (chunks: ReactNode) => <bdi dir="auto">{chunks}</bdi>;
 
   useEffect(() => {
     let live = true;
@@ -890,9 +897,10 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
               </span>
             )}
             <span className="text-xs text-slate-500">
-              {t("policies.changes.by", {
+              {t.rich("policies.changes.by", {
                 user: c.actor,
                 date: new Date(c.changed_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
+                who,
               })}
             </span>
           </li>

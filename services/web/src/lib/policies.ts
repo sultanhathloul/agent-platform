@@ -1,6 +1,6 @@
 // Pure helpers for the admin policy page (README §10.4). No API types are written here;
 // they come from the generated gateway types.
-import type { PolicyDocument, PolicyMatchRow, PolicySpan } from "@/lib/api/types";
+import type { PolicyDocument, PolicyMatchRow, PolicySpan, PolicyView } from "@/lib/api/types";
 
 export const CHECKPOINTS = ["INPUT", "TOOL_LIST", "PRE_TOOL", "POST_TOOL", "OUTPUT", "DATA", "MODEL_TIER"] as const;
 export const CHECKERS = ["regex", "presidio", "keyword_list", "llm_judge", "tier_ceiling"] as const;
@@ -8,6 +8,7 @@ export const ACTIONS = ["allow", "block", "redact", "rewrite", "warn", "require_
 export const SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const ON_ERROR = ["", "open", "closed"] as const;
 export const TARGETS = ["answer", "memory_candidate", "summary"] as const;
+export const PURPOSES = ["production", "test"] as const;
 
 export type Segment = { text: string; entity: string | null };
 
@@ -43,8 +44,11 @@ export type PolicyForm = Omit<PolicyDocument, "config"> & { configText: string }
 export function emptyForm(): PolicyForm {
   return {
     id: "",
-    name: "",
-    description: "",
+    name_ar: "",
+    name_en: "",
+    description_ar: "",
+    description_en: "",
+    purpose: "production",
     enabled: true,
     scope: "global",
     checkpoints: ["INPUT"],
@@ -63,7 +67,9 @@ export function formFromPolicy(policy: PolicyDocument): PolicyForm {
   const { config, ...rest } = policy;
   return {
     ...rest,
-    description: rest.description ?? "",
+    description_ar: rest.description_ar ?? "",
+    description_en: rest.description_en ?? "",
+    purpose: rest.purpose ?? "production",
     message_ar: rest.message_ar ?? "",
     message_en: rest.message_en ?? "",
     on_error: rest.on_error ?? "",
@@ -92,7 +98,8 @@ export function policyFromForm(form: PolicyForm): ParsedForm {
       ...rest,
       version: undefined,
       config: config as PolicyDocument["config"],
-      description: rest.description ?? "",
+      description_ar: rest.description_ar ?? "",
+      description_en: rest.description_en ?? "",
       message_ar: optional(rest.message_ar),
       message_en: optional(rest.message_en),
       on_error: optional(rest.on_error),
@@ -139,6 +146,27 @@ export function unknownPolicyRole(scope: string, realmRoles: string[] | null): s
 /** A list for a reader in `locale`: the Arabic comma in Arabic, a comma in English (rule 7). */
 export function formatList(items: readonly string[], locale: string): string {
   return items.join(locale === "ar" ? "، " : ", ");
+}
+
+/** The policy's name in the reader's locale (ADR-0119); both are required, the other is a fallback. */
+export function policyName(policy: Pick<PolicyDocument, "name_ar" | "name_en">, locale: string): string {
+  const [first, second] = locale === "ar" ? [policy.name_ar, policy.name_en] : [policy.name_en, policy.name_ar];
+  return first || second;
+}
+
+/** The description in the reader's locale, the other one only when it is empty (ADR-0119). */
+export function policyDescription(
+  policy: Pick<PolicyDocument, "description_ar" | "description_en">,
+  locale: string,
+): string {
+  const [first, second] =
+    locale === "ar" ? [policy.description_ar, policy.description_en] : [policy.description_en, policy.description_ar];
+  return first || second || "";
+}
+
+/** The admin list: test policies (smoke, TTFT) only while "Show test policies" is on (ADR-0119). */
+export function visiblePolicies(views: PolicyView[], showTest: boolean): PolicyView[] {
+  return showTest ? views : views.filter((view) => (view.policy.purpose ?? "production") !== "test");
 }
 
 /** The policy's own message in the reader's locale, the other one only when it is missing. */

@@ -9,9 +9,13 @@ import {
   matchesByPolicy,
   messageFor,
   parsePolicyRoles,
+  policyDescription,
   policyFromForm,
+  policyName,
   unknownPolicyRole,
+  visiblePolicies,
 } from "./policies";
+import type { PolicyView } from "./api/types";
 
 describe("highlight", () => {
   it("marks the matched Arabic span by character offsets", () => {
@@ -48,8 +52,11 @@ describe("policy forms", () => {
     const policy = {
       id: "pii-redact-output",
       version: 3,
-      name: "حجب البيانات",
-      description: "",
+      name_ar: "إخفاء البيانات الشخصية",
+      name_en: "Redact personal data",
+      description_ar: "وصف عربي",
+      description_en: "",
+      purpose: "test" as const,
       enabled: true,
       scope: "global",
       checkpoints: ["DATA"],
@@ -66,6 +73,14 @@ describe("policy forms", () => {
     expect(parsed.policy.version).toBeUndefined();
     expect(parsed.policy.message_ar).toBeUndefined();
     expect(parsed.policy.group).toBe("pii-output");
+    // ADR-0119: both names, both descriptions and the purpose survive the form.
+    expect([parsed.policy.name_ar, parsed.policy.name_en]).toEqual(["إخفاء البيانات الشخصية", "Redact personal data"]);
+    expect([parsed.policy.description_ar, parsed.policy.description_en, parsed.policy.purpose]).toEqual(["وصف عربي", "", "test"]);
+  });
+
+  it("starts a new policy as production with both names empty", () => {
+    const form = emptyForm();
+    expect([form.name_ar, form.name_en, form.purpose]).toEqual(["", "", "production"]);
   });
 
   it("refuses config that is not a JSON object", () => {
@@ -125,5 +140,37 @@ describe("locale-aware texts (rule 7)", () => {
 
   it("parses policy roles typed with spaces or commas", () => {
     expect(parsePolicyRoles(" policy:b, policy:a policy:b ")).toEqual(["policy:a", "policy:b"]);
+  });
+});
+
+describe("bilingual policy text (ADR-0119)", () => {
+  const texts = { name_ar: "حظر", name_en: "Block", description_ar: "", description_en: "Blocks a word." };
+
+  it("shows the name of the reader's locale", () => {
+    expect(policyName(texts, "ar")).toBe("حظر");
+    expect(policyName(texts, "en")).toBe("Block");
+  });
+
+  it("shows the description of the reader's locale, the other one when it is empty", () => {
+    expect(policyDescription(texts, "en")).toBe("Blocks a word.");
+    expect(policyDescription(texts, "ar")).toBe("Blocks a word.");
+    expect(policyDescription({ ...texts, description_ar: "يحظر كلمة." }, "ar")).toBe("يحظر كلمة.");
+    expect(policyDescription({ description_ar: "", description_en: "" }, "ar")).toBe("");
+  });
+});
+
+describe("test policies (ADR-0119)", () => {
+  const view = (id: string, purpose?: "production" | "test"): PolicyView => ({
+    policy: { id, name_ar: id, name_en: id, scope: "global", checkpoints: ["INPUT"], checker: "regex", action: "warn", purpose },
+    created_at: "2026-10-07T00:00:00Z",
+    created_by: "seed",
+    updated_at: "2026-10-07T00:00:00Z",
+    updated_by: "seed",
+  });
+  const all = [view("pii-redact-output", "production"), view("smoke-live-block", "test"), view("older")];
+
+  it("are hidden until the toggle is on; a policy without a purpose is production", () => {
+    expect(visiblePolicies(all, false).map((v) => v.policy.id)).toEqual(["pii-redact-output", "older"]);
+    expect(visiblePolicies(all, true).map((v) => v.policy.id)).toEqual(["pii-redact-output", "smoke-live-block", "older"]);
   });
 });

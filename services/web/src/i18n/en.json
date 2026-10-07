@@ -135,8 +135,11 @@
     "configInvalid": "The settings are not a valid JSON object.",
     "fields": {
       "id": "Id",
-      "name": "Name",
-      "description": "Description",
+      "nameAr": "Name in Arabic",
+      "nameEn": "Name in English",
+      "descriptionAr": "Description in Arabic",
+      "descriptionEn": "Description in English",
+      "purpose": "Purpose",
       "scope": "Scope",
       "scopeHint": "global, tenant:<id from the Keycloak attribute tenant_id> (e.g. tenant:default), role:NAME, kb:SLUG or tool:NAME. A role scope applies to holders of the policy role policy:NAME.",
       "group": "Group",
@@ -208,12 +211,13 @@
       "principal": "Evaluate for",
       "tenant": "Tenant",
       "roles": "Policy roles",
-      "rolesHint": "Separate with spaces, e.g. policy:pii-exempt"
+      "rolesHint": "Separate roles with spaces",
+      "rolesExample": "Example:"
     },
     "history": {
       "title": "Version history",
       "current": "Current",
-      "by": "by {user} on {date}",
+      "by": "by <who>{user}</who> on {date}",
       "view": "View",
       "hide": "Hide",
       "restore": "Restore as a new version",
@@ -262,7 +266,7 @@
     "changes": {
       "title": "Change log",
       "empty": "No changes are recorded.",
-      "by": "by {user} on {date}",
+      "by": "by <who>{user}</who> on {date}",
       "exception": "Exception",
       "kinds": {
         "create": "Created",
@@ -280,6 +284,11 @@
     },
     "warnings": {
       "wholeTextCannotLift": "This exception cannot lift span-based redaction: {list} still redact or block what they match."
-    }
+    },
+    "purposes": {
+      "production": "Production",
+      "test": "Test"
+    },
+    "showTest": "Show test policies"
   }
 }
