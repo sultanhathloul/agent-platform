@@ -6,7 +6,11 @@
 
 Runs N general turns as the eval user (memory off, ADR-0074), each in a new
 conversation, and measures from sending the request to the first `token` event,
-and to the terminal event. Prints p50 and p95 and writes one JSON line per turn.
+and to the terminal event. A turn that streamed no token, or did not end with
+`done`, is a failure: it is counted, listed with its outcome and left out of the
+percentiles. Prints n (successful/run), the failures, and p50 and p95 of both
+times over the successful turns, for one-sentence and five-sentence answers alike;
+writes one JSON line per turn. Exits 2 when any turn failed.
 
     uv run scripts/measure_ttft.py <label> [turns] [out.jsonl] [--long]
 
@@ -99,16 +103,20 @@ def main() -> int:
         with out.open("a", encoding="utf-8") as fh:
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-    ttft = [r["ttft_s"] for r in rows if r["ttft_s"] is not None]
-    total = [r["total_s"] for r in rows if r["total_s"] is not None]
-    if not ttft:
-        print(f"{label}: no turn streamed a token")
-        return 1
+    succeeded = [r for r in rows if r["ttft_s"] is not None and r["outcome"] == "done"]
+    failed = [r for r in rows if r not in succeeded]
+    failures = ", ".join(f"#{r['i']} {r['outcome']} ({r['token_events']} tokens)" for r in failed) or "none"
+    if not succeeded:
+        print(f"{label}: n=0/{count}; failures={len(failed)}: {failures}")
+        return 2
+    ttft = [r["ttft_s"] for r in succeeded]
+    total = [r["total_s"] for r in succeeded]
     print(
-        f"{label}: n={len(ttft)}/{count} ttft p50={percentile(ttft, 0.5):.2f}s p95={percentile(ttft, 0.95):.2f}s "
-        f"mean={statistics.mean(ttft):.2f}s; total p50={percentile(total, 0.5):.2f}s p95={percentile(total, 0.95):.2f}s"
+        f"{label}: n={len(succeeded)}/{count}; failures={len(failed)}: {failures}\n"
+        f"  ttft  p50={percentile(ttft, 0.5):.2f}s p95={percentile(ttft, 0.95):.2f}s mean={statistics.mean(ttft):.2f}s\n"
+        f"  total p50={percentile(total, 0.5):.2f}s p95={percentile(total, 0.95):.2f}s (to the terminal event)"
     )
-    return 0
+    return 2 if failed else 0
 
 
 if __name__ == "__main__":

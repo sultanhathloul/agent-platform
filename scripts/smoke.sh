@@ -12,13 +12,29 @@
 #             takes effect without a restart and its block returns message_ar;
 #             a role-scoped exception (policy:pii-exempt) reaches the analyst and not the
 #             viewer; a second turn on a busy conversation is 409 turn_in_flight; the
-#             temporary policies end switched off and a repeated run adds no versions.
+#             temporary policies end switched off, on success or failure (EXIT trap), and
+#             the policy row counts are equal across runs (no policy residue; conversations,
+#             guard events, the policy change log, audit rows and sessions grow by design).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 
 GW=$GATEWAY_PUBLIC_URL KC=$KEYCLOAK_PUBLIC_URL LF=$LANGFUSE_PUBLIC_URL WEB=$WEB_PUBLIC_URL
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d)
+# Smoke's temporary policies: whatever happens, the run ends with every one of them off.
+SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt)
+cleanup() {
+  if [[ -n ${ADMIN:-} ]]; then
+    for id in "${SMOKE_POLICY_IDS[@]}"; do
+      curl -s -o /dev/null -X PUT -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+        -d '{"enabled":false}' "$GW/v1/admin/policies/$id/enabled" || true
+    done
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+# Where the policy row counts of the last successful run are kept, to compare across runs.
+SMOKE_STATE=build/smoke/policy-rows
 
 step() { printf '\n== %s\n' "$1"; }
 ok()   { printf '  ok    %s\n' "$1"; }
@@ -233,19 +249,26 @@ check "the seed policies are listed" jq -e \
   '[.data.policies[].policy.id] as $ids | ["pii-redact-output","pii-block-in-memory","prompt-injection-input","topics-politics-llm-judge","web-domain-denylist","tool-visibility-by-role"] | all(. as $x | $ids | index($x))' "$TMP/policies.json"
 
 # Smoke's temporary policies have fixed ids and go through the import endpoint: the first run
-# creates them, later runs only switch them on, and every run ends with them off, so repeated
-# runs add no policy versions (no residue).
-SMOKE_POLICIES="'smoke-live-block','smoke-pii-exempt'"
-versions_before=$(sql "select count(*) from agent.guard_policies where id in ($SMOKE_POLICIES)")
+# creates them, later runs only switch them on, and every run ends with them off (the EXIT
+# trap), so a repeated run leaves the policy tables as it found them.
+SMOKE_POLICIES=$(printf "'%s'," "${SMOKE_POLICY_IDS[@]}"); SMOKE_POLICIES=${SMOKE_POLICIES%,}
+policy_rows() {  # versions and heads of every policy
+  sql "select (select count(*) from agent.guard_policies) || ' ' || (select count(*) from agent.guard_policy_heads)"
+}
+rows_before=$(policy_rows)
 existed_before=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES)")
+: > "$TMP/request-ids"
+request_id() { tr -d '\r' < "$1" | awk -F': ' 'tolower($1) == "x-request-id" {print $2}' >> "$TMP/request-ids"; }
 import_policy() {  # $1: one policy as JSON; prints the HTTP status
-  curl -s -o "$TMP/imported.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" \
+  curl -s -D "$TMP/import.headers" -o "$TMP/imported.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" \
     -H 'Content-Type: application/json' -d "$(jq -cn --argjson p "$1" '{yaml: ({policies: [$p]} | tojson)}')" \
     "$GW/v1/admin/policies/import"
+  request_id "$TMP/import.headers"
 }
 switch_off() {
-  status -X PUT -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"enabled":false}' \
-    "$GW/v1/admin/policies/$1/enabled"
+  curl -s -D "$TMP/switch.headers" -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $ADMIN" \
+    -H 'Content-Type: application/json' -d '{"enabled":false}' "$GW/v1/admin/policies/$1/enabled"
+  request_id "$TMP/switch.headers"
 }
 
 step "phase 03: a policy edit takes effect without a restart, and its block returns message_ar"
@@ -270,10 +293,12 @@ code=$(switch_off "$POLICY_ID")
 [[ $code == 200 ]] && ok "admin switched $POLICY_ID off" || fail "switching the policy off returned $code"
 blocked_turn "$TMP/live-allowed.jsonl"
 check "the turn after the switch passes" jq -se 'last.type == "done"' "$TMP/live-allowed.jsonl"
-audited=$(sql "select count(*) from gateway.audit_events where status = 'ok' and occurred_at > now() - interval '10 minutes'
+# Only this run's requests count: the audit rows are matched by the request ids the gateway returned.
+RUN_IDS=$(sed "s/.*/'&'/" "$TMP/request-ids" | paste -sd, -)
+audited=$(sql "select count(*) from gateway.audit_events where status = 'ok' and request_id in ($RUN_IDS)
   and ((action = 'policy.import' and (detail->'created' ? '$POLICY_ID' or detail->'switched' ? '$POLICY_ID'))
        or (action = 'policy.enable' and detail->>'policy_id' = '$POLICY_ID'))")
-(( audited >= 2 )) && ok "the policy edits are audited ($audited rows)" || fail "policy edits audited: $audited"
+(( audited == 2 )) && ok "this run's two policy edits are audited, by request id" || fail "this run's policy edits audited: $audited of 2"
 
 step "phase 03: a role-scoped exception reaches its holder only (policy:pii-exempt, ADR-0107)"
 check "the analyst's token carries policy:pii-exempt" python3 -c '
@@ -321,15 +346,24 @@ wait "$FIRST"
 sed -n 's/^data: //p' "$TMP/busy-first.sse" > "$TMP/busy-first.jsonl"
 check "the first turn still ends with done" jq -se 'last.type == "done"' "$TMP/busy-first.jsonl"
 
-step "phase 03: no residue (temporary policies end switched off, no new versions on a repeated run)"
+step "phase 03: no policy residue (temporary policies off, policy row counts equal across runs)"
 off=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES) and not enabled")
-(( off == 2 )) && ok "smoke's policies are switched off" || fail "$off of smoke's 2 policies are off"
-versions_after=$(sql "select count(*) from agent.guard_policies where id in ($SMOKE_POLICIES)")
-if (( existed_before == 2 )); then
-  (( versions_after == versions_before )) && ok "no policy version added ($versions_after rows, as before the run)" \
-    || fail "policy versions went from $versions_before to $versions_after"
+(( off == ${#SMOKE_POLICY_IDS[@]} )) && ok "smoke's policies are switched off" \
+  || fail "$off of smoke's ${#SMOKE_POLICY_IDS[@]} policies are off"
+rows_after=$(policy_rows)
+read -r versions_before heads_before <<< "$rows_before"
+read -r versions_after heads_after <<< "$rows_after"
+created=$(( ${#SMOKE_POLICY_IDS[@]} - existed_before ))  # a first run creates smoke's policies, once
+(( versions_after == versions_before + created && heads_after == heads_before + created )) \
+  && ok "this run added $created policy rows (versions $versions_before → $versions_after, heads $heads_before → $heads_after)" \
+  || fail "policy rows went from $rows_before to $rows_after with $created policies created"
+if [[ -f $SMOKE_STATE ]]; then
+  previous=$(cat "$SMOKE_STATE")
+  [[ $rows_after == "$previous" ]] && ok "policy rows equal to the previous run's ($rows_after)" \
+    || fail "policy rows $rows_after differ from the previous run's $previous"
 else
-  ok "first run: smoke's policies created ($versions_after version rows); later runs add none"
+  ok "no previous run recorded; this run's policy rows ($rows_after) are the reference"
 fi
+mkdir -p "$(dirname "$SMOKE_STATE")" && printf '%s\n' "$rows_after" > "$SMOKE_STATE"
 
 printf '\nsmoke: all phase 01, 02 and 03 checks passed\n'
