@@ -283,7 +283,7 @@ code=$(import_policy "$POLICY")
 [[ $code == 200 ]] && ok "admin switched $POLICY_ID on ($(jq -c '.data | {created, switched, versioned}' "$TMP/imported.json"))" \
   || fail "importing the policy returned $code"
 blocked_turn() {
-  curl -sN -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  curl -sN -D "$1.headers" -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
     -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"سؤال فيه كلمةالفحصالشامل\",\"locale\":\"ar\"}" \
     "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$1"
 }
@@ -291,6 +291,17 @@ blocked_turn "$TMP/live-blocked.jsonl"
 check "the next turn is blocked, no agent restart (input_blocked)" jq -se 'last.type == "error" and last.data.code == "input_blocked"' "$TMP/live-blocked.jsonl"
 check "the block returns the policy's message_ar" jq -se --arg ar "$MESSAGE_AR" 'last.data.message_ar == $ar' "$TMP/live-blocked.jsonl"
 check "the error names the policy version" jq -se --arg id "$POLICY_ID" 'last.data.policy_id | startswith($id + "@")' "$TMP/live-blocked.jsonl"
+# ADR-0116: through the gateway, a guard event and the terminal guard_events say who decided what,
+# never how; the gateway's audit row keeps the checker's detail.
+check "the guard event and the terminal event carry no checker detail and no guard_audit" jq -se --arg id "$POLICY_ID" '
+  ([.[] | select(.type == "guard" and .data.policy_id == $id)] | length == 1) and
+  ([.[] | select(.type == "guard") | .data] + (last.data.guard_events // []) | all(
+    has("detail") or has("reason") or has("reason_args") or has("score") or has("entities") or has("latency_ms") | not)) and
+  (last.data | has("guard_audit") | not) and
+  ([.[] | select(.type == "guard" and .data.policy_id == $id)][0].data | .policy_name == "Smoke: live keyword block" and .message_ar != null)' \
+  "$TMP/live-blocked.jsonl"
+BLOCKED_REQ=$(tr -d '\r' < "$TMP/live-blocked.jsonl.headers" | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')
+check "the audit row of the blocked turn keeps the checker's detail" bash -c "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from gateway.audit_events, jsonb_array_elements(detail->'guard_policies') g where request_id = '$BLOCKED_REQ' and g->>'policy' like '$POLICY_ID@%' and g->>'reason' = 'keywords' and g ? 'detail'\") == 1 ]]"
 code=$(switch_off "$POLICY_ID")
 [[ $code == 200 ]] && ok "admin switched $POLICY_ID off" || fail "switching the policy off returned $code"
 blocked_turn "$TMP/live-allowed.jsonl"
