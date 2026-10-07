@@ -861,6 +861,39 @@ How to verify: `make test`, `make up`, `make eval`, `make smoke` (twice).
 
 Human review needed: ADR-0117 (the `admin` role is a platform operator; the panel never touches the verdict cache), ADR-0118 (guard checks out of client usage, complete events only, what is closed and what remains) and the status note on ADR-0116; `services/gateway/src/main/java/sa/ncai/agent/gateway/proxy/SseRelay.java`; `docs/events.schema.json` (`guard_audit[].usage`, agent to gateway only).
 
+### UI fix session: the owner's visual check of /admin/policies (2026-10-07)
+
+Scope: the eight items of the owner's visual check, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Migration `0006`: one `guard_policy_changes` row (`seed`, actor `backfill`) for every policy version without one; test of the backfill; smoke check: every seeded policy has its `seed` row in the change log; verified on a clean stack (`make clean && make up`)
+- [x] 2 Bilingual text: `name_ar`, `name_en`, `description_ar`, `description_en` (migration `0007`; `name` and `description` become the `_en` fields); Arabic name and description in every seed; agent and gateway documents, OpenAPI regenerated (1.3.0, unmerged PR); list, detail and edit form show and edit both, display follows the UI locale; import/export carries both; validation requires both names
+- [x] 3 Meta line: chips action, exception badge, scope, checkpoints (Latin comma), checker, `id@version`, each in `<bdi>`, no dot separators; the same in the detail header and each version history line
+- [x] 4 Arabic action labels in `ar.json` (en keeps its words), used everywhere an action is shown, chat guard chips included
+- [x] 5 Arabic shaping: no letter-spacing, text-transform or monospace on text that can hold Arabic; the version history label
+- [x] 6 `purpose: production | test` (default production); smoke.sh and `scripts/measure_ttft.py` import theirs as `test`; the admin list hides test policies until "Show test policies"
+- [x] 7 Policy roles field: Arabic-only placeholder, the example in a hint line inside `<bdi>`; descriptions and free text with `dir="auto"`
+- [x] 8 Tests: web (meta chip order in ar and en, action labels from i18n, test policies hidden until the toggle); agent (bilingual round trip through import/export, a policy without `name_ar` refused)
+- [x] make test, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile (the same `.env` as the previous session), on a clean stack (`make clean && make up`):
+
+- Clean stack, item 1: after `make clean && make up`, `GET /v1/admin/policies/{id}/changes` as admin shows a `seed` row (actor `seed`, `{id}@1`) for each of the 7 seeds; `agent.schema_migrations` lists `0006_backfill_policy_changes` and `0007_bilingual_policy_text`. On a clean database the backfill adds nothing (the seed writes its rows); the backfill itself is tested on a rolled-back older version (`test_migrations.py`).
+- `make test` (exit 0):
+  - agent (pytest): **453 passed, 0 failed, 0 skipped** (444 before; +9: both names required and descriptions optional, purpose default and values, bilingual text and purpose round trip through export and import, an import without `name_ar` refused whole, every seed has its seed change row, the API refuses a policy without `name_ar` on create, version and import, the API carries both languages and the purpose, migration 0006 backfill, migration 0007 rename). The first run of this session failed 2 tests (`test_policy_store.py` still read `policy.name`); they were fixed and the whole suite was rerun.
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped** (91 before; the create test now also checks that both names reach the agent and come back, and that no `name` field is sent)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **83 passed, 0 failed, 0 skipped** (70 before; +13: the meta line's chips in the fixed order, each a `<bdi>`, in ar and in en, with and without the exception badge; every action label from the locale's catalog and the Arabic labels; no monospace on a chip that holds Arabic; the list hides test policies until the toggle and names policies in the UI locale, in ar and in en; locale-aware name and description; the test-policy filter; the form carries both names, both descriptions and the purpose; no letter-spacing or text transform in any web source)
+- `make up`: green (clean volumes).
+- `make eval`: not run this session (not asked; no change to checkers, prompts or the eval datasets).
+- `make smoke`, two consecutive runs: **76/76 checks passed** each (73 before; +3: every seed has both names and purpose production, every seed has its seed row in the change log, smoke's own policies are test policies). The first run on the clean database added 3 policy rows (versions 7 → 10, heads 7 → 10); the second added 0. Policy rows 10 10 in both runs, equal to the stored reference.
+
+How to verify: `make clean && make up`, `make test`, `make smoke` (twice); open `/admin/policies` in Arabic and in English: names follow the locale, the meta line under each policy, in the detail header and on each version line reads action, (exception), scope, checkpoints, checker, `id@version` as separate chips; "إظهار سياسات الاختبار" shows `smoke-live-block`, `smoke-pii-exempt` and `ttft-buffered-output`.
+
+Not changed (outside the eight items): a guard event's `policy_name` stays the English name, so the chat chip's tooltip is English in Arabic (ADR-0119, assumed); `README.md` still describes a policy's `name` and `description` in one language.
+
+Human review needed: `config/policies/*.yaml` (the Arabic names and descriptions); the migrations `services/agent/app/db/migrations/0006_backfill_policy_changes.sql` and `0007_bilingual_policy_text.sql` (0007 renames fields inside stored versions; `name_ar` starts as the English name on an older database); `services/web/src/i18n/ar.json` (action labels, field labels, the purpose and toggle strings, the roles placeholder); ADR-0119.
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
