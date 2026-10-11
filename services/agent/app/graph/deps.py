@@ -8,6 +8,7 @@ from typing import Any
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
+from app.attachments.service import AttachmentService
 from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
 from app.context.log import ContextLog
@@ -23,6 +24,8 @@ from app.models.embeddings import EmbeddingGateway
 from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
+from app.rag.config import DocsConfig
+from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 from app.text.script import ValidationConfig
 from app.tools.broker import ToolBroker
@@ -51,6 +54,9 @@ class Services:
     policies: PolicyStore
     guard_config: GuardrailsConfig
     locks: TurnLocks
+    docs_config: DocsConfig
+    attachments: AttachmentService
+    retriever: HybridRetriever
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
     # The compiled main graph, set by app.main.start_services once the database is open:

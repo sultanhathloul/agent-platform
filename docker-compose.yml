@@ -44,6 +44,11 @@ x-agent-env: &agent-env
   PRESIDIO_URL: http://presidio-analyzer:3000
   # Connections reserved for per-conversation turn locks (D6).
   LOCK_POOL_SIZE: ${LOCK_POOL_SIZE:-20}
+  # Uploads in MinIO, bucket `uploads` (phase 04, ADR-0129): read for ingestion, deleted with
+  # their attachment.
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
 
 services:
   # ------------------------------------------------------------------ data
@@ -285,6 +290,8 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
     healthcheck:
@@ -350,6 +357,17 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
 
   # ------------------------------------------------------------------ test profile (make test)
+  # Deterministic embeddings and rerank scores for `make test` (ADR-0143); never in the real stack.
+  embed-mock:
+    profiles: [test]
+    build:
+      context: ./services/agent
+      target: test
+    command: ["uvicorn", "tests.fixtures.embed_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+
   litellm-mock:
     profiles: [test]
     image: ghcr.io/berriai/litellm:v1.100.0
@@ -361,6 +379,9 @@ services:
       - ./infra/litellm/config.mock.yaml:/app/config.yaml:ro
     ports:
       - "4001:4000"
+    depends_on:
+      embed-mock:
+        condition: service_healthy
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
@@ -390,6 +411,8 @@ services:
       presidio-analyzer:
         condition: service_healthy
       litellm-mock:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   # JDBC tests of the gateway against this Postgres; an image build cannot reach it (ADR-0051).

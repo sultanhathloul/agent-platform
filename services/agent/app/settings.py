@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     presidio_url: str = "http://localhost:5002"
     # Dedicated connections holding per-conversation turn locks (D6).
     lock_pool_size: int = Field(default=20, ge=1)
+    # Object storage of uploads (phase 04, ADR-0129): MinIO on the compose network.
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_secure: bool = False
+    uploads_bucket: str = "uploads"
 
 
 @lru_cache

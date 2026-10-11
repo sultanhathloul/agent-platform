@@ -21,6 +21,46 @@ from tests.fixtures.http import TOKEN, identity, post_turn
 
 pytestmark = pytest.mark.integration
 
+
+@pytest.fixture(scope="session")
+def fixed_services(debug_services):
+    """The debug services with memory embedded through `embed-fixed`, the mock alias that
+    gives every text the same vector: these tests need every item to match every query
+    (ADR-0143). The `embed` alias ranks by shared words instead."""
+    from app.context.assembler import ContextAssembler
+    from app.memory.retriever import MemoryRetriever
+    from app.memory.service import MemoryService
+    from app.memory.writer import MemoryWriter
+    from app.models.embeddings import EmbeddingGateway
+
+    embeddings = EmbeddingGateway(debug_services.settings, debug_services.models_config, alias="embed-fixed")
+    old = debug_services.memory
+    memory = MemoryService(
+        config=old.config,
+        store=old.store,
+        retriever=MemoryRetriever(old.store, embeddings, old.config),
+        writer=MemoryWriter(old.store, embeddings, old.config),
+    )
+    assembler = ContextAssembler(
+        debug_services.assembler.config,
+        debug_services.prompts,
+        debug_services.assembler.counter,
+        memory=memory.retriever,
+    )
+    return dataclasses.replace(debug_services, embeddings=embeddings, memory=memory, assembler=assembler)
+
+
+@pytest.fixture
+async def fixed_client(fixed_services):
+    import httpx
+
+    from app.main import create_app
+
+    app = create_app(start_background=False, services=fixed_services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as http:
+        yield http
+
+
 VICTIM_MEMORY = "VICTIM-MEMORY-5b21: يعمل المستخدم على ملف تحقيق سري"
 
 
@@ -62,59 +102,59 @@ async def _items(client, principal: dict) -> dict:
 
 
 async def test_a_turn_writes_memory_that_a_later_conversation_retrieves(
-    debug_client, debug_services, litellm
+    fixed_client, fixed_services, litellm
 ):
     principal = _principal()
-    turn_id, first = await _turn(debug_client, principal, "أفضّل أن تكون الإجابات مختصرة.")
+    turn_id, first = await _turn(fixed_client, principal, "أفضّل أن تكون الإجابات مختصرة.")
     assert "memory" not in [b["name"] for b in _answer_blocks(first)]
-    listed = await _items(debug_client, principal)
+    listed = await _items(fixed_client, principal)
     assert listed["enabled"] is True
     [item] = listed["items"]
     assert item["kind"] == "preference" and item["text"]  # the mock extractor's candidate
-    async with debug_services.db.connection() as conn:
+    async with fixed_services.db.connection() as conn:
         cursor = await conn.execute("SELECT source_turn FROM agent.memory_items WHERE id = %s", (item["id"],))
         assert (await cursor.fetchone())["source_turn"] == turn_id
 
-    _, second = await _turn(debug_client, principal)
+    _, second = await _turn(fixed_client, principal)
     [memory] = [b for b in _answer_blocks(second) if b["name"] == "memory"]
     assert item["text"] in memory["content"] and memory["meta"]["items"][0]["id"] == item["id"]
     # The second turn extracted the same candidate again: a duplicate, not a second item.
-    assert [i["id"] for i in (await _items(debug_client, principal))["items"]] == [item["id"]]
+    assert [i["id"] for i in (await _items(fixed_client, principal))["items"]] == [item["id"]]
 
 
-async def test_memory_never_crosses_tenant_and_user(debug_client, debug_services, litellm):
+async def test_memory_never_crosses_tenant_and_user(fixed_client, fixed_services, litellm):
     victim = _principal(tenant_id="tenant-a")
-    victim_item = await _seed(debug_services, _scope(victim), VICTIM_MEMORY)
-    _, own = await _turn(debug_client, victim)
+    victim_item = await _seed(fixed_services, _scope(victim), VICTIM_MEMORY)
+    _, own = await _turn(fixed_client, victim)
     assert VICTIM_MEMORY in json.dumps(
         _answer_blocks(own), ensure_ascii=False
     )  # the victim's own turn sees it
 
     for attacker in (_principal(tenant_id="tenant-a"), {**victim, "tenant_id": "tenant-b"}):
         headers = identity(attacker["user_id"], attacker["tenant_id"])
-        _, recorded = await _turn(debug_client, attacker)
+        _, recorded = await _turn(fixed_client, attacker)
         assert VICTIM_MEMORY not in json.dumps(recorded, ensure_ascii=False)
-        listed = await _items(debug_client, attacker)
+        listed = await _items(fixed_client, attacker)
         assert VICTIM_MEMORY not in json.dumps(listed, ensure_ascii=False)
-        deleted = await debug_client.delete(f"/v1/memory/{victim_item}", headers=headers)
+        deleted = await fixed_client.delete(f"/v1/memory/{victim_item}", headers=headers)
         assert (deleted.status_code, deleted.json()["error"]["code"]) == (404, "memory_not_found")
-        switched = await debug_client.put("/v1/memory/settings", json={"enabled": False}, headers=headers)
+        switched = await fixed_client.put("/v1/memory/settings", json={"enabled": False}, headers=headers)
         assert switched.json() == {"enabled": False}
 
-    after = await _items(debug_client, victim)
+    after = await _items(fixed_client, victim)
     assert after["enabled"] is True and victim_item in [i["id"] for i in after["items"]]
 
 
-async def test_with_memory_off_nothing_is_written_or_retrieved(debug_client, debug_services, spans, litellm):
+async def test_with_memory_off_nothing_is_written_or_retrieved(fixed_client, fixed_services, spans, litellm):
     principal = _principal()
     headers = identity(principal["user_id"])
-    seeded = await _seed(debug_services, _scope(principal), "يفضّل المستخدم عرض الأرقام في جداول.")
+    seeded = await _seed(fixed_services, _scope(principal), "يفضّل المستخدم عرض الأرقام في جداول.")
     assert (
-        await debug_client.put("/v1/memory/settings", json={"enabled": False}, headers=headers)
+        await fixed_client.put("/v1/memory/settings", json={"enabled": False}, headers=headers)
     ).json() == {"enabled": False}
 
     spans.clear()
-    _, recorded = await _turn(debug_client, principal)
+    _, recorded = await _turn(fixed_client, principal)
     assert [p["node"] for p in recorded["packages"]] == ["capability.general", "answer"]  # no extractor call
     assert "memory" not in [b["name"] for b in _answer_blocks(recorded)]
     finished = spans.get_finished_spans()
@@ -123,11 +163,11 @@ async def test_with_memory_off_nothing_is_written_or_retrieved(debug_client, deb
     ]
     write = next(s for s in finished if s.name == "node.write_memory")
     assert write.attributes["memory.write.outcome"] == "disabled"
-    listed = await _items(debug_client, principal)
+    listed = await _items(fixed_client, principal)
     assert listed["enabled"] is False and [i["id"] for i in listed["items"]] == [seeded]
 
-    await debug_client.put("/v1/memory/settings", json={"enabled": True}, headers=headers)
-    _, again = await _turn(debug_client, principal)
+    await fixed_client.put("/v1/memory/settings", json={"enabled": True}, headers=headers)
+    _, again = await _turn(fixed_client, principal)
     assert "memory" in [b["name"] for b in _answer_blocks(again)]
 
 

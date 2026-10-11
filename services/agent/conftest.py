@@ -71,6 +71,9 @@ def settings() -> Settings:
         # A namespace per session: keys and channels never meet the stack's or another run's.
         redis_namespace=f"agent-test-{uuid.uuid4().hex[:8]}",
         presidio_url=os.environ.get("PRESIDIO_URL") or "http://localhost:5002",
+        minio_endpoint=os.environ.get("MINIO_ENDPOINT") or "localhost:9000",
+        minio_access_key=os.environ.get("MINIO_ACCESS_KEY") or _dotenv("MINIO_ROOT_USER") or "",
+        minio_secret_key=os.environ.get("MINIO_SECRET_KEY") or _dotenv("MINIO_ROOT_PASSWORD") or "",
     )
 
 

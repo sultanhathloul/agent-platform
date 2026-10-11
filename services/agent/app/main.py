@@ -23,6 +23,9 @@ from app.api.ownership import ConversationOwners
 from app.api.routes import router
 from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
+from app.attachments.objects import ObjectStore
+from app.attachments.service import AttachmentService
+from app.attachments.store import AttachmentStore
 from app.capabilities.registry import CapabilityRegistry, ManifestError
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.log import ContextLog
@@ -54,6 +57,13 @@ from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.otel import setup_tracing, shutdown_tracing
+from app.rag import runtime as rag_runtime
+from app.rag.config import load_docs_config
+from app.rag.ingest.pipeline import IngestPipeline
+from app.rag.ingest.worker import IngestWorker
+from app.rag.rerank import Reranker
+from app.rag.retrieve import HybridRetriever
+from app.rag.vectorstore import PgVectorStore
 from app.settings import Settings, get_settings
 from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
@@ -69,7 +79,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "1.3.0"
+API_VERSION = "1.4.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -122,6 +132,37 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
             tools.register(spec, cap.slug)
 
     embeddings = EmbeddingGateway(settings, models_config)
+    docs_config = load_docs_config(settings.config_dir)
+    vectors = PgVectorStore(db)
+    attachment_store = AttachmentStore(db)
+    objects = ObjectStore(
+        settings.minio_endpoint,
+        settings.minio_access_key,
+        settings.minio_secret_key,
+        settings.uploads_bucket,
+        secure=settings.minio_secure,
+    )
+    pipeline = IngestPipeline(
+        db=db,
+        attachments=attachment_store,
+        objects=objects,
+        vectors=vectors,
+        embeddings=embeddings,
+        config=docs_config,
+        counter=counter,
+    )
+    attachments = AttachmentService(
+        db=db,
+        store=attachment_store,
+        objects=objects,
+        vectors=vectors,
+        worker=IngestWorker(
+            pipeline, attachment_store, docs_config, redis, namespace=settings.redis_namespace
+        ),
+        config=docs_config,
+    )
+    retriever = HybridRetriever(vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval)
+    rag_runtime.bind(retriever)
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
         config=memory_config,
@@ -152,6 +193,9 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         policies=policies,
         guard_config=guard_config,
         locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
+        docs_config=docs_config,
+        attachments=attachments,
+        retriever=retriever,
         redis=redis,
         closers=(presidio.close,),
     )
@@ -212,7 +256,14 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
         started = await start_services(app.state.services)
         app.state.services = started
         app.state.runner = TurnRunner(started)
+        # Ingestion and the retention purge run in the service process (ADR-0125, ADR-0130);
+        # tests that hand in started services run jobs themselves.
+        background = start_background and owned
+        if background:
+            await started.attachments.start()
         yield
+        if background:
+            await started.attachments.stop()
         if owned:
             await stop_services(started)
         shutdown_tracing()
