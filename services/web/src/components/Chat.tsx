@@ -2,8 +2,20 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { ChatTurnRequest } from "@/lib/api/types";
+import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import type { AttachmentLimits, ChatTurnRequest } from "@/lib/api/types";
+import {
+  POLL_INTERVAL_MS,
+  type ComposerFile,
+  checkBeforeUpload,
+  deleteAttachment,
+  getAttachment,
+  getLimits,
+  isBusy,
+  isTerminal,
+  turnAttachmentIds,
+  uploadAttachment,
+} from "@/lib/attachments";
 import { GatewayError, isAbortError, streamTurn } from "@/lib/gateway";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 import {
@@ -16,10 +28,11 @@ import {
 } from "@/lib/stream";
 import { newUuid } from "@/lib/uuid";
 import { AssistantMessageView } from "./AssistantMessageView";
+import { AttachmentTray, LimitsHint } from "./AttachmentTray";
 import { useAuth } from "./AuthProvider";
 import { useRuntimeConfig } from "./ConfigProvider";
 
-type Turn = { id: string; question: string; answer: AssistantMessage };
+type Turn = { id: string; question: string; files: string[]; answer: AssistantMessage };
 
 // Conversation history lives in memory only; persistence arrives with state in phase 02.
 export function Chat({ conversationId }: { conversationId: string }) {
@@ -33,8 +46,110 @@ export function Chat({ conversationId }: { conversationId: string }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [files, setFiles] = useState<ComposerFile[]>([]);
+  const [limits, setLimits] = useState<AttachmentLimits | null>(null);
+  const [sentFiles, setSentFiles] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLInputElement>(null);
+
+  const updateFile = useCallback((localId: string, fn: (f: ComposerFile) => ComposerFile) => {
+    setFiles((all) => all.map((f) => (f.localId === localId ? fn(f) : f)));
+  }, []);
+
+  // The upload limits, shown before a file is chosen (D2).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = await auth.getAccessToken();
+      if (!token) return;
+      try {
+        const loaded = await getLimits({ gatewayUrl: config.gatewayUrl, token });
+        if (!cancelled) setLimits(loaded);
+      } catch {
+        // the composer works without the hint; the gateway still enforces the limits
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, config.gatewayUrl]);
+
+  // Pending files are polled every 2 s until indexed or failed (ADR-0138).
+  const pendingIds = files.filter((f) => f.attachment && !isTerminal(f.attachment.status)).map((f) => f.attachment!.id);
+  const pendingKey = pendingIds.join(",");
+  useEffect(() => {
+    if (!pendingKey) return;
+    const timer = window.setInterval(async () => {
+      const token = await auth.getAccessToken();
+      if (!token) return;
+      for (const id of pendingKey.split(",")) {
+        try {
+          const latest = await getAttachment({ gatewayUrl: config.gatewayUrl, token, conversationId, id });
+          setFiles((all) => all.map((f) => (f.attachment?.id === id ? { ...f, attachment: latest } : f)));
+        } catch {
+          // a missed poll is retried on the next tick
+        }
+      }
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [pendingKey, auth, config.gatewayUrl, conversationId]);
+
+  async function addFiles(chosen: FileList | File[]) {
+    const token = await auth.getAccessToken();
+    if (!token) {
+      await auth.login(pathname);
+      return;
+    }
+    let held = sentFiles + files.filter((f) => !f.error).length;
+    for (const file of Array.from(chosen)) {
+      const localId = newUuid();
+      const refusal = limits ? checkBeforeUpload(file, limits, held) : null;
+      const entry: ComposerFile = { localId, name: file.name, size: file.size, progress: 0 };
+      if (refusal) {
+        setFiles((all) => [...all, { ...entry, error: { code: refusal } }]);
+        continue;
+      }
+      held += 1;
+      setFiles((all) => [...all, entry]);
+      uploadAttachment({
+        gatewayUrl: config.gatewayUrl,
+        token,
+        conversationId,
+        file,
+        onProgress: (progress) => updateFile(localId, (f) => ({ ...f, progress })),
+      })
+        .then((attachment) => updateFile(localId, (f) => ({ ...f, attachment, progress: 100 })))
+        .catch((error: unknown) =>
+          updateFile(localId, (f) => ({
+            ...f,
+            error: error instanceof GatewayError ? error.info : { code: "unknown" },
+          })),
+        );
+    }
+  }
+
+  async function removeFile(localId: string) {
+    const file = files.find((f) => f.localId === localId);
+    setFiles((all) => all.filter((f) => f.localId !== localId));
+    if (!file?.attachment) return;
+    const token = await auth.getAccessToken();
+    if (!token) return;
+    try {
+      await deleteAttachment({ gatewayUrl: config.gatewayUrl, token, conversationId, id: file.attachment.id });
+    } catch {
+      // the file stays in the conversation and expires with it (ADR-0125)
+    }
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+  }
+
+  const busy = files.some(isBusy);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -48,10 +163,14 @@ export function Chat({ conversationId }: { conversationId: string }) {
 
   async function send() {
     const message = draft.trim();
-    if (!message || streaming) return;
+    if (!message || streaming || busy) return;
 
     const id = newUuid();
-    setTurns((all) => [...all, { id, question: message, answer: initialAssistant() }]);
+    const attachmentIds = turnAttachmentIds(files);
+    const names = files.filter((f) => f.attachment && f.attachment.status !== "failed").map((f) => f.name);
+    setTurns((all) => [...all, { id, question: message, files: names, answer: initialAssistant() }]);
+    setSentFiles((n) => n + attachmentIds.length);
+    setFiles([]);
     setDraft("");
     setStreaming(true);
     const controller = new AbortController();
@@ -68,7 +187,7 @@ export function Chat({ conversationId }: { conversationId: string }) {
         conversation_id: conversationId,
         message,
         selected_kbs: [],
-        attachments: [],
+        attachment_ids: attachmentIds,
         locale,
       };
       for await (const event of streamTurn({ gatewayUrl: config.gatewayUrl, token, body, signal: controller.signal })) {
@@ -119,6 +238,15 @@ export function Chat({ conversationId }: { conversationId: string }) {
                   <p dir="auto" className="whitespace-pre-wrap leading-7">
                     {turn.question}
                   </p>
+                  {turn.files.length > 0 && (
+                    <ul className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-emerald-50">
+                      {turn.files.map((name) => (
+                        <li key={name} className="rounded bg-emerald-800/60 px-1.5 py-0.5">
+                          <bdi dir="auto">{name}</bdi>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <AssistantMessageView message={turn.answer} />
               </li>
@@ -128,11 +256,45 @@ export function Chat({ conversationId }: { conversationId: string }) {
         <div ref={endRef} />
       </div>
 
-      <form onSubmit={onSubmit} className="border-t border-slate-200 bg-white px-4 py-3">
+      <form
+        onSubmit={onSubmit}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        className={`border-t border-slate-200 bg-white px-4 py-3 ${dragging ? "ring-2 ring-emerald-500 ring-inset" : ""}`}
+      >
+        {dragging && <p className="mb-2 text-center text-sm text-emerald-700">{t("attachments.dropHere")}</p>}
+        <AttachmentTray files={files} onRemove={(localId) => void removeFile(localId)} />
         <label htmlFor="composer" className="sr-only">
           {t("chat.inputLabel")}
         </label>
         <div className="flex items-end gap-2">
+          <input
+            ref={pickerRef}
+            type="file"
+            multiple
+            hidden
+            accept={limits ? limits.extensions.map((e) => `.${e}`).join(",") : undefined}
+            onChange={(e) => {
+              if (e.target.files?.length) void addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => pickerRef.current?.click()}
+            disabled={streaming}
+            aria-label={t("attachments.attach")}
+            title={t("attachments.attach")}
+            className="rounded-xl border border-slate-300 px-3 py-2.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8.5-8.5" />
+            </svg>
+          </button>
           <textarea
             id="composer"
             dir="auto"
@@ -155,13 +317,16 @@ export function Chat({ conversationId }: { conversationId: string }) {
           ) : (
             <button
               type="submit"
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || busy}
+              title={busy ? t("chat.sendWaiting") : undefined}
               className="rounded-xl bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800 disabled:opacity-40"
             >
               {t("chat.send")}
             </button>
           )}
         </div>
+        {busy && <p className="mt-1.5 text-xs text-amber-700">{t("chat.sendWaiting")}</p>}
+        {limits && <div className="mt-1.5"><LimitsHint limits={limits} /></div>}
         <p className="mt-1.5 text-xs text-slate-500">
           {t.rich("chat.composerHint", {
             key: (chunks) => (

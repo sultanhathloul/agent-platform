@@ -30,6 +30,12 @@ export const KNOWN_ERROR_CODES = [
   "policy_exists",
   "policy_invalid",
   "identity_unavailable",
+  "attachment_not_found",
+  "attachment_limit",
+  "file_too_large",
+  "too_many_pages",
+  "file_type_unsupported",
+  "storage_unavailable",
   "unknown",
 ] as const;
 

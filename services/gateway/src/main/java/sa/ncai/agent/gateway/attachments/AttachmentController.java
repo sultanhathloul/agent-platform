@@ -107,7 +107,10 @@ public class AttachmentController {
 
     /** The upload limits, so the composer can show them before a file is chosen (D2). */
     public record AttachmentLimits(
-            long maxFileBytes, int maxFilesPerConversation, int maxPdfPages, List<String> extensions) {}
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) long maxFileBytes,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int maxFilesPerConversation,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int maxPdfPages,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<String> extensions) {}
 
     @GetMapping(path = "/v1/attachments/limits", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "The upload limits of config/docs.yaml")

@@ -36,8 +36,12 @@
     "assistant": "Assistant",
     "thinking": "Preparing an answer…",
     "stopped": "Answer generation stopped at your request.",
-    "citations": "Sources",
-    "usage": "Tokens used: {tokensIn} in, {tokensOut} out"
+    "usage": "Tokens used: {tokensIn} in, {tokensOut} out",
+    "citationsTitle": "Source",
+    "sendWaiting": "Wait until the attached files are processed.",
+    "citationPageOne": "page {pages}",
+    "citationPageTwo": "pages {pages}",
+    "citationPageMany": "pages {pages}"
   },
   "chips": {
     "tier": "Model tier",
@@ -111,6 +115,12 @@
     "policy_exists": "A policy with this id already exists. Choose another id or save it as a new version.",
     "policy_invalid": "The policy is invalid. See the details below.",
     "identity_unavailable": "The identity service could not be reached right now. Please try again shortly.",
+    "attachment_not_found": "This file was not found in the conversation.",
+    "attachment_limit": "The conversation already holds the maximum number of files.",
+    "file_too_large": "The file is larger than the allowed size.",
+    "too_many_pages": "The file has more pages than allowed.",
+    "file_type_unsupported": "This file type is not supported. Supported types: PDF, Word, Excel, text and Markdown.",
+    "storage_unavailable": "The file storage is unavailable. Please try again shortly.",
     "unknown": "An unknown error occurred."
   },
   "policies": {
@@ -400,5 +410,38 @@
       "tooltipId": "Id: {id}"
     },
     "actionPreventSave": "Prevent saving"
+  },
+  "attachments": {
+    "attach": "Attach a file",
+    "dropHere": "Drop files here to attach them",
+    "limits": "Up to {files} files per conversation, {size} MB per file and {pages} pages per PDF. Types: {types}.",
+    "uploading": "Uploading {percent}%",
+    "remove": "Remove the file",
+    "download": "Download the file",
+    "listLabel": "Attached files",
+    "status": {
+      "pending": "Processing",
+      "indexed": "Ready",
+      "failed": "Could not be read"
+    },
+    "reasons": {
+      "scanned_unsupported": "The file is a scanned image with no readable text; reading images is not supported yet.",
+      "too_many_pages": "The file has more pages than allowed.",
+      "unsupported_type": "The file's content does not match its type, or its type is not supported.",
+      "corrupt_file": "The file is damaged and cannot be opened.",
+      "encrypted": "The file is password-protected.",
+      "empty_document": "The file contains no text.",
+      "storage_unavailable": "The file storage could not be reached.",
+      "embedding_unavailable": "The file could not be indexed now. Upload it again shortly.",
+      "ingest_error": "An unexpected error occurred while reading the file.",
+      "unknown": "The file could not be read."
+    },
+    "types": {
+      "pdf": "PDF",
+      "docx": "Word",
+      "xlsx": "Excel",
+      "txt": "text",
+      "md": "Markdown"
+    }
   }
 }

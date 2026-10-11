@@ -1657,7 +1657,8 @@
             "type" : "integer",
             "format" : "int32"
           }
-        }
+        },
+        "required" : [ "extensions", "max_file_bytes", "max_files_per_conversation", "max_pdf_pages" ]
       },
       "AttachmentList" : {
         "properties" : {
@@ -1667,7 +1668,8 @@
               "$ref" : "#/components/schemas/AttachmentView"
             }
           }
-        }
+        },
+        "required" : [ "attachments" ]
       },
       "AttachmentView" : {
         "properties" : {
@@ -1695,7 +1697,8 @@
             "format" : "date-time"
           },
           "kind" : {
-            "type" : "string"
+            "type" : "string",
+            "enum" : [ "pdf", "docx", "xlsx", "txt", "md" ]
           },
           "mime" : {
             "type" : "string"
@@ -1719,7 +1722,8 @@
             "type" : "string",
             "enum" : [ "pending", "indexed", "failed" ]
           }
-        }
+        },
+        "required" : [ "conversation_id", "created_at", "expires_at", "id", "kind", "mime", "name", "size", "status" ]
       },
       "ChatTurnRequest" : {
         "properties" : {

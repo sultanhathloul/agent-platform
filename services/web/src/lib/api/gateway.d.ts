@@ -465,42 +465,43 @@ export interface components {
             request_id: string;
         };
         AttachmentLimits: {
-            extensions?: string[];
+            extensions: string[];
             /** Format: int64 */
-            max_file_bytes?: number;
+            max_file_bytes: number;
             /** Format: int32 */
-            max_files_per_conversation?: number;
+            max_files_per_conversation: number;
             /** Format: int32 */
-            max_pdf_pages?: number;
+            max_pdf_pages: number;
         };
         AttachmentList: {
-            attachments?: components["schemas"]["AttachmentView"][];
+            attachments: components["schemas"]["AttachmentView"][];
         };
         AttachmentView: {
             /** Format: int32 */
             chunks?: number;
-            conversation_id?: string;
+            conversation_id: string;
             /** Format: date-time */
-            created_at?: string;
+            created_at: string;
             /**
              * Format: date-time
              * @description 30 days after the conversation's last turn (ADR-0125).
              */
-            expires_at?: string;
-            id?: string;
+            expires_at: string;
+            id: string;
             /** Format: date-time */
             indexed_at?: string;
-            kind?: string;
-            mime?: string;
-            name?: string;
+            /** @enum {string} */
+            kind: "pdf" | "docx" | "xlsx" | "txt" | "md";
+            mime: string;
+            name: string;
             /** Format: int32 */
             pages?: number;
             /** @description Why ingestion failed (failed only), e.g. scanned_unsupported. */
             reason?: string;
             /** Format: int64 */
-            size?: number;
+            size: number;
             /** @enum {string} */
-            status?: "pending" | "indexed" | "failed";
+            status: "pending" | "indexed" | "failed";
         };
         ChatTurnRequest: {
             /**

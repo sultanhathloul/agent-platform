@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { resolveErrorMessage } from "@/lib/errors";
 import { isLocale, DEFAULT_LOCALE } from "@/lib/locale";
 import { safeHref } from "@/lib/return-path";
+import type { Citation } from "@/lib/api/types";
 import type { AssistantMessage, Chip } from "@/lib/stream";
 
 const chipClass =
@@ -49,6 +50,57 @@ function ChipView({ chip }: { chip: Chip }) {
   }
 }
 
+/**
+ * The source line under an answer: the file name and the page or pages the answer drew on
+ * (ADR-0140), or the section of a document without pages; a web source keeps its link.
+ */
+export function CitationList({ citations }: { citations: Citation[] }) {
+  const t = useTranslations();
+  const rawLocale = useLocale();
+  const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
+  const tag = locale === "ar" ? "ar" : "en";
+  const number = new Intl.NumberFormat(tag);
+  const list = new Intl.ListFormat(tag, { type: "conjunction" });
+  return (
+    <section className="mt-3 border-t border-slate-100 pt-2">
+      <h3 className="text-xs font-semibold text-slate-500">{t("chat.citationsTitle")}</h3>
+      <ul className="mt-1 space-y-0.5 text-sm">
+        {citations.map((c) => {
+          const href = safeHref(c.url);
+          const pages = c.pages ?? [];
+          return (
+            <li key={c.id} className="flex flex-wrap items-baseline gap-x-2">
+              {href ? (
+                <a href={href} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">
+                  <bdi dir="auto">{c.title}</bdi>
+                </a>
+              ) : (
+                <bdi dir="auto" className="font-medium text-slate-700">
+                  {c.title}
+                </bdi>
+              )}
+              {pages.length > 0 ? (
+                <span className="text-xs text-slate-500">
+                  {t(pages.length === 1 ? "chat.citationPageOne" : pages.length === 2 ? "chat.citationPageTwo" : "chat.citationPageMany", {
+                    pages: list.format(pages.map((p) => number.format(p))),
+                  })}
+                </span>
+              ) : (
+                c.locator && (
+                  <bdi dir="auto" className="text-xs text-slate-500">
+                    {c.locator}
+                  </bdi>
+                )
+              )}
+              {c.kb && <bdi className="text-xs text-slate-400">{c.kb}</bdi>}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function AssistantMessageView({ message }: { message: AssistantMessage }) {
   const t = useTranslations();
   const rawLocale = useLocale();
@@ -82,33 +134,7 @@ export function AssistantMessageView({ message }: { message: AssistantMessage })
         </p>
       )}
 
-      {message.citations.length > 0 && (
-        <section className="mt-3 border-t border-slate-100 pt-2">
-          <h3 className="text-xs font-semibold text-slate-500">{t("chat.citations")}</h3>
-          <ol className="mt-1 list-decimal space-y-0.5 ps-5 text-sm">
-            {message.citations.map((c) => {
-              const href = safeHref(c.url);
-              return (
-                <li key={c.id}>
-                  {href ? (
-                    <a href={href} target="_blank" rel="noopener noreferrer" dir="auto" className="text-sky-700 underline">
-                      {c.title}
-                    </a>
-                  ) : (
-                    <span dir="auto">{c.title}</span>
-                  )}
-                  {c.kb && <bdi className="ms-2 text-xs text-slate-400">{c.kb}</bdi>}
-                  {c.locator && (
-                    <bdi dir="auto" className="ms-2 text-xs text-slate-400">
-                      {c.locator}
-                    </bdi>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      )}
+      {message.citations.length > 0 && <CitationList citations={message.citations} />}
 
       {message.usage && (
         <p className="mt-2 text-[11px] text-slate-400">
