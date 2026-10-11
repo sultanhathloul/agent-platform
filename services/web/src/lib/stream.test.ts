@@ -74,7 +74,7 @@ describe("applyEvent", () => {
       { ...meta, seq: 51, type: "guard", data: { checkpoint: "OUTPUT", policy_id: "pii-redact-output", action: "redact" } },
     ]);
     expect(m.chips.map((c) => c.kind)).toEqual(["tier", "guard"]);
-    expect(m.chips[1]).toMatchObject({ policyId: "pii-redact-output", action: "redact", detail: null });
+    expect(m.chips[1]).toMatchObject({ policyId: "pii-redact-output", action: "redact", policyName: null });
   });
 
   it("does not duplicate citations sent both as events and in done", () => {
@@ -152,5 +152,61 @@ describe("resolveErrorMessage", () => {
 
   it("falls back to errors.unknown when nothing is usable", () => {
     expect(resolveErrorMessage({ code: "quota_exceeded", message_ar: " " }, "ar", translate)).toBe("t:errors.unknown");
+  });
+});
+
+describe("guard events and blocks (phase 03)", () => {
+  it("shows a guard chip with the policy version, name, action and target", () => {
+    const m = run([
+      {
+        ...meta,
+        seq: next(),
+        type: "guard",
+        data: {
+          checkpoint: "DATA",
+          policy_id: "pii-redact-output",
+          policy_version: 2,
+          policy_name: "PII redaction",
+          action: "redact",
+          target: "answer",
+        },
+      },
+    ]);
+    expect(m.chips).toEqual([
+      {
+        kind: "guard",
+        key: expect.any(String),
+        checkpoint: "DATA",
+        policyId: "pii-redact-output",
+        policyVersion: 2,
+        policyName: "PII redaction",
+        action: "redact",
+        target: "answer",
+      },
+    ]);
+  });
+
+  it("shows a blocking policy's own message instead of the catalog's", () => {
+    const blocked: StreamEvent = {
+      ...meta,
+      seq: next(),
+      type: "error",
+      data: {
+        code: "input_blocked",
+        message_ar: "لا يمكنني تنفيذ طلب يحاول تجاوز تعليماتي.",
+        message_en: "I can't follow that request.",
+        retryable: false,
+        policy_id: "prompt-injection-input@1",
+      },
+    };
+    const m = run([token("نص"), blocked]);
+    expect(m.text).toBe("");
+    expect(m.error?.policy_id).toBe("prompt-injection-input@1");
+    const shown = resolveErrorMessage(m.error!, "ar", (key) => `catalog:${key}`);
+    expect(shown).toBe("لا يمكنني تنفيذ طلب يحاول تجاوز تعليماتي.");
+    // Without a policy, the UI's own catalog still wins.
+    expect(resolveErrorMessage({ code: "input_blocked", message_ar: "خادم" }, "ar", (key) => `catalog:${key}`)).toBe(
+      "catalog:errors.input_blocked",
+    );
   });
 });

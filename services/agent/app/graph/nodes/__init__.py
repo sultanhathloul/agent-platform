@@ -30,7 +30,9 @@ def emit(runtime: Runtime[TurnContext], type_: str, data: dict) -> None:
 
 
 def retract_streamed(state: AgentState, runtime: Runtime[TurnContext], reason: str) -> None:
-    """Withdraws the answer tokens already streamed this turn before the turn ends
-    in an error. Interim until phase 03 buffers output before it leaves (ADR-0039)."""
+    """Withdraws the answer tokens already streamed this turn before the turn ends in an
+    error. Since phase 03 redaction happens before text leaves (ADR-0039 full fix), so
+    this remains for checks no buffer can run early: `validate` on the complete answer,
+    and a blocking policy that a mid-turn reload brings in after the text streamed."""
     if state.get("shown_answer"):
         emit(runtime, "retract", {"reason": reason})

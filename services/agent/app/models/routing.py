@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.engine import GuardEngine
+from app.guardrails.schema import GuardContext, GuardEventRecord
 from app.identity import Principal
 from app.models.config import ModelsConfig
 
@@ -41,6 +42,8 @@ class TierDecision(BaseModel):
     final: str
     capped: bool
     reason: str
+    # The MODEL_TIER evaluations behind `cap`; the caller reports them to the turn (C1).
+    guard_events: list[GuardEventRecord] = []
 
     def record(self, span: Span) -> None:
         span.set_attribute("model.role", self.role)
@@ -95,15 +98,9 @@ class TierResolver:
         wanted = floor
 
         # 5. Cap: caps.default, lowered by the ceiling the gateway derived from the
-        #    caller's roles (ADR-0046, ADR-0049), seen by the MODEL_TIER checkpoint
-        #    (7th). Policies may lower it further (phase 03).
-        ceiling, source = self._ceiling(principal)
-        outcome = await self.guard.evaluate(
-            Checkpoint.MODEL_TIER,
-            {"role": role, "step": step, "tier": wanted, "cap": ceiling},
-            principal=principal,
-        )
-        cap = outcome.payload["cap"]
+        #    caller's roles (ADR-0046, ADR-0049), lowered again by every MODEL_TIER policy
+        #    that applies (the 7th checkpoint; ceilings only, D2).
+        cap, source, events = await self._cap(principal, role, step, wanted, capabilities)
         final = self.config.lowest(wanted, cap)
         return TierDecision(
             role=role,
@@ -114,6 +111,7 @@ class TierResolver:
             final=final,
             capped=final != wanted,
             reason=reason + (f"; capped by {source}" if final != wanted else ""),
+            guard_events=events,
         )
 
     def overflow_action(self, capabilities: Sequence[CapabilityModelSpec]) -> Literal["compress", "escalate"]:
@@ -130,15 +128,9 @@ class TierResolver:
         by the MODEL_TIER checkpoint. The decision is unchanged at the top tier."""
         rank = self.config.rank(decision.final)
         if rank + 1 >= len(self.config.order):
-            return decision
+            return decision.model_copy(update={"guard_events": []})
         wanted = self.config.order[rank + 1]
-        ceiling, source = self._ceiling(principal)
-        outcome = await self.guard.evaluate(
-            Checkpoint.MODEL_TIER,
-            {"role": decision.role, "step": decision.step, "tier": wanted, "cap": ceiling},
-            principal=principal,
-        )
-        cap = outcome.payload["cap"]
+        cap, source, events = await self._cap(principal, decision.role, decision.step, wanted, ())
         final = self.config.lowest(wanted, cap)
         return decision.model_copy(
             update={
@@ -148,8 +140,32 @@ class TierResolver:
                 "capped": final != wanted,
                 "reason": f"{decision.reason}; escalated for {reason}"
                 + (f"; capped by {source}" if final != wanted else ""),
+                "guard_events": events,
             }
         )
+
+    async def _cap(
+        self,
+        principal: Principal,
+        role: str,
+        step: str | None,
+        wanted: str,
+        capabilities: Sequence[CapabilityModelSpec],
+    ) -> tuple[str, str, list[GuardEventRecord]]:
+        """The ceiling for this request and what set it: `caps.default` or the principal's
+        max_tier (ADR-0049), lowered by the MODEL_TIER policies of the principal's tenant
+        and the capabilities the call is made for."""
+        ceiling, source = self._ceiling(principal)
+        outcome = await self.guard.evaluate(
+            Checkpoint.MODEL_TIER,
+            {"role": role, "step": step, "tier": wanted, "cap": ceiling},
+            principal=principal,
+            context=GuardContext(tools=tuple(c.slug for c in capabilities)),
+        )
+        cap = outcome.payload["cap"]
+        if cap != ceiling:
+            source = f"policy {outcome.payload.get('capped_by')}"
+        return cap, source, list(outcome.events)
 
     def _ceiling(self, principal: Principal) -> tuple[str, str]:
         """Caps are ceilings: the lower of `caps.default` and `principal.max_tier`. A role

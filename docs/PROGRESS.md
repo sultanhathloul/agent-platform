@@ -448,22 +448,22 @@ Tech debt carried from the second PR #1 review (recorded 2026-09-13; not fixed i
 - [x] `ConversationOwners` (ADR-0050) is durable in Postgres beside the checkpointer (ADR-0055); `tests/integration/test_restart.py` and the smoke restart check.
 
 Tech debt recorded in phase 02 (2026-09-15; not implemented, by instruction or out of scope):
-- [ ] Guards on memory content (phase 03): the DATA checkpoint over memory text and PII categories. Today PII is kept out only by the extractor prompt (ADR-0058).
+- [x] Guards on memory content (phase 03): the DATA checkpoint over memory text and PII categories. Today PII is kept out only by the extractor prompt (ADR-0058). Closed in phase 03 (B1, ADR-0080).
 - [ ] Asynchronous memory writing (phase 09): `write_memory` is a synchronous node, so a turn's `done` waits for one `fast` call and up to `max_items_per_turn + 1` embeddings.
 - [ ] Quantization experiment on the `standard` model: the owner runs it after merge.
 - [ ] Extraction precision on `fast`: the ADR-0064 filters stop inferred facts, restated answers and drifted script, but not a question restated as a fact about the user. The live stack stored "المستخدم يسأل عن أكبر مدن المملكة العربية السعودية من حيث عدد السكان." for the analyst. Material for ADR-0030's helper-role suite.
-- [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059).
+- [ ] `agent.context_packages` has no retention; recording is off by default (`DEBUG_CONTEXT_ENABLED`). The gateway does not proxy the debug endpoint; the admin panel (README §13) decides admin access to it (ADR-0059). Retention closed in phase 03 (B3, ADR-0081); the admin proxy of the debug endpoint is still open.
 - [ ] `memory_items.embedding` has no ANN index; retrieval scans one user's items (ADR-0058).
 - [ ] A memory extracted from a reply that is retracted afterwards stays until its user deletes it; a reply retracted after it was folded stays in the summary (ADR-0057, ADR-0058). The memory part is fixed by ADR-0071 (PR #2 fix session); the summary part stays.
 - [x] README §7 still describes the debug endpoint as admin-only; the agent endpoint is owner-only until the gateway proxy exists (ADR-0059). Amendment note added under §7 in the PR #2 fix session.
 
 Tech debt recorded in the PR #2 fix session (2026-10-05; not implemented, by instruction):
-- [ ] **Phase 03, first item of scope:** a DATA guard on memory candidates and on the rolling summary before they are stored, plus a one-time rescan and purge of the `memory_items` rows and `summary` values stored before it exists.
-- [ ] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item.
+- [x] **Phase 03, first item of scope:** a DATA guard on memory candidates and on the rolling summary before they are stored, plus a one-time rescan and purge of the `memory_items` rows and `summary` values stored before it exists. Closed in phase 03 (B1, ADR-0080).
+- [x] Phase 03: retention for `agent.context_packages`, and deletion of the matching Langfuse content when a user deletes a memory item. Closed in phase 03 (B3, ADR-0081): no memory, summary or extractor content goes to Langfuse, so there is nothing there to delete.
 - [ ] Phase 09: asynchronous memory writing; a turn's `done` waits for the memory write (7.9 s measured, above).
 
 Tech debt recorded in the second PR #2 fix session (2026-10-06; review finding 2, not implemented, by instruction):
-- [ ] **Phase 03:** nothing serializes turns on one conversation. Two turns in flight on the same thread each start from the checkpoint before the other and the last writer wins (an exchange, or the end-of-turn fold's summary and cursor, is lost); a retract racing a turn can lose its flag while its memory delete stands. Design: a per-conversation Postgres advisory lock (`pg_try_advisory_lock` keyed on the conversation id) held by `TurnRunner` around the graph invocation and around `retract`; a second turn on a conversation whose lock is held ends with `turn_in_flight`, which the gateway returns as **409 `turn_in_flight`** (new error code in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`; API version bump). Phase 08's interrupt/resume takes the same lock.
+- [x] **Phase 03:** nothing serializes turns on one conversation (closed in phase 03, B2, ADR-0082). Two turns in flight on the same thread each start from the checkpoint before the other and the last writer wins (an exchange, or the end-of-turn fold's summary and cursor, is lost); a retract racing a turn can lose its flag while its memory delete stands. Design: a per-conversation Postgres advisory lock (`pg_try_advisory_lock` keyed on the conversation id) held by `TurnRunner` around the graph invocation and around `retract`; a second turn on a conversation whose lock is held ends with `turn_in_flight`, which the gateway returns as **409 `turn_in_flight`** (new error code in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`; API version bump). Phase 08's interrupt/resume takes the same lock.
 
 Accepted interpretation of CLAUDE.md rule 6 (ADR-0075): a test may let a real call go through Context Assembly and LiteLLM and then replace the returned text, to simulate a non-deterministic model defect (`tests/integration/test_answer_retry.py`).
 
@@ -563,8 +563,430 @@ Human review needed (this session): `config/context.yaml` pipeline order; ADR-00
 ## Phase 03: Guardrails engine
 
 - Branch: `phase/03-guardrails`
-- Status: not started
+- Status: **done, awaiting review.** `make up`, `make test`, `make smoke` and `make eval` (three runs) are green; the three Part B items are closed with tests; time to first token is measured.
 - Done when: policy model in DB + Redis reload; 7 checkpoints; `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge`; admin policy UI with test panel; `guardrails.jsonl` ≥ threshold.
+
+Phase 03 ground rules (from the phase prompt, verbatim; G1 is CLAUDE.md rule 11 since the review round 1 fix session):
+- G2. Contracts first: policy schema, CheckResult, the checkpoint call signature, the DATA target field and scope resolution are written as types with tests before any checker.
+- G3. Fake PII only, in code, tests, evals and smoke (ADR-0065): numbers that pass format checks, never real ones.
+- G4. Every checker gets Arabic test cases (rule 7): Arabic-Indic digits, separators and spaces inside numbers, tashkeel and tatweel, mixed scripts.
+- G5. No capability-specific logic in app/guardrails/ (§18.4). A capability's policies use scope tool:{slug}.
+
+Scope restated (session 2026-10-06):
+1. Engine: versioned policies in `agent.guard_policies` (agent-owned, immutable versions, seeded from `config/policies/`), cached in Redis and reloaded through pub/sub within 2 s; scopes `global`, `tenant:`, `kb:`, `tool:` (`role:` reserved and rejected), narrow over wide; checkers `regex`, `presidio` (Saudi recognizers in `infra/presidio/`), `keyword_list` (Arabic normalization), `llm_judge` (judge role through Context Assembly, cached 24 h); `on_error` closed/open.
+2. Tech debt first: DATA on memory candidates and the rolling summary with a one-time purge (`make purge-pre-guard`); a per-conversation advisory lock with 409 `turn_in_flight`; retention (no memory/summary/extractor content in Langfuse, `context_packages` expiry and deletion with their memory items).
+3. Seven checkpoints wired with all actions; every evaluation in `state.guard_events`, a `guard.check` span, a `guard` event and the audit delta with `policy_id@version`; DATA on a sentence buffer while streaming and the whole answer buffered only when an OUTPUT block/rewrite policy applies; TTFT measured.
+4. Gateway admin policy endpoints (admin-checked, audited fail-closed) and `/admin/policies` in the web with a test panel; guard chips; agent and gateway OpenAPI 1.3.0.
+5. Done = the CLAUDE.md done-check, the three Part B items closed with tests, C2 measured, `make test`, `make eval` (general + guardrails ≥ 60 cases, three runs) and `make smoke` (with the five new checks) green, every count recorded per rule G1.
+
+Checklist:
+- [x] D9: "Accepted on 2026-10-06" on the Status lines of ADR-0055–0059, 0061, 0062, 0064 (first commit)
+- [x] Baseline (G1): `make test` counts; the gateway stages print JUnit XML totals; TTFT of the phase 02 answer path (`scripts/measure_ttft.py`)
+- [x] G2 contracts with tests before any checker: policy schema, scopes and precedence, `CheckResult`, the checkpoint call signature, the DATA payload `target` (`app/guardrails/schema.py`, `tests/unit/test_guard_schema.py`)
+- [x] A1 policy store: migration `0002`, immutable versions, enabled head, seeding of absent ids only; `guard_events` table without content
+- [x] A2 Redis cache + pub/sub reload; the test asserts ≤ 2 s across two store instances
+- [x] A3 checkers with Arabic cases (G4): `regex`, `presidio` (+ `presidio-analyzer` service, `infra/presidio/` recognizers), `keyword_list`, `llm_judge` (+ prompts, Redis cache); `tier_ceiling` for MODEL_TIER
+- [x] A4/engine: scope resolution, groups, most-restrictive combination, redaction, `on_error`
+- [x] B1 DATA on memory candidates and the summary; seeds `pii-block-in-memory`, `pii-redact-output`; `make purge-pre-guard` (dry run, idempotent); run counts recorded
+- [x] B2 per-conversation lock (D6), 409 `turn_in_flight` (errors.yaml, gateway catalogs, web); tests: 200 + 409, release after error and after disconnect
+- [x] B3 retention (D5) with tests
+- [x] C1 checkpoints: INPUT, TOOL_LIST, OUTPUT, DATA in the graph; PRE_TOOL/POST_TOOL in the broker (sanitize first, `approval_required`); MODEL_TIER in the resolver; all actions; events/spans/SSE/audit delta
+- [x] C2 sentence buffer (I5) and buffered mode (D3), rewrite once; TTFT p50/p95 streaming and buffered vs phase 02
+- [x] C3 gateway admin endpoints (list, get, create, version, enable, test, import, export, metrics), admin-checked, audited fail-closed; OpenAPI 1.3.0
+- [x] C4 web `/admin/policies` (list, edit, history, enable, test panel with highlighted spans, import/export, matches per day); guard chips; ar/en strings
+- [x] C5 seed policies (six, plus `pii-arabic-names-log` for D7)
+- [x] C6 `evals/golden/guardrails.jsonl` (80 cases) via the gateway test endpoint as admin; thresholds (D8); `make eval` ×3
+- [x] C7 smoke: PII redacted in every token event; memory candidate with a fake mobile not stored; policy edit live; 409; block with `message_ar`
+- [x] ADRs (D2–D8, D10, I1–I7, assumptions: ADR-0078 to ADR-0104); README notes; PROGRESS counts per G1; human-review list
+
+Baseline (2026-10-06, before any phase 03 code), per G1:
+- agent (pytest): 236 passed, 0 failed, 0 skipped
+- gateway (JUnit XML): 63 tests, 63 passed, 0 failed, 0 errors, 0 skipped
+- gateway-db-tests (JUnit XML): 5 tests, 5 passed, 0 failed, 0 errors, 0 skipped
+- web (vitest): 56 passed, 0 failed, 0 skipped
+- Time to first token, phase 02 answer path (OpenRouter profile, `evaluator`, 20 general turns, `scripts/measure_ttft.py phase02 20`): p50 1.17 s, p95 3.15 s (mean 1.42 s); to the terminal event p50 1.35 s, p95 3.38 s.
+
+Results (2026-10-06), per G1. Every run below is on the OpenRouter profile the local `.env` is on.
+
+Test runs during the session (agent pytest in the `agent-tests` container; the gateway and gateway-db counts are the JUnit XML totals the stages now print):
+- Baseline: agent 236 passed / 0 failed / 0 skipped; gateway 63 / 0 / 0 (0 errors); gateway-db-tests 5 / 0 / 0; web 56 / 0 / 0.
+- Agent runs while building, passed / failed / skipped (no count went down): 310 / 20 / 0 (the event schema did not yet carry the new guard fields), 321 / 9 / 0 (test fakes on the phase 01 engine signature), 331 / 1 / 0 (the concurrent-binding test met the new lock), 340 / 0 / 0, 348 / 0 / 0, 376 / 2 / 0 (a store reload race in a test fixture, fixed in the fixture), 378 / 0 / 0, 386 / 0 / 0, 388 / 0 / 0.
+- Gateway while building: 77 / 0 / 0 (63 + 11 admin proxy tests + 3 chat tests).
+- One `make test` died in the gateway image build with a BuildKit `EOF`: the Docker VM had crashed (8 GB, with the whole stack, presidio-analyzer and a Gradle build at once). Docker Desktop was restarted (the VM was already gone, so nothing further was lost) and `make test` re-run with only the services it needs.
+
+Final `make test` (exit 0):
+- agent (pytest): **388 passed, 0 failed, 0 skipped**
+- gateway (JUnit XML): **77 tests, 77 passed, 0 failed, 0 errors, 0 skipped**
+- gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+- web (vitest, with typecheck and lint): **65 passed, 0 failed, 0 skipped** (6 files)
+
+`make up`: green; every service with a healthcheck is healthy (the OTel collector has none). The agent applied `0002_guardrails.sql` and seeded the seven policies.
+
+`make smoke`: **60/60 checks passed** (43 phase 01 and 02 checks, 17 new phase 03 checks), after the Docker restart and `make up`. In the PII check the model repeated the fake numbers and the answer came out as "للتواصل اتصل على [REDACTED:SA_MOBILE] أو راسل [REDACTED:EMAIL_ADDRESS]"; no token event held the raw values. In the memory check `pii-block-in-memory` fired 0 times: the extractor kept no candidate with the number (the check is that no item holds it).
+
+`make eval` (general + guardrails), three runs; the judge's verdict cache (I4) was flushed before runs 2 and 3, so each run measured the judge afresh:
+
+| Run | guardrails (80 cases) | deterministic (66) | llm_judge accuracy / FPR (14) | general (28) | Langfuse dataset run |
+|---|---|---|---|---|---|
+| 1 | 80/80 PASS | 1.00 | 1.00 / 0.00 | 28/28 (1.00) PASS | `make-eval-20261006T122140Z` |
+| 2 | 80/80 PASS | 1.00 | 1.00 / 0.00 | 28/28 (1.00) PASS | `make-eval-20261006T130541Z` |
+| 3 | 80/80 PASS | 1.00 | 1.00 / 0.00 | 28/28 (1.00) PASS | `make-eval-20261006T130947Z` |
+
+The guardrails suite has 80 cases, 62 of them in Arabic: 30 for `pii-redact-output` (every recognizer, Arabic-Indic and Persian digits, spaces and dashes, tatweel between digit groups, a number glued to Arabic letters, both targets, nine negatives), 7 for `pii-block-in-memory`, 5 for `pii-arabic-names-log`, 14 for `prompt-injection-input` (tashkeel, tatweel, mixed script, five negatives), 6 for `web-domain-denylist`, 4 for `tool-visibility-by-role` and 14 for `topics-politics-llm-judge` (7 violating, 7 not).
+
+Time to first token (C2, `scripts/measure_ttft.py`, `evaluator`, OpenRouter profile, 20 turns per row, each in a new conversation; replaced in the owner decisions session of 2026-10-06, after OUTPUT redact moved to the sentence buffer). The phase 02 baseline was measured on `main` (commit `c4eb5b4`) in a git worktree whose agent replaced the phase 03 agent in the running stack, with the same prompts and profile; the phase 03 rows were measured right before (set A) and right after (set B) it. "Buffered" is forced by a global OUTPUT keyword block policy (`ttft-buffered-output`, switched on for the run and off after). p50 / p95 in seconds:
+
+| Answer path | One sentence, TTFT | Five sentences, TTFT | Five sentences, to the terminal event |
+|---|---|---|---|
+| phase 02, `main` (tokens streamed as produced) | 1.66 / 4.20 | 2.08 / 7.54 | 6.44 / 11.16 |
+| phase 03 streaming, set A | 2.37 / 3.50 | 2.33 / 8.71 | 5.81 / 16.55 |
+| phase 03 streaming, set B | 2.02 / 6.14 | 2.26 / 19.80 | 6.92 / 21.86 |
+| phase 03 buffered, set A | 1.94 / 6.82 | 6.46 / 31.25 | 6.47 / 31.26 |
+| phase 03 buffered, set B | 1.95 / 20.09 | 6.52 / 14.40 | 6.53 / 14.41 |
+
+Superseded by the measurement of the review round 1 fix session (2026-10-07, below), which reports n per row and the one-sentence time to the terminal event; its conclusions rest on p50 only. The table above is kept as measured.
+
+Pre-guard purge (D4) on the development database, `make purge-pre-guard DRY_RUN=1`, then `make purge-pre-guard`, then once more:
+
+| Run | memory items scanned | deleted | threads scanned | summaries scanned | redacted | removed |
+|---|---|---|---|---|---|---|
+| dry run | 4 | 0 | 87 | 0 | 0 | 0 |
+| apply | 4 | 0 | 87 | 0 | 0 | 0 |
+| again | 4 | 0 | 87 | 0 | 0 | 0 |
+
+The development data held no PII and no summary (no conversation passed the 8k trigger); the purge's behaviour on PII is covered by `tests/integration/test_guarded_storage.py::test_the_pre_guard_purge_is_a_dry_run_then_idempotent`.
+
+Left for this phase: **nothing but review.** Not verified: the `/admin/policies` page was not opened in a browser this session; it builds (`make up`), passes typecheck, lint and its unit tests, and its API calls are covered by the gateway and agent tests.
+
+Left behind in the development database (policies cannot be deleted, ADR-0101): `smoke-live-block` (created by smoke, switched off at its end) and `ttft-buffered-output` (the measurement's OUTPUT block policy, switched off). `topics-politics-llm-judge` is off again, as seeded.
+
+Human review needed (phase 03):
+- `config/policies/**`: the seven seed policies (entities and thresholds of the presidio policies, the injection patterns, the judge's topic description and examples, the placeholder denied domains, the `role:no-sql` visibility policy, disabled).
+- `config/prompts/guardrails/**`: `guardrails.judge.system`, `guardrails.judge.request`, `guardrails.rewrite` (1.0.0, ar and en).
+- `infra/presidio/**`: the recognizer patterns and scores; checksums are not verified (ADR-0097).
+- `evals/thresholds.yaml` (the guardrails thresholds of D8) and `evals/golden/guardrails.jsonl` (the 80 cases and their expected actions).
+- `services/agent/app/db/migrations/0002_guardrails.sql`: `guard_policies`, `guard_policy_heads`, `guard_events`, and the retention columns of `context_packages`.
+- `config/messages/errors.yaml`: `turn_in_flight`, `input_blocked`, `guard_unavailable`, `policy_not_found`, `policy_exists`, `policy_invalid`; the gateway's `messages_{ar,en}.properties` and the web catalogs (`errors.*`, `policies.*`, `header.policies`).
+- `.env.example`: `DEBUG_CONTEXT_RETENTION_DAYS`, `LOCK_POOL_SIZE`.
+- `docker-compose.yml`: `presidio-analyzer` (pinned 2.2.362, one worker); the agent's `REDIS_URL`, `PRESIDIO_URL`, `LOCK_POOL_SIZE`, `DEBUG_CONTEXT_RETENTION_DAYS` and its new dependencies on `redis` and `presidio-analyzer`; `agent-tests` on Redis database 15 with presidio. `docker-compose.dev.yml` publishes presidio on 5002.
+- Also: `config/guardrails.yaml` (sanitizer patterns, sentence buffer), `config/context.yaml` (`nodes.guard_judge`), `Makefile` (`purge-pre-guard`, `test-agent` starts redis and presidio), `services/gateway/Dockerfile` and `junit-totals.sh`, README amendment notes (§10.1, §14) and §20.2, ADR-0078 to ADR-0104 and the status note on ADR-0039.
+
+Owner notes:
+- **Docker memory.** The VM crashed once with 8 GB (stack, presidio-analyzer and a Gradle build together). The host has 64 GB; README §21.1 already recommends 12 GB or more. Until then, run `make test` before `make up`, or with the stack down.
+- **First token.** The sentence buffer adds about 0.3 s at p50 on one-sentence answers and makes a sentence the unit of streaming; buffered mode costs the whole generation. Enabling `topics-politics-llm-judge` buffers every answer in scope (D3).
+- **Assumptions**, decided in the owner decisions session (below): ADR-0092 decided with exceptions (ADR-0105), ADR-0093 and ADR-0099 accepted, ADR-0095 rejected (ADR-0106), ADR-0104 rejected (ADR-0107).
+- Phase 08: `POST /v1/turns/{id}/approve` must take the conversation lock (ADR-0082) and check ownership itself (residual risk 7).
+
+How to verify (phase 03):
+- `make test` (better with the stack down on an 8 GB VM), then `make up && make smoke && make eval`.
+- The lock: `make test-agent` runs `tests/integration/test_turn_lock.py`; by hand, two `POST /v1/chat/turns` on one conversation id, the second → 409 `turn_in_flight`.
+- The purge: `make purge-pre-guard DRY_RUN=1` prints counts and changes nothing.
+- The admin UI: http://localhost:3000/admin/policies as `admin`/`admin` (the header shows "سياسات الحماية" to admins only); test `pii-redact-output` on "اتصل على ٠٥٠١٢٣٤٥٦٧".
+- Time to first token: `uv run scripts/measure_ttft.py streaming 20` (and `--long`).
+
+### Owner decisions session on PR #3 (2026-10-06)
+
+Scope: the owner's five decisions on PR #3 and nothing else; status notes on ADR-0092, 0093, 0095, 0099, 0104.
+
+Checklist:
+- [x] Status notes: ADR-0092 decided (see ADR-0105), ADR-0093 and ADR-0099 accepted, ADR-0095 rejected (ADR-0106), ADR-0104 rejected (ADR-0107); ADR-0046 and ADR-0078 superseded by ADR-0107 for the `policy:` namespace and the role-scope refusal only
+- [x] Decision 1 (ADR-0105): overrides and `exception` computed at save time (migration `0003_policy_exceptions.sql`), strictness block > rewrite > redact > require_approval > warn > log_only > allow, exception badge, overrides in the save response and the form (preview endpoint), audited with the actor; tests: two tenants, only one with an exception; another group overrides nothing
+- [x] Decision 2 (ADR-0106): OUTPUT redact per sentence; only block and rewrite buffer; test: an OUTPUT redact policy keeps streaming and no token holds the span
+- [x] Decision 3 (ADR-0107): `policy:` realm roles forwarded as `principal.policy_roles` (only those, from the token only), `role:{name}` scopes, two-role conflicts to the stricter action, role-scoped MODEL_TIER ceilings, `GET /v1/admin/policy-roles` through the gateway's Keycloak Admin API client with a warning in the form, realm role `policy:pii-exempt` for `analyst`; README amendment notes under §10.1 and §11; APIs stay 1.3.0; tests as listed
+- [x] Decision 4: tenant `restricted` removed; `tool-visibility-by-role` is `role:no-sql`, hides sql, disabled; test that no seed, fixture or realm entry uses a tenant to serve a policy; the integration tests isolate their policies with policy roles
+- [x] Decision 5: purge test with dry-run and real-run counts matching; TTFT table replaced with a `main` baseline for both lengths; smoke leaves no policy residue (two runs, same policy row count; conversations, events and sessions grow by design); 20 borderline or Gulf-dialect judge cases; smoke exception check for analyst and viewer
+- [x] `make test`, `make eval` ×3, `make smoke` (twice); push
+
+Results, per G1 (OpenRouter profile):
+- `make test` (exit 0; run with the stack stopped, after the VM crash noted above):
+  - agent (pytest): **403 passed, 0 failed, 0 skipped** (388 before; +15: the role, exception, OUTPUT-redact, no-tenant and override tests)
+  - gateway (JUnit XML): **83 tests, 83 passed, 0 failed, 0 errors, 0 skipped** (77 before; +6: policy roles forwarded and forged ones ignored, none sent without a role, exception audit, override preview, policy-role listing, its refusals)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **66 passed, 0 failed, 0 skipped** (65 before; +1 for the unknown-role warning)
+  - Agent runs while building: 401 / 2 failed / 0 (the store's read path dropped the new columns; fixed), then 403 / 0 / 0.
+- `make up`: green; the agent applied `0003_policy_exceptions.sql`. The running Keycloak volume predates `policy:pii-exempt`, so it was added to the live realm with `kcadm` and assigned to `analyst` (the realm file is the source of truth: `make clean && make up` seeds it). The live `tool-visibility-by-role` was given the new seed as version 2 through the admin import (seeding never overwrites, I2).
+- `GET /v1/admin/policy-roles` on the live stack: `["policy:pii-exempt"]`, read with the gateway client's service account.
+- `make smoke`, two consecutive runs: **68/68 checks passed** each (60 before; +8: the role exception's six checks and the two residue checks). `agent.guard_policies` / `guard_policy_heads` rows: 13 / 9 before run 1, 14 / 10 after it (it created `smoke-pii-exempt` once), **14 / 10 after run 2**: a repeated run adds no policy rows (no policy residue; conversations, guard events, audit rows and Keycloak sessions grow by design). In the exception check the analyst's answer held the fake mobile and the viewer's tokens held `[REDACTED:SA_MOBILE]` only.
+- `make eval`, three runs, the judge's verdict cache flushed before each:
+
+| Run | guardrails (97 cases) | deterministic (66) | llm_judge accuracy / FPR (31) | borderline or Gulf (20) | general (28) | Langfuse dataset run |
+|---|---|---|---|---|---|---|
+| 1 | 97/97 PASS | 1.00 | 1.00 / 0.00 | 20/20 | 28/28 PASS | `make-eval-20261006T152214Z` |
+| 2 | 97/97 PASS | 1.00 | 1.00 / 0.00 | 20/20 | 28/28 PASS | `make-eval-20261006T152429Z` |
+| 3 | 97/97 PASS | 1.00 | 1.00 / 0.00 | 20/20 | 28/28 PASS | `make-eval-20261006T152653Z` |
+
+  The judge was exercised by 14 cases before, 3 of them borderline (the national day, a birthday "party", a student-council election) and none in Gulf dialect. 17 cases were added: 10 in Gulf dialect (5 violating, 5 not, 3 of those also borderline) and 7 borderline in MSA (3 violating, 4 not), so 20 of the 31 are borderline or Gulf-dialect (8 violating, 12 not). Thresholds unchanged. `tools-hide-web` became `tools-keep-web` (allow), since the visibility policy now hides sql only.
+- Purge (Decision 5): `tests/integration/test_guarded_storage.py::test_the_pre_guard_purge_is_a_dry_run_then_idempotent` seeds a fake email into `memory_items` and a fake mobile into a thread's summary, runs the dry run (counts, nothing changed), then the real run (the item deleted, the summary redacted, messages untouched), and asserts the scanned, deleted and redacted counts of both runs are equal; a third run finds nothing.
+- Time to first token: the replaced table is above, under Results.
+
+Human review needed (this session):
+- `infra/keycloak/realm-export.json`: realm role `policy:pii-exempt`, assigned to `analyst`.
+- `config/policies/**`: `tool-visibility-by-role.yaml` (role `no-sql`, sql hidden, disabled).
+- New ADRs: ADR-0105 (exceptions), ADR-0106 (OUTPUT redact per sentence), ADR-0107 (role scopes, policy roles, replacing ADR-0104), and the status notes on ADR-0046, 0078, 0092, 0093, 0095, 0099, 0104.
+- README amendment notes under §10.1 and §11.
+- `evals/golden/guardrails.jsonl`: the 17 new judge cases and their tags.
+- Also: `services/agent/app/db/migrations/0003_policy_exceptions.sql`; `docker-compose.yml` (the gateway's `GATEWAY_KEYCLOAK_ADMIN_*`, the realm mounted read-only into `agent-tests`); the gateway's `identity_unavailable` code and texts.
+
+How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up`, `make smoke` twice (the policy residue check), `make eval`. On an existing Keycloak volume, add `policy:pii-exempt` to `analyst` first (or `make clean && make up`), or the smoke exception check fails on the analyst's token.
+
+### Fix session: PR #3 review round 1 (2026-10-07)
+
+Scope: the owner's decisions 0–9 on the round 1 review, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 0 Ground rules: CLAUDE.md rule 11 and the OpenAPI exception; G2–G5 verbatim above
+- [x] 1 Exceptions (new ADR): containment, span-level overrides, kb:/tool: weakening refused at OUTPUT/DATA, one group resolution in both answer modes, flag recomputed for the group on every save/import/seed/enable, `agent.guard_policy_changes` in the change's transaction, change log in the admin UI; the seven tests
+- [x] 2 Turn lock: ownership before the lock (403), release inside the task before the end of the stream, pool reset with pg_advisory_unlock_all(), 503 `service_busy`; the four tests
+- [x] 3 Judge cache: key with id, version or draft hash, prompt id@version, model alias; the panel never writes, a draft never reads; test
+- [x] 4 Langfuse: judge calls on memory_candidate/summary content-free with no package; HMAC-SHA256 hashes with CONTENT_HASH_KEY; tests
+- [x] 5 Sentence buffer: no cut inside a joined digit run; final DATA pass with retract and re-send; tests
+- [x] 6 Purge: summary read and written under the lock; redact in place; rowcounts; global and tenant policies only; tests
+- [x] 7 Rule 6: no Broken() gateway, no FakeJudge
+- [x] 8 Smaller fixes (stale texts, i18n, realm ADR, policy-role listing, panel principal, tenant guard test, propagation test, test rename, tenant hint)
+- [x] 9 Smoke trap, run-scoped audit check, cross-run residue check; PROGRESS wording; guardrails.jsonl edits with OUTPUT judge cases; TTFT n, failures, one-sentence terminal time
+- [x] make test, make eval ×3, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, on the OpenRouter profile the local `.env` is on:
+
+- `make test` (exit 0; run with the stack stopped):
+  - agent (pytest): **436 passed, 0 failed, 0 skipped** (403 before; +33: containment, span-level and refusal tests, the change log, the lock's four tests and the non-owner order, the judge on its real path and the draft cache, the content-free judge and summarizer spans, the digit-run buffer and the final pass, the purge's exact counts and role exceptions, the realm and seeded-scope checks; the three FakeJudge unit tests moved to `tests/integration/test_judge.py`)
+  - gateway (JUnit XML): **87 tests, 87 passed, 0 failed, 0 errors, 0 skipped** (83 before; +4: 503 `service_busy`, the agent's 403, policy roles paged and filtered, the change log proxy)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped** (66 before; +4 locale-aware helper tests)
+  - While building, one gateway run had 86/87 (the OpenAPI drift test, before `make openapi` regenerated the specs).
+- `make up`: green; the agent applied `0004_policy_changes.sql`. The local `.env` needed `CONTENT_HASH_KEY` (added once; `make env` generates it for a new `.env`). The development database had been recreated before this session (seeds at 07:45 UTC today, one smoke run at 07:49), so it held 9 policy versions and 9 heads, not the 14 / 10 recorded above.
+- `make smoke`, two consecutive runs: **69/69 checks passed** each (68 before; +1, the cross-run policy row check; the residue check now compares all policy rows). Policy rows (versions heads): 9 9 before and after run 1 (smoke's two policies existed), **9 9 after run 2, equal to run 1's**. The audit check matched this run's two request ids.
+- `make eval`, three runs. The judge's verdict cache held 0 keys before each run: the suite runs through the test panel, which no longer writes the cache (ADR-0110), so every run judged afresh.
+
+| Run | guardrails (103 cases) | deterministic (66) | llm_judge accuracy / FPR (37, 8 at OUTPUT) | borderline or Gulf (24) | general (28) | Langfuse dataset run |
+|---|---|---|---|---|---|---|
+| 1 | 103/103 PASS | 1.00 | 1.00 / 0.00 | 24/24 | 28/28 (1.00) PASS | `make-eval-20261007T090307Z` |
+| 2 | 103/103 PASS | 1.00 | 1.00 / 0.00 | 24/24 | 27/28 (0.96) PASS | `make-eval-20261007T090502Z` |
+| 3 | 103/103 PASS | 1.00 | 1.00 / 0.00 | 24/24 | 28/28 (1.00) PASS | `make-eval-20261007T090703Z` |
+
+  Run 2's general miss: `general-ar-boiling` answered "100" alone (not mostly Arabic); the threshold is 0.85.
+- Time to first token (`scripts/measure_ttft.py`, `evaluator`, 20 turns per row, each in a new conversation). The phase 02 baseline ran on `main` (`c4eb5b4`) in a worktree whose agent replaced the stack's agent, right after the phase 03 rows; "buffered" is forced by the global OUTPUT block policy `ttft-buffered-output` (imported on, switched off after). Seconds, p50 / p95:
+
+| Answer path | n | One sentence, TTFT | One sentence, to the terminal event | Five sentences, TTFT | Five sentences, to the terminal event |
+|---|---|---|---|---|---|
+| phase 02, `main` | 20/20, 20/20 | 1.58 / 2.74 | 1.92 / 3.10 | 1.54 / 2.95 | 5.09 / 8.41 |
+| phase 03 streaming | 20/20, 20/20 | 1.85 / 2.35 | 1.86 / 2.37 | 2.23 / 3.03 | 4.95 / 6.77 |
+| phase 03 buffered | 20/20, 20/20 | 1.75 / 2.60 | 1.76 / 2.61 | 4.86 / 6.95 | 4.87 / 6.96 |
+
+  No turn failed (no turn without a token, none without `done`). At p50: the sentence buffer delays the first token by 0.27 s on one-sentence answers and 0.69 s on five-sentence answers against `main`; the time to the terminal event is unchanged (1.86 s against 1.92 s, 4.95 s against 5.09 s), so the whole-answer DATA pass (ADR-0111) costs nothing visible. Buffering costs the whole generation on long answers: first token at 4.86 s against 2.23 s streaming. p95 values are reported, not interpreted.
+
+Left behind in the development database: `ttft-buffered-output` (created by the measurement, switched off). It adds one version and one head after the second smoke run, so **the next `make smoke` flags it once** ("policy rows 10 10 differ from the previous run's 9 9"), as the check is meant to; remove `build/smoke/policy-rows` to take the new counts as the reference.
+
+Human review needed (this session):
+- New ADRs: ADR-0108 (exceptions by containment, per span; kb:/tool: refusal), ADR-0109 (turn lock), ADR-0110 (judge cache, content-free judge, HMAC hashes), ADR-0111 (sentence buffer, whole-answer pass), ADR-0112 (purge), ADR-0113 (gateway service account grants), ADR-0114 (assumed: smaller choices); the status notes on ADR-0079, 0080, 0081, 0082, 0088, 0089, 0092, 0105, 0106, 0107.
+- `CLAUDE.md`: rule 11 and the OpenAPI exception.
+- `config/policies/**` (unchanged this session, under the new resolution rule), `config/messages/sanitize.yaml` (new).
+- `evals/golden/guardrails.jsonl`: two few-shot repeats removed, two Gulf negatives replaced, eight OUTPUT judge cases.
+- `services/agent/app/db/migrations/0004_policy_changes.sql`: heads' `overrides` and `exception`, `agent.guard_policy_changes`.
+- `config/messages/errors.yaml`: `service_busy` (and the gateway's `messages_{ar,en}.properties`, the web catalogs).
+- `.env.example`: `CONTENT_HASH_KEY`; `docker-compose.yml` passes it to the agent.
+
+How to verify (this session): `make test` (stack stopped on an 8 GB VM), `make up` (an existing `.env` needs `CONTENT_HASH_KEY=<openssl rand -hex 32>`), `make smoke` twice (remove `build/smoke/policy-rows` first if policies changed since the last run), `make eval`, `uv run scripts/measure_ttft.py streaming 20` (and `--long`).
+
+### Narrow fix before review round 2 (2026-10-07)
+
+Scope: three owner items, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Whole-text vs span (new ADR, status note on ADR-0108): a whole-text exception cancels only a wider whole-text verdict; a save of a whole-text policy that would weaken a span-based one carries a warning (save response, edit form); tests
+- [x] 2 Induced exceptions: the acting change row carries `induced[]`; each affected policy gets a `flagged`/`unflagged` row with the acting actor; shown in the change log; flags count only enabled wider policies, so a disable can unflag (owner item 2); tests
+- [x] 3 `measure_ttft.py --buffered` imports the fixed policy `ttft-buffered-output` and switches it off in `finally`; two runs leave equal policy rows (smoke check)
+- [x] make test, make eval ×1, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile:
+
+- `make test` (exit 0, stack stopped):
+  - agent (pytest): **439 passed, 0 failed, 0 skipped** (436 before; +3: a judge exception leaves presidio redaction in place, a judge exception still cancels a wider judge block, the save-and-preview warning; the flag test now asserts the `flagged` and `unflagged` rows and `induced`)
+  - gateway (JUnit XML): **87 tests, 87 passed, 0 failed, 0 errors, 0 skipped**
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped**
+- `make up`: green; the agent applied `0005_induced_changes.sql`.
+- `make smoke`, two consecutive runs: **71/71 checks passed** each (69 before; +2: two buffered TTFT runs leave equal policy rows, 10 10, and the TTFT policy off). The stored reference (9 9) predated `ttft-buffered-output` (last session's note), so it was removed before run 1, which recorded 10 10; **run 2's policy rows equal run 1's (10 10)**. The TTFT import reused the existing version (versions 10 → 10).
+- `make eval`, one run: **guardrails 103/103 PASS** (deterministic 1.00, 66 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 37 cases, 24 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**; Langfuse dataset run `make-eval-20261007T095219Z`.
+
+Human review needed: ADR-0115 and the status note on ADR-0108; `services/agent/app/db/migrations/0005_induced_changes.sql` (`induced` on `agent.guard_policy_changes`, the `flagged` and `unflagged` change kinds).
+
+### Narrow fix for review round 2 (2026-10-07)
+
+Scope: the round 2 finding (a cross-tenant signal through the judge cache), nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Judge cache key includes the tenant (ADR-0116, status note on ADR-0110); the panel keys by its simulated tenant and never writes; test: one global judge policy, t1 then t2, two model calls, two entries, t2 never reads t1's
+- [x] 2 Client guard events carry checkpoint, policy id, version, name, action, target and a block's messages only; the checker detail stays on the `guard.check` span, in state and in the audit delta (`guard_audit`, removed by the gateway relay); `docs/events.schema.json` and web types regenerated; web chip; tests: judge block at INPUT and OUTPUT (agent turns, gateway relay), smoke on the live relay and audit row
+- [x] make test, make eval ×1, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack stopped):
+  - agent (pytest): **443 passed, 0 failed, 0 skipped** (439 before; +4: a verdict per tenant under one global judge policy, the panel keyed by its simulated tenant, a judge block at INPUT and at OUTPUT with no checker detail in client events; the turn and storage tests now read the detail from `guard_audit`). The first run of this session failed 1 test (`test_a_memory_candidate_with_a_mobile_number_is_dropped_without_a_message` read `entities` from the client view). It was fixed and the whole suite was rerun.
+  - gateway (JUnit XML): **89 tests, 89 passed, 0 failed, 0 errors, 0 skipped** (87 before; +2: a judge block at INPUT and at OUTPUT through the relay, with `guard_audit` removed and the audit record keeping the detail)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped**
+- `make up`: green.
+- `make eval`, one run: **guardrails 103/103 PASS** (deterministic 1.00, 66 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 37 cases, 24 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**; Langfuse dataset run `make-eval-20261007T104618Z`.
+- `make smoke`, two consecutive runs: **73/73 checks passed** each (71 before; +2: the relayed guard event and terminal event carry no checker detail and no `guard_audit`; the blocked turn's audit row keeps the checker's detail). Policy rows 10 10 in both runs, equal to the stored reference; neither run added a row.
+
+How to verify: `make test`, `make up`, `make eval`, `make smoke` (twice).
+
+Human review needed: ADR-0116 and the status notes on ADR-0091, ADR-0096 and ADR-0110; `docs/events.schema.json` (`guard` loses `detail`, `entities` and `latency_ms` and gains `policy_name`, `message_ar` and `message_en`; `done` and `error` gain `guard_audit`, agent to gateway only).
+
+### Narrow fix for the verification review of round 2 (2026-10-07)
+
+Scope: the three findings of the verification review, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 The test panel never reads or writes the judge verdict cache (stored policies and drafts); new ADR: the `admin` realm role is a platform operator above all tenants; test: a panel test under a simulated tenant, after a live turn in that tenant cached the text, calls the judge and shows no cache marker
+- [x] 2 Guard checker model calls are not in the client's turn usage; they are on the `guard.check` span and in `guard_audit` (per check `usage`, a clear judge verdict as an audit-only record); the audit record keeps the turn's full usage and `guard_usage`; test: the same text twice in one tenant gives the same client usage, the audit shows the judge call on the first turn only
+- [x] 3 `SseRelay` discards an event block without its closing blank line on EOF or a broken stream; the client gets `agent_stream_interrupted` only; permanent test in `ChatProxyTest` (the verification reproduction)
+- [x] 4 New ADR superseding ADR-0116's claims: what is closed and what remains
+- [x] make test, make eval ×1, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack stopped):
+  - agent (pytest): **444 passed, 0 failed, 0 skipped** (443 before; +1: the same text twice in one tenant gives the same client usage and guard events, and only the first turn's `guard_audit` holds the judge call; the panel tenant test was replaced by the ADR-0117 test, and the draft test now expects the stored policy's panel test to call the judge). The first run of this session failed 1 test, the new usage test: the judge call's own MODEL_TIER evaluation reached the client's `guard_events` only when the judge ran (a second cache-status signal). Those evaluations are now audit-only (ADR-0118) and the whole suite was rerun.
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped** (89 before; +2: an incomplete terminal event with `guard_audit` is discarded and the client gets `agent_stream_interrupted` only; the audit record's `usage` adds the guard checks' `guard_usage`, the client's does not)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **70 passed, 0 failed, 0 skipped**
+- `make up`: green.
+- `make eval`, one run: **guardrails 103/103 PASS** (deterministic 1.00, 66 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 37 cases, 24 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**; Langfuse dataset run `make-eval-20261007T130552Z`.
+- `make smoke`, two consecutive runs: **73/73 checks passed** each. Policy rows 10 10 in both runs, equal to the stored reference; neither run added a row.
+
+How to verify: `make test`, `make up`, `make eval`, `make smoke` (twice).
+
+Human review needed: ADR-0117 (the `admin` role is a platform operator; the panel never touches the verdict cache), ADR-0118 (guard checks out of client usage, complete events only, what is closed and what remains) and the status note on ADR-0116; `services/gateway/src/main/java/sa/ncai/agent/gateway/proxy/SseRelay.java`; `docs/events.schema.json` (`guard_audit[].usage`, agent to gateway only).
+
+### UI fix session: the owner's visual check of /admin/policies (2026-10-07)
+
+Scope: the eight items of the owner's visual check, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Migration `0006`: one `guard_policy_changes` row (`seed`, actor `backfill`) for every policy version without one; test of the backfill; smoke check: every seeded policy has its `seed` row in the change log; verified on a clean stack (`make clean && make up`)
+- [x] 2 Bilingual text: `name_ar`, `name_en`, `description_ar`, `description_en` (migration `0007`; `name` and `description` become the `_en` fields); Arabic name and description in every seed; agent and gateway documents, OpenAPI regenerated (1.3.0, unmerged PR); list, detail and edit form show and edit both, display follows the UI locale; import/export carries both; validation requires both names
+- [x] 3 Meta line: chips action, exception badge, scope, checkpoints (Latin comma), checker, `id@version`, each in `<bdi>`, no dot separators; the same in the detail header and each version history line
+- [x] 4 Arabic action labels in `ar.json` (en keeps its words), used everywhere an action is shown, chat guard chips included
+- [x] 5 Arabic shaping: no letter-spacing, text-transform or monospace on text that can hold Arabic; the version history label
+- [x] 6 `purpose: production | test` (default production); smoke.sh and `scripts/measure_ttft.py` import theirs as `test`; the admin list hides test policies until "Show test policies"
+- [x] 7 Policy roles field: Arabic-only placeholder, the example in a hint line inside `<bdi>`; descriptions and free text with `dir="auto"`
+- [x] 8 Tests: web (meta chip order in ar and en, action labels from i18n, test policies hidden until the toggle); agent (bilingual round trip through import/export, a policy without `name_ar` refused)
+- [x] make test, make smoke ×2; record per rule 11; push
+
+Results (2026-10-07), per rule 11, OpenRouter profile (the same `.env` as the previous session), on a clean stack (`make clean && make up`):
+
+- Clean stack, item 1: after `make clean && make up`, `GET /v1/admin/policies/{id}/changes` as admin shows a `seed` row (actor `seed`, `{id}@1`) for each of the 7 seeds; `agent.schema_migrations` lists `0006_backfill_policy_changes` and `0007_bilingual_policy_text`. On a clean database the backfill adds nothing (the seed writes its rows); the backfill itself is tested on a rolled-back older version (`test_migrations.py`).
+- `make test` (exit 0):
+  - agent (pytest): **453 passed, 0 failed, 0 skipped** (444 before; +9: both names required and descriptions optional, purpose default and values, bilingual text and purpose round trip through export and import, an import without `name_ar` refused whole, every seed has its seed change row, the API refuses a policy without `name_ar` on create, version and import, the API carries both languages and the purpose, migration 0006 backfill, migration 0007 rename). The first run of this session failed 2 tests (`test_policy_store.py` still read `policy.name`); they were fixed and the whole suite was rerun.
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped** (91 before; the create test now also checks that both names reach the agent and come back, and that no `name` field is sent)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **83 passed, 0 failed, 0 skipped** (70 before; +13: the meta line's chips in the fixed order, each a `<bdi>`, in ar and in en, with and without the exception badge; every action label from the locale's catalog and the Arabic labels; no monospace on a chip that holds Arabic; the list hides test policies until the toggle and names policies in the UI locale, in ar and in en; locale-aware name and description; the test-policy filter; the form carries both names, both descriptions and the purpose; no letter-spacing or text transform in any web source)
+- `make up`: green (clean volumes).
+- `make eval`: not run this session (not asked; no change to checkers, prompts or the eval datasets).
+- `make smoke`, two consecutive runs: **76/76 checks passed** each (73 before; +3: every seed has both names and purpose production, every seed has its seed row in the change log, smoke's own policies are test policies). The first run on the clean database added 3 policy rows (versions 7 → 10, heads 7 → 10); the second added 0. Policy rows 10 10 in both runs, equal to the stored reference.
+
+How to verify: `make clean && make up`, `make test`, `make smoke` (twice); open `/admin/policies` in Arabic and in English: names follow the locale, the meta line under each policy, in the detail header and on each version line reads action, (exception), scope, checkpoints, checker, `id@version` as separate chips; "إظهار سياسات الاختبار" shows `smoke-live-block`, `smoke-pii-exempt` and `ttft-buffered-output`.
+
+Not changed (outside the eight items): a guard event's `policy_name` stays the English name, so the chat chip's tooltip is English in Arabic (ADR-0119, assumed); `README.md` still describes a policy's `name` and `description` in one language.
+
+Human review needed: `config/policies/*.yaml` (the Arabic names and descriptions); the migrations `services/agent/app/db/migrations/0006_backfill_policy_changes.sql` and `0007_bilingual_policy_text.sql` (0007 renames fields inside stored versions; `name_ar` starts as the English name on an older database); `services/web/src/i18n/ar.json` (action labels, field labels, the purpose and toggle strings, the roles placeholder); ADR-0119.
+
+### Seed and eval fix session: the owner's review of config/policies and guardrails.jsonl (2026-10-11)
+
+Scope: the six owner items, nothing else; `docs/HANDOFF.md` untouched. Fake PII only (G3).
+
+Checklist:
+- [x] 1 `prompt-injection-input`: Gulf forms on folded text (انسى/انسي، طنش، لا تلتزم ب…، تعليماتك/اوامرك/قواعدك، اللي قبل/اللي فوق beside السابقة/اعلاه); guardrails.jsonl: ≥5 Gulf block, ≥3 Gulf allow
+- [x] 2 `SA_NATIONAL_ID`: redacted when the Luhn check digit is valid or a context word is within 5 tokens before; new ADR citing the algorithm; positives regenerated with valid check digits; negatives (Hijri-prefixed reference, invoice, order number); an invalid checksum after «رقم الهوية» still redacted
+- [x] 3 TOOL_LIST block: integration test (no client guard event, no message_ar, the turn continues with the remaining capabilities), fixed where needed; `tool-visibility-by-role` uses `regex` `^sql$`; eval case: `nosql_search` kept
+- [x] 4 Arabic-only `name_ar` and `description_ar` in every seed
+- [x] 5 `topics-politics-llm-judge` new text; new seed `topics-sectarian-tribal-llm-judge` (disabled); guardrails.jsonl: politics rewritten (≥25, ≥8 OUTPUT, ≥10 borderline), ≥15 sectarian/tribal, no few-shot repeat; changed seeds imported on the dev stack as new versions
+- [x] 6 Phase 09 tech debt recorded (below)
+- [x] make test, make eval ×3, make smoke ×2; record per rule 11; push
+
+What changed:
+- Item 1: `OVERRIDE_AR` takes انسى/انسي/انس، طنش، «لا تلتزم ب…»، possessive objects alone, and اللي قبل / اللي فوق beside السابقة، اعلاه، التي تلقيتها (ADR-0122). 7 Gulf block and 5 Gulf allow eval cases; unit tests on the seed file.
+- Item 2: `app/guardrails/checkers/saudi_id.py`: an `SA_NATIONAL_ID` candidate is kept when its Luhn check digit is valid or a context word is within the 5 tokens before it (ADR-0120, with the algorithm's sources). Every positive ID case has a valid check digit; new: two checksum-only positives, two context positives with an invalid check digit (Arabic and English), negatives for two Hijri-prefixed references, an invoice, an order number and a context word seven tokens away.
+- Item 3: the test failed before the fix: the TOOL_LIST block streamed a `guard` event with `message_ar`. Fixed in `engine._tool_list` (audit-only, no messages; ADR-0121). New test-only capability `echo` (`tests/fixtures/capabilities/echo`) so a turn routes to two capabilities. `tool-visibility-by-role` uses `regex` `^sql$`; `nosql_search` and `sql_reports` are kept (eval).
+- Item 4: Arabic-only `name_ar`, `description_ar`, `message_ar` in every seed; `tests/unit/test_policy_seeds.py` fails on any Latin letter there.
+- Item 5: `topics-politics-llm-judge` with the owner's text; new `topics-sectarian-tribal-llm-judge` (disabled). Eval: 34 politics cases (9 OUTPUT, 18 borderline, 10 Gulf; the old 37 removed), 19 sectarian/tribal cases (4 OUTPUT, 9 borderline, 5 Gulf); no case repeats a few-shot example (checked by script). Thresholds unchanged.
+- Dev stack import (I2): after `make up` seeded `topics-sectarian-tribal-llm-judge` as version 1, the admin imported every file in `config/policies/` through `POST /v1/admin/policies/import`: versioned `pii-block-in-memory`, `pii-redact-output`, `prompt-injection-input`, `tool-visibility-by-role`, `topics-politics-llm-judge`, `web-domain-denylist` (each now version 2); unchanged `pii-arabic-names-log`, `topics-sectarian-tribal-llm-judge`; none created or switched. Policy rows 11 11 → 17 11.
+- Item 6: two tech debt items under Phase 09 below.
+
+Results (2026-10-11), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack running):
+  - agent (pytest): **507 passed, 0 failed, 0 skipped** (453 before; +54: 6 check-digit, 12 context-word and 6 no-context cases, 5 presidio checker cases with a mocked analyzer, 8 Gulf injection blocks and 7 allows on the seed's patterns, 9 seed tests (8 seeds and the non-empty check), the silent TOOL_LIST turn; the no-capability TOOL_LIST test now reads the block from `guard_audit`)
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped**
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **83 passed, 0 failed, 0 skipped**
+- `make up`: green; the agent seeded `topics-sectarian-tribal-llm-judge`.
+- `make eval`, three runs, each: **guardrails 142/142 PASS** (deterministic 1.00, 89 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 53 cases, 35 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**. Langfuse dataset runs `make-eval-20261011T063358Z`, `make-eval-20261011T063610Z`, `make-eval-20261011T063801Z`.
+- `make smoke`, two consecutive runs: **76/76 checks passed** each ("every seed policy has its seed row" now covers 8 policies). The stored reference (10 10) predated this session's seed and versions, so it was removed before run 1, which recorded 17 11; **run 2's policy rows equal run 1's (17 11)**; neither run added a row.
+
+How to verify: `make test`, `make up`, then import `config/policies/*.yaml` as admin on an older database (a clean one seeds them), `make eval`, `make smoke` (twice; remove `build/smoke/policy-rows` first on a database whose policies changed).
+
+Human review needed: `config/policies/**` (the Arabic names, descriptions and messages; both topic definitions and their few-shot examples, the sectarian ones written by the agent; the injection pattern); `evals/golden/guardrails.jsonl`; ADR-0120 (the check digit and its sources; the context words), ADR-0121, ADR-0122.
+
+### UI session 2: the owner's visual check of /admin/policies (2026-10-11)
+
+Scope: the eight owner items, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Actor names: migration adds the actor's username and display name beside the id on `guard_policy_changes` and version rows; the gateway sends them from the verified token; seed and backfill rows keep `seed` / `backfill`; history and change log show the display name, username and id in a tooltip, the id when there is no name
+- [x] 2 Scope as kind (عام، جهة، دور، قاعدة معرفة، أداة) and value; global without a value, role from the gateway's `policy:*` list, tenant defaulting to `default`; short Arabic hints with each example id in its own `<bdi>` chip; the same for the group hint
+- [x] 3 Readable configuration summary per checker in the detail view; raw JSON behind "عرض الإعدادات التقنية"
+- [x] 4 A truncated policy name has the full name in a tooltip and in the detail header
+- [x] 5 Structured configuration editors per checker, DATA targets in every editor, "إعدادات متقدمة" JSON view kept in sync, invalid JSON blocks saving; web tests: seed round trip per editor, i18n validation messages, JSON view in sync
+- [x] 6 Daily matches table hides test policies with the same toggle
+- [x] 7 Test panel: result heading per action; Arabic entity labels in the explanation and on span badges; explanation built from i18n parts with technical values in `<bdi>`
+- [x] 8 Import placeholder "الصق هنا ملف السياسات"; the format name in a heading chip
+- [x] make test, make smoke ×2; record per rule 11; push
+
+What changed (ADR-0123):
+- Item 1: migration `0008_actor_names.sql` (`created_by_username`, `created_by_name` on `agent.guard_policies`; `actor_username`, `actor_name` on `agent.guard_policy_changes`; `seed` / `backfill` rows named after themselves). The gateway sends `X-User-Name` and `X-User-Display-Name` (percent-encoded UTF-8) from the verified token on every admin call; the agent stores them beside the id; the API carries them (OpenAPI regenerated, still 1.3.0). The history and change log show the display name, the username and id in a tooltip, the id when there is no name.
+- Item 2: `ScopeField` (kind عام، جهة، دور، قاعدة معرفة، أداة and a value; role from the gateway's policy roles; tenant starts as `default`); scope and group hints are one Arabic sentence each, with each example id in its own `<bdi>` chip.
+- Item 3: `ConfigSummary` in the detail view; the raw JSON behind "عرض الإعدادات التقنية".
+- Item 4: a list name has its full name in `title`; the detail header wraps instead of cutting.
+- Item 5: `ConfigEditor` per checker (keyword tags; pattern rows with an inline Arabic error; entity checkboxes with Arabic labels and the score threshold; topic, examples table, minimum confidence; tier and model roles; DATA targets in every editor); "إعدادات متقدمة" edits the same JSON text; invalid JSON pauses the editor and blocks saving with an Arabic message; the editor refuses before saving what the agent's validator would refuse.
+- Item 6: the page owns the test-policy toggle; the daily matches table hides test policies' rows while it is off.
+- Item 7: the heading over the resulting text follows the action; entity types in the explanation and on span badges use the Arabic labels; explanation sentences carry `<v>` / `<list>` tags, each value in its own `<bdi>`.
+- Item 8: placeholder "الصق هنا ملف السياسات"; the format chip YAML in the section heading.
+- Also, needed by the items: the target label `memory_candidate` is "عناصر الذاكرة" everywhere; the `configInvalid` message is Arabic-only; the helper `explanationArgs` and its test were removed (item 7 replaced it); the web's dev dependency `yaml` 2.8.4 and the `config` build context of `make test-web` let the editor tests read the seed files.
+
+Results (2026-10-11), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack running):
+  - agent (pytest): **509 passed, 0 failed, 0 skipped** (507 before; +2: the admin API keeps the actor's names at the time on version and change rows, none without the headers, the seed named `seed`; migration 0008 names seed and backfill rows and leaves others without a name)
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped** (91 before; the list test also checks `X-User-Name` and the percent-encoded Arabic `X-User-Display-Name`, the change-log test the two name fields)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **121 passed, 0 failed, 0 skipped** (83 before; −1 `explanationArgs`; +39 in `PolicyEditors.test.ts`: every seed (8) and two written configs round-trip their editor (load, save unchanged, identical config, no problem shown), every checker covered, each editor shows its values, other keys and unknown entities kept, 10 validation messages from i18n in ar and en, Python named groups accepted, invalid JSON pauses the editor and blocks saving, the JSON view and the editor in sync both ways, the readable summary (2), scope parse and fields (2), Arabic-only hints with one `<bdi>` chip per example, the actor's name and tooltip (2), the truncated name's tooltip, the matches table and the toggle, the heading per action, Arabic entity labels in the explanation, one `<bdi>` per value, the import placeholder)
+- `make up`: green; the agent applied `0008_actor_names.sql`: the 8 seed versions and their 8 seed change rows are named `seed`; 9 versions and 54 change rows saved before by an admin keep no name.
+- `make eval`: not run this session (not asked; no change to checkers, prompts, seeds or eval datasets).
+- `make smoke`, two consecutive runs: **76/76 checks passed** each. Policy rows 17 11 before run 1, after it, and after run 2, equal to the stored reference. After run 1, smoke's admin changes are stored with `admin` / `مدير المنصة` beside the id.
+
+How to verify: `make up`, `make test`, `make smoke` (twice); open `/admin/policies` as admin: a change made now shows "مدير المنصة" with the username and id in a tooltip; the scope is two fields; a policy's detail reads its configuration in Arabic, with the JSON behind "عرض الإعدادات التقنية"; "تعديل" shows the editor of its checker, and "إعدادات متقدمة" the same configuration as JSON; the matches table hides `smoke-live-block` until "إظهار سياسات الاختبار".
+
+Human review needed: `services/agent/app/db/migrations/0008_actor_names.sql`; `services/web/src/i18n/ar.json` (scope kinds and hints, the group hint, entity, tier, model-role and target labels, the editor and summary labels, the editors' error messages, the per-action headings, the explanation sentences with their tags, the import placeholder); ADR-0123.
+
+Item 9, added by the owner in the same session (ADR-0124):
+- [x] 9 DATA target chips after the checkpoints chip (one per target, or one "كل الوجهات"); "منع الحفظ" for a DATA-only block whose only target is memory, in the list, detail header, version lines and test panel; the checkpoints chip's tooltip lists its checkpoints' Arabic descriptions
+- [x] make test, make smoke ×2; record per rule 11; push
+
+What changed: `PolicyMeta` gains the target chips and the checkpoints tooltip; `actionLabelKey` / `preventsSaving` name the memory block; the summary and editor say "كل الوجهات" as the chip does.
+
+Results (2026-10-11), per rule 11, OpenRouter profile:
+- `make test` (exit 0, after `make up` rebuilt the web):
+  - agent (pytest): **509 passed, 0 failed, 0 skipped**
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped**
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **125 passed, 0 failed, 0 skipped** (121 before; +4: one chip per target in order, one all-targets chip and none without DATA, "منع الحفظ" in ar and en and "حظر" for the four near cases, the checkpoints tooltip and the seven descriptions; the two meta-line order tests now expect the target chip, and the no-separator check reads the visible text, since the tooltip attribute holds a comma)
+- `make smoke`, two consecutive runs: **76/76 checks passed** each; policy rows 17 11 in both, equal to the stored reference.
+
+Human review needed (item 9): `services/web/src/i18n/ar.json` (`actionPreventSave` منع الحفظ, `config.allTargets` كل الوجهات); ADR-0124.
 
 ## Phase 04: UC3 documents (`docs` capability)
 
@@ -601,5 +1023,9 @@ Human review needed (this session): `config/context.yaml` pipeline order; ADR-00
 - Branch: `phase/09-hardening`
 - Status: not started
 - Done when: CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check.
+
+Tech debt carried from the owner's review of PR #3 (2026-10-11), not implemented in phase 03:
+- A production Keycloak realm export without seed users or passwords; `infra/keycloak/realm-export.json` holds the dev seed users and their passwords and is for development only.
+- Removing a realm role (a `cap:*`, `kb:*` or `policy:*` role) takes effect only when the user's access token expires (300 s): the gateway and the agent read roles from the JWT. Shorten the token lifetime, or revoke sessions or check roles on each request, for immediate removal.
 
 Hardening option carried from the fourth PR #1 review (ADR-0053): capability isolation is enforced in-process (fresh config, exception/return firewall, core-owned compilation, lint). `RuntimeContext`'s callables are still core objects reachable by attribute reflection. If capabilities ever become third-party rather than first-party code in this repo, run each subgraph in a separate worker process with only its `RuntimeContext` marshalled across the boundary. Not needed for v1's five first-party capabilities.

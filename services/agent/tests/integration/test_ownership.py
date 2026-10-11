@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.api.ownership import Owner
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
@@ -50,25 +51,42 @@ async def test_a_refused_turn_writes_nothing_to_the_thread(client, services, lit
     values = (await services.graph.aget_state(config)).values
 
     for intruder in (_principal(user_id="u-2"), _principal(tenant_id="tenant-b")):
-        events = _events(await _turn(client, conversation, intruder, message="ماذا سأل صاحب المحادثة؟"))
-        assert [(e["type"], e["data"]["code"]) for e in events] == [("error", "conversation_forbidden")]
+        # Refused before the lock and before any stream (ADR-0109).
+        refused = await _turn(client, conversation, intruder, message="ماذا سأل صاحب المحادثة؟")
+        assert refused.status_code == 403 and refused.json()["error"]["code"] == "conversation_forbidden"
 
     assert await _checkpoints(services, conversation) == checkpoints
     assert (await services.graph.aget_state(config)).values == values
 
 
 async def test_concurrent_first_turns_bind_one_owner(client, services, litellm):
+    """Concurrent first turns of different users: the atomic binding picks one owner before
+    any lock is taken, so every other caller is refused with 403 conversation_forbidden,
+    never 409 turn_in_flight (ADR-0109). One owner, one turn."""
     conversation = str(uuid.uuid4())
     responses = await asyncio.gather(
         *(_turn(client, conversation, _principal(user_id=f"u-race-{i}")) for i in range(4))
     )
-    endings = [_events(response)[-1] for response in responses]
-
-    assert [e["type"] for e in endings].count("done") == 1
-    assert [e["data"]["code"] for e in endings if e["type"] == "error"] == ["conversation_forbidden"] * 3
+    winners = [r for r in responses if r.status_code == 200 and _events(r)[-1]["type"] == "done"]
+    assert len(winners) == 1
+    for response in responses:
+        if response in winners:
+            continue
+        assert response.status_code == 403 and response.json()["error"]["code"] == "conversation_forbidden"
     snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
-    winner = next(r for r, e in zip(responses, endings, strict=True) if e["type"] == "done")
-    assert snapshot.values["user_id"] == json.loads(winner.request.content)["principal"]["user_id"]
+    assert snapshot.values["user_id"] == json.loads(winners[0].request.content)["principal"]["user_id"]
+
+
+async def test_concurrent_first_bindings_agree_on_one_owner(services):
+    """The binding itself is atomic, whatever serializes the turns around it (ADR-0050)."""
+    conversation = str(uuid.uuid4())
+
+    async def nobody():
+        return None
+
+    callers = [Owner(f"u-bind-{i}", "default") for i in range(8)]
+    owners = await asyncio.gather(*(services.owners.bind_or_get(conversation, c, nobody) for c in callers))
+    assert len(set(owners)) == 1 and owners[0] in callers
 
 
 async def test_an_owner_recorded_in_the_thread_wins_over_a_lost_binding(services, litellm):

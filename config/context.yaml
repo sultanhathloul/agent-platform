@@ -66,3 +66,7 @@ nodes:
     needs: [system, window, user_message]
     blocks:
       window: {max_tokens: 12000}   # this turn's exchange, post-guard content only
+  guard_judge:
+    system_prompt: guardrails.judge.system
+    request_prompt: guardrails.judge.request
+    needs: [system, user_message]   # the policy's topic in the system block, the text in the user block

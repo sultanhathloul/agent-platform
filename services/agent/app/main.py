@@ -16,6 +16,8 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from app.api.admin import router as admin_router
+from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
 from app.api.routes import router
@@ -28,7 +30,19 @@ from app.context.tokens import default_counter
 from app.db import Database
 from app.graph.build import build_graph
 from app.graph.deps import Services
+from app.graph.judge import GraphJudge
+from app.guardrails.cache import RedisVerdictCache
+from app.guardrails.checkers import (
+    KeywordListChecker,
+    LlmJudgeChecker,
+    PresidioChecker,
+    RegexChecker,
+    TierCeilingChecker,
+)
+from app.guardrails.config import load_guardrails_config
 from app.guardrails.engine import GuardEngine
+from app.guardrails.sanitize import Sanitizer
+from app.guardrails.store import PolicyStore
 from app.memory.config import load_memory_config
 from app.memory.retriever import MemoryRetriever
 from app.memory.service import MemoryService
@@ -55,7 +69,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "1.2.0"
+API_VERSION = "1.3.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -85,13 +99,28 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
                 raise ManifestError(f"{cap.path}: context.needs has 'system' but {exc}") from exc
 
     counter = default_counter()
-    guard = GuardEngine()
+    db = Database(settings.database_url)
+    redis = _redis(settings)
+    guard_config = load_guardrails_config(settings.config_dir)
+    policies = PolicyStore(db, redis, namespace=settings.redis_namespace)
+    judge = GraphJudge()
+    presidio = PresidioChecker(settings.presidio_url)
+    cache = RedisVerdictCache(redis) if redis is not None else None
+    checkers = {
+        "regex": RegexChecker(),
+        "keyword_list": KeywordListChecker(),
+        "presidio": presidio,
+        "llm_judge": LlmJudgeChecker(judge, cache, namespace=settings.redis_namespace),
+        "tier_ceiling": TierCeilingChecker(models_config.order),
+    }
+    guard = GuardEngine(
+        policies, checkers, tier_order=models_config.order, sanitizer=Sanitizer(guard_config.sanitize)
+    )
     tools = ToolRegistry()
     for cap in registry.all():
         for spec in cap.tools:
             tools.register(spec, cap.slug)
 
-    db = Database(settings.database_url)
     embeddings = EmbeddingGateway(settings, models_config)
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
@@ -100,7 +129,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         retriever=MemoryRetriever(store, embeddings, memory_config),
         writer=MemoryWriter(store, embeddings, memory_config),
     )
-    return Services(
+    services = Services(
         settings=settings,
         models_config=models_config,
         prompts=prompts,
@@ -117,8 +146,30 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         db=db,
         owners=ConversationOwners(db),
         memory=memory,
-        context_log=ContextLog(db, enabled=settings.debug_context_enabled),
+        context_log=ContextLog(
+            db, enabled=settings.debug_context_enabled, retention_days=settings.debug_context_retention_days
+        ),
+        policies=policies,
+        guard_config=guard_config,
+        locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
+        redis=redis,
+        closers=(presidio.close,),
     )
+    judge.bind(services)
+    return services
+
+
+def _redis(settings: Settings):
+    if not settings.redis_url:
+        return None
+    from redis.asyncio import Redis
+
+    return Redis.from_url(settings.redis_url, decode_responses=True)
+
+
+def policy_roots(settings: Settings, registry: CapabilityRegistry) -> list[Path]:
+    """Seed policies: config/policies/ and every capability's policies/ (README §18.1)."""
+    return [settings.config_dir / "policies", *(cap.path / "policies" for cap in registry.all())]
 
 
 async def start_services(services: Services) -> Services:
@@ -127,13 +178,24 @@ async def start_services(services: Services) -> Services:
     to the running event loop, so this runs inside it rather than in build_services."""
     if services.graph is not None:
         return services
+    if not services.settings.content_hash_key:
+        raise RuntimeError("CONTENT_HASH_KEY is not set (.env, ADR-0110): traces would carry unkeyed hashes")
     await services.db.open()
     checkpointer = AsyncPostgresSaver(services.db.pool)
     await checkpointer.setup()
+    await services.locks.open()
+    await services.policies.seed(policy_roots(services.settings, services.registry))
+    await services.policies.start()
     return dataclasses.replace(services, graph=build_graph(checkpointer))
 
 
 async def stop_services(services: Services) -> None:
+    await services.policies.stop()
+    for close in services.closers:
+        await close()
+    if services.redis is not None:
+        await services.redis.aclose()
+    await services.locks.close()
     await services.db.close()
 
 
@@ -165,6 +227,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.state.services = services
     app.state.runner = TurnRunner(services)
     app.include_router(router)
+    app.include_router(admin_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:

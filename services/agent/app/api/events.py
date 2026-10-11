@@ -36,10 +36,48 @@ class TierData(_Model):
 
 
 class GuardData(_Model):
+    """What a client sees of a guard evaluation: who decided what, never how (ADR-0116). No
+    checker explanation, reason, confidence, category, cache status, entities or latency."""
+
     checkpoint: str
     policy_id: str | None = None
+    policy_version: int | None = Field(default=None, description="With policy_id: the version that decided.")
+    policy_name: str | None = None
     action: str
-    detail: str | None = None
+    target: str | None = Field(default=None, description="DATA only: answer, memory_candidate or summary.")
+    message_ar: str | None = Field(default=None, description="Block only: the policy's own message.")
+    message_en: str | None = Field(default=None, description="Block only: the policy's own message.")
+
+
+class GuardUsage(_Model):
+    tokens_in: int
+    tokens_out: int
+
+
+class GuardAuditData(GuardData):
+    """A guard evaluation in full, for the gateway's audit record only (ADR-0116). It travels in
+    the terminal event's `guard_audit`, which the gateway removes before the event reaches a
+    client; a client never receives one."""
+
+    detail: str | None = Field(default=None, description="The checker's explanation.")
+    reason: str | None = Field(
+        default=None, description="The checker's reason key; `_cached` marks a cached judge verdict."
+    )
+    reason_args: dict[str, str] = Field(default={}, description="Judge: category and confidence.")
+    score: float | None = None
+    entities: list[str] = Field(default=[], description="Entity types matched; never the matched text.")
+    latency_ms: int | None = None
+    usage: GuardUsage | None = Field(
+        default=None,
+        description="The check's own model calls (the judge's), absent for a cached verdict; never part "
+        "of the turn usage a client receives (ADR-0118).",
+    )
+
+
+_GUARD_AUDIT_DESCRIPTION = (
+    "Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. "
+    "The gateway removes this field before relaying the event; a client never receives it."
+)
 
 
 class ToolStartData(_Model):
@@ -81,6 +119,7 @@ class DoneData(_Model):
     citations: list[Citation] = []
     usage: Usage
     guard_events: list[GuardData] = []
+    guard_audit: list[GuardAuditData] = Field(default=[], description=_GUARD_AUDIT_DESCRIPTION)
     state_digest: StateDigest
     trace_id: str | None = None
 
@@ -90,6 +129,12 @@ class ErrorData(_Model):
     message_ar: str
     message_en: str
     retryable: bool = False
+    policy_id: str | None = Field(
+        default=None,
+        description="policy_id@version whose block ended the turn; its messages are the policy's.",
+    )
+    guard_events: list[GuardData] = Field(default=[], description="The turn's guard events up to the error.")
+    guard_audit: list[GuardAuditData] = Field(default=[], description=_GUARD_AUDIT_DESCRIPTION)
 
 
 class RetractData(_Model):

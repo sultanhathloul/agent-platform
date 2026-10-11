@@ -22,6 +22,7 @@ class SystemInstructions(Step):
             has_evidence=any(f.get("findings") for f in req.findings)
             or bool(req.retrieved or req.tool_results),
             policy_hints=req.policy_hints,
+            **req.prompt_vars,
         )
         package.blocks.append(self.make_block("system", "system", prompt.text, prompt=prompt.ref))
         package.prompt_refs.append(prompt.ref)
@@ -286,7 +287,7 @@ class UserMessage(Step):
         req = package.request
         if req.user_prompt:
             # Helper nodes (summarizer, memory writer) ask with a versioned prompt, not a user message.
-            prompt = self.deps.prompts.render(req.user_prompt, req.locale)
+            prompt = self.deps.prompts.render(req.user_prompt, req.locale, **req.prompt_vars)
             package.blocks.append(self.make_block("user_message", "user", prompt.text, prompt=prompt.ref))
             package.prompt_refs.append(prompt.ref)
             return package

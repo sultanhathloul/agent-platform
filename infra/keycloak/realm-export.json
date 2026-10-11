@@ -36,7 +36,8 @@
       { "name": "cap:web", "description": "Capability: web search" },
       { "name": "cap:docs", "description": "Capability: chat with uploaded documents" },
       { "name": "cap:kb", "description": "Capability: knowledge-base plugins" },
-      { "name": "kb:moe:read", "description": "Knowledge base moe (Ministry of Education): read" }
+      { "name": "kb:moe:read", "description": "Knowledge base moe (Ministry of Education): read" },
+      { "name": "policy:pii-exempt", "description": "Policy role (ADR-0107): selects role-scoped guard policies; grants nothing" }
     ]
   },
   "defaultRole": { "name": "default-roles-agent" },
@@ -139,7 +140,7 @@
       "lastName": "المحللة",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "analyst", "temporary": false }],
-      "realmRoles": ["default-roles-agent"],
+      "realmRoles": ["default-roles-agent", "policy:pii-exempt"],
       "groups": ["/moe-analysts"]
     },
     {

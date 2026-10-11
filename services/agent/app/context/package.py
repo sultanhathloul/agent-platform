@@ -73,8 +73,16 @@ class AssemblyRequest(BaseModel):
         default=[], description="This turn's tool results {tool, content, sources?}, already sanitized."
     )
     policy_hints: list[str] = []
+    prompt_vars: dict[str, Any] = Field(
+        default={}, description="Extra variables for the node's system and request prompts (guard judge)."
+    )
     memory_scope: MemoryScope | None = Field(
         default=None, description="Whose memory the memory step reads; set by core code from the principal."
+    )
+    content_free: bool = Field(
+        default=False,
+        description="The call carries memory, summary or extractor text: no messages or output in its "
+        "trace and no recorded package (D5).",
     )
     window_messages: int | None = Field(
         default=None, ge=0, description="Overrides the configured window size for this request."

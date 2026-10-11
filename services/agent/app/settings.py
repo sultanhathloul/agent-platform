@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     agent_internal_token: str = ""
     config_dir: Path = Field(default_factory=_default_config_dir)
     user_id_hash_salt: str = ""
+    # Key of the HMAC-SHA256 content hashes in traces (D5, ADR-0110); the agent refuses to start without it.
+    content_hash_key: str = ""
     observability_capture_content: bool = True
     otel_sdk_disabled: bool = False
     model_timeout_s: float = 300.0
@@ -30,6 +32,16 @@ class Settings(BaseSettings):
     database_url: str = ""
     # GET /v1/debug/context/{turn_id}, and recording the packages it returns (ADR-0059). Off by default.
     debug_context_enabled: bool = False
+    # Recorded context packages expire after this many days (D5).
+    debug_context_retention_days: int = Field(default=7, ge=1)
+    # Policy cache, change notifications and judge verdicts (README §10.1, I3, I4). Empty: no Redis.
+    redis_url: str = ""
+    # Prefix of every Redis key and channel, so test runs never meet the running stack's.
+    redis_namespace: str = "agent"
+    # presidio-analyzer with the Saudi recognizers of infra/presidio/ (README §10.2).
+    presidio_url: str = "http://localhost:5002"
+    # Dedicated connections holding per-conversation turn locks (D6).
+    lock_pool_size: int = Field(default=20, ge=1)
 
 
 @lru_cache

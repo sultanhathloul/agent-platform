@@ -1,6 +1,7 @@
 package sa.ncai.agent.gateway.chat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -11,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,7 @@ import sa.ncai.agent.gateway.auth.KeycloakRoles;
 import sa.ncai.agent.gateway.auth.TierCaps;
 import sa.ncai.agent.gateway.authz.KbAccessPolicy;
 import sa.ncai.agent.gateway.proxy.AgentClient;
+import sa.ncai.agent.gateway.proxy.AgentRefusedException;
 import sa.ncai.agent.gateway.proxy.AgentRetractRequest;
 import sa.ncai.agent.gateway.proxy.AgentTurnRequest;
 import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
@@ -106,10 +109,14 @@ public class ChatController {
                 @ApiResponse(responseCode = "403", description = "kb_forbidden or conversation_forbidden",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "409",
+                        description = "turn_in_flight: an earlier turn of this conversation is still running",
+                        content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                                schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "502", description = "agent_unavailable",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "503", description = "audit_unavailable",
+                @ApiResponse(responseCode = "503", description = "audit_unavailable or service_busy",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class)))
             })
@@ -167,6 +174,14 @@ public class ChatController {
                     return recorded;
                 });
             });
+        } catch (AgentRefusedException e) {
+            // Refused before any stream (ADR-0109): another owner's conversation, a turn in flight (D6),
+            // or no free turn lock; nothing streamed, nothing ran.
+            detail.put("error_code", e.code().code());
+            AuditStatus refusedStatus =
+                    e.code() == ErrorCode.SERVICE_BUSY ? AuditStatus.ERROR : AuditStatus.DENIED;
+            refuse(request, response, e.code(),
+                    auditEvent(requestId, principal, body, refusedStatus, detail, started), audited);
         } catch (AgentUnavailableException e) {
             log.warn("{}", e.getMessage());
             detail.put("error_code", ErrorCode.AGENT_UNAVAILABLE.code());
@@ -199,7 +214,7 @@ public class ChatController {
         return new AgentTurnRequest(
                 body.conversationId(),
                 new AgentTurnRequest.Principal(principal.userId(), principal.tenantId(), principal.permissions(),
-                        maxTier, principal.displayName(), body.locale()),
+                        maxTier, principal.displayName(), body.locale(), principal.policyRoles()),
                 body.message(),
                 body.attachments(),
                 body.selectedKbs(),
@@ -211,18 +226,113 @@ public class ChatController {
         JsonNode data = outcome.data();
         switch (outcome.kind()) {
             case DONE -> {
+                Map<String, Object> guardUsage = guardUsage(auditedGuards(data));
                 if (data.hasNonNull("usage")) {
-                    detail.put("usage", data.get("usage"));
+                    detail.put("usage", fullUsage(data.get("usage"), guardUsage));
+                }
+                if (guardUsage != null) {
+                    detail.put("guard_usage", guardUsage);
                 }
                 if (data.hasNonNull("trace_id")) {
                     detail.put("trace_id", data.get("trace_id").asText());
                 }
                 detail.put("guard_events", data.path("guard_events").size());
+                detail.put("guard_policies", guardPolicies(auditedGuards(data)));
             }
-            case ERROR -> detail.put("error_code", data.path("code").asText("unknown"));
+            case ERROR -> {
+                detail.put("error_code", data.path("code").asText("unknown"));
+                if (data.hasNonNull("policy_id")) {
+                    detail.put("policy_id", data.get("policy_id").asText());
+                }
+                detail.put("guard_policies", guardPolicies(auditedGuards(data)));
+                Map<String, Object> guardUsage = guardUsage(auditedGuards(data));
+                if (guardUsage != null) {
+                    detail.put("guard_usage", guardUsage);
+                }
+            }
             case INTERRUPTED -> detail.put("error_code", ErrorCode.AGENT_STREAM_INTERRUPTED.code());
         }
         return detail;
+    }
+
+    /** The terminal event's guard evaluations in full ({@code guard_audit}, ADR-0116). */
+    private static JsonNode auditedGuards(JsonNode data) {
+        return data.has("guard_audit") ? data.path("guard_audit") : data.path("guard_events");
+    }
+
+    /**
+     * The tokens of the guard checks' own model calls (the judge's), summed over {@code guard_audit};
+     * null when no check made one. A client's usage never includes them (ADR-0118).
+     */
+    private static Map<String, Object> guardUsage(JsonNode events) {
+        long tokensIn = 0;
+        long tokensOut = 0;
+        boolean any = false;
+        for (JsonNode event : events) {
+            JsonNode usage = event.path("usage");
+            if (usage.isObject()) {
+                any = true;
+                tokensIn += usage.path("tokens_in").asLong();
+                tokensOut += usage.path("tokens_out").asLong();
+            }
+        }
+        if (!any) {
+            return null;
+        }
+        Map<String, Object> sum = new LinkedHashMap<>();
+        sum.put("tokens_in", tokensIn);
+        sum.put("tokens_out", tokensOut);
+        return sum;
+    }
+
+    /** The turn's full usage for the audit record: the client's usage plus the guard checks' (ADR-0118). */
+    private static JsonNode fullUsage(JsonNode usage, Map<String, Object> guardUsage) {
+        if (guardUsage == null || !(usage instanceof ObjectNode client)) {
+            return usage;
+        }
+        ObjectNode full = client.deepCopy();
+        full.put("tokens_in", client.path("tokens_in").asLong() + (long) guardUsage.get("tokens_in"));
+        full.put("tokens_out", client.path("tokens_out").asLong() + (long) guardUsage.get("tokens_out"));
+        return full;
+    }
+
+    /**
+     * The audit delta of the turn's guards: every policy that did something, as
+     * {@code {checkpoint, policy: id@version, action, target}} with the checker's {@code detail},
+     * {@code reason}, {@code reason_args} (the judge's category and confidence) and {@code score},
+     * which no client event carries (ADR-0116); never any matched text (A1, D5).
+     */
+    private static List<Map<String, Object>> guardPolicies(JsonNode events) {
+        List<Map<String, Object>> policies = new ArrayList<>();
+        for (JsonNode event : events) {
+            String action = event.path("action").asText("");
+            if (!event.hasNonNull("policy_id") || "allow".equals(action)) {
+                continue;
+            }
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("checkpoint", event.path("checkpoint").asText());
+            entry.put("policy", event.get("policy_id").asText() + "@" + event.path("policy_version").asText("?"));
+            entry.put("action", action);
+            if (event.hasNonNull("target")) {
+                entry.put("target", event.get("target").asText());
+            }
+            if (event.hasNonNull("detail")) {
+                entry.put("detail", event.get("detail").asText());
+            }
+            if (event.hasNonNull("reason") && !event.get("reason").asText().isEmpty()) {
+                entry.put("reason", event.get("reason").asText());
+            }
+            if (event.path("reason_args").isObject() && !event.get("reason_args").isEmpty()) {
+                Map<String, String> args = new LinkedHashMap<>();
+                event.get("reason_args").fields().forEachRemaining(f -> args.put(f.getKey(), f.getValue().asText()));
+                entry.put("reason_args", args);
+            }
+            if (event.hasNonNull("score")) {
+                entry.put("score", event.get("score").asDouble());
+            }
+            policies.add(entry);
+        }
+        return policies;
     }
 
     private static AuditEvent auditEvent(

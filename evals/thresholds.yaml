@@ -1,3 +1,10 @@
 # Minimum pass rate per eval suite (README §12). `make eval`, and CI from
 # phase 09, fail when a suite drops below its threshold or has none.
 general: 0.85
+# Guard suite (phase 03, D8): every deterministic case (regex, presidio, keyword_list)
+# must pass; the llm_judge cases need this accuracy and at most this false-positive rate.
+guardrails:
+  deterministic: 1.00
+  llm_judge:
+    accuracy: 0.85
+    false_positive_rate: 0.10

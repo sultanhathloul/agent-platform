@@ -7,7 +7,12 @@ The fold runs at the end of the turn, in `fold_summary` after persist_state and
 before write_memory, so it never delays the first token. assemble_context, at the
 start of the turn, keeps a lazy fold as the fallback: it folds only when the
 history already exceeds the trigger there, e.g. after an end-of-turn fold failed.
-Per-call assembly happens right before each model call (README §7)."""
+Per-call assembly happens right before each model call (README §7).
+
+A new summary goes through DATA with target `summary` before it is stored (phase 03,
+B1): a redaction stores the redacted text; a block keeps the old summary and still
+moves the cursor, so the folded messages leave the context rather than being kept
+unguarded."""
 
 import logging
 
@@ -18,8 +23,11 @@ from app.context.package import AssemblyRequest
 from app.context.summarizer import SummaryPlan, plan_summary
 from app.graph.calls import call_model, prepare_call
 from app.graph.deps import TurnContext
+from app.graph.guarding import check
 from app.graph.nodes import traced
 from app.graph.state import AgentState
+from app.guardrails.checkpoints import Checkpoint
+from app.guardrails.schema import DataPayload
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +76,14 @@ async def _fold(state: AgentState, ctx: TurnContext, plan: SummaryPlan) -> dict:
         # Nothing came back: keep the cursor, so the same messages are folded next time.
         trace.get_current_span().add_event("context.summary.empty")
         return update
-    return {**update, "summary": folded, "summary_cursor": plan.cursor_after}
+    outcome = await check(ctx, state, Checkpoint.DATA, DataPayload(text=folded, target="summary"))
+    update["guard_events"] = ctx.guard_records()
+    if outcome.blocked:
+        trace.get_current_span().add_event(
+            "context.summary.guard_blocked", {"policy": outcome.decided_by or ""}
+        )
+        return {**update, "summary_cursor": plan.cursor_after}
+    return {**update, "summary": outcome.payload.text, "summary_cursor": plan.cursor_after}
 
 
 @traced("assemble_context")

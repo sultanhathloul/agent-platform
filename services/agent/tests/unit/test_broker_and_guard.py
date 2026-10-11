@@ -55,7 +55,11 @@ def test_seven_checkpoints():
 
 async def test_engine_allows_unchanged_without_policies():
     outcome = await GuardEngine().evaluate(Checkpoint.INPUT, {"message": "نص"})
-    assert outcome.action == "allow" and outcome.payload == {"message": "نص"} and outcome.events == []
+    assert outcome.action == "allow" and outcome.payload == {"message": "نص"}
+    # The checkpoint ran and is recorded, with no policy behind it (C1).
+    assert [(e.checkpoint, e.policy_id, e.action) for e in outcome.events] == [
+        (Checkpoint.INPUT, None, "allow")
+    ]
 
 
 async def test_ok_result_is_normalized_and_events_emitted():

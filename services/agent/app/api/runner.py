@@ -7,9 +7,26 @@ SSE generator stops and the task is cancelled.
 Before the graph runs, the conversation is bound to its first caller and any
 other caller is refused, so nothing of a refused turn reaches the thread
 (ADR-0050). load_identity_and_state keeps its own check behind this one.
+
+One turn at a time per conversation (D6): the graph runs while this turn holds
+the conversation's advisory lock (app/api/locks.py). The route checks ownership,
+then takes the lease before it answers, so a non-owner is refused with 403
+`conversation_forbidden` and never holds the lock, and a second turn is refused
+with 409 `turn_in_flight` before any stream starts; a caller that streams without
+a lease gets the lock here, or an `error` event `turn_in_flight`. The turn task
+releases the lease before it signals the end of the stream, and the stream waits
+for that task instead of cancelling it; only a consumer that leaves early cancels
+the task, whose shielded release still completes (ADR-0109). `retract` takes the
+same lock, waiting a few seconds for the turn it follows.
+
+Every guard evaluation of the turn (TurnContext.guard_log) goes out with the
+terminal event, done or error, for the audit record, and its matched policies
+are stored for the admin's matches per day; a guard block's error carries the
+policy's own message (README §10.1).
 """
 
 import asyncio
+import contextlib
 import itertools
 import logging
 import uuid
@@ -20,7 +37,8 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
-from app.api.events import DoneData, StateDigest, Usage, build_event
+from app.api.events import DoneData, ErrorData, GuardAuditData, GuardData, StateDigest, Usage, build_event
+from app.api.locks import LockPoolBusy, TurnLease
 from app.api.ownership import Owner, StoredOwner
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
@@ -34,7 +52,9 @@ log = logging.getLogger(__name__)
 
 _END = object()
 
-RetractOutcome = Literal["retracted", "forbidden", "not_found"]
+RetractOutcome = Literal["retracted", "forbidden", "not_found", "in_flight", "busy"]
+# How long a retract waits for the turn it follows to release the conversation.
+RETRACT_LOCK_WAIT_S = 10.0
 
 
 def _thread(conversation_id: str) -> dict:
@@ -80,36 +100,73 @@ class TurnRunner:
                 return "not_found"
             if owner != Owner(principal.user_id, principal.tenant_id):
                 return "forbidden"
-            values = (await services.graph.aget_state(config)).values or {}
-            reply = next(
-                (
-                    m
-                    for m in reversed(values.get("messages") or [])
-                    if m.type == "ai" and m.additional_kwargs.get("turn_id") == turn_id
-                ),
-                None,
-            )
-            if reply is None:
-                return "not_found"
-            async with services.db.connection() as conn, conn.transaction():
-                # The flag goes through a checkpointer on this transaction's connection, so
-                # the flag and the memory delete commit or roll back together.
-                graph = services.graph.copy(update={"checkpointer": AsyncPostgresSaver(conn)})
-                kwargs = reply.additional_kwargs
-                if not kwargs.get("retracted"):
-                    marked = reply.model_copy(
-                        update={"additional_kwargs": {**kwargs, "retracted": True, "retract_reason": reason}}
-                    )
-                    # Same message id: add_messages replaces the reply in place. As the graph's
-                    # last node, so the thread is left with no pending task.
-                    await graph.aupdate_state(config, {"messages": [marked]}, as_node="write_memory")
-                deleted = await services.memory.store.delete_from_turn(
-                    MemoryScope(tenant_id=owner.tenant_id, user_id=owner.user_id), turn_id, conn=conn
-                )
-            span.set_attribute("retract.memory_deleted", deleted)
-            return "retracted"
+            try:
+                lease = await services.locks.acquire(conversation_id, wait_s=RETRACT_LOCK_WAIT_S)
+            except LockPoolBusy:
+                return "busy"
+            if lease is None:
+                return "in_flight"
+            try:
+                return await self._retract_locked(config, owner, turn_id, reason, span)
+            finally:
+                await lease.release()
 
-    async def stream(self, req: TurnRequest, request_id: str, parent: Context | None = None) -> AsyncIterator:
+    async def _retract_locked(
+        self, config: dict, owner: Owner, turn_id: str, reason: str, span
+    ) -> RetractOutcome:
+        """The retract proper, while this caller holds the conversation's lock."""
+        services = self.services
+        values = (await services.graph.aget_state(config)).values or {}
+        reply = next(
+            (
+                m
+                for m in reversed(values.get("messages") or [])
+                if m.type == "ai" and m.additional_kwargs.get("turn_id") == turn_id
+            ),
+            None,
+        )
+        if reply is None:
+            return "not_found"
+        async with services.db.connection() as conn, conn.transaction():
+            # The flag goes through a checkpointer on this transaction's connection, so
+            # the flag and the memory delete commit or roll back together.
+            graph = services.graph.copy(update={"checkpointer": AsyncPostgresSaver(conn)})
+            kwargs = reply.additional_kwargs
+            if not kwargs.get("retracted"):
+                marked = reply.model_copy(
+                    update={"additional_kwargs": {**kwargs, "retracted": True, "retract_reason": reason}}
+                )
+                # Same message id: add_messages replaces the reply in place. As the graph's
+                # last node, so the thread is left with no pending task.
+                await graph.aupdate_state(config, {"messages": [marked]}, as_node="write_memory")
+            deleted = await services.memory.store.delete_from_turn(
+                MemoryScope(tenant_id=owner.tenant_id, user_id=owner.user_id), turn_id, conn=conn
+            )
+        span.set_attribute("retract.memory_deleted", deleted)
+        return "retracted"
+
+    async def lock(self, conversation_id: str) -> TurnLease | None:
+        """The conversation's turn lock, or None while another turn holds it (D6). Raises
+        LockPoolBusy when every lock connection is in use (503 `service_busy`)."""
+        return await self.services.locks.acquire(conversation_id)
+
+    async def claim(self, conversation_id: str, principal: Principal) -> bool:
+        """Binds a new conversation to `principal`, or checks that it owns an existing one,
+        before any lock is taken (ADR-0050, ADR-0109)."""
+        caller = Owner(principal.user_id, principal.tenant_id)
+        owner = await self.services.owners.bind_or_get(
+            conversation_id, caller, self._stored_owner(conversation_id)
+        )
+        return owner == caller
+
+    async def stream(
+        self,
+        req: TurnRequest,
+        request_id: str,
+        parent: Context | None = None,
+        *,
+        lease: TurnLease | None = None,
+    ) -> AsyncIterator:
         turn_id = uuid.uuid4().hex
         queue: asyncio.Queue = asyncio.Queue()
         seq = itertools.count()
@@ -117,15 +174,42 @@ class TurnRunner:
         def emit(type_: str, data) -> None:
             queue.put_nowait(build_event(type_, data, request_id=request_id, turn_id=turn_id, seq=next(seq)))
 
-        task = asyncio.create_task(self._run(req, request_id, turn_id, parent, emit, queue))
+        task = asyncio.create_task(self._locked(req, request_id, turn_id, parent, emit, queue, lease))
+        ended = False
         try:
             while (item := await queue.get()) is not _END:
                 yield item
+            ended = True
         finally:
-            if not task.done():
+            if not ended and not task.done():
+                # The consumer left early (a client disconnect): stop the turn. Its release is
+                # shielded, so the cancellation cannot interrupt it (ADR-0109).
                 task.cancel()
+            # After _END the lease is already released; the task only returns. Never cancelled.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
 
-    async def _run(self, req: TurnRequest, request_id: str, turn_id: str, parent, emit, queue) -> None:
+    async def _locked(self, req, request_id, turn_id, parent, emit, queue, lease: TurnLease | None) -> None:
+        try:
+            if lease is None:
+                try:
+                    lease = await self.lock(req.conversation_id)
+                except LockPoolBusy:
+                    emit("error", self.services.messages.error("service_busy", retryable=True))
+                    return
+                if lease is None:
+                    emit("error", self.services.messages.error("turn_in_flight", retryable=True))
+                    return
+            await self._run(req, request_id, turn_id, parent, emit)
+        finally:
+            try:
+                if lease is not None:
+                    await lease.release()
+            finally:
+                # The end of the stream is signalled only once the lock is free (ADR-0109).
+                queue.put_nowait(_END)
+
+    async def _run(self, req: TurnRequest, request_id: str, turn_id: str, parent, emit) -> None:
         settings = self.services.settings
         principal = req.principal
         ctx = TurnContext(
@@ -186,7 +270,8 @@ class TurnRunner:
                         tokens_out=ctx.usage.tokens_out,
                         cost_usd=ctx.usage.cost_usd,
                     ),
-                    guard_events=final.get("guard_events") or [],
+                    guard_events=self._guard_data(ctx),
+                    guard_audit=self._guard_audit(ctx),
                     state_digest=StateDigest(
                         turn=final["turn"], capabilities=final["intent"]["capabilities"]
                     ),
@@ -198,7 +283,7 @@ class TurnRunner:
             except TurnError as exc:
                 log.warning("turn %s ended with %s: %s", turn_id, exc.code, exc)
                 span.set_status(Status(StatusCode.ERROR, exc.code))
-                emit("error", self.services.messages.error(exc.code, retryable=exc.retryable))
+                emit("error", self._error(ctx, exc.code, retryable=exc.retryable, exc=exc))
             except asyncio.CancelledError:
                 span.set_status(Status(StatusCode.ERROR, "client_disconnected"))
                 raise
@@ -206,6 +291,45 @@ class TurnRunner:
                 log.exception("turn %s failed", turn_id)
                 span.record_exception(exc)
                 span.set_status(Status(StatusCode.ERROR, "turn_failed"))
-                emit("error", self.services.messages.error("turn_failed", retryable=True))
+                emit("error", self._error(ctx, "turn_failed", retryable=True))
             finally:
-                queue.put_nowait(_END)
+                await self._record_guard_events(ctx, req)
+
+    @staticmethod
+    def _guard_data(ctx: TurnContext) -> list[GuardData]:
+        """The client's view of the turn's evaluations (ADR-0116)."""
+        return [
+            GuardData.model_validate(record.client_view())
+            for record in ctx.guard_log
+            if not record.audit_only
+        ]
+
+    @staticmethod
+    def _guard_audit(ctx: TurnContext) -> list[GuardAuditData]:
+        """Every evaluation in full, for the gateway's audit record; the gateway strips it (ADR-0116)."""
+        return [
+            GuardAuditData.model_validate(record.model_dump(mode="json", exclude={"audit_only"}))
+            for record in ctx.guard_log
+        ]
+
+    def _error(
+        self, ctx: TurnContext, code: str, *, retryable: bool, exc: TurnError | None = None
+    ) -> ErrorData:
+        """errors.yaml's text, or a blocking policy's own message (README §10.1)."""
+        error = self.services.messages.error(code, retryable=retryable)
+        update: dict = {"guard_events": self._guard_data(ctx), "guard_audit": self._guard_audit(ctx)}
+        if exc is not None and exc.message_ar and exc.message_en:
+            update |= {"message_ar": exc.message_ar, "message_en": exc.message_en, "policy_id": exc.policy_id}
+        return error.model_copy(update=update)
+
+    async def _record_guard_events(self, ctx: TurnContext, req: TurnRequest) -> None:
+        """Matched policies of this turn, without content, for matches per day (C4)."""
+        try:
+            await self.services.policies.record_events(
+                ctx.guard_log,
+                tenant_id=ctx.principal.tenant_id,
+                conversation_id=req.conversation_id,
+                turn_id=ctx.turn_id,
+            )
+        except Exception as exc:  # metrics never fail a turn
+            log.warning("guard events not recorded for turn %s: %s", ctx.turn_id, type(exc).__name__)

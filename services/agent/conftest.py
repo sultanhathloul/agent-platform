@@ -7,9 +7,14 @@ State lives in Postgres (ADR-0055). The tests connect as the `app` role, like th
 service, to the database `agent_test` that infra/postgres/init provisions with
 the vector extension, and empty the agent's tables at the start of a session
 instead of creating a database (ADR-0070). `make test` passes
-AGENT_TEST_DATABASE_URL; locally, the dev overlay publishes Postgres on port 5433."""
+AGENT_TEST_DATABASE_URL; locally, the dev overlay publishes Postgres on port 5433.
+
+Guard policies are seeded from config/policies/ at service start, as in production.
+Redis (database 15, a namespace per session) and presidio-analyzer are the real
+services of the compose stack; `make test-agent` starts them."""
 
 import os
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -59,8 +64,13 @@ def settings() -> Settings:
         agent_internal_token="test-internal-token",
         config_dir=Path(os.environ.get("CONFIG_DIR") or _default_config_dir()),
         user_id_hash_salt="test-salt",
+        content_hash_key="test-content-hash-key",
         observability_capture_content=True,
         otel_sdk_disabled=True,
+        redis_url=os.environ.get("REDIS_URL") or f"redis://:{_dotenv('REDIS_PASSWORD') or ''}@localhost:6380/15",
+        # A namespace per session: keys and channels never meet the stack's or another run's.
+        redis_namespace=f"agent-test-{uuid.uuid4().hex[:8]}",
+        presidio_url=os.environ.get("PRESIDIO_URL") or "http://localhost:5002",
     )
 
 

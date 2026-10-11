@@ -1,0 +1,29 @@
+# Owner decision (ADR-0107): visibility by role through a policy role. A user who holds the
+# realm role `policy:no-sql` does not see the sql capability, whatever cap:* roles they hold;
+# authorization itself stays cap:{slug} in the gateway (ADR-0006). Disabled by default.
+# The slug must equal `sql` exactly: a slug that only contains it (nosql_search) is kept.
+# A block at TOOL_LIST is silent (ADR-0121): the capability leaves the list, the turn goes on
+# with the others, and the messages below are never shown (a block policy still needs them).
+id: tool-visibility-by-role
+name_ar: إخفاء قدرة الاستعلام من قواعد البيانات عن حاملي دور الحماية المخصص
+name_en: Hide the sql capability from the policy role no-sql
+description_ar: >-
+  تُزال قدرة الاستعلام من قواعد البيانات من القدرات المتاحة للمستخدم الذي يحمل دور الحماية المخصص
+  لهذه السياسة، دون أي رسالة، وتستمر المحادثة بالقدرات الأخرى. لا يمنح الدور أي صلاحية، وإنما
+  يحدد من تنطبق عليه هذه السياسة فقط.
+description_en: >-
+  TOOL_LIST removes the sql capability for users holding the realm role policy:no-sql,
+  silently: the turn goes on with the other capabilities. The role grants nothing; it
+  only selects this policy.
+enabled: false
+scope: role:no-sql
+checkpoints: [TOOL_LIST]
+checker: regex
+config:
+  patterns:
+    - name: HIDDEN_CAPABILITY
+      pattern: "^sql$"
+action: block
+severity: medium
+message_ar: "هذه القدرة غير متاحة لك."
+message_en: "This capability is not available to you."

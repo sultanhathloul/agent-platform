@@ -21,11 +21,17 @@ function ChipView({ chip }: { chip: Chip }) {
       );
     case "guard": {
       const actionKey = `guardActions.${chip.action}`;
+      const targetKey = `policies.targets.${chip.target}`;
+      // A guard event names who decided what, never the checker's detail (ADR-0116).
+      const title = [chip.checkpoint, chip.policyName].filter(Boolean).join(" · ");
       return (
-        <li className={chipClass} title={chip.detail ?? undefined}>
+        <li className={chipClass} title={title || undefined}>
           <span>{t("chips.guard")}</span>
-          <bdi className="font-mono">{chip.policyId ?? chip.checkpoint}</bdi>
+          <bdi className="font-mono">
+            {chip.policyId ? `${chip.policyId}@${chip.policyVersion ?? "?"}` : chip.checkpoint}
+          </bdi>
           {t.has(actionKey) ? <span>{t(actionKey)}</span> : <bdi>{chip.action}</bdi>}
+          {chip.target && t.has(targetKey) && <span className="text-slate-400">{t(targetKey)}</span>}
         </li>
       );
     }

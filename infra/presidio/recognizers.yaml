@@ -1,0 +1,71 @@
+# Custom Presidio recognizers (README §10.2), mounted into presidio-analyzer as its
+# recognizer registry (RECOGNIZER_REGISTRY_CONF_FILE). Only these recognizers load.
+#
+# The agent's presidio checker sends text folded with offsets kept (app/text/arabic.py
+# fold_with_map): Arabic-Indic and Persian digits become ASCII digits, tatweel and tashkeel
+# are removed. Letters are not folded, so the name heuristic spells alef forms itself.
+# Every entity is declared for language `en`: presidio has no Arabic NLP model here, and
+# these recognizers are patterns only; the checker always asks for `en`.
+#
+# Fake numbers only in comments and tests (ADR-0065).
+supported_languages:
+  - en
+# re.IGNORECASE | re.MULTILINE | re.DOTALL
+global_regex_flags: 26
+
+recognizers:
+  # 05XXXXXXXX, +9665XXXXXXXX, 009665XXXXXXXX, 9665XXXXXXXX; spaces, dashes or dots may
+  # separate the digits ("055 123 4567", "+966-55-123-4567").
+  - name: SaudiMobileRecognizer
+    supported_language: en
+    supported_entity: SA_MOBILE
+    type: custom
+    patterns:
+      - name: sa_mobile
+        regex: "(?<![\\d+])(?:(?:\\+|00)?966[\\s\\-.]?|0)5[\\s\\-.]?\\d(?:[\\s\\-.]?\\d){7}(?!\\d)"
+        score: 0.9
+
+  # National ID (starts with 1) or iqama (starts with 2): ten digits, contiguous or grouped 4-3-3.
+  # A candidate only: the agent's presidio checker keeps it when its check digit is valid or a
+  # context word stands within five tokens before it (ADR-0120).
+  - name: SaudiNationalIdRecognizer
+    supported_language: en
+    supported_entity: SA_NATIONAL_ID
+    type: custom
+    patterns:
+      - name: sa_national_id
+        regex: "(?<![\\d+])[12]\\d{3}[\\s\\-]?\\d{3}[\\s\\-]?\\d{3}(?!\\d)"
+        score: 0.85
+
+  # SA + 2 check digits + 20 digits (24 characters), optionally grouped by four.
+  - name: SaudiIbanRecognizer
+    supported_language: en
+    supported_entity: SA_IBAN
+    type: custom
+    patterns:
+      - name: sa_iban
+        regex: "(?<![A-Za-z0-9])SA\\d{2}(?:[\\s\\-]?\\d{4}){5}(?!\\d)"
+        score: 0.95
+
+  - name: PlatformEmailRecognizer
+    supported_language: en
+    supported_entity: EMAIL_ADDRESS
+    type: custom
+    patterns:
+      - name: email
+        regex: "(?<![A-Za-z0-9._%+\\-])[A-Za-z0-9._%+\\-]+@[A-Za-z0-9\\-]+(?:\\.[A-Za-z0-9\\-]+)*\\.[A-Za-z]{2,}"
+        score: 0.9
+
+  # Heuristic, low score (D7: seeded as log_only, never redact): an Arabic title followed
+  # by one to three Arabic words, or a nasab "X بن Y" / "X بنت Y".
+  - name: ArabicNameRecognizer
+    supported_language: en
+    supported_entity: ARABIC_NAME
+    type: custom
+    patterns:
+      - name: titled_name
+        regex: "(?:السيد|السيدة|ال[أا]ستاذ|ال[أا]ستاذة|الدكتور|الدكتورة|المهندس|المهندسة|الشيخ|ال[أا]خ|ال[أا]خت)\\s+[\\u0621-\\u064A]{2,}(?:\\s+(?:(?:بن|بنت|ابن)\\s+)?[\\u0621-\\u064A]{2,}){0,2}"
+        score: 0.5
+      - name: nasab
+        regex: "(?<![\\u0621-\\u064A])[\\u0621-\\u064A]{2,}\\s+(?:بن|بنت)\\s+[\\u0621-\\u064A]{2,}(?:\\s+[\\u0621-\\u064A]{2,})?"
+        score: 0.45

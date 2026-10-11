@@ -1,0 +1,374 @@
+"""Admin API for guard policies (README §10.4, phase 03 C3), internal: only the gateway
+calls it, after checking the caller's `admin` role and before auditing the call
+(ADR-0042). The agent stays role-blind (ADR-0046): it trusts the internal token and
+records the caller from X-User-Id as the actor of every change, with the username and display
+name the gateway read from the same verified token (X-User-Name, X-User-Display-Name,
+percent-encoded UTF-8, ADR-0123).
+
+The agent owns agent.guard_policies (I1). Every write reaches every agent process
+within 2 s through the store's Redis notification (I3)."""
+
+import uuid
+from typing import Annotated
+from urllib.parse import unquote
+
+from fastapi import APIRouter, Depends, Header, Path, Query, Request
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+
+from app.api.routes import _authorized
+from app.api.schemas import (
+    POLICY_ID_PATH,
+    ErrorEnvelope,
+    InducedFlag,
+    PolicyChanges,
+    PolicyChangeView,
+    PolicyDetail,
+    PolicyDocument,
+    PolicyEnabled,
+    PolicyImportReport,
+    PolicyList,
+    PolicyMatchRow,
+    PolicyMetrics,
+    PolicyOverrides,
+    PolicyTestRequest,
+    PolicyTestResult,
+    PolicyVersionView,
+    PolicyView,
+    PolicyWarning,
+    PolicyYaml,
+    SpanView,
+)
+from app.guardrails.panel import PanelError, try_policy
+from app.guardrails.schema import Policy
+from app.guardrails.store import (
+    Actor,
+    PolicyExists,
+    PolicyFileError,
+    PolicyNotFound,
+    PolicyRejected,
+    export_document,
+    parse_policy_documents,
+)
+from app.guardrails.store import PolicyView as StoredView
+from app.identity import Principal
+
+router = APIRouter(prefix="/v1/admin/policies", tags=["admin-policies"])
+
+_ERRORS = {
+    400: {"model": ErrorEnvelope, "description": "invalid_request or policy_invalid (with details)"},
+    401: {"model": ErrorEnvelope},
+}
+
+
+class AdminCall:
+    def __init__(self, request: Request, actor: Actor, tenant: str, request_id: str):
+        self.request, self.actor, self.tenant, self.request_id = request, actor.id, tenant, request_id
+        self.who = actor
+        self.services = request.app.state.services
+
+    def error(self, code: str, status: int, details: list[str] | None = None) -> JSONResponse:
+        envelope = ErrorEnvelope.of(self.request_id, self.services.messages.error(code), details)
+        return JSONResponse(envelope.model_dump(exclude_none=True), status_code=status)
+
+
+async def _admin(
+    request: Request,
+    x_user_id: Annotated[str, Header(min_length=1, max_length=256, description="The admin making the call.")],
+    x_tenant_id: Annotated[str, Header(min_length=1, max_length=256, description="The admin's tenant.")],
+    x_internal_token: Annotated[str | None, Header()] = None,
+    x_request_id: Annotated[str | None, Header()] = None,
+    x_user_name: Annotated[
+        str | None, Header(max_length=1024, description="The admin's username, percent-encoded UTF-8.")
+    ] = None,
+    x_user_display_name: Annotated[
+        str | None, Header(max_length=1024, description="The admin's display name, percent-encoded UTF-8.")
+    ] = None,
+):
+    actor = Actor(x_user_id, _decoded(x_user_name), _decoded(x_user_display_name))
+    call = AdminCall(request, actor, x_tenant_id, x_request_id or str(uuid.uuid4()))
+    if not _authorized(x_internal_token, call.services.settings.agent_internal_token):
+        return call.error("unauthorized", 401)
+    return call
+
+
+def _decoded(value: str | None) -> str | None:
+    """A name header as the gateway sent it (percent-encoded UTF-8); None when absent or blank."""
+    if value is None:
+        return None
+    text = unquote(value, errors="replace").strip()
+    return text[:256] or None
+
+
+Admin = Annotated[AdminCall | JSONResponse, Depends(_admin)]
+PolicyId = Annotated[str, Path(pattern=POLICY_ID_PATH)]
+
+
+def _document(policy: Policy) -> PolicyDocument:
+    return PolicyDocument.model_validate(policy.model_dump(mode="json"))
+
+
+def _view(view: StoredView) -> PolicyView:
+    return PolicyView(
+        policy=_document(view.policy),
+        created_at=view.created_at,
+        created_by=view.created_by,
+        created_by_username=view.created_by_username,
+        created_by_name=view.created_by_name,
+        updated_at=view.updated_at,
+        updated_by=view.updated_by,
+        overrides=view.overrides,
+        exception=view.exception,
+    )
+
+
+def _validated(call: AdminCall, document: PolicyDocument) -> Policy | JSONResponse:
+    try:
+        return Policy.model_validate(document.model_dump(exclude={"version"}, exclude_none=True))
+    except ValidationError as exc:
+        return call.error(
+            "policy_invalid",
+            400,
+            [f"{'.'.join(map(str, e['loc'])) or 'policy'}: {e['msg']}" for e in exc.errors()],
+        )
+
+
+def _warnings(found) -> list[PolicyWarning]:
+    if not found.cannot_lift:
+        return []
+    return [PolicyWarning(code="whole_text_cannot_lift_spans", policies=found.cannot_lift)]
+
+
+async def _saved(call: AdminCall, policy_id: str) -> JSONResponse:
+    """The saved version's view, with the warnings a save carries (ADR-0115)."""
+    stored = await call.services.policies.get(policy_id)
+    view = _view(stored)
+    view.warnings = _warnings(await call.services.policies.overrides(stored.policy))
+    return JSONResponse(view.model_dump(mode="json"), status_code=201)
+
+
+@router.get("", response_model=PolicyList, responses=_ERRORS)
+async def list_policies(call: Admin):
+    if isinstance(call, JSONResponse):
+        return call
+    return PolicyList(policies=[_view(v) for v in await call.services.policies.list_policies()])
+
+
+@router.get("/export", response_model=PolicyYaml, responses=_ERRORS)
+async def export_policies(call: Admin):
+    """Every policy's current version and switch as one importable YAML document."""
+    if isinstance(call, JSONResponse):
+        return call
+    views = await call.services.policies.list_policies()
+    return PolicyYaml(yaml=export_document(v.policy for v in views))
+
+
+@router.get("/metrics", response_model=PolicyMetrics, responses=_ERRORS)
+async def policy_metrics(call: Admin, days: Annotated[int, Query(ge=1, le=90)] = 14):
+    if isinstance(call, JSONResponse):
+        return call
+    rows = await call.services.policies.matches_per_day(days)
+    return PolicyMetrics(days=days, rows=[PolicyMatchRow(**r) for r in rows])
+
+
+@router.post("/import", response_model=PolicyImportReport, responses=_ERRORS)
+async def import_policies(body: PolicyYaml, call: Admin):
+    """All or nothing: an absent id is created, a changed one versioned, a switch alone
+    switched, an identical one left alone."""
+    if isinstance(call, JSONResponse):
+        return call
+    try:
+        policies = parse_policy_documents(body.yaml, source="import")
+    except PolicyFileError as exc:
+        return call.error("policy_invalid", 400, [f"{e['id']}: {e['error']}" for e in exc.errors])
+    try:
+        report = await call.services.policies.import_policies(policies, actor=call.who)
+    except PolicyRejected as exc:
+        return call.error("policy_invalid", 400, exc.reasons)
+    return PolicyImportReport(
+        created=report.created,
+        versioned=report.versioned,
+        switched=report.switched,
+        unchanged=report.unchanged,
+    )
+
+
+@router.post("/overrides", response_model=PolicyOverrides, responses=_ERRORS)
+async def preview_overrides(body: PolicyDocument, call: Admin):
+    """What this draft would override if saved now (ADR-0105): the edit form shows it."""
+    if isinstance(call, JSONResponse):
+        return call
+    policy = _validated(call, body)
+    if isinstance(policy, JSONResponse):
+        return policy
+    found = await call.services.policies.overrides(policy)
+    return PolicyOverrides(overrides=found.refs, exception=found.exception, warnings=_warnings(found))
+
+
+@router.post("/test", response_model=PolicyTestResult, responses={**_ERRORS, 404: {"model": ErrorEnvelope}})
+async def test_policy(body: PolicyTestRequest, call: Admin):
+    if isinstance(call, JSONResponse):
+        return call
+    if (body.policy_id is None) == (body.policy is None):
+        return call.error("invalid_request", 400, ["give exactly one of policy_id or policy"])
+    if body.policy is not None:
+        policy = _validated(call, body.policy)
+        if isinstance(policy, JSONResponse):
+            return policy
+    else:
+        try:
+            policy = (await call.services.policies.get(body.policy_id)).policy
+        except PolicyNotFound:
+            return call.error("policy_not_found", 404)
+    # The panel may simulate whom it evaluates for: a tenant and policy roles (README §10.4).
+    simulated = body.principal
+    try:
+        principal = Principal(
+            user_id=call.actor,
+            tenant_id=simulated.tenant_id if simulated else call.tenant,
+            policy_roles=tuple(sorted(set(simulated.policy_roles))) if simulated else (),
+        )
+    except ValidationError as exc:
+        return call.error("invalid_request", 400, [f"principal: {e['msg']}" for e in exc.errors()])
+    try:
+        tried = await try_policy(
+            call.services.guard,
+            policy,
+            body.text,
+            principal=principal,
+            checkpoint=body.checkpoint,
+            target=body.target,
+            draft=body.policy is not None,
+        )
+    except (PanelError, ValueError) as exc:
+        return call.error("invalid_request", 400, [str(exc)])
+    result, outcome = tried.result, tried.outcome
+    return PolicyTestResult(
+        policy_ref=policy.ref,
+        checkpoint=tried.checkpoint.value,
+        target=tried.target,
+        action=tried.action,
+        matched=bool(result and result.matched),
+        score=result.score if result else 0.0,
+        explanation=result.explanation if result else "",
+        explanation_key=result.reason if result else "",
+        explanation_args=result.reason_args if result else {},
+        spans=[SpanView(**s.model_dump()) for s in (result.spans if result else [])],
+        output_text=tried.output_text,
+        message_ar=outcome.message_ar,
+        message_en=outcome.message_en,
+        error=tried.error,
+    )
+
+
+@router.post(
+    "", status_code=201, response_model=PolicyView, responses={**_ERRORS, 409: {"model": ErrorEnvelope}}
+)
+async def create_policy(body: PolicyDocument, call: Admin):
+    """Version 1 of a new id; 409 policy_exists when the id is taken."""
+    if isinstance(call, JSONResponse):
+        return call
+    policy = _validated(call, body)
+    if isinstance(policy, JSONResponse):
+        return policy
+    try:
+        await call.services.policies.create(policy, actor=call.who)
+    except PolicyExists:
+        return call.error("policy_exists", 409)
+    except PolicyRejected as exc:
+        return call.error("policy_invalid", 400, exc.reasons)
+    return await _saved(call, policy.id)
+
+
+@router.get("/{policy_id}", response_model=PolicyDetail, responses={**_ERRORS, 404: {"model": ErrorEnvelope}})
+async def get_policy(policy_id: PolicyId, call: Admin):
+    if isinstance(call, JSONResponse):
+        return call
+    try:
+        current = await call.services.policies.get(policy_id)
+        versions = await call.services.policies.versions(policy_id)
+    except PolicyNotFound:
+        return call.error("policy_not_found", 404)
+    return PolicyDetail(
+        current=_view(current),
+        versions=[
+            PolicyVersionView(
+                policy=_document(v.policy),
+                created_at=v.created_at,
+                created_by=v.created_by,
+                created_by_username=v.created_by_username,
+                created_by_name=v.created_by_name,
+                overrides=v.overrides,
+                exception=v.exception,
+            )
+            for v in versions
+        ],
+    )
+
+
+@router.post(
+    "/{policy_id}/versions",
+    status_code=201,
+    response_model=PolicyView,
+    responses={**_ERRORS, 404: {"model": ErrorEnvelope}},
+)
+async def add_version(policy_id: PolicyId, body: PolicyDocument, call: Admin):
+    """The body becomes the next version and the current one; versions are immutable (I2)."""
+    if isinstance(call, JSONResponse):
+        return call
+    if body.id != policy_id:
+        return call.error("policy_invalid", 400, [f"id: the body names {body.id}, the path {policy_id}"])
+    policy = _validated(call, body)
+    if isinstance(policy, JSONResponse):
+        return policy
+    try:
+        await call.services.policies.add_version(policy, actor=call.who)
+    except PolicyNotFound:
+        return call.error("policy_not_found", 404)
+    except PolicyRejected as exc:
+        return call.error("policy_invalid", 400, exc.reasons)
+    return await _saved(call, policy_id)
+
+
+@router.put(
+    "/{policy_id}/enabled", response_model=PolicyView, responses={**_ERRORS, 404: {"model": ErrorEnvelope}}
+)
+async def set_enabled(policy_id: PolicyId, body: PolicyEnabled, call: Admin):
+    """Switches the policy on or off; no new version."""
+    if isinstance(call, JSONResponse):
+        return call
+    try:
+        await call.services.policies.set_enabled(policy_id, body.enabled, actor=call.who)
+    except PolicyNotFound:
+        return call.error("policy_not_found", 404)
+    return _view(await call.services.policies.get(policy_id))
+
+
+@router.get(
+    "/{policy_id}/changes", response_model=PolicyChanges, responses={**_ERRORS, 404: {"model": ErrorEnvelope}}
+)
+async def policy_changes(policy_id: PolicyId, call: Admin):
+    """The policy's change log (ADR-0108): every create, version, switch, import and seed,
+    with its actor and the exception flag it left."""
+    if isinstance(call, JSONResponse):
+        return call
+    try:
+        changes = await call.services.policies.changes(policy_id)
+    except PolicyNotFound:
+        return call.error("policy_not_found", 404)
+    return PolicyChanges(
+        changes=[
+            PolicyChangeView(
+                changed_at=c.changed_at,
+                policy_ref=f"{c.policy_id}@{c.version}",
+                change=c.change,
+                actor=c.actor,
+                actor_username=c.actor_username,
+                actor_name=c.actor_name,
+                exception=c.exception,
+                overrides=c.overrides,
+                induced=[InducedFlag(policy_ref=i["policy"], exception=i["exception"]) for i in c.induced],
+            )
+            for c in changes
+        ]
+    )

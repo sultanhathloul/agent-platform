@@ -47,8 +47,24 @@ export type Seq2 = number;
 export type Type2 = "guard";
 export type Checkpoint = string;
 export type PolicyId = string | null;
+/**
+ * With policy_id: the version that decided.
+ */
+export type PolicyVersion = number | null;
+export type PolicyName = string | null;
 export type Action = string;
-export type Detail = string | null;
+/**
+ * DATA only: answer, memory_candidate or summary.
+ */
+export type Target = string | null;
+/**
+ * Block only: the policy's own message.
+ */
+export type MessageAr = string | null;
+/**
+ * Block only: the policy's own message.
+ */
+export type MessageEn = string | null;
 export type RequestId3 = string;
 export type TurnId3 = string | null;
 /**
@@ -117,6 +133,46 @@ export type TokensIn = number;
 export type TokensOut = number;
 export type CostUsd = number;
 export type GuardEvents = GuardData[];
+export type Checkpoint1 = string;
+export type PolicyId1 = string | null;
+/**
+ * With policy_id: the version that decided.
+ */
+export type PolicyVersion1 = number | null;
+export type PolicyName1 = string | null;
+export type Action1 = string;
+/**
+ * DATA only: answer, memory_candidate or summary.
+ */
+export type Target1 = string | null;
+/**
+ * Block only: the policy's own message.
+ */
+export type MessageAr1 = string | null;
+/**
+ * Block only: the policy's own message.
+ */
+export type MessageEn1 = string | null;
+/**
+ * The checker's explanation.
+ */
+export type Detail = string | null;
+/**
+ * The checker's reason key; `_cached` marks a cached judge verdict.
+ */
+export type Reason1 = string | null;
+export type Score = number | null;
+/**
+ * Entity types matched; never the matched text.
+ */
+export type Entities = string[];
+export type LatencyMs1 = number | null;
+export type TokensIn1 = number;
+export type TokensOut1 = number;
+/**
+ * Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
+ */
+export type GuardAudit = GuardAuditData[];
 export type Turn = number;
 /**
  * Capability slugs that ran this turn, in order.
@@ -131,9 +187,21 @@ export type TurnId8 = string | null;
 export type Seq8 = number;
 export type Type8 = "error";
 export type Code = string;
-export type MessageAr = string;
-export type MessageEn = string;
+export type MessageAr2 = string;
+export type MessageEn2 = string;
 export type Retryable = boolean;
+/**
+ * policy_id@version whose block ended the turn; its messages are the policy's.
+ */
+export type PolicyId2 = string | null;
+/**
+ * The turn's guard events up to the error.
+ */
+export type GuardEvents1 = GuardData[];
+/**
+ * Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
+ */
+export type GuardAudit1 = GuardAuditData[];
 export type RequestId9 = string;
 export type TurnId9 = string | null;
 /**
@@ -144,7 +212,7 @@ export type Type9 = "retract";
 /**
  * Error code of the check that withdrew the streamed text (ADR-0039).
  */
-export type Reason1 = string;
+export type Reason2 = string;
 
 export interface TokenEvent {
   request_id: RequestId;
@@ -176,11 +244,19 @@ export interface GuardEvent {
   type: Type2;
   data: GuardData;
 }
+/**
+ * What a client sees of a guard evaluation: who decided what, never how (ADR-0116). No
+ * checker explanation, reason, confidence, category, cache status, entities or latency.
+ */
 export interface GuardData {
   checkpoint: Checkpoint;
   policy_id?: PolicyId;
+  policy_version?: PolicyVersion;
+  policy_name?: PolicyName;
   action: Action;
-  detail?: Detail;
+  target?: Target;
+  message_ar?: MessageAr;
+  message_en?: MessageEn;
 }
 export interface ToolStartEvent {
   request_id: RequestId3;
@@ -251,6 +327,7 @@ export interface DoneData {
   citations?: Citations;
   usage: Usage;
   guard_events?: GuardEvents;
+  guard_audit?: GuardAudit;
   state_digest: StateDigest;
   trace_id?: TraceId;
 }
@@ -258,6 +335,41 @@ export interface Usage {
   tokens_in?: TokensIn;
   tokens_out?: TokensOut;
   cost_usd?: CostUsd;
+}
+/**
+ * A guard evaluation in full, for the gateway's audit record only (ADR-0116). It travels in
+ * the terminal event's `guard_audit`, which the gateway removes before the event reaches a
+ * client; a client never receives one.
+ */
+export interface GuardAuditData {
+  checkpoint: Checkpoint1;
+  policy_id?: PolicyId1;
+  policy_version?: PolicyVersion1;
+  policy_name?: PolicyName1;
+  action: Action1;
+  target?: Target1;
+  message_ar?: MessageAr1;
+  message_en?: MessageEn1;
+  detail?: Detail;
+  reason?: Reason1;
+  reason_args?: ReasonArgs;
+  score?: Score;
+  entities?: Entities;
+  latency_ms?: LatencyMs1;
+  /**
+   * The check's own model calls (the judge's), absent for a cached verdict; never part of the turn usage a client receives (ADR-0118).
+   */
+  usage?: GuardUsage | null;
+}
+/**
+ * Judge: category and confidence.
+ */
+export interface ReasonArgs {
+  [k: string]: string;
+}
+export interface GuardUsage {
+  tokens_in: TokensIn1;
+  tokens_out: TokensOut1;
 }
 export interface StateDigest {
   turn: Turn;
@@ -272,9 +384,12 @@ export interface ErrorEvent {
 }
 export interface ErrorData {
   code: Code;
-  message_ar: MessageAr;
-  message_en: MessageEn;
+  message_ar: MessageAr2;
+  message_en: MessageEn2;
   retryable?: Retryable;
+  policy_id?: PolicyId2;
+  guard_events?: GuardEvents1;
+  guard_audit?: GuardAudit1;
 }
 /**
  * Withdraws every answer token streamed so far in this turn.
@@ -287,5 +402,5 @@ export interface RetractEvent {
   data: RetractData;
 }
 export interface RetractData {
-  reason: Reason1;
+  reason: Reason2;
 }

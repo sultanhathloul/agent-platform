@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi
+.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -33,7 +33,7 @@ seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot
 test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
-	$(COMPOSE) up -d --wait postgres
+	$(COMPOSE) up -d --wait postgres redis presidio-analyzer
 	@# The test database and its owner come from infra/postgres/init; idempotent on an existing volume (ADR-0070).
 	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/10-agent-test.sh
 	$(COMPOSE) --profile test up -d --wait litellm-mock
@@ -50,14 +50,18 @@ test-gateway-db: .env
 	$(COMPOSE) up -d --wait postgres
 	$(COMPOSE) --profile test run --rm --build gateway-db-tests
 
+# --build-context config: the config editors' tests read the seed policies (ADR-0123).
 test-web:
-	docker build --target test --no-cache-filter test services/web
+	docker build --target test --no-cache-filter test --build-context config=config services/web
 
 eval: .env ## Golden suites against the live stack (real models)
 	uv run evals/run_evals.py
 
 smoke: .env ## End-to-end smoke test against the live stack
 	scripts/smoke.sh
+
+purge-pre-guard: ## One-time purge of memory and summaries stored before the DATA guard (D4); DRY_RUN=1 only counts
+	$(COMPOSE) exec -T agent python -m app.guardrails.purge $(if $(DRY_RUN),--dry-run,)
 
 logs: ## Tail logs, e.g. make logs s=agent
 	$(COMPOSE) logs -f --tail=200 $(s)

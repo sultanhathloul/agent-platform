@@ -14,6 +14,8 @@ async def load_identity_and_state(state: AgentState, runtime: Runtime[TurnContex
     anything from it is read: defense in depth behind the gateway and the turn
     runner, which refuse such a turn before the graph runs (ADR-0041, ADR-0050)."""
     principal = runtime.context.principal
+    # Checkpoints outside a node's own scope (broker, tier resolver, judge) stream through this.
+    runtime.context.writer = getattr(runtime, "stream_writer", None)
     owner = (state.get("user_id"), state.get("tenant_id"))
     if owner[0] is not None and owner != (principal.user_id, principal.tenant_id):
         raise TurnError("conversation_forbidden", detail="the thread belongs to another user or tenant")
@@ -32,6 +34,7 @@ async def load_identity_and_state(state: AgentState, runtime: Runtime[TurnContex
         "capability_outputs": [],
         "draft_answer": None,
         "shown_answer": None,
+        "answer_mode": "streaming",
         "citations": [],
         "guard_events": [],
         "reflection": None,

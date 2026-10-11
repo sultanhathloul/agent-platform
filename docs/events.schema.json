@@ -134,6 +134,15 @@
           "title": "Guard Events",
           "type": "array"
         },
+        "guard_audit": {
+          "default": [],
+          "description": "Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.",
+          "items": {
+            "$ref": "#/$defs/GuardAuditData"
+          },
+          "title": "Guard Audit",
+          "type": "array"
+        },
         "state_digest": {
           "$ref": "#/$defs/StateDigest"
         },
@@ -219,6 +228,37 @@
           "default": false,
           "title": "Retryable",
           "type": "boolean"
+        },
+        "policy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "policy_id@version whose block ended the turn; its messages are the policy's.",
+          "title": "Policy Id"
+        },
+        "guard_events": {
+          "default": [],
+          "description": "The turn's guard events up to the error.",
+          "items": {
+            "$ref": "#/$defs/GuardData"
+          },
+          "title": "Guard Events",
+          "type": "array"
+        },
+        "guard_audit": {
+          "default": [],
+          "description": "Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.",
+          "items": {
+            "$ref": "#/$defs/GuardAuditData"
+          },
+          "title": "Guard Audit",
+          "type": "array"
         }
       },
       "required": [
@@ -271,8 +311,9 @@
       "title": "ErrorEvent",
       "type": "object"
     },
-    "GuardData": {
+    "GuardAuditData": {
       "additionalProperties": false,
+      "description": "A guard evaluation in full, for the gateway's audit record only (ADR-0116). It travels in\nthe terminal event's `guard_audit`, which the gateway removes before the event reaches a\nclient; a client never receives one.",
       "properties": {
         "checkpoint": {
           "title": "Checkpoint",
@@ -290,9 +331,73 @@
           "default": null,
           "title": "Policy Id"
         },
+        "policy_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With policy_id: the version that decided.",
+          "title": "Policy Version"
+        },
+        "policy_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Name"
+        },
         "action": {
           "title": "Action",
           "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DATA only: answer, memory_candidate or summary.",
+          "title": "Target"
+        },
+        "message_ar": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Block only: the policy's own message.",
+          "title": "Message Ar"
+        },
+        "message_en": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Block only: the policy's own message.",
+          "title": "Message En"
         },
         "detail": {
           "anyOf": [
@@ -304,7 +409,171 @@
             }
           ],
           "default": null,
+          "description": "The checker's explanation.",
           "title": "Detail"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The checker's reason key; `_cached` marks a cached judge verdict.",
+          "title": "Reason"
+        },
+        "reason_args": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Judge: category and confidence.",
+          "title": "Reason Args",
+          "type": "object"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "entities": {
+          "default": [],
+          "description": "Entity types matched; never the matched text.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuardUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The check's own model calls (the judge's), absent for a cached verdict; never part of the turn usage a client receives (ADR-0118)."
+        }
+      },
+      "required": [
+        "checkpoint",
+        "action"
+      ],
+      "title": "GuardAuditData",
+      "type": "object"
+    },
+    "GuardData": {
+      "additionalProperties": false,
+      "description": "What a client sees of a guard evaluation: who decided what, never how (ADR-0116). No\nchecker explanation, reason, confidence, category, cache status, entities or latency.",
+      "properties": {
+        "checkpoint": {
+          "title": "Checkpoint",
+          "type": "string"
+        },
+        "policy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Id"
+        },
+        "policy_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With policy_id: the version that decided.",
+          "title": "Policy Version"
+        },
+        "policy_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Name"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DATA only: answer, memory_candidate or summary.",
+          "title": "Target"
+        },
+        "message_ar": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Block only: the policy's own message.",
+          "title": "Message Ar"
+        },
+        "message_en": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Block only: the policy's own message.",
+          "title": "Message En"
         }
       },
       "required": [
@@ -354,6 +623,25 @@
         "data"
       ],
       "title": "GuardEvent",
+      "type": "object"
+    },
+    "GuardUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "tokens_in": {
+          "title": "Tokens In",
+          "type": "integer"
+        },
+        "tokens_out": {
+          "title": "Tokens Out",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens_in",
+        "tokens_out"
+      ],
+      "title": "GuardUsage",
       "type": "object"
     },
     "ProgressData": {

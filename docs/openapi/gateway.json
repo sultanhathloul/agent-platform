@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "1.2.0"
+    "version" : "1.3.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -12,6 +12,654 @@
     "bearer" : [ ]
   } ],
   "paths" : {
+    "/v1/admin/policies" : {
+      "get" : {
+        "operationId" : "listPolicies",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyList"
+                }
+              }
+            },
+            "description" : "The policies"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Every policy's current version and switch",
+        "tags" : [ "admin-policies" ]
+      },
+      "post" : {
+        "operationId" : "createPolicy",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyDocument"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyView"
+                }
+              }
+            },
+            "description" : "The created policy"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_invalid, with details"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_exists"
+          }
+        },
+        "summary" : "Creates a policy (version 1)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/export" : {
+      "get" : {
+        "operationId" : "exportPolicies",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyYaml"
+                }
+              }
+            },
+            "description" : "The YAML document"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "Every policy's current version as one importable YAML document",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/import" : {
+      "post" : {
+        "operationId" : "importPolicies",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyYaml"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyImportReport"
+                }
+              }
+            },
+            "description" : "What the import did"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_invalid, with details"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "Imports a YAML document, all or nothing",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/metrics" : {
+      "get" : {
+        "operationId" : "policyMetrics",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "days",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 14
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyMetrics"
+                }
+              }
+            },
+            "description" : "The counts"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "Matches per day per policy, from guard events",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/overrides" : {
+      "post" : {
+        "operationId" : "previewOverrides",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyDocument"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyOverrides"
+                }
+              }
+            },
+            "description" : "The overridden policies and the exception flag"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_invalid, with details"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "What a draft would override if saved now (ADR-0105)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/test" : {
+      "post" : {
+        "operationId" : "testPolicy",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyTestRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyTestResult"
+                }
+              }
+            },
+            "description" : "The CheckResult and the engine's decision"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request or policy_invalid"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_not_found"
+          }
+        },
+        "summary" : "Evaluates one policy against sample text; nothing is recorded",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/{policyId}" : {
+      "get" : {
+        "operationId" : "getPolicy",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "policyId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyDetail"
+                }
+              }
+            },
+            "description" : "The policy"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_not_found"
+          }
+        },
+        "summary" : "A policy's current version and its version history",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/{policyId}/changes" : {
+      "get" : {
+        "operationId" : "getPolicyChanges",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "policyId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyChanges"
+                }
+              }
+            },
+            "description" : "The changes, newest first"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_not_found"
+          }
+        },
+        "summary" : "A policy's change log: every save, switch, import and seed, with its actor (ADR-0108)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/{policyId}/enabled" : {
+      "put" : {
+        "operationId" : "setPolicyEnabled",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "policyId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyEnabled"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyView"
+                }
+              }
+            },
+            "description" : "The policy as switched"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_not_found"
+          }
+        },
+        "summary" : "Switches a policy on or off (no new version)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policies/{policyId}/versions" : {
+      "post" : {
+        "operationId" : "addPolicyVersion",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "policyId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PolicyDocument"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyView"
+                }
+              }
+            },
+            "description" : "The new current version"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_invalid, with details"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "policy_not_found"
+          }
+        },
+        "summary" : "Saves an edit as the next, immutable version and makes it current",
+        "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/policy-roles" : {
+      "get" : {
+        "operationId" : "listPolicyRoles",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePolicyRoles"
+                }
+              }
+            },
+            "description" : "The policy roles"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "identity_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The realm's policy:* roles, which role-scoped policies name (ADR-0107)",
+        "tags" : [ "admin-policies" ]
+      }
+    },
     "/v1/chat/turns" : {
       "post" : {
         "description" : "Streams agent events as Server-Sent Events. Event payloads are defined in docs/events.schema.json. Errors before the stream starts are JSON envelopes.",
@@ -67,6 +715,16 @@
             },
             "description" : "kb_forbidden or conversation_forbidden"
           },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "turn_in_flight: an earlier turn of this conversation is still running"
+          },
           "502" : {
             "content" : {
               "application/json" : {
@@ -85,7 +743,7 @@
                 }
               }
             },
-            "description" : "audit_unavailable"
+            "description" : "audit_unavailable or service_busy"
           }
         },
         "summary" : "Run one chat turn",
@@ -364,10 +1022,156 @@
         },
         "required" : [ "request_id" ]
       },
+      "ApiEnvelopePolicyChanges" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyChanges"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyDetail" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyDetail"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyImportReport" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyImportReport"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyMetrics" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyMetrics"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyOverrides" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyOverrides"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyRoles" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyRoles"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyTestResult" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyTestResult"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePolicyYaml" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PolicyYaml"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiError" : {
         "properties" : {
           "code" : {
             "type" : "string"
+          },
+          "details" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
           },
           "message_ar" : {
             "type" : "string"
@@ -459,6 +1263,21 @@
           }
         }
       },
+      "InducedFlag" : {
+        "description" : "Policies whose exception flag this change set or cleared (ADR-0115)",
+        "properties" : {
+          "exception" : {
+            "type" : "boolean"
+          },
+          "policy_ref" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "exception", "policy_ref" ]
+      },
+      "JsonNode" : {
+        "description" : "The checker's settings; DATA policies may name `targets`."
+      },
       "MeResponse" : {
         "properties" : {
           "display_name" : {
@@ -532,6 +1351,510 @@
           }
         },
         "required" : [ "enabled" ]
+      },
+      "PolicyChange" : {
+        "properties" : {
+          "actor" : {
+            "type" : "string"
+          },
+          "actor_name" : {
+            "type" : "string",
+            "description" : "The actor's display name at the time (ADR-0123); absent on older rows"
+          },
+          "actor_username" : {
+            "type" : "string",
+            "description" : "The actor's username at the time (ADR-0123); absent on older rows"
+          },
+          "change" : {
+            "type" : "string",
+            "description" : "flagged / unflagged: another policy's change made this one an exception, or cleared it",
+            "enum" : [ "create", "version", "enable", "disable", "import", "seed", "flagged", "unflagged" ]
+          },
+          "changed_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "exception" : {
+            "type" : "boolean"
+          },
+          "induced" : {
+            "type" : "array",
+            "description" : "Policies whose exception flag this change set or cleared (ADR-0115)",
+            "items" : {
+              "$ref" : "#/components/schemas/InducedFlag"
+            }
+          },
+          "overrides" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "policy_ref" : {
+            "type" : "string",
+            "description" : "id@version the change left current"
+          }
+        },
+        "required" : [ "actor", "change", "changed_at", "exception", "overrides", "policy_ref" ]
+      },
+      "PolicyChanges" : {
+        "properties" : {
+          "changes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyChange"
+            }
+          }
+        },
+        "required" : [ "changes" ]
+      },
+      "PolicyDetail" : {
+        "properties" : {
+          "current" : {
+            "$ref" : "#/components/schemas/PolicyView"
+          },
+          "versions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyVersionView"
+            }
+          }
+        },
+        "required" : [ "current", "versions" ]
+      },
+      "PolicyDocument" : {
+        "properties" : {
+          "action" : {
+            "type" : "string",
+            "description" : "allow | block | redact | rewrite | warn | require_approval | log_only"
+          },
+          "checker" : {
+            "type" : "string",
+            "description" : "regex | presidio | keyword_list | llm_judge | tier_ceiling"
+          },
+          "checkpoints" : {
+            "type" : "array",
+            "description" : "INPUT, TOOL_LIST, PRE_TOOL, POST_TOOL, OUTPUT, DATA, MODEL_TIER",
+            "items" : {
+              "type" : "string",
+              "description" : "INPUT, TOOL_LIST, PRE_TOOL, POST_TOOL, OUTPUT, DATA, MODEL_TIER"
+            }
+          },
+          "config" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          },
+          "description_ar" : {
+            "type" : "string",
+            "description" : "The description in Arabic; may be empty."
+          },
+          "description_en" : {
+            "type" : "string",
+            "description" : "The description in English; may be empty."
+          },
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "group" : {
+            "type" : "string",
+            "description" : "Policies of one group override each other narrow over wide; default: the id."
+          },
+          "id" : {
+            "type" : "string",
+            "pattern" : "^[a-z0-9][a-z0-9-]{1,63}$"
+          },
+          "message_ar" : {
+            "type" : "string"
+          },
+          "message_en" : {
+            "type" : "string"
+          },
+          "name_ar" : {
+            "type" : "string",
+            "description" : "The name in Arabic (ADR-0119)."
+          },
+          "name_en" : {
+            "type" : "string",
+            "description" : "The name in English (ADR-0119)."
+          },
+          "on_error" : {
+            "type" : "string",
+            "description" : "open | closed; default by checker (D8)"
+          },
+          "purpose" : {
+            "type" : "string",
+            "description" : "test: made by a test script (smoke, TTFT), hidden from the admin list by default; default production (ADR-0119)",
+            "enum" : [ "production", "test" ]
+          },
+          "scope" : {
+            "type" : "string",
+            "description" : "global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to holders of the realm role policy:<name> (ADR-0107); only global contains another scope (ADR-0108)"
+          },
+          "severity" : {
+            "type" : "string",
+            "description" : "low | medium | high | critical"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Assigned by the agent; ignored on create and on a new version."
+          }
+        },
+        "required" : [ "action", "checker", "checkpoints", "id", "name_ar", "name_en", "scope" ]
+      },
+      "PolicyEnabled" : {
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "enabled" ]
+      },
+      "PolicyImportReport" : {
+        "properties" : {
+          "created" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "switched" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "unchanged" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "versioned" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "required" : [ "created", "switched", "unchanged", "versioned" ]
+      },
+      "PolicyList" : {
+        "properties" : {
+          "policies" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyView"
+            }
+          }
+        },
+        "required" : [ "policies" ]
+      },
+      "PolicyMatchRow" : {
+        "properties" : {
+          "action" : {
+            "type" : "string"
+          },
+          "day" : {
+            "type" : "string",
+            "format" : "date"
+          },
+          "matches" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "policy_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "action", "day", "matches", "policy_id" ]
+      },
+      "PolicyMetrics" : {
+        "properties" : {
+          "days" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "rows" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyMatchRow"
+            }
+          }
+        },
+        "required" : [ "days", "rows" ]
+      },
+      "PolicyOverrides" : {
+        "properties" : {
+          "exception" : {
+            "type" : "boolean"
+          },
+          "overrides" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "warnings" : {
+            "type" : "array",
+            "description" : "Saved anyway, but worth knowing (ADR-0115)",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyWarning"
+            }
+          }
+        },
+        "required" : [ "exception", "overrides" ]
+      },
+      "PolicyRoles" : {
+        "properties" : {
+          "roles" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "required" : [ "roles" ]
+      },
+      "PolicySpan" : {
+        "properties" : {
+          "end" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "entity" : {
+            "type" : "string"
+          },
+          "score" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "start" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "end", "entity", "start" ]
+      },
+      "PolicyTestRequest" : {
+        "properties" : {
+          "checkpoint" : {
+            "type" : "string",
+            "description" : "Default: the policy's first checkpoint."
+          },
+          "policy" : {
+            "$ref" : "#/components/schemas/PolicyDocument"
+          },
+          "policy_id" : {
+            "type" : "string"
+          },
+          "principal" : {
+            "$ref" : "#/components/schemas/SimulatedPrincipal"
+          },
+          "target" : {
+            "type" : "string",
+            "description" : "DATA only: answer | memory_candidate | summary."
+          },
+          "text" : {
+            "type" : "string",
+            "maxLength" : 20000,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "text" ]
+      },
+      "PolicyTestResult" : {
+        "properties" : {
+          "action" : {
+            "type" : "string"
+          },
+          "checkpoint" : {
+            "type" : "string"
+          },
+          "error" : {
+            "type" : "string",
+            "description" : "The checker's error, when it failed."
+          },
+          "explanation" : {
+            "type" : "string",
+            "description" : "The checker's explanation in English, as traces record it."
+          },
+          "explanation_args" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string",
+              "description" : "Arguments of explanation_key; `items` lists names separated by newlines."
+            },
+            "description" : "Arguments of explanation_key; `items` lists names separated by newlines."
+          },
+          "explanation_key" : {
+            "type" : "string",
+            "description" : "The explanation as a key under the web's policies.explanation.* (rule 7)."
+          },
+          "matched" : {
+            "type" : "boolean"
+          },
+          "message_ar" : {
+            "type" : "string"
+          },
+          "message_en" : {
+            "type" : "string"
+          },
+          "output_text" : {
+            "type" : "string",
+            "description" : "The text after redaction, for text checkpoints."
+          },
+          "policy_ref" : {
+            "type" : "string"
+          },
+          "score" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "spans" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicySpan"
+            }
+          },
+          "target" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "action", "checkpoint", "explanation", "matched", "policy_ref", "score", "spans" ]
+      },
+      "PolicyVersionView" : {
+        "properties" : {
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "created_by" : {
+            "type" : "string"
+          },
+          "created_by_name" : {
+            "type" : "string",
+            "description" : "The creator's display name at the time (ADR-0123); absent on older rows"
+          },
+          "created_by_username" : {
+            "type" : "string",
+            "description" : "The creator's username at the time (ADR-0123); absent on older rows"
+          },
+          "exception" : {
+            "type" : "boolean",
+            "description" : "Whether it was an exception when it was saved"
+          },
+          "overrides" : {
+            "type" : "array",
+            "description" : "What this version overrode when it was saved",
+            "items" : {
+              "type" : "string",
+              "description" : "What this version overrode when it was saved"
+            }
+          },
+          "policy" : {
+            "$ref" : "#/components/schemas/PolicyDocument"
+          }
+        },
+        "required" : [ "created_at", "created_by", "policy" ]
+      },
+      "PolicyView" : {
+        "properties" : {
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "created_by" : {
+            "type" : "string"
+          },
+          "created_by_name" : {
+            "type" : "string",
+            "description" : "The creator's display name at the time (ADR-0123); absent on older rows"
+          },
+          "created_by_username" : {
+            "type" : "string",
+            "description" : "The creator's username at the time (ADR-0123); absent on older rows"
+          },
+          "exception" : {
+            "type" : "boolean",
+            "description" : "It overrides a stricter policy of its group (ADR-0105, ADR-0108)"
+          },
+          "overrides" : {
+            "type" : "array",
+            "description" : "id@version of the wider policies of its group it overrides now",
+            "items" : {
+              "type" : "string",
+              "description" : "id@version of the wider policies of its group it overrides now"
+            }
+          },
+          "policy" : {
+            "$ref" : "#/components/schemas/PolicyDocument"
+          },
+          "updated_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updated_by" : {
+            "type" : "string"
+          },
+          "warnings" : {
+            "type" : "array",
+            "description" : "On a save response only (ADR-0115)",
+            "items" : {
+              "$ref" : "#/components/schemas/PolicyWarning"
+            }
+          }
+        },
+        "required" : [ "created_at", "created_by", "policy", "updated_at", "updated_by" ]
+      },
+      "PolicyWarning" : {
+        "description" : "On a save response only (ADR-0115)",
+        "properties" : {
+          "code" : {
+            "type" : "string",
+            "description" : "whole_text_cannot_lift_spans: this exception cannot lift span-based redaction",
+            "enum" : [ "whole_text_cannot_lift_spans" ]
+          },
+          "policies" : {
+            "type" : "array",
+            "description" : "id@version of the span-based policies it cannot lift",
+            "items" : {
+              "type" : "string",
+              "description" : "id@version of the span-based policies it cannot lift"
+            }
+          }
+        },
+        "required" : [ "code", "policies" ]
+      },
+      "PolicyYaml" : {
+        "properties" : {
+          "yaml" : {
+            "type" : "string",
+            "maxLength" : 500000,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "yaml" ]
+      },
+      "SimulatedPrincipal" : {
+        "description" : "Whom to evaluate for; default: the admin, with no policy roles.",
+        "properties" : {
+          "policy_roles" : {
+            "type" : "array",
+            "description" : "Full names, policy:{name}",
+            "items" : {
+              "type" : "string",
+              "description" : "Full names, policy:{name}"
+            },
+            "maxItems" : 32,
+            "minItems" : 0
+          },
+          "tenant_id" : {
+            "type" : "string",
+            "description" : "Default: default",
+            "maxLength" : 128,
+            "minLength" : 1
+          }
+        }
       }
     },
     "securitySchemes" : {

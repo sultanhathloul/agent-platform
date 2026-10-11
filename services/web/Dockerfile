@@ -11,7 +11,11 @@ FROM deps AS source
 COPY . .
 
 # `docker build --target test` fails when typecheck, lint or unit tests fail.
+# The config editors' round-trip tests read the seed policies from the `config` build context
+# (ADR-0123).
 FROM source AS test
+COPY --from=config policies /config/policies
+ENV SEED_POLICIES_DIR=/config/policies
 RUN npm run typecheck && npm run lint && npm test
 
 FROM source AS build

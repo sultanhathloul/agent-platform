@@ -22,6 +22,17 @@ class MemoryItem:
     expires_at: datetime | None
 
 
+async def delete_packages_using(conn, item_ids: Sequence) -> int:
+    """Recorded context packages hold the text of the memory items they used (D5)."""
+    if not item_ids:
+        return 0
+    cursor = await conn.execute(
+        "DELETE FROM agent.context_packages WHERE memory_item_ids && %s::uuid[]",
+        ([str(i) for i in item_ids],),
+    )
+    return cursor.rowcount
+
+
 def _vector(values: Sequence[float]) -> str:
     return "[" + ",".join(repr(float(value)) for value in values) + "]"
 
@@ -96,21 +107,49 @@ class MemoryStore:
         ]
 
     async def delete(self, scope: MemoryScope, item_id: str) -> bool:
-        """False when no item with this id belongs to the scope, including another user's item."""
-        async with self._db.connection() as conn:
+        """False when no item with this id belongs to the scope, including another user's item.
+        The recorded context packages that used the item go with it (D5)."""
+        async with self._db.connection() as conn, conn.transaction():
             cursor = await conn.execute(
-                "DELETE FROM agent.memory_items WHERE id = %s AND tenant_id = %s AND user_id = %s",
+                "DELETE FROM agent.memory_items WHERE id = %s AND tenant_id = %s AND user_id = %s "
+                "RETURNING id",
                 (item_id, scope.tenant_id, scope.user_id),
             )
-            return cursor.rowcount == 1
+            deleted = [row["id"] for row in await cursor.fetchall()]
+            await delete_packages_using(conn, deleted)
+            return len(deleted) == 1
 
     async def delete_from_turn(self, scope: MemoryScope, source_turn: str, *, conn) -> int:
-        """Deletes the scope's items extracted from `source_turn`, on the caller's
-        connection, so a retract removes them in its own transaction (ADR-0071)."""
+        """Deletes the scope's items extracted from `source_turn`, and the packages that
+        used them, on the caller's connection, so a retract removes them in its own
+        transaction (ADR-0071, D5)."""
         cursor = await conn.execute(
-            "DELETE FROM agent.memory_items WHERE tenant_id = %s AND user_id = %s AND source_turn = %s",
+            "DELETE FROM agent.memory_items WHERE tenant_id = %s AND user_id = %s AND source_turn = %s "
+            "RETURNING id",
             (scope.tenant_id, scope.user_id, source_turn),
         )
+        deleted = [row["id"] for row in await cursor.fetchall()]
+        await delete_packages_using(conn, deleted)
+        return len(deleted)
+
+    async def delete_ids(self, item_ids: Sequence[str], *, conn) -> int:
+        """Deletes items by id whoever owns them, and their packages: the pre-guard purge only (D4)."""
+        cursor = await conn.execute(
+            "DELETE FROM agent.memory_items WHERE id = ANY(%s::uuid[]) RETURNING id", (list(item_ids),)
+        )
+        deleted = [row["id"] for row in await cursor.fetchall()]
+        await delete_packages_using(conn, deleted)
+        return len(deleted)
+
+    async def redact_item(self, item_id: str, text: str, embedding: Sequence[float], *, conn) -> int:
+        """Rewrites an item's text and vector in place, and deletes the packages that hold its
+        old text: the pre-guard purge only (review round 1, ADR-0112). Returns the rows changed."""
+        cursor = await conn.execute(
+            "UPDATE agent.memory_items SET text = %s, embedding = %s::vector WHERE id = %s::uuid",
+            (text, _vector(embedding), item_id),
+        )
+        if cursor.rowcount:
+            await delete_packages_using(conn, [item_id])
         return cursor.rowcount
 
     async def search(

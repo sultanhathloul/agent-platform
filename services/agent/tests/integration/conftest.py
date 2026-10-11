@@ -15,7 +15,9 @@ def debug_services(services):
     return dataclasses.replace(
         services,
         settings=services.settings.model_copy(update={"debug_context_enabled": True}),
-        context_log=ContextLog(services.db, enabled=True),
+        context_log=ContextLog(
+            services.db, enabled=True, retention_days=services.settings.debug_context_retention_days
+        ),
     )
 
 

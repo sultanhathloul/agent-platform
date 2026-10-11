@@ -1,0 +1,36 @@
+# Example topic policy, disabled by default (README §10.4). Enabling it makes every
+# answer in scope buffered whole before it streams (D3). Owner decision (2026-10-11): in the
+# Saudi government context the topic is an opinion on political affairs; a neutral, factual
+# explanation of a decision, a law or a procedure is not.
+id: topics-politics-llm-judge
+name_ar: الآراء السياسية
+name_en: Political opinions (LLM judge)
+description_ar: >-
+  يقرر النموذج الحَكَم هل يبدي سؤال أو إجابة رأيًا أو انحيازًا في الشؤون السياسية: تقييم قرارات
+  حكومية أو مسؤولين، أو السياسة الخارجية والنزاعات الإقليمية، أو الترجيح بين دول أو أطراف أو
+  تيارات. الشرح المحايد للقرارات والأنظمة والإجراءات مسموح.
+description_en: >-
+  The judge decides whether a question or an answer expresses an opinion or a bias on
+  political affairs: assessing government decisions or officials, foreign policy and
+  regional conflicts, or favouring one state, party or current over another. A neutral,
+  factual explanation of decisions, laws and procedures is allowed.
+enabled: false
+scope: global
+checkpoints: [INPUT, OUTPUT]
+checker: llm_judge
+config:
+  topic_description: >-
+    إبداء رأي أو انحياز في الشؤون السياسية: تقييم قرارات حكومية أو مسؤولين، أو السياسة الخارجية
+    والنزاعات الإقليمية، أو الترجيح بين دول أو أطراف أو تيارات. شرح القرارات والأنظمة والإجراءات
+    شرحًا محايدًا وقائعيًا ليس من هذا الموضوع.
+  examples:
+    - {text: "وش رايك بقرار الوزارة الأخير؟ صح ولا غلط؟", violates: true}
+    - {text: "مين تعامل أحسن مع الأزمة، الدولة الفلانية ولا الفلانية؟", violates: true}
+    - {text: "ما رأيك في أداء الوزير الفلاني؟", violates: true}
+    - {text: "اشرح لي ما تضمنه قرار مجلس الوزراء الأخير بخصوص نظام المشتريات", violates: false}
+    - {text: "ما مهام مجلس الشورى؟", violates: false}
+  min_confidence: 0.6
+action: block
+severity: medium
+message_ar: "أعتذر، لا أبدي آراء في الشؤون السياسية. يسعدني مساعدتك في سؤال آخر."
+message_en: "Sorry, I don't share opinions on political matters. I'm happy to help with another question."

@@ -1,0 +1,166 @@
+import { createElement, type ReactElement } from "react";
+import { describe, expect, it } from "vitest";
+import type { PolicyView } from "@/lib/api/types";
+import { ACTIONS } from "@/lib/policies";
+import { CATALOGS, renderIn, type TestLocale } from "@/test/render";
+import { PolicyList } from "./PolicyList";
+import { PolicyMeta } from "./PolicyMeta";
+
+function render(locale: TestLocale, element: ReactElement): string {
+  return renderIn(locale, element);
+}
+
+/** Each chip of the meta line as [name, tag, text], in document order. */
+function chips(html: string): [string, string, string][] {
+  return [...html.matchAll(/<(\w+)[^>]*data-chip="(\w+)"[^>]*>([^<]*)<\/\1>/g)].map((m) => [m[2]!, m[1]!, m[3]!]);
+}
+
+const POLICY = {
+  id: "pii-redact-output",
+  version: 3,
+  action: "redact",
+  scope: "global",
+  checkpoints: ["OUTPUT", "DATA"],
+  checker: "presidio",
+};
+
+describe("the policy meta line (ADR-0119)", () => {
+  for (const locale of ["ar", "en"] as const) {
+    it(`renders its chips in the fixed order, each in a bdi, in ${locale}`, () => {
+      const html = render(locale, createElement(PolicyMeta, { policy: POLICY, exception: true, overrides: ["pii-wide@1"] }));
+      expect(chips(html)).toEqual([
+        ["action", "bdi", CATALOGS[locale].guardActions.redact],
+        ["exception", "bdi", CATALOGS[locale].policies.overrides.badge],
+        ["scope", "bdi", "global"],
+        ["checkpoints", "bdi", "OUTPUT, DATA"],
+        ["target", "bdi", CATALOGS[locale].policies.config.allTargets],
+        ["checker", "bdi", "presidio"],
+        ["ref", "bdi", "pii-redact-output@3"],
+      ]);
+      // No separators between chips (the checkpoints tooltip, an attribute, may hold a comma).
+      const visible = html.replace(/<[^>]*>/g, "");
+      expect(visible).not.toContain("·");
+      expect(visible).not.toContain("،");
+    });
+
+    it(`leaves the exception badge out when the policy is not one, in ${locale}`, () => {
+      const html = render(locale, createElement(PolicyMeta, { policy: POLICY }));
+      expect(chips(html).map(([name]) => name)).toEqual(["action", "scope", "checkpoints", "target", "checker", "ref"]);
+    });
+  }
+
+  it("takes every action label from the locale's catalog", () => {
+    expect(CATALOGS.ar.guardActions).toEqual({
+      allow: "سماح",
+      block: "حظر",
+      redact: "إخفاء",
+      rewrite: "إعادة صياغة",
+      warn: "تحذير",
+      require_approval: "طلب موافقة",
+      log_only: "تسجيل فقط",
+    });
+    for (const locale of ["ar", "en"] as const) {
+      for (const action of ACTIONS) {
+        const [first] = chips(render(locale, createElement(PolicyMeta, { policy: { ...POLICY, action } })));
+        expect(first).toEqual(["action", "bdi", CATALOGS[locale].guardActions[action]]);
+      }
+    }
+  });
+
+  it("puts no monospace face on a chip that holds Arabic", () => {
+    const html = render("ar", createElement(PolicyMeta, { policy: POLICY, exception: true }));
+    for (const name of ["action", "exception"]) {
+      const tag = html.match(new RegExp(`<bdi[^>]*data-chip="${name}"[^>]*>`))?.[0] ?? "";
+      expect(tag, name).not.toContain("font-mono");
+    }
+  });
+});
+
+describe("DATA targets and memory wording (ADR-0124)", () => {
+  const memory = {
+    id: "pii-block-in-memory",
+    version: 1,
+    action: "block",
+    scope: "global",
+    checkpoints: ["DATA"],
+    checker: "presidio",
+    config: { entities: ["SA_MOBILE"], targets: ["memory_candidate"] },
+  };
+
+  it("puts one chip per target after the checkpoints chip, in the catalog's order", () => {
+    const policy = { ...POLICY, config: { entities: ["SA_MOBILE"], targets: ["summary", "answer"] } };
+    const html = render("ar", createElement(PolicyMeta, { policy }));
+    expect(chips(html).slice(2, 5)).toEqual([
+      ["checkpoints", "bdi", "OUTPUT, DATA"],
+      ["target", "bdi", "الإجابة"],
+      ["target", "bdi", "الملخص"],
+    ]);
+  });
+
+  it("shows one all-targets chip when the policy covers every target, and none without DATA", () => {
+    const every = { ...POLICY, config: { targets: ["answer", "summary", "memory_candidate"] } };
+    expect(chips(render("ar", createElement(PolicyMeta, { policy: every }))).filter(([n]) => n === "target")).toEqual([
+      ["target", "bdi", "كل الوجهات"],
+    ]);
+    const output = { ...POLICY, checkpoints: ["OUTPUT"], config: { targets: ["answer"] } };
+    expect(chips(render("ar", createElement(PolicyMeta, { policy: output }))).map(([n]) => n)).not.toContain("target");
+  });
+
+  it("names a DATA-only block on memory alone 'prevent saving', and nothing else", () => {
+    const html = render("ar", createElement(PolicyMeta, { policy: memory }));
+    expect(chips(html)[0]).toEqual(["action", "bdi", "منع الحفظ"]);
+    expect(chips(html)[3]).toEqual(["target", "bdi", "عناصر الذاكرة"]);
+    expect(chips(render("en", createElement(PolicyMeta, { policy: memory })))[0]).toEqual(["action", "bdi", "Prevent saving"]);
+    for (const other of [
+      { ...memory, action: "redact" },
+      { ...memory, checkpoints: ["INPUT", "DATA"] },
+      { ...memory, config: { entities: ["SA_MOBILE"], targets: ["memory_candidate", "summary"] } },
+      { ...memory, config: { entities: ["SA_MOBILE"] } },
+    ]) {
+      const [first] = chips(render("ar", createElement(PolicyMeta, { policy: other })));
+      expect(first![2]).toBe(CATALOGS.ar.guardActions[other.action as "block" | "redact"]);
+    }
+  });
+
+  it("gives the checkpoints chip the checkpoints' Arabic descriptions as its tooltip", () => {
+    const html = render("ar", createElement(PolicyMeta, { policy: { ...POLICY, checkpoints: ["INPUT", "TOOL_LIST", "OUTPUT"] } }));
+    expect(html).toMatch(/<bdi data-chip="checkpoints" dir="ltr" class="[^"]*" title="رسالة المستخدم، القدرات المتاحة، الإجابة">/);
+    expect(CATALOGS.ar.policies.checkpoints).toEqual({
+      INPUT: "رسالة المستخدم",
+      TOOL_LIST: "القدرات المتاحة",
+      PRE_TOOL: "قبل الأداة",
+      POST_TOOL: "بعد الأداة",
+      OUTPUT: "الإجابة",
+      DATA: "البيانات الخارجة",
+      MODEL_TIER: "سقف النموذج",
+    });
+  });
+});
+
+describe("the policy list (ADR-0119)", () => {
+  const view = (id: string, purpose: "production" | "test", name_ar: string, name_en: string): PolicyView => ({
+    policy: { id, version: 1, name_ar, name_en, purpose, scope: "global", checkpoints: ["INPUT"], checker: "keyword_list", action: "block" },
+    created_at: "2026-10-07T00:00:00Z",
+    created_by: "seed",
+    updated_at: "2026-10-07T00:00:00Z",
+    updated_by: "seed",
+  });
+  const policies = [
+    view("prompt-injection-input", "production", "حظر حقن التعليمات", "Block prompt injection"),
+    view("smoke-live-block", "test", "الفحص الشامل: حظر كلمة", "Smoke: live keyword block"),
+  ];
+  const props = { policies, selected: null, busy: null, showTest: false, onShowTest: () => {}, onOpen: () => {}, onToggle: () => {} };
+
+  for (const locale of ["ar", "en"] as const) {
+    it(`hides test policies until the toggle is on and names policies in ${locale}`, () => {
+      const html = render(locale, createElement(PolicyList, props));
+      expect(html).toContain('data-policy-id="prompt-injection-input"');
+      expect(html).not.toContain('data-policy-id="smoke-live-block"');
+      expect(html).toContain(CATALOGS[locale].policies.showTest);
+      const toggle = html.match(/<label[^>]*><input type="checkbox"[^>]*\/>/)?.[0] ?? "";
+      expect(toggle).not.toContain("checked");
+      expect(html).toContain(locale === "ar" ? "حظر حقن التعليمات" : "Block prompt injection");
+      expect(html).not.toContain(locale === "ar" ? "Block prompt injection" : "حظر حقن التعليمات");
+    });
+  }
+});

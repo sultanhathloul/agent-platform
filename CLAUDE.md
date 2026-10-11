@@ -21,6 +21,7 @@ You are building the Sovereign Agent Platform described in `README.md`. Read `RE
 8. **Tests and evals are part of the phase.** A phase is done when `make test`, `make eval` (the suites that exist so far) and `scripts/smoke.sh` are green. Do not declare done otherwise.
 9. **Small commits, conventional messages** (`feat(agent): …`, `fix(gateway): …`, `test(guardrails): …`). One PR per phase on a branch `phase/NN-name`.
 10. **Record every non-trivial choice** in `docs/DECISIONS.md` (ADR format: context, decision, consequences). An ADR's text is immutable: only its Status line may change, and only with a one-line note, `Accepted on <date>` or `Superseded by ADR-NNNN on <date>`. Every other change to a decision is a new entry that supersedes the old one (ADR-0034).
+11. **Numbers, not words.** After every green run, record in `docs/PROGRESS.md` the passed / failed / skipped counts per layer (agent, gateway, gateway-db, web), smoke checks passed/total, and each eval suite score with its dataset run id. "BUILD SUCCESSFUL" or "green" alone is not a result.
 
 ## Session protocol
 
@@ -66,7 +67,7 @@ make logs s=agent  # tail a service
 ## Things you must never do
 
 - Commit secrets, `.env`, or model weights.
-- Change `docs/openapi/*.json` without bumping the API version.
+- Change `docs/openapi/*.json` without bumping the API version, except while the version has not left an unmerged PR (ADR-0046).
 - Add a dependency on an external SaaS.
 - Give the model write access to any database.
 - Mark a phase done with failing or skipped tests.

@@ -321,7 +321,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0039: Streamed text is retracted when a later check fails; phase 03 buffers output
 - Date: 2026-09-13
 - Phase: 01 (interim) and 03 (full fix)
-- Status: decided — Superseded by ADR-0048 on 2026-09-13 (what the history stores only)
+- Status: decided — Superseded by ADR-0048 on 2026-09-13 (what the history stores only); Superseded by ADR-0079 on 2026-10-06 (the phase 03 full fix only)
 - Context: The answer node streams tokens as the model produces them, but `validate`, `guard(OUTPUT)` and `guard(DATA)` run on the finished draft. A failing check ended the turn with an `error` event while the web client kept showing the text already streamed, so ADR-0027's "never reaches the user" did not hold. ADR-0031 proposed where `OUTPUT` and `DATA` should run relative to streaming; the owner accepted it with an interim for phase 01.
 - Decision: Interim, from phase 01. A new SSE event `retract {reason}` withdraws every answer token streamed so far. When `validate`, a blocking `OUTPUT` policy or a blocking `DATA` policy fails after tokens were streamed, the failing node emits `retract` with the error code, then the turn ends with that `error` event (`validation_failed`, `output_blocked`, `data_blocked`). The web client empties the shown text on `retract` and renders the error in its place. The answer node records the streamed text as `shown_answer` (AgentState addition). `persist_state` appends the exchange with the text the user saw and, when a guard changed the draft without failing (a `DATA` redaction), keeps the post-guard draft on the same message as `post_guard_draft`. Full fix, phase 03, as ADR-0031 proposed: `DATA` runs on a sentence-level buffer during streaming and releases a sentence only once it is clean, so redaction happens before text leaves the agent; `OUTPUT` block policies run on the complete answer before streaming starts. The added time-to-first-token of both is measured and recorded with the phase 03 done-check. After that, `retract` remains only for checks no buffer can run early, such as `validate` on the complete answer.
 - Consequences: Text that fails a check disappears from the UI, but it did reach the browser before the retract; phase 03's buffer removes that exposure. Until then a redacted answer streams unredacted, is redacted only in `done.answer` and `post_guard_draft`, and the history the next turn sees is the streamed text. `docs/events.schema.json` gains the `retract` type (additive; the schema id stays `events.v1`).
@@ -377,7 +377,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0046: The gateway sends `principal.max_tier`; the agent never sees roles
 - Date: 2026-09-13
 - Phase: 01 (fix session for PR #1)
-- Status: decided — Superseded by ADR-0049 on 2026-09-13 (ceiling arithmetic and the max_tier type only)
+- Status: decided — Superseded by ADR-0049 on 2026-09-13 (ceiling arithmetic and the max_tier type only); Superseded by ADR-0107 on 2026-10-06 (the policy: role namespace only)
 - Context: ADR-0040 made `role:viewer: standard` take effect by forwarding filtered realm roles to the agent. The owner rejected that approach: README §11 makes the gateway the only place that interprets Keycloak roles and gives the agent only `permissions[]`, and forwarding roles would weaken that boundary.
 - Decision: The gateway reads `order` and the `caps.role:<name>` entries of `config/models.yaml` at startup (mounted read-only, path in `GATEWAY_MODELS_CONFIG`; an unknown tier fails startup) and turns the caller's realm roles into one `principal.max_tier`: the strictest matching ceiling, omitted when no role has one. The agent's `Principal` carries `max_tier` and no roles. `TierResolver` uses `principal.max_tier` as the ceiling, `caps.default` when it is absent, and refuses a tier it does not know. The `viewer` realm role from ADR-0040 stays. README §11 is unchanged.
 - Consequences: Roles stay inside the gateway; the agent receives the decision, not its inputs. `config/models.yaml` stays the single place caps are written, now read by two services: the gateway reads the `role:` entries, the agent reads `default`, so changing a role cap needs a gateway restart. The gateway's test image receives `config/models.yaml` through the named build context `config`, which `make test-gateway` passes. The agent request contract changes from `principal.roles` to `principal.max_tier`; the agent OpenAPI version stays 1.1.0, because 1.1.0 has not left this unmerged PR (ADR-0044).
@@ -481,7 +481,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0055: State, conversation owners and memory live in schema `agent` of database `app`
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed — Superseded by ADR-0069 on 2026-10-05 (the migration record only); Superseded by ADR-0070 on 2026-10-05 (how tests reach Postgres only)
+- Status: assumed — Superseded by ADR-0069 on 2026-10-05 (the migration record only); Superseded by ADR-0070 on 2026-10-05 (how tests reach Postgres only); Accepted on 2026-10-06
 - Context: README §2 puts state in the LangGraph Postgres checkpointer, ADR-0016 kept `InMemorySaver` until phase 02, and ADR-0050 recorded that the conversation-owner registry must become durable beside the checkpointer. The spec names the database (`app`) but not the schema, the connection handling, the agent's own tables or how tests reach Postgres.
 - Decision:
   - The agent connects to database `app` as its owner role with one `psycopg` async pool whose connections set `search_path=agent,public` (`public` holds the `vector` extension). `AsyncPostgresSaver` runs on that pool and creates its tables in schema `agent`; the gateway keeps schema `gateway`.
@@ -494,7 +494,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0056: Context Assembly is configured per block, and every model call takes one path
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: README §7 lists nine steps, a drop order and a `NeedsMore` that the tier resolver resolves "per config" by compressing or escalating, then assembling "once more". It gives no per-block budgets, no definition of the harder pass, and no place where the resolution happens. Phase 01 raised `context_overflow` on the first `NeedsMore` and each call site repeated resolve → budget → assemble → call.
 - Decision:
   - `config/context.yaml` names the pipeline (system, state digest, rolling summary, sliding window, memory, semantic retrieval, tool results, findings, user message, budget guard), a token budget per block, the `drop_order`, the `compress` pass (a shorter window, smaller memory and retrieval `top_k`, shorter summary and tool results), the summary trigger and the core nodes (`answer`, `summarizer`, `memory_writer`) with their prompts, evidence forms (`full | summary | reference`) and per-node block budgets. Each step keeps its own block within its budget and records every cut as a `Drop`; the budget guard enforces the tier budget in `drop_order`: window messages oldest first, chunks lowest score first, the memory block, then the summary shortened from its oldest end. System instructions and the user message are never dropped. Over-budget chunks, tool results and findings are compressed extractively (sentences sharing the most words with the question, after Arabic normalization).
@@ -506,7 +506,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0057: The rolling summary folds what leaves the window once the history passes the trigger
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed — Superseded by ADR-0073 on 2026-10-05 (where the fold runs only)
+- Status: assumed — Superseded by ADR-0073 on 2026-10-05 (where the fold runs only); Accepted on 2026-10-06
 - Context: README §7 step 4 summarizes messages older than the window incrementally, with the trigger "history > 8k tokens". Taken literally, a history that fell back under the trigger after a first summary would leave messages that are neither in the summary nor in the window.
 - Decision:
   - History is the summary plus the unsummarized, unretracted messages. When it exceeds `summary.trigger_tokens` (8000), every message older than the window and not yet summarized is folded; once a summary exists, every later turn folds the messages that left the window. `summary_cursor` (AgentState addition) counts the messages the summary covers, and the sliding window reads only messages after it.
@@ -517,7 +517,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0058: Memory write, retrieval and policy
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed — Superseded by ADR-0071 on 2026-10-05 (memory extracted from a reply that is later retracted only)
+- Status: assumed — Superseded by ADR-0071 on 2026-10-05 (memory extracted from a reply that is later retracted only); Accepted on 2026-10-06
 - Context: README §8 fixes the table, the kinds, the similarity dedupe and the rule never to store what a guard flagged, and describes an asynchronous writer. The owner scoped phase 02 to a synchronous graph node after `persist_state` that reads post-guard content and calls the `extractor` role. Defaults, failure handling and the embedding path were open.
 - Decision:
   - `agent.memory_items` carries README §8's columns plus `id`; `embedding` is an untyped `vector`, and similarity (cosine) is computed only against vectors of the query's dimension, so the embedding model can change without a migration. Every statement names `(tenant_id, user_id)`; no store method crosses it. `agent.memory_settings` holds the per-user switch; without a row, `enabled_by_default` (true) applies.
@@ -530,7 +530,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0059: Endpoints without a body name the caller in headers; memory is proxied and audited; the debug endpoint checks ownership itself
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: The memory list/delete/switch and `GET /v1/debug/context/{turn_id}` have no request body in which to carry a principal, unlike `POST /v1/turns`. README §8 says users manage their own memory and admins cannot read it; README §7 calls the debug endpoint admin-only; residual risk 7 requires it to check conversation ownership itself. Debugging is environment-specific, which §20 keeps out of `config/`.
 - Decision:
   - Agent endpoints without a body take the caller from `X-User-Id` and `X-Tenant-Id`, beside `X-Internal-Token`. Only the gateway sets them, from the verified token; a client's own headers of that name are never forwarded.
@@ -552,7 +552,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0061: A script failure is retried once on the same package; the retry replaces the streamed text
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: The owner asked the answer node to retry a script-validation failure once at temperature 0.0 through the same Context Assembly → models.call path, record `answer.retry` on the span, and retract only if the retry also fails. Tokens of the first attempt have already streamed by the time its text can be checked, so the client needs a way to replace them, and ADR-0036 keeps temperatures out of code.
 - Decision:
   - After the answer streams, the answer node applies the locale's script policy. When an issue listed in `retry.issues` is found and `retry.attempts` is 1, it emits `retract` with reason `answer_retry`, calls the model again on the same prepared package and tier at `retry.temperature` (0.0, `config/validation.yaml`, passed to the model gateway in place of the role's temperature), and streams the retry in place of the first text. The span records `answer.retry`, `answer.retry.issues` and `answer.retry.passed`. `validate` then checks the retry; if it fails too, it retracts with `validation_failed` and ends the turn as before. `attempts: 0` turns the retry off.
@@ -562,7 +562,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0062: The cross-namespace `cap_state` rule is an AST check in `make test`
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: README §18.4 enforces "each capability reads/writes only `state[state_namespace]`" by a runtime guard and a lint rule. The runtime slice exists (ADR-0047); ruff has no rule for string keys.
 - Decision: `tests/unit/test_cap_state_lint.py` parses every Python file of every capability package (`app/capabilities/*`, and the test-only capabilities under `tests/fixtures/capabilities/*`) and fails on a string constant that is another capability's namespace (`cap.<slug>` other than the manifest's own `state_namespace`) or the AgentState key `cap_state`. A capability uses `runtime.context.cap_state` and returns `CapabilityOutput(cap_state=...)`, neither of which is a string key. Tests prove the rule fires on the forbidden shapes and passes on the allowed ones.
 - Consequences: Building a namespace name dynamically escapes the rule, like any lint; the runtime slice (ADR-0047) still hands a capability its own namespace only, and first-party code review remains the control (ADR-0054).
@@ -578,7 +578,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0064: A memory candidate must name the user, be grounded in the user's message and keep to the locale's scripts
 - Date: 2026-09-15
 - Phase: 02
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-06
 - Context: ADR-0058 keeps candidates by kind, confidence and similarity. Probed on the live stack with four exchanges (PROGRESS), the `fast` extractor (temperature 0) answered `[]` even for an explicit role and preference until the prompt carried worked examples. With examples it extracted the smoke message, but it also produced an inferred fact for a pure general-knowledge question ("المستخدم يرغب في الحصول على معلومة تاريخية حول عاصمة بلد معين"), later the answer itself as a fact ("عاصمة البرتغال هي لشبونة."), turned a formatting preference into "المستخدم معرف بجامعة الملك سعود", and drifted into mixed script ("ي.work على مشروع…"). Every stored item is retrieved into later answers. README §2 keeps the policy over what is worth remembering in our code.
 - Decision: `parse_candidates` keeps a candidate only when, in addition to ADR-0058's rules:
   - its text names its subject, one of `subject_words` (`المستخدم`, `user`): memory is about the user, not about the topic asked;
@@ -705,3 +705,451 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: ADR-0076 left the summary block before the window, so when the window started on a user message the model received two consecutive user messages, and whether every served model's chat template accepts that was not verified.
 - Decision: The pipeline in `config/context.yaml` runs `sliding_window` before `rolling_summary`: system → state digest → history window → summary → memory → (system-role evidence blocks) → user message. The summary is thus adjacent to the memory block and the question and merges with them under ADR-0076's rule; it never precedes history. README §7 already lists the window (step 3) before the summary (step 4) and makes the order configuration, so the README is unchanged. Tested by `test_with_a_summary_the_messages_strictly_alternate_after_the_system_message` (with and without memory hits): after the system message the roles alternate user/assistant and end on the user. Supersedes ADR-0076's summary position and its alternation consequence only.
 - Consequences: With a summary present, roles strictly alternate after the system message. The current user message carries `<conversation_summary>`, then `<user_memory>`, then the question. The summarizer node gets the same order: the fold slice, then the existing summary joined with its request prompt.
+
+### ADR-0078: Guard policy scopes in phase 03; `role:` is reserved; MODEL_TIER policies are ceilings
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0107 on 2026-10-06 (the refusal of role scopes only)
+- Context: README §10.1 lists `global | tenant:{id} | role:{role} | kb:{slug} | tool:{name}`, narrower overriding wider, but the agent never sees roles (ADR-0046), so a role scope could not be resolved where policies run. Owner decision D2.
+- Decision: Phase 03 supports `global`, `tenant:{id}`, `kb:{slug}` and `tool:{name}` (`tool:` names a tool or a capability, never a permission, ADR-0025). `role:{role}` stays in the vocabulary and its precedence slot and is refused by validation with an error that names the decision ("role scopes are reserved and not supported; the agent never sees roles"). Precedence, narrow over wide: tool > kb > role > tenant > global. MODEL_TIER policies are ceilings only: the final tier is at most min(`caps.default`, `principal.max_tier`, every applicable policy ceiling).
+- Consequences: Role-based policy needs a design in which the gateway resolves roles, not the agent; until then role-specific behaviour is the capability permission `cap:{slug}` plus tenant policies. A MODEL_TIER policy can never raise a tier.
+
+### ADR-0079: The answer streams through a DATA sentence buffer; it is buffered whole only for OUTPUT block or rewrite
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0111 on 2026-10-07 (streaming mode adds a whole-answer pass only)
+- Context: ADR-0039 (interim) streamed tokens unchecked and retracted on a late failure, with the full fix left to phase 03 as ADR-0031 proposed. Owner decision D3.
+- Decision: DATA always runs on a sentence buffer (ADR-0089): a sentence leaves the agent only after DATA (target `answer`) ran on it, so a redaction happens before the text leaves. The whole answer is buffered before it streams only when an enabled OUTPUT policy with action `block` or `rewrite` applies to the principal's scope; then OUTPUT and DATA run on the whole answer and the new `release_answer` node streams the checked text a sentence per token event. `rewrite` exists only in buffered mode. `retract` remains only for checks no buffer can run early (`validate` on the complete answer). AgentState gains `answer_mode` (`streaming` | `buffered`). Time to first token was measured in both modes against the phase 02 baseline (PROGRESS, phase 03).
+- Consequences: Streamed text is never unredacted; the stored reply and the shown reply are the same text, so ADR-0048's `shown_answer` audit copy no longer occurs in practice. The first token waits for the first complete sentence. An answer is buffered whole only where a block or rewrite policy needs it, which costs a full generation before the first token (measured: p50 4.53 s against 2.01 s streaming on five-sentence answers).
+
+### ADR-0080: One-time purge of what was stored before the DATA guard
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0112 on 2026-10-07
+- Context: Phase 02 stored memory items and rolling summaries with no DATA guard (PROGRESS tech debt, PR #2 fix session). Owner decision D4.
+- Decision: `make purge-pre-guard` (`python -m app.guardrails.purge`) checks every `memory_items` row as a DATA `memory_candidate` for its own user and tenant and deletes the rows the policies block, with the context packages that used them; it checks the summary in each conversation's latest checkpoint as a DATA `summary` and writes a redaction back in place through a state update under the conversation's turn lock (a block removes the summary). Checkpoint history and messages are not touched: development data is fake, and production starts with the guard. `DRY_RUN=1` prints the same counts and changes nothing; the command is idempotent. A fail-closed policy that cannot be evaluated stops the run.
+- Consequences: Earlier checkpoints of a thread may still hold an unredacted summary; nothing reads them after the purge, and they go with the thread. The counts of the development run are in PROGRESS.
+
+### ADR-0081: Retention: no memory, summary or extractor content in Langfuse; context packages expire and go with their memory items
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0110 on 2026-10-07 (the content hashes and judge calls only)
+- Context: Generation spans carried every model call's messages and output (ADR-0021), so memory items and summaries outlived a user's delete in Langfuse; `agent.context_packages` had no retention (ADR-0059). Owner decision D5.
+- Decision: No memory, summary or extractor content goes to Langfuse: the `memory` and `summary` blocks of a captured package become a placeholder with the block's token count, a SHA-256 of its text and, for memory, the item ids; the `summarizer` and `extractor` calls carry no messages and no output, only token counts and content hashes (`input_sha256`, `output_sha256` on every model call). `agent.context_packages` rows expire `DEBUG_CONTEXT_RETENTION_DAYS` after they are recorded (default 7, `.env`; older rows count from creation), are never served after that and are deleted as new rows are written; each row records the memory item ids it used, and deleting a memory item (by its user, by a retract, or by the purge) deletes the packages that used it.
+- Consequences: A user's delete of a memory item leaves no copy of its text in the agent's tables or traces. Debugging a summary or an extraction means reading Postgres while the item exists, not the trace. The user's own message and the answer are still captured as before (ADR-0021).
+
+### ADR-0082: One turn at a time per conversation, under a Postgres advisory lock
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0109 on 2026-10-07 (the order of refusals and the release only)
+- Context: Two turns in flight on one thread each started from the checkpoint before the other, and the last writer won (PROGRESS, second PR #2 fix session). Owner decision D6, on the design recorded there.
+- Decision: `TurnRunner` holds `pg_try_advisory_lock` keyed on the conversation id (the UUID's upper 64 bits) around the graph invocation and around `retract`, on a dedicated pool of `LOCK_POOL_SIZE` connections (`.env`, default 20), never the checkpointer's pool. The route takes the lease before it answers, so a second turn is refused with 409 `turn_in_flight` before any stream starts; the gateway returns 409 `turn_in_flight` and audits it as `denied`. The lease is released when the turn ends, fails or the client disconnects (the stream's end and the response's background task, idempotently); a retract waits up to 10 s for the turn it follows. Postgres releases a session lock when its connection ends. The code is in `config/messages/errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`.
+- Consequences: At most `LOCK_POOL_SIZE` turns run at once across conversations in one agent process; more wait for a connection. Phase 08's resume must take the same lock.
+
+### ADR-0083: The Arabic-name recognizer is seeded log_only
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided
+- Context: The Arabic-name recognizer is a heuristic (a title followed by Arabic words, or a nasab "X بن Y") with false positives. Owner decision D7.
+- Decision: It ships in its own seed policy, `pii-arabic-names-log` (DATA, all targets, presidio entity `ARABIC_NAME`), with action `log_only`, never `redact`.
+- Consequences: Names are recorded in guard events and matches per day but never changed or blocked. The redacting policy cannot include the entity, which is why the name heuristic is a seventh seed policy beside the six of §10.4.
+
+### ADR-0084: Guard thresholds and on_error defaults
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided
+- Context: README §12 fails CI below `evals/thresholds.yaml`, and §10 did not say what happens when a checker cannot run. Owner decision D8.
+- Decision: `evals/thresholds.yaml` holds, for the guardrails suite, 1.00 for the deterministic checkers (regex, presidio, keyword_list) and, for llm_judge, accuracy ≥ 0.85 with a false-positive rate ≤ 0.10. Each policy has `on_error`: `closed` is the default for regex, presidio and keyword_list (the turn ends with `guard_unavailable`); `open` is the default for llm_judge (allow and log).
+- Consequences: A presidio-analyzer outage stops every turn that a presidio policy guards; a judge outage lets text through with a logged event. ADR-0099 records how `closed` reads after a reply is persisted.
+
+### ADR-0085: Out of scope in phase 03
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided
+- Context: README §10.2 lists more checkers and §10.4 more admin features than phase 03 builds. Owner decision D10.
+- Decision: Not in phase 03: the `opa` and `classifier` checkers; `sql_static` and the `sql-tables-allowlist` seed (phase 07); the user's "this block was wrong" flag (phase 09); interrupt and resume for `require_approval` (phase 08: the broker ends the call with `approval_required`); asynchronous memory writing (phase 09); the `role:{role}` scope (ADR-0078).
+- Consequences: The checker vocabulary is `regex | presidio | keyword_list | llm_judge | tier_ceiling` (ADR-0093) until those phases.
+
+### ADR-0086: The agent owns guard policies; versions are immutable; seeding inserts absent ids only
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided
+- Context: README §10.1 stores policies in PostgreSQL and §6.1 lists policy management among the gateway's responsibilities. Implementation choices I1 and I2.
+- Decision: `agent.guard_policies` (migration `0002_guardrails.sql`) is owned by the agent; the gateway never writes it and proxies admin calls (the ADR-0059 pattern). A version is immutable: an edit inserts a new version row and makes it current. Seeding reads `config/policies/*.yaml` and every capability's `policies/` at startup and inserts only ids absent from the table; an existing policy is never overwritten, whatever its file says now.
+- Consequences: After the first boot the admin UI owns a policy; editing its seed file changes nothing on an existing database (a new id does). Every evaluation names the exact version (`policy_id@version`) in state, spans, events and the audit delta.
+
+### ADR-0087: A policy change reaches every agent process within 2 s through Redis pub/sub
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided
+- Context: README §10.1: cached in Redis, hot-reloaded on change. Implementation choice I3.
+- Decision: Each agent process keeps the enabled current versions in memory. A write goes to Postgres, the store rewrites the Redis key `{ns}:guard:policies` from Postgres and publishes on `{ns}:guard:policies:changed`; every process reloads from that key on the message. A process also reloads from Postgres when it (re)subscribes and every 30 s. `tests/integration/test_policy_store.py` asserts the 2 s bound with two stores on separate Redis connections.
+- Consequences: The agent now depends on Redis (`REDIS_URL`); without it a process sees only its own changes until its next refresh. Tests use Redis database 15 and a namespace per session.
+
+### ADR-0088: llm_judge verdicts are cached in Redis for 24 hours
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0110 on 2026-10-07
+- Context: README §10.2: the judge is cached by text hash. Implementation choice I4.
+- Decision: The key is a SHA-256 of `policy_id@version` and the normalized text (`app/text/arabic.py` normalize), under `{ns}:guard:judge:`, with a 24 h time to live. A cache outage costs a model call, never the check.
+- Consequences: Editing a judge policy never reuses an old verdict. Repeated eval runs within 24 h read cached verdicts unless the keys are flushed (PROGRESS records when they were).
+
+### ADR-0089: The sentence buffer flushes on . ? ؟ ! ؛ or a newline, or at 240 characters
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0111 on 2026-10-07
+- Context: D3 needs a sentence boundary for DATA while streaming. Implementation choice I5; the details that keep PII whole are assumed.
+- Decision: The terminators and the limit are in `config/guardrails.yaml` (`streaming`). A terminator ends a sentence only when followed by whitespace (so "3.5", "x.y@example.org" and "055.123.4567" stay whole); a newline always ends one; at 240 characters the cut goes to the last whitespace that is not between two digits, else at 240.
+- Consequences: A number written in groups is checked whole; an abbreviation such as "د." followed by a name splits the name heuristic's span (log_only, ADR-0083). A PII value longer than 240 characters without spaces could still be split; none of the recognizers matches one.
+
+### ADR-0090: The guardrails suite runs as admin through the gateway's policy test endpoint
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided
+- Context: README §12: `guardrails.jsonl` maps text to the expected action per policy. Implementation choice I6.
+- Decision: A guard case names `policy_id`, `text`, optional `checkpoint` and `target`, and `expect.action` (and `expect.entities`); `run_evals.py` runs it as the seed user `admin` through `POST /v1/admin/policies/test`, the runtime engine path, and records a Langfuse trace per case for the dataset run. The `general` suite stays on `evaluator` with memory off (ADR-0074).
+- Consequences: The suite tests checkers, configs and the engine's decision for one policy at a time, enabled or not; combination across policies is covered by the agent's tests.
+
+### ADR-0091: Agent and gateway API versions move to 1.3.0
+- Date: 2026-10-06
+- Phase: 03
+- Status: decided — Superseded by ADR-0116 on 2026-10-07 (the `guard` event's fields only)
+- Context: Phase 03 adds endpoints and fields to both specs. Implementation choice I7.
+- Decision: One bump for the phase: agent OpenAPI 1.3.0 (admin policy endpoints, 409 on `/v1/turns` and on retract, `details` on errors) and gateway OpenAPI 1.3.0 (admin policy endpoints, 409 `turn_in_flight` on `/v1/chat/turns`, `details` on errors). `docs/events.schema.json` changes only additively (`guard` gains `policy_version`, `target`, `entities`, `latency_ms`; `error` gains `policy_id` and `guard_events`); its id stays `events.v1`. The URL prefix stays `/v1`.
+- Consequences: The drift tests (ADR-0044) pin both documents at 1.3.0; the web types are regenerated.
+
+### ADR-0092: Narrow over wide applies within a policy group; across groups the most restrictive action wins
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed — Decided by the owner on 2026-10-06; see ADR-0105 for exceptions — Superseded by ADR-0108 on 2026-10-07 (the resolution rule)
+- Context: README §10.1 says narrower scopes override wider ones but not which policies a narrower one overrides. Overriding every wider policy would let any tool-scoped warning cancel a global PII redaction.
+- Decision: A policy has an optional `group`, by default its own id. Within one checkpoint evaluation, among the matched policies of one group only those at the narrowest scope count (tool > kb > role > tenant > global); an overridden match is recorded as `allow` with "overridden by id@version". Across groups the most restrictive action wins: block > require_approval > rewrite > redact > warn > log_only > allow, and the spans of every winning `redact` are replaced together. A block's message is the deciding policy's (highest severity, then narrowest scope). The seed PII policies are in groups `pii-output` and `pii-memory`, so a tenant exemption is a narrower policy of that group with action `allow`.
+- Consequences: Overriding is explicit: an admin puts policies in one group to make one replace the other. Unrelated policies always all apply.
+
+### ADR-0093: MODEL_TIER policies use the tier_ceiling checker with action log_only or warn
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed — Accepted on 2026-10-06
+- Context: Every policy names a checker (README §10.1), but none of the four phase 03 checkers reads a tier request, and a ceiling is not a block (README §19.3: a capped request is served at the ceiling).
+- Decision: A fifth, deterministic checker `tier_ceiling` (config `max_tier`, optional model `roles`) matches when the requested tier is above `max_tier`; the engine then lowers the request's cap to the ceiling. MODEL_TIER policies must use it, only it may use MODEL_TIER, and their action is `log_only` or `warn`. The tier event's reason names the policy (`capped by policy id@version`); its evaluations are carried on the TierDecision and reported to the turn by `prepare_call`.
+- Consequences: A tenant or capability ceiling is a policy, not a code change. The judge cannot run at MODEL_TIER, so resolving the judge's own tier can never recurse into the judge.
+
+### ADR-0094: A policy's switch lives in a head row; switching never makes a version
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: I2 makes versions immutable, while §10.4 lists enabling apart from versioning.
+- Decision: `agent.guard_policy_heads` holds each policy's current version, `enabled`, and who changed it last; enabling or disabling updates the head only. A new version and an import carry the switch they name.
+- Consequences: `id@version` identifies content alone; the switch's history is in the gateway's audit log (`policy.enable`), not in versions.
+
+### ADR-0095: OUTPUT redact also buffers; a late block on streamed text still retracts
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed — Rejected by the owner on 2026-10-06; superseded by ADR-0106
+- Context: D3 buffers for OUTPUT block or rewrite. An OUTPUT redaction applied after the text streamed would break "redaction happens before text leaves", and D3 did not consider it. A policy can also be switched on between the answer node and the OUTPUT node of a turn (hot reload), and a DATA block can match a later sentence after earlier ones left.
+- Decision: An applicable OUTPUT policy with action `redact` buffers the answer as block and rewrite do. In streaming mode, a blocking OUTPUT verdict (only a mid-turn reload can bring one) and a DATA block or an unavailable policy mid-answer emit `retract` for the text already released, then end the turn with the policy's message.
+- Consequences: Besides `validate`, retract remains only for these races and for a DATA policy that blocks answers; the seed policies never trigger it. A DATA block on answers is the admin's choice that accepts it; buffering for it would make every turn pay a full generation.
+
+### ADR-0096: What an evaluation records, where
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed — Superseded by ADR-0116 on 2026-10-07 (what guard events carry to a client, and the audit delta's fields)
+- Context: C1 sends every evaluation to state, a span, a guard event and the audit delta; streaming DATA evaluates every sentence, and most evaluations match nothing.
+- Decision: Each policy evaluation is a `guard.check` span (policy id@version, checker, scope, action, matched, latency) under one `guard.evaluate` span per checkpoint call. `state.guard_events` and the terminal event's `guard_events` hold every matched evaluation and one `allow` record per checkpoint call when nothing matched (the streamed answer reports one `allow` for all its sentences). Only evaluations whose action is not `allow` stream as `guard` events. `sanitize_untrusted` records a `log_only` note when it removed or truncated something. The gateway's audit record keeps the count and adds `guard_policies`: each policy that acted as `{checkpoint, policy: id@version, action, target}`, plus the deciding `policy_id` of a blocked turn. Matched evaluations of real turns go to `agent.guard_events` (no text) for matches per day; the test panel records nothing.
+- Consequences: Guard chips show what acted, not every check. Memory's "a guard flagged the turn" rule (README §8) still reads every non-`allow`, non-`log_only` event.
+
+### ADR-0097: presidio-analyzer runs the Saudi recognizers on Arabic-folded text, as language en
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: README §14 adds `presidio-analyzer` with custom recognizers; Presidio has no Arabic NLP model in the official image, and its patterns do not see Arabic-Indic digits, tatweel or tashkeel inside numbers.
+- Decision: The image is pinned (`mcr.microsoft.com/presidio-analyzer:2.2.362`) with one worker, and `infra/presidio/recognizers.yaml` is its whole recognizer registry: SA_MOBILE (05…, +9665…, 009665…, 9665…, with separators), SA_NATIONAL_ID (ten digits starting 1 or 2, contiguous or 4-3-3), SA_IBAN (SA + 22 digits, grouped by four or not), EMAIL_ADDRESS and the ARABIC_NAME heuristic, all declared for `en`. The checker folds the text with an offset map before sending it (Arabic-Indic and Persian digits to ASCII, tatweel and tashkeel removed, letters unchanged) and maps the spans back; the policy's entity list and score threshold filter the answer. Checksums (IBAN mod 97, national ID) are not verified.
+- Consequences: The service takes about 740 MiB, mostly the spaCy model no recognizer uses; a smaller image would need a build of our own. A format-valid number with a wrong checksum is still redacted, the safer error.
+
+### ADR-0098: How regex and keyword_list match Arabic
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: README §10.2 asks for Arabic normalization and light stemming in keyword lists, and named groups in regex; rule 7 asks Arabic cases of every checker.
+- Decision: `regex` matches, by default (`fold: true`), the folded text and the folded pattern (digits to ASCII, tashkeel and tatweel removed, alef, alef maqsura and taa marbuta folded; never case-folded, `ignore_case` is a flag), and maps spans back to the original text. `keyword_list` compares words: each word of the text and of a keyword is normalized (`app/text/arabic.py`) and expanded with one stripped prefix combination of و/ف, ب/ل and ال (and لل), keeping at least three letters; a keyword matches when every one of its words shares a form with consecutive words of the text. `allow` mode matches text outside the list.
+- Consequences: Admins write patterns and keywords in plain forms. Suffixes and roots are not stemmed.
+
+### ADR-0099: Fail-closed after a reply is persisted means "not stored"; a broker failure ends the turn
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed — Accepted on 2026-10-06
+- Context: D8's `closed` ends the turn with `guard_unavailable`. The memory writer and the end-of-turn fold run after the reply is persisted and streamed, and a tool policy fails inside a capability.
+- Decision: At the `memory_candidate` and end-of-turn `summary` targets, a closed failure stores nothing and the turn completes, recorded on the span (the lazy fold before the answer ends the turn as D8 says). A blocked summary keeps the old summary and still moves the cursor, so the folded messages leave the context instead of being kept unguarded. At PRE_TOOL and POST_TOOL a closed failure denies the call with `guard_unavailable` and `run_capabilities` ends the turn with that code after the capability returns.
+- Consequences: An outage never stores unchecked memory or summaries, and never shows an error after the answer was delivered.
+
+### ADR-0100: A guard block shows the policy's own message
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: README §10.1: `block` returns the policy's `message_ar/en`; error events carried only `errors.yaml` texts and the web preferred its catalog.
+- Decision: `TurnError` carries the deciding policy's messages and `policy_id@version`; the error event's `message_ar`/`message_en` are the policy's, and it names `policy_id`. New codes: `input_blocked`, `guard_unavailable`, `turn_in_flight` (and `policy_not_found`, `policy_exists`, `policy_invalid` for the admin API). The web shows the server message when the error names a policy, its own catalog otherwise.
+- Consequences: An admin's wording reaches the user unchanged, in both languages; a block policy cannot be saved without both messages.
+
+### ADR-0101: The admin policy API and its audit
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: C3 lists the operations; their shape and auditing were open.
+- Decision: The agent serves `/v1/admin/policies` (list; get with versions; create; `/{id}/versions`; `/{id}/enabled`; `/test`; `/export`; `/import`; `/metrics?days=`) behind the internal token, with the admin in `X-User-Id`/`X-Tenant-Id` as the actor. `policy_invalid` errors carry `details` (the validation messages). The gateway serves the same paths, checks the `admin` role, proxies with the caller from the token and audits fail-closed (ADR-0042) as `policy.list|get|create|version|enable|test|export|import|metrics`; a non-admin is refused with 403 `forbidden` and audited as `denied`; a tested text never enters the audit log (its length does). Import is all or nothing: an absent id is created, a changed one versioned, a switch alone switched.
+- Consequences: Policies cannot be deleted, only switched off; the smoke test and the TTFT measurement leave disabled policies behind (`smoke-live-block`, `ttft-buffered-output`).
+
+### ADR-0102: The judge and the rewrite go through Context Assembly with prompt variables
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: Rule 6 sends every model call through Context Assembly; the judge needs the policy's topic, examples and the text, and a rewrite needs the violation explained.
+- Decision: `AssemblyRequest` gains `prompt_vars`, passed to the node's system and request prompts. The judge runs as the `guard_judge` node of `config/context.yaml` (`guardrails.judge.system` with the admin's topic and examples in the system role, `guardrails.judge.request` with the text, delimited as data, in the user role, ADR-0068), on the `judge` role, in the prompt locale of the text's script; inside a turn it is accounted to the turn, from the test panel to a turn of its own. A rewrite re-prepares the answer with one policy hint rendered from `guardrails.rewrite`.
+- Consequences: Judge and rewrite calls appear in traces and recorded packages like any other call.
+
+### ADR-0103: The smoke turn asks for three sentences; the gateway prints JUnit totals
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed
+- Context: ADR-0045's smoke check requires three token events before `done`; with the sentence buffer a one-sentence answer is one token event. Rule G1 asks gateway counts from the JUnit XML.
+- Decision: The first smoke question asks for an answer in three short sentences; the check is unchanged. The gateway's image `test` stage and the `gateway-db-tests` container print `JUNIT <label> tests=… passed=… failed=… errors=… skipped=…` from `build/test-results` (`services/gateway/junit-totals.sh`), whether the tests pass or not.
+- Consequences: The smoke check still proves the answer streams in parts.
+
+### ADR-0104: tool-visibility-by-role is a tenant policy on top of capability permissions
+- Date: 2026-10-06
+- Phase: 03
+- Status: assumed — Rejected by the owner on 2026-10-06; superseded by ADR-0107
+- Context: README §10.4 names a seed `tool-visibility-by-role.yaml`, but role scopes are refused (ADR-0078) and visibility by role is already the `cap:{slug}` permission the gateway derives from roles (ADR-0006).
+- Decision: The seed expresses the policy layer with the D2 scopes: TOOL_LIST, scope `tenant:restricted`, keyword list `web`, `sql`, action `block`: that tenant sees neither capability whatever its users' roles. No seed user belongs to it.
+- Consequences: The file name keeps the README's; its description says what it does.
+
+### ADR-0105: Policy exceptions: a narrower policy may weaken a wider one of its group, and is flagged
+- Date: 2026-10-06
+- Phase: 03 (owner decisions on PR #3)
+- Status: decided — Superseded by ADR-0108 on 2026-10-07
+- Context: ADR-0092 lets a narrower policy of a group override wider ones. The owner decided it, with the rule that such a weakening is visible and accountable.
+- Decision:
+  - A narrower policy may weaken a wider one in the same group, by design. An exception applies only inside its own scope and group, never to another tenant, kb, role or tool (the engine's scope resolution, unchanged).
+  - When a version is saved (create, new version, import, seed) the store computes what it overrides: every other policy's current version, on or off, of the same group, at a wider scope, sharing a checkpoint and, when DATA is the only shared checkpoint, a target. It records them on the version as `id@version` (`agent.guard_policies.overrides`, migration `0003_policy_exceptions.sql`) and sets `exception = true` when one of them has a stricter action.
+  - Strictness: block > rewrite > redact > require_approval > warn > log_only > allow. The engine's combination across groups and between policy roles uses the same order (`ACTION_RANK`); it differs from ADR-0092's order only between require_approval and rewrite/redact, which never meet at one checkpoint (require_approval is PRE_TOOL only, rewrite OUTPUT only, redact text checkpoints only).
+  - The admin API returns `overrides` and `exception` on every policy view and on the save response, and `POST /v1/admin/policies/overrides` previews them for a draft; the admin list shows an exception badge, and the form and the saved notice name the overridden policies or say "overrides nothing".
+  - The gateway's audit record of a create or new version carries `exception` and `overrides`, with the actor, fail-closed (ADR-0042); a preview is audited as `policy.preview`.
+- Consequences: The flag describes the moment of saving: a wider policy saved later does not re-flag older narrower versions. Versions saved before migration `0003` carry `overrides = []`, `exception = false`; none of the seed policies overrides another.
+
+### ADR-0106: OUTPUT redact runs on the sentence buffer; only block and rewrite buffer the answer
+- Date: 2026-10-06
+- Phase: 03 (owner decisions on PR #3)
+- Status: decided — Superseded by ADR-0108 on 2026-10-07 (how the per-sentence call resolves groups only)
+- Context: ADR-0095 (assumed) made an OUTPUT redact policy buffer the answer whole. The owner rejected it.
+- Decision: Full buffering happens only for an enabled OUTPUT policy with action block or rewrite (D3, ADR-0079). An OUTPUT redact policy runs per sentence on the stream, like DATA: each sentence goes through the OUTPUT policies whose action is `redact`, then DATA (target `answer`), before it is released. The whole-answer OUTPUT check in streaming mode skips redact policies, so a sentence is never redacted twice; in buffered mode OUTPUT runs whole, redact included. The rest of ADR-0095 stands as decided here: a blocking OUTPUT verdict that a mid-turn reload brings in after the text streamed, and a DATA block or an unavailable policy mid-answer, emit `retract` for the released text and end the turn with the policy's message. `GuardContext` gains `actions`, which restricts a call to policies with those actions.
+- Consequences: An OUTPUT redaction costs one more engine call per sentence instead of a full generation before the first token.
+
+### ADR-0107: Role scopes through policy roles; tool-visibility-by-role uses one
+- Date: 2026-10-06
+- Phase: 03 (owner decisions on PR #3)
+- Status: decided — Superseded by ADR-0113 on 2026-10-07 (the gateway service account's grants only)
+- Context: ADR-0078 refused `role:` scopes because the agent never sees roles (ADR-0046). ADR-0104 (assumed) expressed `tool-visibility-by-role` with a tenant `restricted`, which the owner rejected: tenants are not policy groups.
+- Decision:
+  - Keycloak realm roles prefixed `policy:` are policy-scope roles. They grant nothing; authorization stays `cap:{slug}` and `kb:{slug}:read` in the gateway (ADR-0006).
+  - The gateway forwards to the agent only the caller's realm roles that start with `policy:` (and match `policy:[a-z0-9][a-z0-9_-]{0,63}`), as `principal.policy_roles` (full names, sorted, omitted when empty). It never forwards any other role, and builds the principal from the verified token only: a client's `policy_roles` field or header is ignored.
+  - A policy with scope `role:{name}` (a slug) applies when `policy:{name}` is in `principal.policy_roles`. Precedence is unchanged: tool > kb > role > tenant > global. When a user holds two policy roles whose policies in one group conflict, the stricter action wins (the order of ADR-0105).
+  - MODEL_TIER policies may be role-scoped; they stay ceilings: final tier ≤ min(`caps.default`, `principal.max_tier`, every applicable policy ceiling).
+  - Validation accepts `role:{name}`. The admin form lists the realm's `policy:*` roles, read through the gateway's Keycloak Admin API client (`GET /v1/admin/policy-roles`, the `gateway` client's service account, `view-realm`), and warns, without refusing, when the named role does not exist. A Keycloak failure there is 502 `identity_unavailable`.
+  - Realm: role `policy:pii-exempt`, assigned to the seed user `analyst`. No seed policy uses it, so seed behaviour is unchanged.
+  - Replacing ADR-0104: the tenant `restricted` is removed everywhere; `tool-visibility-by-role.yaml` is TOOL_LIST, scope `role:no-sql`, hides the `sql` capability, disabled by default. A test asserts that no seed policy, test fixture or realm entry sets a tenant to serve a policy; the integration tests isolate their policies with policy roles instead of tenants.
+  - Agent and gateway OpenAPI stay 1.3.0 (PR #3 is unmerged; ADR-0044, ADR-0046 reasoning); `docs/events.schema.json` is unchanged.
+- Consequences: This supersedes ADR-0078's refusal of `role:` scopes and ADR-0046's "the agent never sees roles" for the `policy:` namespace only. A realm role named `policy:*` is now a policy selector: granting one to a user can weaken a policy for that user, which is why exceptions are flagged and audited (ADR-0105). An existing Keycloak volume gets `policy:pii-exempt` only after `make clean && make up` or through the admin console. A `role:` policy applies only to new tokens, since the roles are read from the token.
+
+### ADR-0108: Exceptions by containment, per span; kb: and tool: may not weaken at OUTPUT or DATA before phase 04
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1, owner decision)
+- Status: decided — Superseded by ADR-0115 on 2026-10-07 (whole-text against spans, and which wider policies a flag counts)
+- Context: ADR-0092 let any policy at a narrower scope *kind* override every wider match of its group, and ADR-0105 flagged such weakenings at save time. Review round 1 showed the consequences: a `role:` or `kb:` exception overrode a stricter `tenant:` policy in every tenant; a narrower match cancelled the whole wider policy, including entities it never covered; a `kb:` or `tool:` exception unredacted the whole answer, whatever the source of the text; the per-sentence OUTPUT call dropped allow exceptions that buffered mode honoured; and the flag went stale when a wider policy was saved later.
+- Decision:
+  - Containment: a policy overrides another of its group only when its scope is contained by the other's. `global` contains every other scope; `tenant`, `role`, `kb` and `tool` scopes do not contain each other, nor does a scope override itself. Between policies of one group whose scopes do not contain each other the stricter action wins (block > rewrite > redact > require_approval > warn > log_only > allow, ADR-0105's order).
+  - Per span: an exception cancels the wider policy only for the spans its own checker matched (a span is cancelled when one of the exception's spans overlaps it); for a `presidio` exception, only spans of the entity types it configures. Every other span of the wider policy keeps its action; the wider policy is overridden whole only when none is left, and is otherwise reported as "partly overridden by". An exception whose checker matched nothing overrides nothing. A checker that answers for the whole text (no spans: `llm_judge`, `tier_ceiling`) cancels a wider whole-text verdict and every span of a wider policy; spans never cancel a whole-text verdict (assumed).
+  - `kb:` and `tool:` policies that would weaken a wider policy of their group at OUTPUT or DATA are refused by validation (`policy_invalid`, naming this ADR) until phase 04 attributes each part of an answer to its source. The refusal covers every save that would produce such a pair, whichever side is saved; a seed refuses only within the groups it adds to, so a startup never fails over what an admin saved.
+  - Streaming and buffered modes resolve groups the same way: `GuardContext.actions` limits only what executes. A call that executes redact alone (the per-sentence OUTPUT call) evaluates every applicable policy of each group that holds a redact policy, resolves those groups in full, and then executes the redactions that stand.
+  - The `overrides` and `exception` of each policy describe the current versions of its group and live on its head (`agent.guard_policy_heads`, migration `0004_policy_changes.sql`); they are recomputed for every policy of the group, on or off, in the transaction of each save, import, seed and enable or disable. Policy writes are serialized by a transaction-scoped advisory lock. A version row keeps what it overrode when it was saved.
+  - Audit of truth: the agent writes `agent.guard_policy_changes` (`policy_id@version`, change `create|version|enable|disable|import|seed`, actor, `exception`, `overrides[]`) in the change's own transaction. The actor is `X-User-Id`; the seed's is `seed`. A change row records the policy acted on; a policy whose flag a later save of another policy changed shows the new flag on its head. `GET /v1/admin/policies/{id}/changes` (agent and gateway, audited as `policy.changes`) serves the log, which the admin page shows per policy. The gateway's audit record stays as it was (ADR-0059 pattern).
+- Consequences: An exception can no longer leak across tenants, entity types or groups, and both answer modes give one outcome. Role and tenant policies of one group now combine by strictness, so a stricter tenant policy always wins over a role exception. Until phase 04, exceptions for a KB or a tool at the answer checkpoints are impossible; INPUT, TOOL_LIST, PRE_TOOL and POST_TOOL exceptions for them remain. Every policy change adds a change row by design.
+
+### ADR-0109: The turn lock: ownership first, release before the end of the stream, a reset pool, 503 when busy
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1, owner decision)
+- Status: decided
+- Context: Review round 1 found that the route took the conversation's lock before checking ownership, that the stream's end cancelled a turn task still unlocking, that the lock pool returned connections without a reset, and that an exhausted pool ended in an unhandled `PoolTimeout` (500).
+- Decision: The route binds or checks the conversation's owner before taking the lock; a non-owner gets 403 `conversation_forbidden` and never holds it. The turn task releases its lease before it signals the end of the stream, and the stream then waits for the task instead of cancelling it; only a consumer that leaves early cancels the task. The release runs once, in a task of its own that a cancellation cannot stop (`asyncio.shield`). The lock pool resets every returned connection with `pg_advisory_unlock_all()`. When no lock connection frees up within 5 s, the route answers 503 `service_busy` (and a retract 503 too); the gateway maps the agent's 403, 409 and 503 refusals to its own codes, auditing 403 and 409 as `denied` and 503 as `error`. `service_busy` is in `errors.yaml`, the gateway catalogs and the web `ar.json`/`en.json`. The APIs stay 1.3.0 (unmerged, CLAUDE.md).
+- Consequences: A stranger who knows a conversation id cannot keep its owner out. No pooled connection can hold a conversation's lock, so session re-entrancy can never let two turns of one conversation in. Concurrent first turns of different users now see 403 for all but the first, never 409.
+
+### ADR-0110: The judge's cache key and draft rules; content-free judge calls on stored text; keyed content hashes
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1, owner decision)
+- Status: decided — Superseded by ADR-0116 on 2026-10-07 (the verdict cache key only)
+- Context: A draft in the test panel had no version (`id@1`), so it read the stored version's verdict and wrote its own where live turns read; the key ignored the judge prompts and the model. A judge policy on a memory candidate or a summary sent that text to Langfuse. Content hashes were plain SHA-256, so short texts could be confirmed offline.
+- Decision: The verdict key is a SHA-256 of the policy's id and version (for a draft, its id and a hash of its content), the judge prompts' `id@version` in the call's locale and the model alias the judge call resolves to for the principal, and the normalized text. The test panel never writes the cache; a draft never reads it. A judge call whose DATA target is `memory_candidate` or `summary` is content-free (`AssemblyRequest.content_free`): no messages or output in its trace, only token counts and hashes, and no recorded context package. Every content hash (the memory and summary placeholders, `input_hmac` and `output_hmac` of every model call) is HMAC-SHA256 under `CONTENT_HASH_KEY` (`.env`, generated by `make env`); the agent refuses to start without it.
+- Consequences: An admin's test can never change a live verdict; editing a judge prompt or the alias behind the judge role starts a fresh cache. Existing development `.env` files need `CONTENT_HASH_KEY` added once.
+
+### ADR-0111: The sentence buffer never cuts a joined number; a whole-answer pass catches what it missed
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1, owner decision)
+- Status: decided
+- Context: ADR-0089's forced cut could fall after a space at the very end of the buffer, before the next digits arrived, and between a digit group and a hyphen; a newline always cut; so a number could be checked in two halves and leave the agent unredacted.
+- Decision: Neither a sentence cut nor the forced cut at 240 characters falls inside a digit run joined by whitespace (not a newline), hyphens and dashes, dots, commas, slashes or the Arabic separators ٫ ٬ ،, Arabic-Indic digits included; while such a run reaches the end of the buffer, the cut waits for the next chunk. A newline still always cuts. After the answer completes in streaming mode, DATA (target `answer`) runs once on the whole released text, and the whole-answer OUTPUT check executes its redactions: a span no sentence held whole makes the agent retract the released text and re-send the redacted text (the ADR-0039 path, retract reason `answer_redacted`), recorded on the node span (`data.final_pass`, `output.final_pass`: `clean` or `resent`); a block there retracts and ends the turn.
+- Consequences: The redacted text replaces what was shown, a sentence per token event; the stored reply is the redacted one. A sentence such as "في عام 2024. 3 أشياء" stays one sentence. The whole-answer pass costs one more DATA evaluation per streamed turn.
+
+### ADR-0112: The pre-guard purge runs under each conversation's lock, redacts memory in place and counts rows changed
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1, owner decision)
+- Status: decided
+- Context: ADR-0080 read a summary before taking the lock and wrote a redaction computed from that read; memory rows a `redact` policy matched were left unredacted; its counts were what it planned, not what it changed.
+- Decision: Each thread's summary is read and written while the purge holds that conversation's lock. A memory row a policy blocks is deleted; one a policy redacts is rewritten in place with a vector of the redacted text; the context packages that used either go with its old text. The counts of a real run are the rows it changed; a dry run's are the rows it would change. The purge evaluates global and tenant policies only: it acts for no session, holds no policy role, and so a role exception never spares a stored row.
+- Consequences: Running the purge while turns run is safe. A user exempt from PII redaction by a role still has stored PII purged.
+
+### ADR-0113: The gateway service account's Keycloak grants
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1, owner decision)
+- Status: decided
+- Context: ADR-0107 said the `gateway` client's service account holds `view-realm`; the realm grants it `view-users`, `manage-users`, `view-realm` and `manage-realm`, as it has since before phase 03.
+- Decision: The grants stay as they are: `view-users`, `manage-users`, `view-realm`, `manage-realm`. `view-realm` serves the policy-role listing (ADR-0107); the manage grants are kept for phase 05, where creating a knowledge base creates its Keycloak role `kb:{slug}:read` and assigns it. The policy-role listing filters by the same pattern the gateway forwards by and pages through every match.
+- Consequences: The gateway's client secret can change the realm; it stays in `.env` only and is a secret of the highest class. Phase 05 may narrow the grants once its role management is built.
+
+### ADR-0114: Review round 1, smaller choices
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 1)
+- Status: assumed
+- Context: Decision 8 and 9 of the round 1 fixes left the form of some changes open.
+- Decision: A checker's result carries `reason` and `reason_args` beside its English `explanation`; the test endpoint returns them as `explanation_key` and `explanation_args`, and the web renders `policies.explanation.{key}`, joining listed names with the locale's separator. The sanitize marker for a removed string is in `config/messages/sanitize.yaml` per locale and follows the turn's locale. The test panel takes an optional simulated principal (`tenant_id`, `policy_roles`), validated as a real principal and recorded in the gateway's audit detail. `guardrails.jsonl` drops both cases that repeat one of the judge policy's few-shot examples verbatim (the national day and the capital). The smoke run keeps the previous run's policy row counts in `build/smoke/policy-rows` (ignored by git). `measure_ttft.py` exits 2 when any turn failed.
+- Consequences: The guardrails suite has 103 cases, 37 of them for the judge (8 at OUTPUT). The first smoke run on a machine records the reference counts and the second compares.
+
+### ADR-0115: A whole-text exception never lifts spans; flags count enabled wider policies; induced flag changes are recorded
+- Date: 2026-10-07
+- Phase: 03 (PR #3, owner decisions before review round 2)
+- Status: decided
+- Context: ADR-0108 let a whole-text verdict (an `llm_judge` or `tier_ceiling` exception) cancel every span of a wider span-based policy, so a judge allow in group `pii` could lift a presidio redaction of a phone number. A change could also turn other policies into exceptions, or clear their flag, without any row naming them, and a flag computed over wider policies on or off stayed set after the wider one was switched off.
+- Decision:
+  - Whole text against spans: a checker is whole-text (`llm_judge`, `tier_ceiling`) or span-based (`regex`, `presidio`, `keyword_list`) by its type. A whole-text exception cancels only a whole-text verdict of a wider policy of its group; it never cancels span-based actions (redact or block). Span matches never cancel a wider whole-text verdict (ADR-0108's second half stands). Span-based exceptions cancel per span as in ADR-0108.
+  - A whole-text policy that would weaken a span-based policy of its group is saved, with the warning `whole_text_cannot_lift_spans` ("this exception cannot lift span-based redaction") naming the span-based policies, in the save response and in the override preview the edit form shows. It is not refused.
+  - Owner item: switching the wider policy off clears the exception it made. A policy's `overrides` and `exception` therefore count only the wider policies of its group that are enabled (its own switch does not matter). The refusal of `kb:` and `tool:` weakening at OUTPUT or DATA (ADR-0108) still counts wider policies on or off, since switching one on makes no new version to refuse.
+  - Induced changes: when a save, import, seed, enable or disable sets or clears other policies' flags, the acting change row carries `induced` (`[{policy: id@version, exception}]`, migration `0005_induced_changes.sql`), and each affected policy gets a change row of its own, `flagged` or `unflagged`, with the acting change's actor, in the same transaction. A startup seed that recomputes flags under a newer rule writes those rows with the actor `seed`. The admin page shows them in each policy's change log.
+- Consequences: A judge-based exception can exempt a principal from a judge-based block but never from PII redaction. Every change of a policy's exception flag has a row and an actor. Enabling a disabled wider policy flags its exceptions again, with a row.
+
+### ADR-0116: The judge's cache is per tenant; a client's guard event says who decided what, never how
+- Date: 2026-10-07
+- Phase: 03 (PR #3 review round 2, owner decision)
+- Status: decided — Superseded by ADR-0117 on 2026-10-07 (the test panel's cache reads only); Superseded by ADR-0118 on 2026-10-07 (its Consequences' claims only)
+- Context: Review round 2 found a cross-tenant signal. ADR-0110 keyed a judge verdict by policy, judge prompts, model alias and normalized text, with no tenant, so one global judge policy shared one cache across every tenant. A cached verdict carried `, cached` in the checker's explanation and `_cached` in its reason, and every `guard` event and the terminal event's `guard_events` streamed that explanation (`detail`) to the client through the gateway's byte-for-byte relay. A user in tenant t2 who sent a guessed text saw whether anyone, in any tenant, had sent the same normalized text to that policy in the last 24 hours. Each event's `latency_ms` gave the same signal by timing.
+- Decision:
+  - **Cache key (supersedes ADR-0110's key only).** A verdict's key is a SHA-256 of the principal's `tenant_id`, the policy's id and version (for a draft, its id and a hash of its content), the judge prompts' `id@version` in the call's locale, the model alias the judge call resolves to for the principal, and the normalized text. The admin test panel uses the same key, with the simulated principal's tenant (the admin's own tenant when none is simulated), and still never writes; a draft still never reads. The rest of ADR-0110 stands.
+  - **What a client sees.** A `guard` event, and every entry of a terminal `done` or `error` event's `guard_events`, carries `checkpoint`, `policy_id`, `policy_version`, `policy_name`, `action`, `target` (DATA only) and, for a block, the policy's `message_ar` and `message_en`. It never carries the checker's explanation (`detail`), reason, confidence, category, cache status, matched entity types or latency. `policy_version` and `target` are kept because they name the decision, not the check (A1, ADR-0096); `entities` and `latency_ms` go because they come from the check, and latency is a cache-status signal (assumed).
+  - **Where the detail stays.** The `guard.check` span gains `guard.explanation`, `guard.reason`, `guard.score` and `guard.reason.{name}` (the judge's `category` and `confidence`). `state.guard_events` keeps each evaluation in full. The audit delta reaches the gateway as a new terminal-event field, `guard_audit` (every evaluation in full), which the gateway reads for the audit record and then removes before the terminal event leaves for the client. The terminal event is re-serialized with its `event` and `id` lines; one without `guard_audit` still leaves byte for byte. Each `guard_policies` entry of the audit record gains `detail`, `reason`, `reason_args` and `score`.
+  - `docs/events.schema.json` keeps the id `events.v1`: `guard` loses `detail`, `entities` and `latency_ms` and gains `policy_name`, `message_ar` and `message_en`; `done` and `error` gain `guard_audit`, documented as agent to gateway only, never sent to a client. PR #3 is unmerged, so this follows the OpenAPI clause of CLAUDE.md by analogy (ADR-0046). The OpenAPI documents do not change. The web's chip shows the checkpoint and the policy's name, id, version, action and target only.
+- Consequences: A tenant can no longer learn anything about another tenant's texts from the judge cache. What is left within one tenant: a cached verdict is still faster than a fresh one, so a turn's overall latency can tell a user that someone in their own tenant sent the same text to the same judge policy in the last 24 hours. One global judge policy now costs a model call per tenant per text. The audit record now holds the checker's explanation. For `keyword_list` that names the policy's configured keywords that matched; for `regex` and `presidio` it names pattern or entity types. It never holds free text from the message. A client that read `detail` or `entities` from a guard event (only this repo's web did) loses them.
+
+
+### ADR-0117: The admin role is a platform operator; the test panel never touches the verdict cache
+- Date: 2026-10-07
+- Phase: 03 (PR #3 verification review of round 2, owner decision)
+- Status: decided
+- Context: The verification review of round 2 found that ADR-0116 left one cross-tenant signal. The admin test panel read the judge's verdict cache for a stored policy under the simulated principal's tenant, which the request names freely, and its result carried the cache marker (`, cached` in `explanation`, `_cached` in `explanation_key`). A holder of the `admin` realm role in tenant t1 could simulate t2 with a guessed text and learn whether anyone in t2 had sent it to that policy in the last 24 hours. Whether that is a leak depends on what `admin` is, which no ADR said.
+- Decision:
+  - **The `admin` realm role is a platform operator above all tenants.** It manages policies of every scope and may simulate any tenant in the test panel. A tenant-scoped administrator would be a separate role; v1 has none.
+  - **The test panel never reads or writes the judge's verdict cache**, for a stored policy and a draft alike: every panel test calls the judge, so a panel result never carries a cache marker. Live turns keep the per-tenant cache of ADR-0116 unchanged.
+- Consequences: A panel test of a judge policy always costs one judge call. Even a platform operator cannot use the panel to learn what a tenant's users sent. The `judge_*_cached` explanation keys of the web catalogs no longer appear in panel results; they remain for audit records.
+
+### ADR-0118: What ADR-0116 closed and what remains: guard checks out of client usage, complete events only
+- Date: 2026-10-07
+- Phase: 03 (PR #3 verification review of round 2, owner decision)
+- Status: decided
+- Context: ADR-0116's Consequences said a tenant could no longer learn anything about another tenant's texts from the judge cache. The verification review found three gaps. The panel (ADR-0117). The judge's model call was added to the turn's usage, so `done.usage` (`tokens_in`, `tokens_out`) told a user, as an exact number, whether a verdict in their own tenant was cached. And `SseRelay` forwarded an event block cut off before its closing blank line as it arrived: a terminal event broken there reached the browser with its `guard_audit`, checker detail and cache marker included (reproduced with a stream that ends after the `data:` line).
+- Decision:
+  - **Guard checks are not turn usage.** A model call a guard checker makes (the judge's) goes through Context Assembly and LiteLLM as before (`call_model(..., account=False)`), but its tokens are not added to the turn usage a client receives in `done`. They are the check's `usage`: on the `guard.check` span (`guard.tokens_in`, `guard.tokens_out`) and on the check's record in `guard_audit`. A check that made a model call and matched nothing gets an audit-only `allow` record carrying its usage. The tier evaluations of a guard checker's own call (`prepare_call(..., audit_only=True)`: its MODEL_TIER records, which exist only when the judge ran) are audit-only too; this session's usage test found them in the client's `guard_events`, a second cache-status signal. An audit-only record is in state and in `guard_audit`, never streamed, never in `guard_events`; it never decides the streamed DATA `allow` record, and memory's "a guard flagged the turn" rule ignores it. The gateway's audit record keeps the turn's full usage (`usage` = the client's usage plus the guard checks') and adds `guard_usage`, the guard checks' sum, when any check called a model. The events schema gains `guard_audit[].usage`; its id stays `events.v1` (unmerged PR, ADR-0046 by analogy).
+  - **The relay forwards complete events only.** On EOF or a broken upstream, an event block without its closing blank line is discarded, never forwarded; the client receives `agent_stream_interrupted` after the complete events that came before it.
+  - **What is closed.** A user cannot learn from the judge cache whether a user in another tenant sent a text: the key is per tenant (ADR-0116) and the panel never reads it (ADR-0117). No client-visible field shows whether a verdict was cached: guard events carry no checker detail or latency (ADR-0116), client usage leaves guard checks out, and no partial event reaches a client.
+  - **What remains.** Within one tenant, a cached verdict is faster than a fresh one, so a turn's overall latency can still tell a user that someone in their own tenant sent the same normalized text to the same judge policy in the last 24 hours.
+- Consequences: `done.usage` no longer counts the judge; cost reports read the audit record's `usage` or `guard_usage`, not the client's. A turn cut off mid-event loses the partial event the client used to receive; it was never complete enough to render. This replaces only ADR-0116's Consequences claims; the rest of ADR-0116 stands.
+
+### ADR-0119: The admin policy page in two languages: bilingual policy text, test policies, the meta line and Arabic shaping
+- Date: 2026-10-07
+- Phase: 03 (PR #3, the owner's visual check of /admin/policies)
+- Status: decided (the owner's eight items); the points marked "assumed" are the agent's
+- Context: The owner's visual check of `/admin/policies` found that versions saved before the change log existed (migration `0004`) showed no change row; that a policy had one name and one description in one language; that the meta line under a policy ran its items together with dot separators that reorder in Arabic; that the Arabic action labels were past-tense event words ("سُمح", "حُجبت بيانات") rather than names of actions; that the version history label ("الإصدار") was set in a monospace face; that smoke's and the TTFT script's policies filled the list; and that the policy roles placeholder mixed Arabic with a Latin example.
+- Decision:
+  - **Change log backfill.** Migration `0006_backfill_policy_changes.sql` inserts one `guard_policy_changes` row, `change = seed`, `actor = backfill`, for every policy version without a row, dated at the version's `created_at` and carrying the flags the version was saved with. A clean database has no such version (the seed writes its own rows), so there it adds nothing.
+  - **Bilingual text.** A policy carries `name_ar`, `name_en` (both required, 1–200 characters), `description_ar` and `description_en` (both optional) in place of `name` and `description`, in the agent's policy model, the agent and gateway admin documents, import and export. Migration `0007_bilingual_policy_text.sql` renames the fields of every stored version (`name` → `name_en`, `description` → `description_en`); it changes no behaviour, so no version is added, and a version keeps its number. Assumed: a version saved before this has no Arabic name, so `name_ar` starts as a copy of the English one for an admin to replace, and `description_ar` starts empty; the page then shows the English description in its place. Every seed in `config/policies/` carries an Arabic name and description. The page shows the name and description of the UI locale, the other language only when that one is empty; the edit form edits all four.
+  - **Assumed: guard events keep `policy_name`, the English name.** The client event contract (`docs/events.schema.json`) does not change; the chat chip's tooltip shows the English name.
+  - **Test policies.** A policy has `purpose: production | test`, default `production`, part of the version's content. `scripts/smoke.sh` and `scripts/measure_ttft.py` import theirs as `test`. The admin list hides test policies until "إظهار سياسات الاختبار" / "Show test policies" is on (off on every page load; assumed). Nothing else treats them differently.
+  - **The meta line.** Under each policy in the list, in the detail header and on each version history line: one chip per item, each in its own `<bdi>`, in this order in both locales: action, the exception badge when there is one, scope, checkpoints (one chip, joined with a Latin comma), checker, `id@version`. No separators between chips. The history line shows each version's own action and its exception flag as saved.
+  - **Action labels.** `ar.json` names actions as nouns: allow سماح, log_only تسجيل فقط, warn تحذير, redact إخفاء, block حظر, rewrite إعادة صياغة, require_approval طلب موافقة, everywhere the UI shows an action (meta line, form, test panel, chat guard chips). `en.json` keeps its words.
+  - **Arabic shaping.** No element sets letter-spacing or a text transform; a web test fails on any `tracking-*`, `uppercase`, `lowercase`, `capitalize`, `letter-spacing`, `text-transform` or `font-variant` in the web sources. A monospace face is used only for Latin identifiers (scope, checkpoints, checker, `id@version`, YAML, JSON), never on a label that can hold Arabic; the version history label is set in the sans face.
+  - **Mixed text.** The policy roles field of the test panel has an Arabic-only placeholder in Arabic; the example `policy:pii-exempt policy:no-sql` is a hint line below it, inside `<bdi dir="ltr">`. Policy names, descriptions and the actor in the history and change log ("by …") render with `dir="auto"`.
+  - **Assumed: component render tests.** The web's vitest compiles JSX (`oxc.jsx.runtime: automatic` in `vitest.config.ts`; `tsconfig.json` keeps `preserve` for Next) and renders components with `react-dom/server` in the node environment, with the app's own catalogs (`src/test/render.tsx`).
+  - `docs/openapi/agent.json` and `docs/openapi/gateway.json` keep version 1.3.0: PR #3 is unmerged (ADR-0046).
+- Consequences: An older database shows a `seed` row by `backfill` for each version that had none, and an Arabic name equal to the English one until an admin edits it; a clean one shows the seed's own Arabic. A policy document without `name_ar` or `name_en` is refused (`policy_invalid`, `name_ar: Field required`), on create, a new version and import, so an export from before this change must gain both names before it can be imported again. The first smoke or TTFT run on a database that holds their policies from before this change adds one version each (their content now carries Arabic names and `purpose: test`); later runs add none.
+
+### ADR-0120: A national ID or iqama number needs a valid check digit or a context word
+- Date: 2026-10-11
+- Phase: 03 (PR #3, the owner's review of `config/policies/**` and `guardrails.jsonl`)
+- Status: decided (the owner's item 2); the points marked "assumed" are the agent's
+- Context: The `SaudiNationalIdRecognizer` (ADR-0097) matched every ten-digit number starting with 1 or 2. In Saudi text many such numbers are not IDs: transaction references that begin with the Hijri year (`1446…`), invoice and order numbers. All of them were redacted from answers and summaries and dropped from memory.
+- Decision:
+  - A `SA_NATIONAL_ID` candidate from presidio-analyzer is kept when its check digit is valid **or** a context word stands within the five tokens before it; without either it passes. Both checks run in the agent's presidio checker (`app/guardrails/checkers/saudi_id.py`) on the folded text the checker sends, so Arabic-Indic and Persian digits and grouped forms (`2345 678 904`, `2536-147-891`) are checked alike. The recognizer in `infra/presidio/recognizers.yaml` is unchanged and finds candidates; presidio's YAML recognizers cannot run a checksum, and their context enhancement needs an NLP model the analyzer does not load (ADR-0097).
+  - **The check digit.** The Luhn scheme (ISO/IEC 7812-1, Annex B; H. P. Luhn, US patent 2,950,048) over all ten digits: from the right, every second digit, the check digit excluded, is doubled and reduced by 9 when above 9; the sum of all ten is a multiple of 10. Equivalently, from the left the digits in odd positions are doubled. Source: the National Information Center publishes no specification; the scheme is the one implemented by the community validators in common use, which agree with each other and on the test vector `1012345672` (valid) — `saudi-id-validator` on PyPI (https://pypi.org/project/saudi-id-validator/), the Drupal module `saudi_id_validator` (https://www.drupal.org/project/saudi_id_validator), and `arabicfmt`'s `validate_saudi_id` (https://app.unpkg.com/arabicfmt@0.1.3/files/dist/validate/index.d.ts). A unit test pins that vector.
+  - **Context words.** هوية، الهوية الوطنية، سجل مدني، إقامة، ID، iqama, national ID. Tokens are runs of word characters, compared after `normalize` (alef forms, ة → ه, case folded). Assumed: an Arabic word matches with the prefixes و، ب، ل، ف، ال and their combinations and with a possessive ending (هويته، وهويته، إقامتي، سجله المدني); سجل matches only when followed by مدني or المدني, so سجل تجاري (a commercial register) is not context; "national ID" matches through its token `ID`. A context word is within the window when its last token is one of the five tokens before the number.
+  - Assumed: the context words are code constants beside the check, not policy config: the entity's definition is the platform's, as the recognizer's pattern is.
+- Consequences: A ten-digit number with a valid check digit is redacted anywhere, so roughly one random reference number in ten is still redacted when nothing names it; one that names an ID is redacted whatever its check digit, so a mistyped ID after «رقم الهوية» is still hidden. A context word more than five tokens back does not count (`صورة الهوية مرفقة، وأما رقم المعاملة لدى الإدارة فهو 1446012345` passes). Both seeds that use the entity (`pii-redact-output`, `pii-block-in-memory`) change behaviour with no new policy version, because the checker changed, not the policy. Fake numbers in tests and evals now carry valid check digits (G3: fake, never issued).
+
+### ADR-0121: A block at TOOL_LIST removes the capability silently
+- Date: 2026-10-11
+- Phase: 03 (PR #3, the owner's review)
+- Status: decided (the owner's item 3); the points marked "assumed" are the agent's
+- Context: The owner asked for proof that `action: block` at TOOL_LIST removes the capability with no guard event to the client, no `message_ar`, and the turn going on with the remaining capabilities. It did not: the engine removed the capability and the turn went on, but the block record streamed to the client as a `guard` event with the policy's messages, sat in the terminal event's `guard_events`, and flagged the turn for memory like any block.
+- Decision:
+  - At TOOL_LIST the engine marks a block record `audit_only` and clears its `message_ar` and `message_en` (`engine._tool_list`). The record stays on the `guard.check` span, in the turn's `guard_audit` (the gateway's audit record) and in the audit delta; it is never streamed, never in `guard_events`, and does not flag the turn (ADR-0118's audit-only path). Other actions at TOOL_LIST are unchanged.
+  - When every routed capability is removed the turn still ends with `no_capability_available` (unchanged).
+  - `tool-visibility-by-role` uses the `regex` checker with `^sql$`, so only the slug `sql` is removed; `nosql_search` and `sql_reports` are kept (eval cases). Assumed: its `message_ar` and `message_en` stay, because a block policy must carry both (ADR-0100); they are never shown.
+  - Assumed: the integration test routes a real turn to two capabilities with a second test-only capability `echo` (`tests/fixtures/capabilities/echo`, keyword routed, no tools), beside `probe` (ADR-0038); no core file names it.
+- Consequences: A user whose role hides a capability sees no sign of it, as with a capability they lack the permission for (ADR-0006). The admin still finds the removal in the audit record and the trace. The test panel's TOOL_LIST verdict is unchanged (`block` when the slug is removed).
+
+### ADR-0122: Gulf-dialect injection forms and the two topic policies in the Saudi government context
+- Date: 2026-10-11
+- Phase: 03 (PR #3, the owner's review)
+- Status: decided (the owner's items 1, 4 and 5); the points marked "assumed" are the agent's
+- Context: The owner's review found that `prompt-injection-input` missed Gulf forms (انسى folds to انسي, طنش, لا تلتزم ب…, possessive objects, اللي قبل / اللي فوق); that Arabic names and descriptions of seeds held Latin ids, checkpoints, roles and markers; and that the political topic was framed around parties and elections, which do not fit the Saudi government context.
+- Decision:
+  - `OVERRIDE_AR` matches a verb (تجاهل، انسى/انسي/انس، اهمل، طنش) followed by an optional جميع/كل and either a possessive object (تعليماتك، اوامرك، قواعدك، توجيهاتك, also with كم) on its own, or a bare object (التعليمات، الاوامر …) followed by السابقة، اعلاه، التي تلقيتها، اللي قبل or اللي فوق; or «لا تلتزم ب» with its object glued (بتعليماتك، بالتعليمات، بكل). Assumed: a bare object without a qualifier is not enough («تجاهل التعليمات المكتوبة على العلبة» passes), and «انسى» alone is ordinary speech («انسى الموضوع» passes).
+  - Every seed's `name_ar`, `description_ar` and `message_ar` are Arabic words only; a unit test (`tests/unit/test_policy_seeds.py`) fails on any Latin letter in them.
+  - `topics-politics-llm-judge` takes the owner's text (name الآراء السياسية, the topic description and five examples). New seed `topics-sectarian-tribal-llm-judge`, disabled, global, INPUT and OUTPUT, block, with the owner's name, topic description and message; its four few-shot examples are the agent's, and no eval case repeats any example of either policy.
+  - A seed never overwrites a stored policy (I2): the changed seeds (`prompt-injection-input`, `tool-visibility-by-role`, `topics-politics-llm-judge`, `pii-redact-output`, `pii-block-in-memory`, `web-domain-denylist`) reach an existing database only as new versions, imported through `/v1/admin/policies/import` by the admin; a clean database gets them as version 1. The new seed is inserted on start because its id is absent.
+- Consequences: The guardrails suite's judge cases measure the new definitions; thresholds are unchanged (`evals/thresholds.yaml`). Enabling either topic policy buffers every answer in scope (D3). An imported version keeps the seed's `enabled` value, so the two topic policies stay off.
+
+### ADR-0123: The admin policy page, second visual check: actor names, scope fields, readable and structured configuration
+- Date: 2026-10-11
+- Phase: 03 (PR #3, UI session 2, the owner's visual check of /admin/policies)
+- Status: decided (the owner's eight items; the structured editors are the owner's decision to land before merge); the points marked "assumed" are the agent's
+- Context: The version history and change log named an admin by Keycloak subject id. The scope field was one free-text input with a long hint that mixed Latin tokens into Arabic sentences, as did the group hint. The detail view showed a policy's configuration as raw JSON, and the edit form edited it as raw JSON. A long policy name was cut off in the list with no way to read it. The daily matches table listed test policies the list hid. The test panel headed every resulting text "النص بعد الحجب", showed entity types as identifiers, and joined the explanation's values into one string. The import field's placeholder named the format inside an Arabic sentence.
+- Decision:
+  - **Actor names.** Migration `0008_actor_names.sql` adds `created_by_username` and `created_by_name` to `agent.guard_policies` (version rows) and `actor_username` and `actor_name` to `agent.guard_policy_changes`, beside the id, as they were at the time of the change. The gateway sends them on every admin call from the verified token: `X-User-Name` (`preferred_username`) and `X-User-Display-Name` (`name`, else `preferred_username`, as `GatewayPrincipal.displayName`), percent-encoded UTF-8, because a header value is ASCII and a display name may be Arabic. The agent decodes them; a blank or missing header is no name; a name is cut at 256 characters. Rows written by the seed carry `seed` in all three fields, and the migration gives every existing `seed` and `backfill` row (0006) the same word as username and display name. Other rows saved before this keep no name, and the page shows their id. The API adds the four fields, optional, to `PolicyView`, `PolicyVersionView` and `PolicyChange`; `docs/openapi/*.json` stay at 1.3.0 (unmerged PR, ADR-0046). The history and change log show the display name, with "اسم المستخدم: …، المعرّف: …" in a tooltip. Assumed: `agent.guard_policy_heads.updated_by` keeps the id only (the owner named the change and version rows).
+  - **Scope and group fields.** The scope is a kind (عام، جهة، دور، قاعدة معرفة، أداة) and a value, written back as `global` or `{kind}:{value}`. Global has no value; a role is chosen from the gateway's `policy:*` list (`/v1/admin/policy-roles`), and a stored role the list no longer holds stays selectable with the existing warning; a tenant starts as `default`; changing the kind resets the value. Each hint is one short sentence of the locale, then each example id in its own `<bdi>` chip. Assumed: the examples are `default` (tenant), `moe` (knowledge base), `web` and `sql` (tool), and `pii-output`, `pii-memory` (group, the seeds' own groups). The unknown-role warning no longer names Keycloak inside the Arabic sentence.
+  - **Readable configuration.** The detail view shows the configuration per checker with the locale's labels: keywords and the matching mode; patterns (name and pattern, as identifiers) and folding; entities by their Arabic labels and the score threshold; the topic, its examples (text, يُحجب / يُسمح) and the minimum confidence; the tier and model roles; DATA targets (الإجابة، الملخص، عناصر الذاكرة). An omitted threshold shows the engine's default, marked as such; an entity, tier or role the catalog does not know shows as its identifier in monospace. The raw JSON is behind "عرض الإعدادات التقنية", closed each time a policy opens.
+  - **Truncated names.** A list name carries the full name in its `title`; the detail header wraps a long name instead of cutting it.
+  - **Structured editors.** The form edits the configuration per checker: keyword tags; pattern rows (name, pattern) with add and remove; entity checkboxes with Arabic labels (رقم جوال سعودي، رقم هوية أو إقامة، آيبان سعودي، بريد إلكتروني، اسم شخص عربي) and the score threshold; the topic, an examples table and the minimum confidence; the tier and the model roles; DATA target checkboxes in every editor. "إعدادات متقدمة" shows a JSON view. The JSON text is the one state both views edit, so they cannot drift: an editor writes only the fields it shows, with every other key kept, so a config loaded and saved unchanged is identical; while the text is not a JSON object the editor is paused, the JSON view is shown, and saving is refused with an Arabic message. Before saving the editor refuses what the engine's validator would refuse (no keyword, no pattern, a pattern name outside `[A-Za-z0-9_]{1,64}`, a pattern that does not compile, no entity, a threshold outside 0–1, no topic, an empty example, no tier, no DATA target), each message from i18n; the agent's validator decides everything else. Assumed:
+    - A pattern is compiled by the browser's engine with Python's named groups and backreferences rewritten (`(?P<n>`, `(?P=n)`); a pattern only Python accepts in some other way is refused in the form and must be rewritten. Every seed pattern compiles.
+    - The tiers and model roles offered are those of `config/models.yaml`, listed as constants in the web; a stored value outside them is kept and shown.
+    - Absent `targets` (or `roles`) means all, so every box is ticked; a change writes the explicit list.
+    - Choosing another checker starts its config from a template (an empty list, or `standard` for a ceiling), keeping the DATA targets.
+    - The web's tests read `config/policies/*.yaml` with the `yaml` package (2.8.4, a dev dependency) through a `config` build context (`make test-web`, the Dockerfile's test stage); no seed uses `keyword_list` or `tier_ceiling`, so those two editors round-trip a config written in the test.
+  - **Daily matches.** The page owns "إظهار سياسات الاختبار"; the matches table hides the rows of test policies while it is off, as the list does.
+  - **Test panel.** The heading over the resulting text follows the action (`policies.test.outputBy.*`: النص بعد الإخفاء، النص بعد الحظر، النص بعد التحذير، …). Entity types in the explanation and on matched-span badges use the presidio editor's Arabic labels; a pattern's name stays an identifier. The explanation sentences carry `<v>` around each value and `<list/>` for the matched items, so each technical value is rendered in its own `<bdi>`.
+  - **Import.** The placeholder is "الصق هنا ملف السياسات"; the format name, YAML, is a chip in the section heading. Not changed: the export button's label.
+- Consequences: A change made after this names its admin in the page; older rows by an admin show the id until they age out of view. An admin edits configuration without JSON, and the JSON view stays available for keys no editor shows (`mode`, `fold`, `ignore_case`, `language`). A config the editor refuses never reaches the agent; the agent still validates what it receives. `make test-web` needs the `config` build context.
+
+### ADR-0124: DATA targets on the meta line, "prevent saving" for a memory block, checkpoint tooltips
+- Date: 2026-10-11
+- Phase: 03 (PR #3, UI session 2, the owner's item 9)
+- Status: decided (the owner's item 9); the points marked "assumed" are the agent's
+- Context: The meta line (ADR-0119) did not say which DATA targets a policy guards, so `pii-redact-output` and `pii-block-in-memory` looked alike. A block whose only target is a memory candidate does not refuse the reply; it keeps the candidate out of memory, yet it read "حظر". The checkpoints chip showed identifiers only.
+- Decision:
+  - For a policy with DATA among its checkpoints, target chips follow the checkpoints chip: one per target, in the order الإجابة، الملخص، عناصر الذاكرة. A policy that covers every target (no `targets`, or all three) gets one chip, "كل الوجهات"; the configuration summary and editor use the same words. A policy without DATA gets no target chip.
+  - The action chip reads "منع الحفظ" ("Prevent saving") instead of "حظر" when the action is block, every checkpoint is DATA and the only target is `memory_candidate`: in the list, the detail header, each version line (each version by its own content) and the test panel's result. Assumed: a policy that also has another checkpoint keeps "حظر", because it blocks there.
+  - The checkpoints chip has a tooltip: the descriptions of its checkpoints from the locale's catalog (رسالة المستخدم، القدرات المتاحة، قبل الأداة، بعد الأداة، الإجابة، البيانات الخارجة، سقف النموذج), joined with the locale's comma. Assumed: the chip stays one chip for all checkpoints (ADR-0119), so its tooltip lists each one's description.
+- Consequences: The meta line is longer for DATA policies by one to three chips. The guard events, the chat chips and the API are unchanged: the action is still `block`, and only its label changes.

@@ -5,6 +5,8 @@ services:
     ports: ["5433:5432"]
   redis:
     ports: ["6380:6379"]
+  presidio-analyzer:
+    ports: ["5002:3000"]
   minio:
     ports: ["9000:9000", "9001:9001"]
   litellm:

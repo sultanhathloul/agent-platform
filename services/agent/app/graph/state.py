@@ -58,6 +58,7 @@ class AgentState(TypedDict, total=False):
     capability_outputs: list[dict]  # addition: CapabilityOutput per slug, read by the answer node
     draft_answer: str | None
     shown_answer: str | None  # addition: text streamed to the user; differs from draft_answer after a guard
+    answer_mode: Literal["streaming", "buffered"]  # addition: how the answer leaves the agent (D3)
     citations: list[dict]
     guard_events: list[dict]
     reflection: dict | None

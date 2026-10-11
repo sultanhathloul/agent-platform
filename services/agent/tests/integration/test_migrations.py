@@ -4,8 +4,10 @@ an applied file has changed (ADR-0069)."""
 import uuid
 
 import pytest
+from psycopg.types.json import Jsonb
 
-from app.db import Database, MigrationChecksumMismatch
+from app.db import MIGRATIONS_DIR, Database, MigrationChecksumMismatch, _statements
+from app.guardrails.schema import Policy
 
 pytestmark = pytest.mark.integration
 
@@ -44,3 +46,134 @@ async def test_a_changed_migration_fails_startup(database_url, tmp_path):
             await conn.execute("DELETE FROM agent.schema_migrations WHERE version = %s", (version,))
             await conn.execute(f"DROP TABLE IF EXISTS {table}")
         await db.close()
+
+
+async def _run(conn, name: str) -> None:
+    for statement in _statements((MIGRATIONS_DIR / name).read_text(encoding="utf-8")):
+        await conn.execute(statement)
+
+
+async def _old_version(conn, pid: str, content: dict) -> None:
+    """A version as stored before migrations 0004 and 0007: no change row, a single-language name."""
+    await conn.execute(
+        "INSERT INTO agent.guard_policies (id, version, content, created_by) VALUES (%s, 1, %s, 'seed')",
+        (pid, Jsonb(content)),
+    )
+    await conn.execute(
+        "INSERT INTO agent.guard_policy_heads (id, current_version, enabled, updated_by) "
+        "VALUES (%s, 1, false, 'seed')",
+        (pid,),
+    )
+
+
+OLD_CONTENT = {
+    "name": "Old policy",
+    "description": "Saved before the bilingual fields.",
+    "scope": "role:migration-test",
+    "checkpoints": ["INPUT"],
+    "checker": "keyword_list",
+    "config": {"keywords": ["x"]},
+    "action": "warn",
+}
+
+
+async def test_0006_backfills_one_seed_row_per_version_without_a_change_row(services):
+    """ADR-0119: each version without a change row gets `seed` by `backfill`; a second run adds
+    nothing, and a version that has a row keeps it alone. Rolled back: the test leaves no rows."""
+    pid = f"mig-{uuid.uuid4().hex[:10]}"
+    async with services.db.connection() as conn, conn.transaction(force_rollback=True):
+        await _old_version(conn, pid, OLD_CONTENT)
+        await _run(conn, "0006_backfill_policy_changes.sql")
+        await _run(conn, "0006_backfill_policy_changes.sql")
+        rows = await (
+            await conn.execute(
+                "SELECT c.version, change, actor, c.exception, c.overrides, induced, "
+                "changed_at = p.created_at AS dated FROM agent.guard_policy_changes c "
+                "JOIN agent.guard_policies p ON p.id = c.policy_id AND p.version = c.version "
+                "WHERE c.policy_id = %s",
+                (pid,),
+            )
+        ).fetchall()
+        assert [dict(r) for r in rows] == [
+            {
+                "version": 1,
+                "change": "seed",
+                "actor": "backfill",
+                "exception": False,
+                "overrides": [],
+                "induced": [],
+                "dated": True,
+            }
+        ]
+        orphans = await (
+            await conn.execute(
+                "SELECT count(*) AS n FROM agent.guard_policies p WHERE NOT EXISTS (SELECT 1 FROM "
+                "agent.guard_policy_changes c WHERE c.policy_id = p.id AND c.version = p.version)"
+            )
+        ).fetchone()
+        assert orphans["n"] == 0
+
+
+async def test_0007_moves_name_and_description_to_the_english_fields(services):
+    """ADR-0119: `name` and `description` become `name_en` and `description_en`; `name_ar` starts
+    as the English name and `description_ar` empty, so the stored version validates; a second run
+    changes nothing. Rolled back."""
+    pid = f"mig-{uuid.uuid4().hex[:10]}"
+    async with services.db.connection() as conn, conn.transaction(force_rollback=True):
+        await _old_version(conn, pid, OLD_CONTENT)
+        await _run(conn, "0007_bilingual_policy_text.sql")
+        await _run(conn, "0007_bilingual_policy_text.sql")
+        row = await (
+            await conn.execute("SELECT content FROM agent.guard_policies WHERE id = %s", (pid,))
+        ).fetchone()
+        content = row["content"]
+        assert "name" not in content and "description" not in content
+        assert (content["name_en"], content["name_ar"]) == ("Old policy", "Old policy")
+        assert content["description_en"] == "Saved before the bilingual fields."
+        assert content["description_ar"] == ""
+        policy = Policy.model_validate({**content, "id": pid, "version": 1})
+        assert policy.purpose == "production"
+
+
+async def test_0008_names_seed_and_backfill_rows_and_leaves_others_without_a_name(services):
+    """ADR-0123: a version and a change row by `seed` or `backfill` get that word as username and
+    display name; a row by an admin saved before keeps no name (the page shows the id); a second
+    run changes nothing. Rolled back."""
+    pid = f"mig-{uuid.uuid4().hex[:10]}"
+    async with services.db.connection() as conn, conn.transaction(force_rollback=True):
+        await _old_version(conn, pid, OLD_CONTENT)
+        # Inserted without names, as before 0008; version 2 by an admin.
+        await conn.execute(
+            "INSERT INTO agent.guard_policies (id, version, content, created_by) "
+            "VALUES (%s, 2, %s, 'user-9')",
+            (pid, Jsonb(OLD_CONTENT)),
+        )
+        await _run(conn, "0006_backfill_policy_changes.sql")
+        await conn.execute(
+            "UPDATE agent.guard_policy_changes SET actor = 'user-9' WHERE policy_id = %s AND version = 2",
+            (pid,),
+        )
+        await _run(conn, "0008_actor_names.sql")
+        await _run(conn, "0008_actor_names.sql")
+        versions = await (
+            await conn.execute(
+                "SELECT version, created_by, created_by_username, created_by_name FROM agent.guard_policies "
+                "WHERE id = %s ORDER BY version",
+                (pid,),
+            )
+        ).fetchall()
+        assert [tuple(r.values()) for r in versions] == [
+            (1, "seed", "seed", "seed"),
+            (2, "user-9", None, None),
+        ]
+        changes = await (
+            await conn.execute(
+                "SELECT version, actor, actor_username, actor_name FROM agent.guard_policy_changes "
+                "WHERE policy_id = %s ORDER BY version",
+                (pid,),
+            )
+        ).fetchall()
+        assert [tuple(r.values()) for r in changes] == [
+            (1, "backfill", "backfill", "backfill"),
+            (2, "user-9", None, None),
+        ]

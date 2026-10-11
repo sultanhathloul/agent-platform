@@ -1,0 +1,37 @@
+id: prompt-injection-input
+name_ar: حظر حقن التعليمات في رسالة المستخدم
+name_en: Block prompt injection in the user message
+description_ar: >-
+  صيغ بالعربية الفصحى واللهجة الخليجية وبالإنجليزية تحاول تجاوز تعليمات المساعد أو استخراج
+  تعليمات النظام، مثل «انسى التعليمات اللي قبل» و«طنّش أوامرك» و«لا تلتزم بقواعدك». تُطابَق الأنماط
+  على النص بعد توحيد الحروف العربية (حذف التشكيل والتطويل وتوحيد أشكال الألف والتاء المربوطة)، دون
+  تمييز بين الأحرف اللاتينية الكبيرة والصغيرة.
+description_en: >-
+  English, Modern Standard Arabic and Gulf-dialect phrasings that try to override the
+  assistant's instructions or extract its system prompt. Patterns are matched on Arabic-folded text (tashkeel and
+  tatweel removed, alef and taa marbuta forms folded), case-insensitively.
+enabled: true
+scope: global
+checkpoints: [INPUT]
+checker: regex
+config:
+  patterns:
+    - name: OVERRIDE_EN
+      pattern: "\\b(?:ignore|disregard|forget)\\s+(?:all\\s+|any\\s+)?(?:the\\s+|your\\s+)?(?:previous|prior|above|earlier)\\s+(?:instructions|prompts?|rules|directions)"
+    - name: EXTRACT_EN
+      pattern: "\\b(?:reveal|print|show|repeat)\\s+(?:me\\s+)?(?:your|the)\\s+(?:system\\s+prompt|hidden\\s+instructions|initial\\s+instructions)"
+    - name: ROLE_EN
+      pattern: "\\byou\\s+are\\s+now\\s+(?:DAN|in\\s+developer\\s+mode|an?\\s+unrestricted)"
+    # Matched on folded text: انسى and انسي both fold to انسي, ة to ه. A possessive object
+    # (تعليماتك، اوامرك، قواعدك) is enough; a bare one needs السابقة، اعلاه، التي تلقيتها، اللي قبل
+    # or اللي فوق after it. "لا تلتزم ب" takes its object glued (بتعليماتك، بالتعليمات، بكل).
+    - name: OVERRIDE_AR
+      pattern: "(?:(?:تجاهل|انسى?|اهمل|طنش)\\s+|لا\\s+تلتزم\\s+ب)(?:(?:جميع|كل)\\s+)?(?:(?:تعليمات|اوامر|قواعد|توجيهات)(?:ك|كم)\\b|(?:ال)?(?:تعليمات|اوامر|قواعد|توجيهات)\\s+(?:السابقة|اعلاه|التي\\s+تلقيتها|اللي\\s+(?:قبل|فوق)))"
+    - name: EXTRACT_AR
+      pattern: "(?:اكشف|اعرض|اطبع|كرر)\\s+(?:لي\\s+)?(?:موجه|تعليمات|رسالة)\\s+النظام"
+    - name: ROLE_AR
+      pattern: "انت\\s+الان\\s+(?:في\\s+وضع\\s+المطور|بلا\\s+قيود|نموذج\\s+غير\\s+مقيد)"
+action: block
+severity: high
+message_ar: "لا يمكنني تنفيذ طلب يحاول تجاوز تعليماتي. أعد صياغة سؤالك من فضلك."
+message_en: "I can't follow a request that tries to override my instructions. Please rephrase your question."

@@ -4,6 +4,194 @@
  */
 
 export interface paths {
+    "/v1/admin/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every policy's current version and switch */
+        get: operations["listPolicies"];
+        put?: never;
+        /** Creates a policy (version 1) */
+        post: operations["createPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every policy's current version as one importable YAML document */
+        get: operations["exportPolicies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Imports a YAML document, all or nothing */
+        post: operations["importPolicies"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Matches per day per policy, from guard events */
+        get: operations["policyMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What a draft would override if saved now (ADR-0105) */
+        post: operations["previewOverrides"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluates one policy against sample text; nothing is recorded */
+        post: operations["testPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/{policyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A policy's current version and its version history */
+        get: operations["getPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/{policyId}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A policy's change log: every save, switch, import and seed, with its actor (ADR-0108) */
+        get: operations["getPolicyChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/{policyId}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Switches a policy on or off (no new version) */
+        put: operations["setPolicyEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policies/{policyId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Saves an edit as the next, immutable version and makes it current */
+        post: operations["addPolicyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/policy-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The realm's policy:* roles, which role-scoped policies name (ADR-0107) */
+        get: operations["listPolicyRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat/turns": {
         parameters: {
             query?: never;
@@ -128,8 +316,59 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopePolicyChanges: {
+            data?: components["schemas"]["PolicyChanges"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyDetail: {
+            data?: components["schemas"]["PolicyDetail"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyImportReport: {
+            data?: components["schemas"]["PolicyImportReport"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyList: {
+            data?: components["schemas"]["PolicyList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyMetrics: {
+            data?: components["schemas"]["PolicyMetrics"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyOverrides: {
+            data?: components["schemas"]["PolicyOverrides"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyRoles: {
+            data?: components["schemas"]["PolicyRoles"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyTestResult: {
+            data?: components["schemas"]["PolicyTestResult"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyView: {
+            data?: components["schemas"]["PolicyView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePolicyYaml: {
+            data?: components["schemas"]["PolicyYaml"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiError: {
             code: string;
+            details?: string[];
             message_ar: string;
             message_en: string;
         };
@@ -162,6 +401,13 @@ export interface components {
         HealthResponse: {
             status?: string;
         };
+        /** @description Policies whose exception flag this change set or cleared (ADR-0115) */
+        InducedFlag: {
+            exception: boolean;
+            policy_ref: string;
+        };
+        /** @description The checker's settings; DATA policies may name `targets`. */
+        JsonNode: unknown;
         MeResponse: {
             display_name?: string;
             is_admin: boolean;
@@ -192,6 +438,202 @@ export interface components {
         MemorySettings: {
             enabled: boolean;
         };
+        PolicyChange: {
+            actor: string;
+            /** @description The actor's display name at the time (ADR-0123); absent on older rows */
+            actor_name?: string;
+            /** @description The actor's username at the time (ADR-0123); absent on older rows */
+            actor_username?: string;
+            /**
+             * @description flagged / unflagged: another policy's change made this one an exception, or cleared it
+             * @enum {string}
+             */
+            change: "create" | "version" | "enable" | "disable" | "import" | "seed" | "flagged" | "unflagged";
+            /** Format: date-time */
+            changed_at: string;
+            exception: boolean;
+            /** @description Policies whose exception flag this change set or cleared (ADR-0115) */
+            induced?: components["schemas"]["InducedFlag"][];
+            overrides: string[];
+            /** @description id@version the change left current */
+            policy_ref: string;
+        };
+        PolicyChanges: {
+            changes: components["schemas"]["PolicyChange"][];
+        };
+        PolicyDetail: {
+            current: components["schemas"]["PolicyView"];
+            versions: components["schemas"]["PolicyVersionView"][];
+        };
+        PolicyDocument: {
+            /** @description allow | block | redact | rewrite | warn | require_approval | log_only */
+            action: string;
+            /** @description regex | presidio | keyword_list | llm_judge | tier_ceiling */
+            checker: string;
+            /** @description INPUT, TOOL_LIST, PRE_TOOL, POST_TOOL, OUTPUT, DATA, MODEL_TIER */
+            checkpoints: string[];
+            config?: components["schemas"]["JsonNode"];
+            /** @description The description in Arabic; may be empty. */
+            description_ar?: string;
+            /** @description The description in English; may be empty. */
+            description_en?: string;
+            enabled?: boolean;
+            /** @description Policies of one group override each other narrow over wide; default: the id. */
+            group?: string;
+            id: string;
+            message_ar?: string;
+            message_en?: string;
+            /** @description The name in Arabic (ADR-0119). */
+            name_ar: string;
+            /** @description The name in English (ADR-0119). */
+            name_en: string;
+            /** @description open | closed; default by checker (D8) */
+            on_error?: string;
+            /**
+             * @description test: made by a test script (smoke, TTFT), hidden from the admin list by default; default production (ADR-0119)
+             * @enum {string}
+             */
+            purpose?: "production" | "test";
+            /** @description global | tenant:<id> | role:<name> | kb:<slug> | tool:<name>; role:<name> applies to holders of the realm role policy:<name> (ADR-0107); only global contains another scope (ADR-0108) */
+            scope: string;
+            /** @description low | medium | high | critical */
+            severity?: string;
+            /**
+             * Format: int32
+             * @description Assigned by the agent; ignored on create and on a new version.
+             */
+            version?: number;
+        };
+        PolicyEnabled: {
+            enabled: boolean;
+        };
+        PolicyImportReport: {
+            created: string[];
+            switched: string[];
+            unchanged: string[];
+            versioned: string[];
+        };
+        PolicyList: {
+            policies: components["schemas"]["PolicyView"][];
+        };
+        PolicyMatchRow: {
+            action: string;
+            /** Format: date */
+            day: string;
+            /** Format: int64 */
+            matches: number;
+            policy_id: string;
+        };
+        PolicyMetrics: {
+            /** Format: int32 */
+            days: number;
+            rows: components["schemas"]["PolicyMatchRow"][];
+        };
+        PolicyOverrides: {
+            exception: boolean;
+            overrides: string[];
+            /** @description Saved anyway, but worth knowing (ADR-0115) */
+            warnings?: components["schemas"]["PolicyWarning"][];
+        };
+        PolicyRoles: {
+            roles: string[];
+        };
+        PolicySpan: {
+            /** Format: int32 */
+            end: number;
+            entity: string;
+            /** Format: double */
+            score?: number;
+            /** Format: int32 */
+            start: number;
+        };
+        PolicyTestRequest: {
+            /** @description Default: the policy's first checkpoint. */
+            checkpoint?: string;
+            policy?: components["schemas"]["PolicyDocument"];
+            policy_id?: string;
+            principal?: components["schemas"]["SimulatedPrincipal"];
+            /** @description DATA only: answer | memory_candidate | summary. */
+            target?: string;
+            text: string;
+        };
+        PolicyTestResult: {
+            action: string;
+            checkpoint: string;
+            /** @description The checker's error, when it failed. */
+            error?: string;
+            /** @description The checker's explanation in English, as traces record it. */
+            explanation: string;
+            /** @description Arguments of explanation_key; `items` lists names separated by newlines. */
+            explanation_args?: {
+                [key: string]: string;
+            };
+            /** @description The explanation as a key under the web's policies.explanation.* (rule 7). */
+            explanation_key?: string;
+            matched: boolean;
+            message_ar?: string;
+            message_en?: string;
+            /** @description The text after redaction, for text checkpoints. */
+            output_text?: string;
+            policy_ref: string;
+            /** Format: double */
+            score: number;
+            spans: components["schemas"]["PolicySpan"][];
+            target?: string;
+        };
+        PolicyVersionView: {
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** @description The creator's display name at the time (ADR-0123); absent on older rows */
+            created_by_name?: string;
+            /** @description The creator's username at the time (ADR-0123); absent on older rows */
+            created_by_username?: string;
+            /** @description Whether it was an exception when it was saved */
+            exception?: boolean;
+            /** @description What this version overrode when it was saved */
+            overrides?: string[];
+            policy: components["schemas"]["PolicyDocument"];
+        };
+        PolicyView: {
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** @description The creator's display name at the time (ADR-0123); absent on older rows */
+            created_by_name?: string;
+            /** @description The creator's username at the time (ADR-0123); absent on older rows */
+            created_by_username?: string;
+            /** @description It overrides a stricter policy of its group (ADR-0105, ADR-0108) */
+            exception?: boolean;
+            /** @description id@version of the wider policies of its group it overrides now */
+            overrides?: string[];
+            policy: components["schemas"]["PolicyDocument"];
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: string;
+            /** @description On a save response only (ADR-0115) */
+            warnings?: components["schemas"]["PolicyWarning"][];
+        };
+        /** @description On a save response only (ADR-0115) */
+        PolicyWarning: {
+            /**
+             * @description whole_text_cannot_lift_spans: this exception cannot lift span-based redaction
+             * @enum {string}
+             */
+            code: "whole_text_cannot_lift_spans";
+            /** @description id@version of the span-based policies it cannot lift */
+            policies: string[];
+        };
+        PolicyYaml: {
+            yaml: string;
+        };
+        /** @description Whom to evaluate for; default: the admin, with no policy roles. */
+        SimulatedPrincipal: {
+            /** @description Full names, policy:{name} */
+            policy_roles?: string[];
+            /** @description Default: default */
+            tenant_id?: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -201,6 +643,568 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listPolicies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyList"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    createPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyDocument"];
+            };
+        };
+        responses: {
+            /** @description The created policy */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyView"];
+                };
+            };
+            /** @description policy_invalid, with details */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    exportPolicies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The YAML document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyYaml"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    importPolicies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyYaml"];
+            };
+        };
+        responses: {
+            /** @description What the import did */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyImportReport"];
+                };
+            };
+            /** @description policy_invalid, with details */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    policyMetrics: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyMetrics"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    previewOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyDocument"];
+            };
+        };
+        responses: {
+            /** @description The overridden policies and the exception flag */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyOverrides"];
+                };
+            };
+            /** @description policy_invalid, with details */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    testPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTestRequest"];
+            };
+        };
+        responses: {
+            /** @description The CheckResult and the engine's decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyTestResult"];
+                };
+            };
+            /** @description invalid_request or policy_invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyDetail"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getPolicyChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The changes, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyChanges"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    setPolicyEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyEnabled"];
+            };
+        };
+        responses: {
+            /** @description The policy as switched */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    addPolicyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyDocument"];
+            };
+        };
+        responses: {
+            /** @description The new current version */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyView"];
+                };
+            };
+            /** @description policy_invalid, with details */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description policy_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listPolicyRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePolicyRoles"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description identity_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     turn: {
         parameters: {
             query?: never;
@@ -250,6 +1254,15 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
+            /** @description turn_in_flight: an earlier turn of this conversation is still running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
             /** @description agent_unavailable */
             502: {
                 headers: {
@@ -259,7 +1272,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
-            /** @description audit_unavailable */
+            /** @description audit_unavailable or service_busy */
             503: {
                 headers: {
                     [name: string]: unknown;

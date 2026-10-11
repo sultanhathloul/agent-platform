@@ -31,6 +31,13 @@ gateway:
     issuer: http://localhost:8081/realms/agent
     jwks-uri: http://localhost:8081/realms/agent/protocol/openid-connect/certs
     audience: gateway
+    # Admin REST API with the service account of the `gateway` client (policy roles, ADR-0107);
+    # GATEWAY_KEYCLOAK_ADMIN_* in compose.
+    admin:
+      base-url: http://localhost:8081
+      realm: agent
+      client-id: gateway
+      client-secret: ""
   agent:
     base-url: http://localhost:8000
     # internal-token has no default: the gateway refuses to start without it.

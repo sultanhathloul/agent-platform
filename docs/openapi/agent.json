@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "paths": {
     "/v1/health": {
@@ -102,6 +102,36 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "description": "conversation_forbidden: another owner's conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "turn_in_flight: another turn holds the conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_busy: every turn lock connection is in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
@@ -211,6 +241,26 @@
           },
           "404": {
             "description": "turn_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "turn_in_flight: a turn kept the conversation locked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_busy: every turn lock connection is in use",
             "content": {
               "application/json": {
                 "schema": {
@@ -669,6 +719,1712 @@
           }
         }
       }
+    },
+    "/v1/admin/policies": {
+      "get": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "List Policies",
+        "operationId": "list_policies_v1_admin_policies_get",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Create Policy",
+        "description": "Version 1 of a new id; 409 policy_exists when the id is taken.",
+        "operationId": "create_policy_v1_admin_policies_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDocument"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/export": {
+      "get": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Export Policies",
+        "description": "Every policy's current version and switch as one importable YAML document.",
+        "operationId": "export_policies_v1_admin_policies_export_get",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyYaml"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/metrics": {
+      "get": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Policy Metrics",
+        "operationId": "policy_metrics_v1_admin_policies_metrics_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "default": 14,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyMetrics"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/import": {
+      "post": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Import Policies",
+        "description": "All or nothing: an absent id is created, a changed one versioned, a switch alone\nswitched, an identical one left alone.",
+        "operationId": "import_policies_v1_admin_policies_import_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyYaml"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyImportReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/overrides": {
+      "post": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Preview Overrides",
+        "description": "What this draft would override if saved now (ADR-0105): the edit form shows it.",
+        "operationId": "preview_overrides_v1_admin_policies_overrides_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDocument"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOverrides"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/test": {
+      "post": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Test Policy",
+        "operationId": "test_policy_v1_admin_policies_test_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyTestResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/{policy_id}": {
+      "get": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Get Policy",
+        "operationId": "get_policy_v1_admin_policies__policy_id__get",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/{policy_id}/versions": {
+      "post": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Add Version",
+        "description": "The body becomes the next version and the current one; versions are immutable (I2).",
+        "operationId": "add_version_v1_admin_policies__policy_id__versions_post",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDocument"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/{policy_id}/enabled": {
+      "put": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Set Enabled",
+        "description": "Switches the policy on or off; no new version.",
+        "operationId": "set_enabled_v1_admin_policies__policy_id__enabled_put",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyEnabled"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/v1/admin/policies/{policy_id}/changes": {
+      "get": {
+        "tags": [
+          "admin-policies"
+        ],
+        "summary": "Policy Changes",
+        "description": "The policy's change log (ADR-0108): every create, version, switch, import and seed,\nwith its actor and the exception flag it left.",
+        "operationId": "policy_changes_v1_admin_policies__policy_id__changes_get",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyChanges"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request or policy_invalid (with details)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -686,6 +2442,21 @@
           "message_en": {
             "type": "string",
             "title": "Message En"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details",
+            "description": "What is wrong, e.g. a policy's validation errors."
           }
         },
         "type": "object",
@@ -791,6 +2562,24 @@
         ],
         "title": "HealthResponse"
       },
+      "InducedFlag": {
+        "properties": {
+          "policy_ref": {
+            "type": "string",
+            "title": "Policy Ref"
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception"
+          }
+        },
+        "type": "object",
+        "required": [
+          "policy_ref",
+          "exception"
+        ],
+        "title": "InducedFlag"
+      },
       "MemoryItemView": {
         "properties": {
           "id": {
@@ -874,6 +2663,814 @@
         ],
         "title": "MemorySettings"
       },
+      "PolicyChangeView": {
+        "properties": {
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Changed At"
+          },
+          "policy_ref": {
+            "type": "string",
+            "title": "Policy Ref",
+            "description": "id@version the change left current."
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "create",
+              "version",
+              "enable",
+              "disable",
+              "import",
+              "seed",
+              "flagged",
+              "unflagged"
+            ],
+            "title": "Change",
+            "description": "flagged / unflagged: another policy's change made this one an exception, or cleared it (ADR-0115)."
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "actor_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Username",
+            "description": "The actor's username at the time (ADR-0123); none on older rows."
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name",
+            "description": "The actor's display name at the time (ADR-0123); none on older rows."
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides"
+          },
+          "induced": {
+            "items": {
+              "$ref": "#/components/schemas/InducedFlag"
+            },
+            "type": "array",
+            "title": "Induced",
+            "description": "Policies whose exception flag this change set or cleared (ADR-0115).",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "changed_at",
+          "policy_ref",
+          "change",
+          "actor",
+          "exception",
+          "overrides"
+        ],
+        "title": "PolicyChangeView",
+        "description": "One change of a policy, written by the agent in the change's transaction (ADR-0108)."
+      },
+      "PolicyChanges": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyChangeView"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "Newest first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "changes"
+        ],
+        "title": "PolicyChanges"
+      },
+      "PolicyDetail": {
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/PolicyView"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyVersionView"
+            },
+            "type": "array",
+            "title": "Versions",
+            "description": "Every version, newest first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "current",
+          "versions"
+        ],
+        "title": "PolicyDetail"
+      },
+      "PolicyDocument": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "name_ar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Ar"
+          },
+          "name_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name En"
+          },
+          "description_ar": {
+            "type": "string",
+            "title": "Description Ar",
+            "default": ""
+          },
+          "description_en": {
+            "type": "string",
+            "title": "Description En",
+            "default": ""
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "production",
+              "test"
+            ],
+            "title": "Purpose",
+            "description": "test: made by a test script, hidden from the admin list by default.",
+            "default": "production"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "checkpoints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checkpoints"
+          },
+          "checker": {
+            "type": "string",
+            "title": "Checker"
+          },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config",
+            "default": {}
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "medium"
+          },
+          "message_ar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Ar"
+          },
+          "message_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message En"
+          },
+          "on_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Error"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "scope",
+          "checkpoints",
+          "checker",
+          "action"
+        ],
+        "title": "PolicyDocument",
+        "description": "A policy as the admin API reads and writes it (README §10.1). On create and on a new\nversion, `version` is ignored: the store assigns it (I2)."
+      },
+      "PolicyEnabled": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "PolicyEnabled"
+      },
+      "PolicyImportReport": {
+        "properties": {
+          "created": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Created"
+          },
+          "versioned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Versioned"
+          },
+          "switched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Switched"
+          },
+          "unchanged": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unchanged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "created",
+          "versioned",
+          "switched",
+          "unchanged"
+        ],
+        "title": "PolicyImportReport"
+      },
+      "PolicyList": {
+        "properties": {
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyView"
+            },
+            "type": "array",
+            "title": "Policies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "policies"
+        ],
+        "title": "PolicyList"
+      },
+      "PolicyMatchRow": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "title": "Day"
+          },
+          "policy_id": {
+            "type": "string",
+            "title": "Policy Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "matches": {
+            "type": "integer",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day",
+          "policy_id",
+          "action",
+          "matches"
+        ],
+        "title": "PolicyMatchRow"
+      },
+      "PolicyMetrics": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyMatchRow"
+            },
+            "type": "array",
+            "title": "Rows",
+            "description": "Matched evaluations of real turns per UTC day, policy and action."
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "rows"
+        ],
+        "title": "PolicyMetrics"
+      },
+      "PolicyOverrides": {
+        "properties": {
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides"
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "overrides",
+          "exception"
+        ],
+        "title": "PolicyOverrides",
+        "description": "What a draft would override if saved now, and whether that makes it an exception."
+      },
+      "PolicyTestRequest": {
+        "properties": {
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulatedPrincipal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whom to evaluate for; default: the admin, with no policy roles."
+          },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint",
+            "description": "Default: the policy's first checkpoint."
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target",
+            "description": "DATA only; default: the first target, else answer."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "PolicyTestRequest",
+        "description": "Evaluates one policy, stored (`policy_id`, its current version, on or off) or a draft\n(`policy`), against sample text on the runtime engine path; nothing is recorded."
+      },
+      "PolicyTestResult": {
+        "properties": {
+          "policy_ref": {
+            "type": "string",
+            "title": "Policy Ref"
+          },
+          "checkpoint": {
+            "type": "string",
+            "title": "Checkpoint"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "description": "What the engine decided for this text."
+          },
+          "matched": {
+            "type": "boolean",
+            "title": "Matched"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "description": "The checker's explanation in English, as traces record it."
+          },
+          "explanation_key": {
+            "type": "string",
+            "title": "Explanation Key",
+            "description": "The explanation as a key under the web's policies.explanation.* (rule 7).",
+            "default": ""
+          },
+          "explanation_args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Explanation Args",
+            "description": "Arguments of explanation_key; `items` lists names separated by newlines.",
+            "default": {}
+          },
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/SpanView"
+            },
+            "type": "array",
+            "title": "Spans",
+            "description": "Matched regions of `text`, by character offsets."
+          },
+          "output_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Text",
+            "description": "The text after redaction, for text checkpoints."
+          },
+          "message_ar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Ar"
+          },
+          "message_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message En"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "The checker's error, when it failed (see on_error)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "policy_ref",
+          "checkpoint",
+          "action",
+          "matched",
+          "score",
+          "explanation",
+          "spans"
+        ],
+        "title": "PolicyTestResult"
+      },
+      "PolicyVersionView": {
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/PolicyDocument"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Username",
+            "description": "The creator's username at the time (ADR-0123); none on older rows."
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name",
+            "description": "The creator's display name at the time (ADR-0123); none on older rows."
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides",
+            "description": "What this version overrode when it was saved.",
+            "default": []
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception",
+            "description": "Whether it was an exception when it was saved.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "policy",
+          "created_at",
+          "created_by"
+        ],
+        "title": "PolicyVersionView"
+      },
+      "PolicyView": {
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/PolicyDocument"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When this version was created."
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Username",
+            "description": "The creator's username at the time (ADR-0123); none on older rows."
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name",
+            "description": "The creator's display name at the time (ADR-0123); none on older rows."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When the policy's head (current version, switch) last changed."
+          },
+          "updated_by": {
+            "type": "string",
+            "title": "Updated By"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overrides",
+            "description": "id@version of the wider policies of its group it overrides among the current versions, recomputed for the whole group on every change (ADR-0108).",
+            "default": []
+          },
+          "exception": {
+            "type": "boolean",
+            "title": "Exception",
+            "description": "It overrides a stricter policy of its group (ADR-0105, ADR-0108).",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "On a save response only (ADR-0115).",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "policy",
+          "created_at",
+          "created_by",
+          "updated_at",
+          "updated_by"
+        ],
+        "title": "PolicyView"
+      },
+      "PolicyWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "whole_text_cannot_lift_spans",
+            "title": "Code",
+            "description": "whole_text_cannot_lift_spans: this exception cannot lift span-based redaction."
+          },
+          "policies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Policies",
+            "description": "id@version of the span-based policies it cannot lift."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "policies"
+        ],
+        "title": "PolicyWarning",
+        "description": "Saved anyway, but worth knowing (ADR-0115)."
+      },
+      "PolicyYaml": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "maxLength": 500000,
+            "minLength": 1,
+            "title": "Yaml"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "yaml"
+        ],
+        "title": "PolicyYaml"
+      },
       "Principal": {
         "properties": {
           "user_id": {
@@ -910,6 +3507,15 @@
               }
             ],
             "title": "Max Tier"
+          },
+          "policy_roles": {
+            "items": {
+              "type": "string",
+              "pattern": "^policy:[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "type": "array",
+            "title": "Policy Roles",
+            "default": []
           },
           "display_name": {
             "type": "string",
@@ -978,6 +3584,65 @@
           "reason"
         ],
         "title": "RetractRequest"
+      },
+      "SimulatedPrincipal": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "default": "default"
+          },
+          "policy_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Policy Roles",
+            "description": "Full names, policy:{name}.",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SimulatedPrincipal",
+        "description": "A principal for the test panel: which tenant and policy roles to evaluate the policy for."
+      },
+      "SpanView": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "entity": {
+            "type": "string",
+            "title": "Entity"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "entity"
+        ],
+        "title": "SpanView"
       },
       "TurnRequest": {
         "properties": {

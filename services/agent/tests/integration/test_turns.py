@@ -92,10 +92,9 @@ async def test_thread_of_another_user_or_tenant_is_rejected(client, services, li
         response = await post_turn(
             client, conversation_id=conversation, principal=intruder, message="ماذا سألتُ قبل قليل؟"
         )
-        events = parse_sse(response.text)
-        assert [e["type"] for e in events] == ["error"]
-        assert events[0]["data"]["code"] == "conversation_forbidden"
-        assert events[0]["data"]["message_ar"] and events[0]["data"]["message_en"]
+        assert response.status_code == 403  # before the lock and any stream (ADR-0109)
+        error = response.json()["error"]
+        assert error["code"] == "conversation_forbidden" and error["message_ar"] and error["message_en"]
 
     snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
     assert (snapshot.values["user_id"], snapshot.values["tenant_id"]) == ("u-1", "default")
@@ -178,8 +177,15 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
     assert generation.attributes["model.temperature"] == 0.2  # reasoning role (ADR-0032)
     assert {f"node.{n}" for n in ("route", "run_capabilities", "answer", "validate")} <= set(by_name)
     assert "capability.general" in by_name
-    checkpoints = {s.attributes["guard.checkpoint"] for s in by_name["guard.check"]}
+    # Every checkpoint a general turn reaches is evaluated (no tool, so no PRE/POST_TOOL), and
+    # each policy evaluation is its own guard.check span naming the policy's version (C1).
+    checkpoints = {s.attributes["guard.checkpoint"] for s in by_name["guard.evaluate"]}
     assert checkpoints == {"INPUT", "TOOL_LIST", "MODEL_TIER", "OUTPUT", "DATA"}
+    policies = {s.attributes["guard.policy"] for s in by_name["guard.check"]}
+    assert {"prompt-injection-input@1", "pii-redact-output@1"} <= policies
+    assert all(
+        "guard.latency_ms" in s.attributes and "guard.action" in s.attributes for s in by_name["guard.check"]
+    )
 
 
 async def test_missing_internal_token_is_rejected(client):

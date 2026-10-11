@@ -7,12 +7,38 @@
 #   phase 02: a second turn after `docker compose restart agent` continues the
 #             conversation; a memory row is written for the analyst and is
 #             invisible to the viewer.
+#   phase 03: fake PII in an answer never appears in a token event; a memory
+#             candidate with a fake mobile number is not stored; a policy edit
+#             takes effect without a restart and its block returns message_ar;
+#             a role-scoped exception (policy:pii-exempt) reaches the analyst and not the
+#             viewer; a second turn on a busy conversation is 409 turn_in_flight; the
+#             temporary policies end switched off, on success or failure (EXIT trap), and
+#             two buffered TTFT runs leave equal policy rows and their policy off;
+#             the policy row counts are equal across runs (no policy residue; conversations,
+#             guard events, the policy change log, audit rows and sessions grow by design);
+#             every seed policy has both names, purpose production and its seed row in the
+#             change log; smoke's own policies are test policies (ADR-0119).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 
 GW=$GATEWAY_PUBLIC_URL KC=$KEYCLOAK_PUBLIC_URL LF=$LANGFUSE_PUBLIC_URL WEB=$WEB_PUBLIC_URL
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d)
+# Smoke's temporary policies: whatever happens, the run ends with every one of them off.
+# ttft-buffered-output belongs to scripts/measure_ttft.py, which smoke runs below.
+SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt ttft-buffered-output)
+cleanup() {
+  if [[ -n ${ADMIN:-} ]]; then
+    for id in "${SMOKE_POLICY_IDS[@]}"; do
+      curl -s -o /dev/null -X PUT -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+        -d '{"enabled":false}' "$GW/v1/admin/policies/$id/enabled" || true
+    done
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+# Where the policy row counts of the last successful run are kept, to compare across runs.
+SMOKE_STATE=build/smoke/policy-rows
 
 step() { printf '\n== %s\n' "$1"; }
 ok()   { printf '  ok    %s\n' "$1"; }
@@ -53,7 +79,7 @@ step "general turn, streamed through gateway → agent → LiteLLM"
 CONV=$(uuidgen | tr 'A-Z' 'a-z')
 curl -sN -D "$TMP/headers" -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' \
-  -d "{\"conversation_id\":\"$CONV\",\"message\":\"ما عاصمة المملكة العربية السعودية؟ أجب بجملة واحدة.\",\"locale\":\"ar\"}" \
+  -d "{\"conversation_id\":\"$CONV\",\"message\":\"ما عاصمة المملكة العربية السعودية؟ أجب في ثلاث جمل قصيرة.\",\"locale\":\"ar\"}" \
   "$GW/v1/chat/turns" \
   | python3 -u -c 'import sys, time
 for line in sys.stdin:
@@ -65,6 +91,8 @@ check "events end with done" jq -se 'last.type == "done"' "$TMP/events.jsonl"
 check "no error event" jq -se '[.[] | select(.type == "error")] | length == 0' "$TMP/events.jsonl"
 check "tier event: general runs on standard" jq -se '[.[] | select(.type == "tier")][0].data.tier == "standard"' "$TMP/events.jsonl"
 tokens=$(jq -se '(map(.type) | index("done")) as $done | [.[:$done][] | select(.type == "token")] | length' "$TMP/events.jsonl")
+# The answer leaves sentence by sentence through the DATA buffer (phase 03, I5), so three
+# sentences are three token events at least.
 (( tokens >= 3 )) && ok "$tokens token events before done" || fail "expected at least 3 token events before done, got $tokens"
 ANSWER=$(jq -rse 'last.data.answer' "$TMP/events.jsonl")
 check "answer is non-empty Arabic" bash -c "[[ -n \"\$1\" ]] && grep -q '[ء-ي]' <<<\"\$1\"" _ "$ANSWER"
@@ -179,4 +207,204 @@ check "error code is memory_not_found" jq -e '.error.code == "memory_not_found"'
 denied=$(sql "select count(*) from gateway.audit_events where action = 'memory.delete' and status = 'denied' and detail->>'item_id' = '$ITEM'")
 (( denied >= 1 )) && ok "the refused delete is audited as denied" || fail "no denied memory.delete audit row"
 
-printf '\nsmoke: all phase 01 and phase 02 checks passed\n'
+# Fresh tokens: the realm's access tokens live 300 s and the steps above take a while.
+ADMIN=$(token_for admin admin) || fail "admin login"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+
+step "phase 03: fake PII in an answer is redacted before any token leaves (ADR-0039, D3)"
+# Fake numbers only (ADR-0065): they pass the format checks and nothing else.
+PII_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$PII_CONV\",\"message\":\"انسخ النص التالي حرفيًا كما هو دون أي تعليق أو تغيير: للتواصل اتصل على 0501234567 أو راسل test.user@example.org\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$TMP/pii.jsonl"
+check "the PII turn ends with done" jq -se 'last.type == "done"' "$TMP/pii.jsonl"
+check "pii-redact-output redacted the answer (the model repeated the PII)" jq -se \
+  '[.[] | select(.type == "guard" and .data.policy_id == "pii-redact-output" and .data.action == "redact")] | length > 0' "$TMP/pii.jsonl"
+check "no token event, nor all of them joined, holds the mobile number or the address" python3 -c '
+import json, re, sys
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+tokens = [e["data"]["text"] for e in events if e["type"] == "token"]
+digits = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+mobile = re.compile(r"0\D?5\D?0\D?1\D?2\D?3\D?4\D?5\D?6\D?7")
+for text in [*tokens, "".join(tokens)]:
+    folded = text.translate(digits)
+    if mobile.search(folded) or "test.user@example.org" in folded:
+        sys.exit(1)
+sys.exit(0 if tokens else 1)' "$TMP/pii.jsonl"
+printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/pii.jsonl")"
+
+step "phase 03: a memory candidate carrying a fake mobile number is not stored (B1)"
+MOBILE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$MOBILE_CONV\",\"message\":\"رقم جوالي 0559876543 وأعمل في إدارة التخطيط. لا تكرر الرقم في إجابتك. ما عاصمة سلطنة عُمان؟\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$TMP/mobile.jsonl"
+check "the turn ends with done, no error shown to the user" jq -se 'last.type == "done" and ([.[] | select(.type == "error")] | length == 0)' "$TMP/mobile.jsonl"
+stored=$(sql "select count(*) from agent.memory_items where user_id = '$ANALYST_ID' and (text like '%0559876543%' or text like '%٠٥٥٩٨٧٦٥٤٣%' or text like '%9876543%')")
+(( stored == 0 )) && ok "no memory item holds the mobile number" || fail "$stored memory item(s) hold the mobile number"
+blocked=$(jq -se '[.[] | select(.type == "guard" and .data.policy_id == "pii-block-in-memory" and .data.action == "block")] | length' "$TMP/mobile.jsonl")
+printf '        pii-block-in-memory blocks in this turn: %s (0 when the extractor kept no candidate with the number, or the answer repeated it and the turn was guard-flagged)\n' "$blocked"
+
+step "phase 03: admin policy endpoints are admin-only"
+code=$(status -H "Authorization: Bearer $VIEWER" "$GW/v1/admin/policies")
+[[ $code == 403 ]] && ok "viewer GET /v1/admin/policies → 403" || fail "viewer GET /v1/admin/policies returned $code"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies" > "$TMP/policies.json" || fail "admin GET /v1/admin/policies"
+check "the seed policies are listed" jq -e \
+  '[.data.policies[].policy.id] as $ids | ["pii-redact-output","pii-block-in-memory","prompt-injection-input","topics-politics-llm-judge","web-domain-denylist","tool-visibility-by-role"] | all(. as $x | $ids | index($x))' "$TMP/policies.json"
+# ADR-0119: every seed carries both names, is a production policy and has its seed row in the
+# change log (written by the seed on a clean database, by migration 0006 on an older one).
+SEED_IDS=$(sed -n 's/^id: //p' config/policies/*.yaml | tr -d '\r')
+check "every seed policy has an Arabic and an English name and is a production policy" jq -e --arg ids "$SEED_IDS" \
+  '($ids | split("\n")) as $seeds | [.data.policies[].policy | select(.id as $i | $seeds | index($i))]
+   | length == ($seeds | length) and all(.name_ar != "" and .name_en != "" and .purpose == "production")' "$TMP/policies.json"
+for id in $SEED_IDS; do
+  curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies/$id/changes" > "$TMP/changes.json" \
+    || fail "admin GET /v1/admin/policies/$id/changes"
+  jq -e 'any(.data.changes[]; .change == "seed")' "$TMP/changes.json" >/dev/null || fail "$id has no seed row in its change log"
+done
+ok "every seed policy has its seed row in the change log ($(wc -w <<< "$SEED_IDS" | tr -d ' ') policies)"
+
+# Smoke's temporary policies have fixed ids and go through the import endpoint: the first run
+# creates them, later runs only switch them on, and every run ends with them off (the EXIT
+# trap), so a repeated run leaves the policy tables as it found them.
+SMOKE_POLICIES=$(printf "'%s'," "${SMOKE_POLICY_IDS[@]}"); SMOKE_POLICIES=${SMOKE_POLICIES%,}
+policy_rows() {  # versions and heads of every policy
+  sql "select (select count(*) from agent.guard_policies) || ' ' || (select count(*) from agent.guard_policy_heads)"
+}
+rows_before=$(policy_rows)
+existed_before=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES)")
+: > "$TMP/request-ids"
+request_id() { tr -d '\r' < "$1" | awk -F': ' 'tolower($1) == "x-request-id" {print $2}' >> "$TMP/request-ids"; }
+import_policy() {  # $1: one policy as JSON; prints the HTTP status
+  curl -s -D "$TMP/import.headers" -o "$TMP/imported.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" \
+    -H 'Content-Type: application/json' -d "$(jq -cn --argjson p "$1" '{yaml: ({policies: [$p]} | tojson)}')" \
+    "$GW/v1/admin/policies/import"
+  request_id "$TMP/import.headers"
+}
+switch_off() {
+  curl -s -D "$TMP/switch.headers" -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $ADMIN" \
+    -H 'Content-Type: application/json' -d '{"enabled":false}' "$GW/v1/admin/policies/$1/enabled"
+  request_id "$TMP/switch.headers"
+}
+
+step "phase 03: a policy edit takes effect without a restart, and its block returns message_ar"
+POLICY_ID=smoke-live-block
+MESSAGE_AR="حُجب هذا الطلب بسياسة اختبار الفحص الشامل."
+POLICY=$(jq -cn --arg id "$POLICY_ID" --arg ar "$MESSAGE_AR" '{id: $id, name_ar: "الفحص الشامل: حظر كلمة مباشرة",
+  name_en: "Smoke: live keyword block", purpose: "test", scope: "global",
+  checkpoints: ["INPUT"], checker: "keyword_list", config: {keywords: ["كلمةالفحصالشامل"]}, action: "block",
+  message_ar: $ar, message_en: "Blocked by the smoke test policy.", enabled: true}')
+code=$(import_policy "$POLICY")
+[[ $code == 200 ]] && ok "admin switched $POLICY_ID on ($(jq -c '.data | {created, switched, versioned}' "$TMP/imported.json"))" \
+  || fail "importing the policy returned $code"
+blocked_turn() {
+  curl -sN -D "$1.headers" -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"سؤال فيه كلمةالفحصالشامل\",\"locale\":\"ar\"}" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$1"
+}
+blocked_turn "$TMP/live-blocked.jsonl"
+check "the next turn is blocked, no agent restart (input_blocked)" jq -se 'last.type == "error" and last.data.code == "input_blocked"' "$TMP/live-blocked.jsonl"
+check "the block returns the policy's message_ar" jq -se --arg ar "$MESSAGE_AR" 'last.data.message_ar == $ar' "$TMP/live-blocked.jsonl"
+check "the error names the policy version" jq -se --arg id "$POLICY_ID" 'last.data.policy_id | startswith($id + "@")' "$TMP/live-blocked.jsonl"
+# ADR-0116: through the gateway, a guard event and the terminal guard_events say who decided what,
+# never how; the gateway's audit row keeps the checker's detail.
+check "the guard event and the terminal event carry no checker detail and no guard_audit" jq -se --arg id "$POLICY_ID" '
+  ([.[] | select(.type == "guard" and .data.policy_id == $id)] | length == 1) and
+  ([.[] | select(.type == "guard") | .data] + (last.data.guard_events // []) | all(
+    has("detail") or has("reason") or has("reason_args") or has("score") or has("entities") or has("latency_ms") | not)) and
+  (last.data | has("guard_audit") | not) and
+  ([.[] | select(.type == "guard" and .data.policy_id == $id)][0].data | .policy_name == "Smoke: live keyword block" and .message_ar != null)' \
+  "$TMP/live-blocked.jsonl"
+BLOCKED_REQ=$(tr -d '\r' < "$TMP/live-blocked.jsonl.headers" | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')
+check "the audit row of the blocked turn keeps the checker's detail" bash -c "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from gateway.audit_events, jsonb_array_elements(detail->'guard_policies') g where request_id = '$BLOCKED_REQ' and g->>'policy' like '$POLICY_ID@%' and g->>'reason' = 'keywords' and g ? 'detail'\") == 1 ]]"
+code=$(switch_off "$POLICY_ID")
+[[ $code == 200 ]] && ok "admin switched $POLICY_ID off" || fail "switching the policy off returned $code"
+blocked_turn "$TMP/live-allowed.jsonl"
+check "the turn after the switch passes" jq -se 'last.type == "done"' "$TMP/live-allowed.jsonl"
+# Only this run's requests count: the audit rows are matched by the request ids the gateway returned.
+RUN_IDS=$(sed "s/.*/'&'/" "$TMP/request-ids" | paste -sd, -)
+audited=$(sql "select count(*) from gateway.audit_events where status = 'ok' and request_id in ($RUN_IDS)
+  and ((action = 'policy.import' and (detail->'created' ? '$POLICY_ID' or detail->'switched' ? '$POLICY_ID'))
+       or (action = 'policy.enable' and detail->>'policy_id' = '$POLICY_ID'))")
+(( audited == 2 )) && ok "this run's two policy edits are audited, by request id" || fail "this run's policy edits audited: $audited of 2"
+
+step "phase 03: a role-scoped exception reaches its holder only (policy:pii-exempt, ADR-0107)"
+check "the analyst's token carries policy:pii-exempt" python3 -c '
+import base64, json, sys
+payload = sys.argv[1].split(".")[1]
+claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+sys.exit(0 if "policy:pii-exempt" in claims.get("realm_access", {}).get("roles", []) else 1)' "$ANALYST"
+EXEMPT=$(jq -cn '{id: "smoke-pii-exempt", name_ar: "الفحص الشامل: استثناء البيانات الشخصية لدور policy:pii-exempt",
+  name_en: "Smoke: PII exception for policy:pii-exempt", purpose: "test", scope: "role:pii-exempt",
+  checkpoints: ["DATA"], checker: "presidio",
+  config: {entities: ["SA_MOBILE", "SA_NATIONAL_ID", "SA_IBAN", "EMAIL_ADDRESS"], score_threshold: 0.5, targets: ["answer", "summary"]},
+  action: "allow", severity: "high", group: "pii-output", enabled: true}')
+code=$(import_policy "$EXEMPT")
+[[ $code == 200 ]] && ok "admin switched smoke-pii-exempt on" || fail "importing the exception returned $code"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/policies/smoke-pii-exempt" > "$TMP/exempt.json" || fail "GET smoke-pii-exempt"
+check "it is flagged an exception over pii-redact-output" jq -e \
+  '.data.current.exception == true and (.data.current.overrides | any(startswith("pii-redact-output@")))' "$TMP/exempt.json"
+check "smoke's policies are test policies (ADR-0119)" bash -c \
+  "curl -fsS -H 'Authorization: Bearer $ADMIN' '$GW/v1/admin/policies' | jq -e '[.data.policies[].policy | select(.id == \"smoke-live-block\" or .id == \"smoke-pii-exempt\") | .purpose] == [\"test\", \"test\"]'"
+exempt_turn() {  # $1: token, $2: output file
+  curl -sN -H "Authorization: Bearer $1" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"انسخ النص التالي حرفيًا كما هو دون أي تعليق أو تغيير: رقم التواصل 0501234567\",\"locale\":\"ar\"}" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$2"
+}
+exempt_turn "$ANALYST" "$TMP/exempt-analyst.jsonl"
+exempt_turn "$VIEWER" "$TMP/exempt-viewer.jsonl"
+code=$(switch_off smoke-pii-exempt)
+[[ $code == 200 ]] && ok "admin switched smoke-pii-exempt off" || fail "switching the exception off returned $code"
+check "the analyst sees the fake mobile in the answer" jq -se \
+  'last.type == "done" and ([.[] | select(.type == "token") | .data.text] | join("") | contains("0501234567"))' "$TMP/exempt-analyst.jsonl"
+check "the viewer, same tenant, gets it redacted in every token event" jq -se \
+  'last.type == "done" and ([.[] | select(.type == "token") | .data.text] | join("") | (contains("0501234567") | not) and contains("[REDACTED:SA_MOBILE]"))' \
+  "$TMP/exempt-viewer.jsonl"
+
+step "phase 03: a second turn on a busy conversation is 409 turn_in_flight (D6)"
+BUSY_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$BUSY_CONV\",\"message\":\"اكتب فقرة من خمس جمل عن تاريخ مدينة الرياض.\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" > "$TMP/busy-first.sse" &   # raw and unbuffered (-N): its first event shows the turn runs
+FIRST=$!
+for _ in $(seq 1 200); do grep -q '^data: ' "$TMP/busy-first.sse" 2>/dev/null && break; sleep 0.05; done
+grep -q '^data: ' "$TMP/busy-first.sse" || fail "the first turn did not start streaming"
+code=$(curl -s -o "$TMP/busy-second.json" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$BUSY_CONV\",\"message\":\"وما عدد سكانها؟\",\"locale\":\"ar\"}" "$GW/v1/chat/turns")
+[[ $code == 409 ]] && ok "the concurrent turn → 409" || fail "the concurrent turn returned $code"
+check "error code is turn_in_flight" jq -e '.error.code == "turn_in_flight"' "$TMP/busy-second.json"
+wait "$FIRST"
+sed -n 's/^data: //p' "$TMP/busy-first.sse" > "$TMP/busy-first.jsonl"
+check "the first turn still ends with done" jq -se 'last.type == "done"' "$TMP/busy-first.jsonl"
+
+step "phase 03: the TTFT script leaves no policy residue (fixed id, switched off in finally)"
+uv run -q scripts/measure_ttft.py smoke-ttft-a 1 --buffered > "$TMP/ttft-a.log" 2>&1 || fail "first TTFT run: $(tail -2 "$TMP/ttft-a.log")"
+ttft_rows_a=$(policy_rows)
+uv run -q scripts/measure_ttft.py smoke-ttft-b 1 --buffered > "$TMP/ttft-b.log" 2>&1 || fail "second TTFT run: $(tail -2 "$TMP/ttft-b.log")"
+ttft_rows_b=$(policy_rows)
+[[ $ttft_rows_a == "$ttft_rows_b" ]] && ok "two TTFT runs leave equal policy rows ($ttft_rows_b)" \
+  || fail "policy rows went from $ttft_rows_a to $ttft_rows_b across two TTFT runs"
+check "the TTFT policy is off after each run" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select enabled from agent.guard_policy_heads where id = 'ttft-buffered-output'\") == f ]]"
+
+step "phase 03: no policy residue (temporary policies off, policy row counts equal across runs)"
+off=$(sql "select count(*) from agent.guard_policy_heads where id in ($SMOKE_POLICIES) and not enabled")
+(( off == ${#SMOKE_POLICY_IDS[@]} )) && ok "smoke's policies are switched off" \
+  || fail "$off of smoke's ${#SMOKE_POLICY_IDS[@]} policies are off"
+rows_after=$(policy_rows)
+read -r versions_before heads_before <<< "$rows_before"
+read -r versions_after heads_after <<< "$rows_after"
+created=$(( ${#SMOKE_POLICY_IDS[@]} - existed_before ))  # a first run creates smoke's policies, once
+(( versions_after == versions_before + created && heads_after == heads_before + created )) \
+  && ok "this run added $created policy rows (versions $versions_before → $versions_after, heads $heads_before → $heads_after)" \
+  || fail "policy rows went from $rows_before to $rows_after with $created policies created"
+if [[ -f $SMOKE_STATE ]]; then
+  previous=$(cat "$SMOKE_STATE")
+  [[ $rows_after == "$previous" ]] && ok "policy rows equal to the previous run's ($rows_after)" \
+    || fail "policy rows $rows_after differ from the previous run's $previous"
+else
+  ok "no previous run recorded; this run's policy rows ($rows_after) are the reference"
+fi
+mkdir -p "$(dirname "$SMOKE_STATE")" && printf '%s\n' "$rows_after" > "$SMOKE_STATE"
+
+printf '\nsmoke: all phase 01, 02 and 03 checks passed\n'

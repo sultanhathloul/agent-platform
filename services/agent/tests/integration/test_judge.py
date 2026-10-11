@@ -1,0 +1,242 @@
+"""The llm_judge checker on its real path (CLAUDE.md rule 6): GraphJudge, Context Assembly,
+the tier resolver and the mock LiteLLM, with the judge's text replaced after the real call
+(ADR-0075) to give a canned verdict. The verdict cache is the test session's Redis
+namespace; each test uses one of its own."""
+
+import json
+import uuid
+
+from app.graph.judge import GraphJudge
+from app.guardrails.cache import RedisVerdictCache
+from app.guardrails.checkers.base import CheckContext
+from app.guardrails.checkers.llm_judge import LlmJudgeChecker
+from app.guardrails.checkpoints import Checkpoint
+from app.guardrails.engine import GuardEngine
+from app.guardrails.panel import try_policy
+from app.guardrails.schema import DataPayload, LlmJudgeConfig, Policy
+from app.identity import Principal
+from tests.fixtures.replace import replacing
+
+PRINCIPAL = Principal(user_id="u-judge")
+VIOLATES = json.dumps({"violates": True, "confidence": 0.8, "category": "politics"})
+CLEAR = json.dumps({"violates": False, "confidence": 0.95, "category": ""})
+
+
+def judge_policy(version: int = 1, topic: str = "آراء سياسية حول الأحزاب أو الانتخابات") -> Policy:
+    return Policy(
+        id=f"judge-{uuid.uuid4().hex[:8]}",
+        version=version,
+        name_ar="سياسة اختبار",
+        name_en="politics",
+        scope="global",
+        checkpoints=["INPUT"],
+        checker="llm_judge",
+        config={"topic_description": topic, "min_confidence": 0.6},
+        action="block",
+        message_ar="لا أستطيع الخوض في هذا الموضوع.",
+        message_en="I cannot discuss this topic.",
+    )
+
+
+def judged(services, verdict: str):
+    """A GraphJudge whose real LiteLLM call answers `verdict` (ADR-0075), and the gateway counting calls."""
+    replaced, gateway = replacing(services, {"judge": verdict})
+    judge = GraphJudge()
+    judge.bind(replaced)
+    return judge, gateway
+
+
+class Static:
+    def __init__(self, *policies):
+        self.policies = list(policies)
+
+    def active(self):
+        return self.policies
+
+
+def _namespace() -> str:
+    return f"judge-test-{uuid.uuid4().hex[:8]}"
+
+
+async def test_the_judge_is_called_once_per_policy_version_and_normalized_text(services, litellm):
+    judge, gateway = judged(services, VIOLATES)
+    checker = LlmJudgeChecker(judge, RedisVerdictCache(services.redis), namespace=_namespace())
+    policy = judge_policy()
+    ctx = CheckContext(principal=PRINCIPAL, policy=policy, locale="ar")
+    config = LlmJudgeConfig.model_validate(policy.config)
+
+    first = await checker.check("ما رأيك في الأحزاب؟", config, ctx)
+    again = await checker.check("ما رأيُك في الاحزاب؟", config, ctx)  # same after normalization
+    assert first.matched and again.matched and gateway.calls.count("judge") == 1
+    assert "cached" in again.explanation
+
+    edited = CheckContext(principal=PRINCIPAL, policy=policy.model_copy(update={"version": 2}), locale="ar")
+    await checker.check("ما رأيك في الأحزاب؟", config, edited)
+    assert gateway.calls.count("judge") == 2  # a new version never reuses an old verdict
+    identity = await judge.identity(principal=PRINCIPAL, locale="ar")
+    assert "guardrails.judge.system@" in identity and "guardrails.judge.request@" in identity
+    assert ";alias=" in identity
+
+
+async def test_low_confidence_does_not_match(services, litellm):
+    judge, _ = judged(services, json.dumps({"violates": True, "confidence": 0.4, "category": "politics"}))
+    policy = judge_policy()
+    result = await LlmJudgeChecker(judge).check(
+        "سؤال", LlmJudgeConfig.model_validate(policy.config), CheckContext(principal=PRINCIPAL, policy=policy)
+    )
+    assert not result.matched and result.score == 0.4
+
+
+async def test_a_cache_outage_costs_a_model_call_not_the_check(services, litellm):
+    class Broken:
+        async def get(self, key):
+            raise ConnectionError
+
+        async def set(self, key, value, ttl_s):
+            raise ConnectionError
+
+    judge, gateway = judged(services, CLEAR)
+    policy = judge_policy()
+    result = await LlmJudgeChecker(judge, Broken()).check(
+        "ما عاصمة الأردن؟",
+        LlmJudgeConfig.model_validate(policy.config),
+        CheckContext(principal=PRINCIPAL, policy=policy),
+    )
+    assert not result.matched and gateway.calls.count("judge") == 1
+
+
+async def test_a_panel_test_of_an_edited_draft_does_not_change_the_live_verdict(services, litellm):
+    """ADR-0110, ADR-0117: the panel never writes the cache and never reads it."""
+    namespace, cache = _namespace(), RedisVerdictCache(services.redis)
+    stored = judge_policy()
+    text = "ما رأيك في الأحزاب السياسية؟"
+    payload = {"message": text, "attachments": []}
+
+    live_judge, live_gateway = judged(services, VIOLATES)
+    live = GuardEngine(Static(stored), {"llm_judge": LlmJudgeChecker(live_judge, cache, namespace=namespace)})
+    assert (await live.evaluate(Checkpoint.INPUT, payload, principal=PRINCIPAL)).blocked
+    assert live_gateway.calls.count("judge") == 1  # the verdict is now cached for stored@1
+
+    panel_judge, panel_gateway = judged(services, CLEAR)
+    panel = GuardEngine(Static(), {"llm_judge": LlmJudgeChecker(panel_judge, cache, namespace=namespace)})
+    # The draft has exactly the stored content: it still asks the model (it never reads the cache) ...
+    same = await try_policy(panel, stored, text, principal=PRINCIPAL, draft=True)
+    assert same.action == "allow" and panel_gateway.calls.count("judge") == 1
+    # ... and an edited draft's clear verdict is written nowhere a live turn reads.
+    edited = stored.model_copy(update={"config": {**stored.config, "topic_description": "موضوع آخر تمامًا"}})
+    assert (await try_policy(panel, edited, text, principal=PRINCIPAL, draft=True)).action == "allow"
+    # A panel test of the stored policy neither reads nor writes the cache (ADR-0117): it asks the model.
+    assert (await try_policy(panel, stored, text, principal=PRINCIPAL)).action == "allow"
+    assert panel_gateway.calls.count("judge") == 3
+
+    again = await live.evaluate(Checkpoint.INPUT, payload, principal=PRINCIPAL)
+    assert again.blocked and live_gateway.calls.count("judge") == 1  # the cached live verdict, unchanged
+
+
+async def _keys(services, namespace: str) -> list[str]:
+    return [key async for key in services.redis.scan_iter(match=f"{namespace}:guard:judge:*")]
+
+
+async def test_one_global_judge_policy_keeps_a_verdict_per_tenant(services, litellm):
+    """ADR-0116: the same text under one global judge policy from tenant t1, then t2, costs two
+    model calls and leaves two entries; t2's verdict is never t1's."""
+    namespace, cache = _namespace(), RedisVerdictCache(services.redis)
+    policy = judge_policy()
+    payload = {"message": "ما رأيك في الأحزاب السياسية؟", "attachments": []}
+    t1, t2 = Principal(user_id="a", tenant_id="t1"), Principal(user_id="b", tenant_id="t2")
+
+    judge1, gateway1 = judged(services, VIOLATES)
+    engine1 = GuardEngine(Static(policy), {"llm_judge": LlmJudgeChecker(judge1, cache, namespace=namespace)})
+    assert (await engine1.evaluate(Checkpoint.INPUT, payload, principal=t1)).blocked
+    assert gateway1.calls.count("judge") == 1 and len(await _keys(services, namespace)) == 1
+
+    # t2's model answers differently: had t2 read t1's entry, it would be blocked.
+    judge2, gateway2 = judged(services, CLEAR)
+    engine2 = GuardEngine(Static(policy), {"llm_judge": LlmJudgeChecker(judge2, cache, namespace=namespace)})
+    first = await engine2.evaluate(Checkpoint.INPUT, payload, principal=t2)
+    assert first.action == "allow" and gateway2.calls.count("judge") == 1
+    assert len(await _keys(services, namespace)) == 2
+    # Each tenant now reads its own entry only.
+    assert (await engine2.evaluate(Checkpoint.INPUT, payload, principal=t2)).action == "allow"
+    assert (await engine1.evaluate(Checkpoint.INPUT, payload, principal=t1)).blocked
+    assert gateway1.calls.count("judge") == 1 and gateway2.calls.count("judge") == 1
+
+
+async def test_a_panel_test_under_a_simulated_tenant_never_reads_its_cached_verdict(services, litellm):
+    """ADR-0117: after a live turn in t1 cached the text, a panel test of the stored judge policy
+    simulating t1 makes a fresh judge call, returns no cache marker and writes nothing."""
+    namespace, cache = _namespace(), RedisVerdictCache(services.redis)
+    stored, text = judge_policy(), "ما رأيك في الأحزاب السياسية؟"
+    live_judge, live_gateway = judged(services, VIOLATES)
+    live = GuardEngine(Static(stored), {"llm_judge": LlmJudgeChecker(live_judge, cache, namespace=namespace)})
+    t1 = Principal(user_id="a", tenant_id="t1")
+    assert (await live.evaluate(Checkpoint.INPUT, {"message": text, "attachments": []}, principal=t1)).blocked
+    assert live_gateway.calls.count("judge") == 1 and len(await _keys(services, namespace)) == 1
+
+    panel_judge, panel_gateway = judged(services, VIOLATES)
+    panel = GuardEngine(Static(), {"llm_judge": LlmJudgeChecker(panel_judge, cache, namespace=namespace)})
+    simulated = Principal(user_id="admin", tenant_id="t1")
+    tried = await try_policy(panel, stored, text, principal=simulated)
+    assert tried.action == "block" and panel_gateway.calls.count("judge") == 1
+    assert "cached" not in tried.result.explanation and not tried.result.reason.endswith("_cached")
+    assert tried.result.reason == "judge_violates"
+    assert len(await _keys(services, namespace)) == 1  # the panel wrote nothing
+
+
+# ------------------------------------------------------------------ whole text against spans (ADR-0115)
+
+
+def _pii_policies(exempt_action: str = "allow"):
+    wide_pii = Policy(
+        id="pii-wide",
+        name_ar="سياسة اختبار",
+        name_en="pii",
+        scope="global",
+        checkpoints=["DATA"],
+        checker="presidio",
+        config={"entities": ["SA_MOBILE"]},
+        action="redact",
+        group="pii",
+    )
+    exempt = Policy(
+        id="pii-judge-exempt",
+        name_ar="سياسة اختبار",
+        name_en="judge exemption",
+        scope="role:x",
+        checkpoints=["DATA"],
+        checker="llm_judge",
+        config={"topic_description": "أي نص", "min_confidence": 0.5},
+        action=exempt_action,
+        group="pii",
+    )
+    return wide_pii, exempt
+
+
+async def test_a_judge_exception_leaves_presidio_redaction_in_place(services, litellm):
+    wide_pii, exempt = _pii_policies()
+    judge, gateway = judged(services, VIOLATES)  # the exception matches: it would apply if it could
+    guard = GuardEngine(
+        Static(wide_pii, exempt),
+        {"presidio": services.guard.checkers["presidio"], "llm_judge": LlmJudgeChecker(judge)},
+    )
+    holder = Principal(user_id="u", policy_roles=("policy:x",))
+    outcome = await guard.evaluate(
+        Checkpoint.DATA, DataPayload(text="رقمي 0501234567 للتجربة", target="answer"), principal=holder
+    )
+    assert gateway.calls.count("judge") == 1
+    assert outcome.action == "redact" and outcome.payload.text == "رقمي [REDACTED:SA_MOBILE] للتجربة"
+    wide = next(e for e in outcome.events if e.policy_id == "pii-wide")
+    assert wide.action == "redact" and "overridden" not in (wide.detail or "")
+
+
+async def test_a_judge_exception_still_cancels_a_wider_judge_block(services, litellm):
+    wide = judge_policy().model_copy(update={"id": "topic-wide", "group": "topics"})
+    exempt = judge_policy().model_copy(
+        update={"id": "topic-exempt", "group": "topics", "scope": "role:x", "action": "allow"}
+    )
+    judge, _ = judged(services, VIOLATES)
+    guard = GuardEngine(Static(wide, exempt), {"llm_judge": LlmJudgeChecker(judge)})
+    payload = {"message": "ما رأيك في الأحزاب؟", "attachments": []}
+    holder = Principal(user_id="u", policy_roles=("policy:x",))
+    assert (await guard.evaluate(Checkpoint.INPUT, payload, principal=holder)).action == "allow"
+    assert (await guard.evaluate(Checkpoint.INPUT, payload, principal=Principal(user_id="c"))).blocked

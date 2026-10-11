@@ -9,9 +9,15 @@ public enum ErrorCode {
     INVALID_REQUEST("invalid_request", 400),
     NOT_FOUND("not_found", 404),
     MEMORY_NOT_FOUND("memory_not_found", 404),
+    POLICY_NOT_FOUND("policy_not_found", 404),
+    POLICY_EXISTS("policy_exists", 409),
+    POLICY_INVALID("policy_invalid", 400),
+    TURN_IN_FLIGHT("turn_in_flight", 409),
     AGENT_UNAVAILABLE("agent_unavailable", 502),
     AGENT_STREAM_INTERRUPTED("agent_stream_interrupted", 502),
+    IDENTITY_UNAVAILABLE("identity_unavailable", 502),
     AUDIT_UNAVAILABLE("audit_unavailable", 503),
+    SERVICE_BUSY("service_busy", 503),
     INTERNAL_ERROR("internal_error", 500);
 
     private final String code;

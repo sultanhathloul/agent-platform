@@ -45,8 +45,10 @@ from app.context.package import AssemblyRequest, Block, BlockName, ContextPackag
 from app.errors import TurnError
 from app.graph import calls
 from app.graph.deps import TurnContext
+from app.graph.guarding import guard_context
 from app.graph.nodes import emit, traced
 from app.graph.state import AgentState
+from app.guardrails.schema import GuardOutcome
 from app.memory.types import MemoryScope
 from app.models.gateway import ModelResult
 from app.observability.otel import tracer
@@ -177,8 +179,8 @@ def _event_writer(runtime: Runtime[TurnContext], cap: LoadedCapability):
 
 
 class _Broker:
-    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext]):
-        self._ctx, self._runtime = ctx, runtime
+    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState):
+        self._ctx, self._runtime, self._state = ctx, runtime, state
 
     async def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
         return await self._ctx.services.broker.execute(
@@ -186,7 +188,14 @@ class _Broker:
             args,
             principal=self._ctx.principal,
             emit=lambda type_, data: emit(self._runtime, type_, data),
+            context=guard_context(self._state, self._ctx, tools=()),
+            on_guard=self._on_guard,
         )
+
+    def _on_guard(self, outcome: GuardOutcome) -> None:
+        self._ctx.report_guard(outcome.events)
+        if outcome.unavailable and self._ctx.guard_unavailable is None:
+            self._ctx.guard_unavailable = outcome.unavailable
 
 
 def _output(cap: LoadedCapability, payload: str) -> CapabilityOutput:
@@ -322,7 +331,7 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 call_model=_model_caller(cap, ctx, request, runtime),
-                broker=_Broker(ctx, runtime),
+                broker=_Broker(ctx, runtime, state),
                 stream_writer=_event_writer(runtime, cap),
             )
             try:
@@ -341,4 +350,7 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
             span.set_attribute("capability.findings_chars", len(output.findings))
             span.set_attribute("capability.sources", len(output.sources))
             outputs.append({"capability": slug, **output.model_dump(mode="json")})
-    return {"capability_outputs": outputs, "cap_state": cap_state}
+            if ctx.guard_unavailable:
+                # A fail-closed tool policy could not be evaluated: the turn ends (D8).
+                raise TurnError("guard_unavailable", retryable=True, detail=f"tool: {ctx.guard_unavailable}")
+    return {"capability_outputs": outputs, "cap_state": cap_state, "guard_events": ctx.guard_records()}

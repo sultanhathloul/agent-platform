@@ -1,5 +1,24 @@
 // Gateway client. All API calls go to the gateway (README §13), never to the agent.
-import type { ApiErrorEnvelope, ChatTurnRequest, MemoryList, MemorySettings, StreamEvent } from "@/lib/api/types";
+import type {
+  ApiErrorEnvelope,
+  ChatTurnRequest,
+  MeResponse,
+  MemoryList,
+  MemorySettings,
+  PolicyDetail,
+  PolicyDocument,
+  PolicyImportReport,
+  PolicyList,
+  PolicyMetrics,
+  PolicyOverrides,
+  PolicyChanges,
+  PolicyRoles,
+  PolicyTestRequest,
+  PolicyTestResult,
+  PolicyView,
+  PolicyYaml,
+  StreamEvent,
+} from "@/lib/api/types";
 import type { ErrorInfo } from "./errors";
 import { readSse, type SseMessage } from "./sse";
 
@@ -21,6 +40,7 @@ export function isAbortError(error: unknown): boolean {
 function fallbackCode(status: number): string {
   if (status === 401) return "unauthorized";
   if (status === 403) return "forbidden";
+  if (status === 409) return "turn_in_flight";
   if (status === 400 || status === 422) return "invalid_request";
   if (status === 502 || status === 503 || status === 504) return "agent_unavailable";
   if (status >= 500) return "internal_error";
@@ -33,7 +53,12 @@ async function errorFromResponse(res: Response): Promise<GatewayError> {
   try {
     const body = (await res.json()) as Partial<ApiErrorEnvelope>;
     if (body.error?.code) {
-      info = { code: body.error.code, message_ar: body.error.message_ar, message_en: body.error.message_en };
+      info = {
+        code: body.error.code,
+        message_ar: body.error.message_ar,
+        message_en: body.error.message_en,
+        details: body.error.details ?? null,
+      };
     }
     requestId = body.request_id ?? requestId;
   } catch {
@@ -103,6 +128,114 @@ export async function setMemoryEnabled({
   const body = JSON.stringify({ enabled });
   const data = await callJson<MemorySettings>(`${gatewayUrl}/v1/memory/settings`, token, { method: "PUT", body, signal });
   return required(data, 200);
+}
+
+/** The caller as the gateway sees them; `is_admin` decides which links the UI shows, never access. */
+export async function getMe({ gatewayUrl, token, signal }: Authorized): Promise<MeResponse> {
+  return required(await callJson<MeResponse>(`${gatewayUrl}/v1/me`, token, { method: "GET", signal }), 200);
+}
+
+// ------------------------------------------------------------------ admin: guard policies (README §10.4)
+
+const POLICIES = "/v1/admin/policies";
+
+export async function listPolicies({ gatewayUrl, token, signal }: Authorized): Promise<PolicyList> {
+  return required(await callJson<PolicyList>(`${gatewayUrl}${POLICIES}`, token, { method: "GET", signal }), 200);
+}
+
+export async function getPolicy({ gatewayUrl, token, signal, id }: Authorized & { id: string }): Promise<PolicyDetail> {
+  const url = `${gatewayUrl}${POLICIES}/${encodeURIComponent(id)}`;
+  return required(await callJson<PolicyDetail>(url, token, { method: "GET", signal }), 200);
+}
+
+export async function createPolicy({
+  gatewayUrl,
+  token,
+  signal,
+  policy,
+}: Authorized & { policy: PolicyDocument }): Promise<PolicyView> {
+  const body = JSON.stringify(policy);
+  return required(await callJson<PolicyView>(`${gatewayUrl}${POLICIES}`, token, { method: "POST", body, signal }), 201);
+}
+
+export async function addPolicyVersion({
+  gatewayUrl,
+  token,
+  signal,
+  policy,
+}: Authorized & { policy: PolicyDocument }): Promise<PolicyView> {
+  const url = `${gatewayUrl}${POLICIES}/${encodeURIComponent(policy.id)}/versions`;
+  return required(await callJson<PolicyView>(url, token, { method: "POST", body: JSON.stringify(policy), signal }), 201);
+}
+
+export async function setPolicyEnabled({
+  gatewayUrl,
+  token,
+  signal,
+  id,
+  enabled,
+}: Authorized & { id: string; enabled: boolean }): Promise<PolicyView> {
+  const url = `${gatewayUrl}${POLICIES}/${encodeURIComponent(id)}/enabled`;
+  const body = JSON.stringify({ enabled });
+  return required(await callJson<PolicyView>(url, token, { method: "PUT", body, signal }), 200);
+}
+
+export async function testPolicy({
+  gatewayUrl,
+  token,
+  signal,
+  request,
+}: Authorized & { request: PolicyTestRequest }): Promise<PolicyTestResult> {
+  const body = JSON.stringify(request);
+  const url = `${gatewayUrl}${POLICIES}/test`;
+  return required(await callJson<PolicyTestResult>(url, token, { method: "POST", body, signal }), 200);
+}
+
+/** What a draft would override if saved now, and whether it is an exception (ADR-0105). */
+export async function previewOverrides({
+  gatewayUrl,
+  token,
+  signal,
+  policy,
+}: Authorized & { policy: PolicyDocument }): Promise<PolicyOverrides> {
+  const url = `${gatewayUrl}${POLICIES}/overrides`;
+  return required(await callJson<PolicyOverrides>(url, token, { method: "POST", body: JSON.stringify(policy), signal }), 200);
+}
+
+/** The policy's change log, newest first, with every change's actor (ADR-0108). */
+export async function getPolicyChanges({ gatewayUrl, token, signal, id }: Authorized & { id: string }): Promise<PolicyChanges> {
+  const url = `${gatewayUrl}${POLICIES}/${encodeURIComponent(id)}/changes`;
+  return required(await callJson<PolicyChanges>(url, token, { method: "GET", signal }), 200);
+}
+
+/** The realm's policy:* roles, which role-scoped policies name (ADR-0107). */
+export async function listPolicyRoles({ gatewayUrl, token, signal }: Authorized): Promise<PolicyRoles> {
+  return required(await callJson<PolicyRoles>(`${gatewayUrl}/v1/admin/policy-roles`, token, { method: "GET", signal }), 200);
+}
+
+export async function exportPolicies({ gatewayUrl, token, signal }: Authorized): Promise<PolicyYaml> {
+  return required(await callJson<PolicyYaml>(`${gatewayUrl}${POLICIES}/export`, token, { method: "GET", signal }), 200);
+}
+
+export async function importPolicies({
+  gatewayUrl,
+  token,
+  signal,
+  yaml,
+}: Authorized & { yaml: string }): Promise<PolicyImportReport> {
+  const body = JSON.stringify({ yaml });
+  const url = `${gatewayUrl}${POLICIES}/import`;
+  return required(await callJson<PolicyImportReport>(url, token, { method: "POST", body, signal }), 200);
+}
+
+export async function policyMetrics({
+  gatewayUrl,
+  token,
+  signal,
+  days,
+}: Authorized & { days: number }): Promise<PolicyMetrics> {
+  const url = `${gatewayUrl}${POLICIES}/metrics?days=${days}`;
+  return required(await callJson<PolicyMetrics>(url, token, { method: "GET", signal }), 200);
 }
 
 type StreamTurnArgs = {

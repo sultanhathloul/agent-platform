@@ -42,3 +42,24 @@ not_found:
 memory_not_found:
   ar: "لم يُعثر على هذا العنصر في ذاكرتك."
   en: "This item was not found in your memory."
+turn_in_flight:
+  ar: "ما زال طلب سابق في هذه المحادثة قيد المعالجة. انتظر حتى يكتمل ثم أعد المحاولة."
+  en: "An earlier request in this conversation is still being processed. Wait for it to finish, then try again."
+service_busy:
+  ar: "الخدمة مشغولة الآن بطلبات أخرى. أعد المحاولة بعد لحظات."
+  en: "The service is busy with other requests right now. Try again in a moment."
+input_blocked:
+  ar: "لم يُنفَّذ الطلب بموجب سياسة المحتوى."
+  en: "The request was not carried out under a content policy."
+guard_unavailable:
+  ar: "تعذّر التحقق من سياسات الحماية الآن، فلم يكتمل الطلب. حاول مرة أخرى لاحقًا."
+  en: "The protection policies could not be checked right now, so the request was not completed. Try again later."
+policy_not_found:
+  ar: "لم يُعثر على هذه السياسة."
+  en: "This policy was not found."
+policy_exists:
+  ar: "توجد سياسة بهذا المعرّف بالفعل."
+  en: "A policy with this id already exists."
+policy_invalid:
+  ar: "السياسة غير صالحة."
+  en: "The policy is invalid."

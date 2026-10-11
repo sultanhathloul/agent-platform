@@ -1,0 +1,6 @@
+# What sanitize_untrusted puts in place of an instruction-like string it removed from tool
+# output (README §10.3), per locale of the turn. The model reads it as part of the tool result;
+# it is never shown to the user as such (rule 7: no model-facing text in code).
+removed_instruction:
+  ar: "[حُذف: نص يشبه التعليمات]"
+  en: "[removed: instruction-like text]"
