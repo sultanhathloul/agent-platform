@@ -1,0 +1,20 @@
+---
+id: docs.evidence
+version: 1.0.0
+role: context
+locale: en
+changelog:
+  - "1.0.0: first version (phase 04): retrieved chunks of the conversation's files, each delimited as untrusted data (ADR-0136)"
+---
+These are the passages of the conversation's attached files closest to the user's question; they may not contain the answer.
+{% for c in chunks %}
+<untrusted source="{{ c.name }}{% if c.page %}, page {{ c.page }}{% elif c.section %}, {{ c.section }}{% endif %}">
+{{ c.text }}
+</untrusted>
+{% endfor %}
+{% if pending %}
+These files are still being processed and were not searched yet: {{ pending | join(", ") }}.
+{% endif %}
+{% if failed %}
+These files could not be read: {{ failed | join(", ") }}.
+{% endif %}

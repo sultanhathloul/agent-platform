@@ -36,8 +36,10 @@ class LocalizedList(_Strict):
 class RoutingRule(_Strict):
     # toggled: the user toggled the capability in the UI. keyword: a routing
     # keyword appears in the message. attachments: the turn carries new files.
+    # conversation_attachments: the conversation holds indexed files, so the router model
+    # may choose this capability when no other rule decided (ADR-0145).
     # fallback: chosen when no other capability's rule matched.
-    when: Literal["toggled", "keyword", "attachments", "fallback"]
+    when: Literal["toggled", "keyword", "attachments", "conversation_attachments", "fallback"]
 
 
 class RoutingHints(_Strict):
@@ -111,6 +113,12 @@ class Source(_Strict):
     url: str | None = None
     kb: str | None = None
     locator: str | None = None
+    # Page attribution after the answer (ADR-0140): the document a chunk came from, its
+    # page, and the sanitized chunk text the attribution compares with the answer. The
+    # excerpt never leaves the agent: citations carry the document and its pages only.
+    page: int | None = Field(default=None, ge=1)
+    document_id: str | None = None
+    excerpt: str | None = None
 
 
 class Artifact(_Strict):

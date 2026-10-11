@@ -1,0 +1,20 @@
+---
+id: docs.evidence
+version: 1.0.0
+role: context
+locale: ar
+changelog:
+  - "1.0.0: first version (phase 04): retrieved chunks of the conversation's files, each delimited as untrusted data (ADR-0136)"
+---
+هذه أقرب المقاطع إلى سؤال المستخدم من الملفات المرفقة بالمحادثة، وقد لا تتضمن الجواب.
+{% for c in chunks %}
+<untrusted source="{{ c.name }}{% if c.page %}، صفحة {{ c.page }}{% elif c.section %}، {{ c.section }}{% endif %}">
+{{ c.text }}
+</untrusted>
+{% endfor %}
+{% if pending %}
+ما زالت هذه الملفات قيد المعالجة ولم يُبحث فيها بعد: {{ pending | join("، ") }}.
+{% endif %}
+{% if failed %}
+تعذّرت قراءة هذه الملفات: {{ failed | join("، ") }}.
+{% endif %}

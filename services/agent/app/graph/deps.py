@@ -13,6 +13,7 @@ from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
 from app.context.log import ContextLog
 from app.db import Database
+from app.graph.router_config import RouterConfig
 from app.guardrails.config import GuardrailsConfig
 from app.guardrails.engine import GuardEngine
 from app.guardrails.schema import GuardEventRecord
@@ -57,6 +58,7 @@ class Services:
     docs_config: DocsConfig
     attachments: AttachmentService
     retriever: HybridRetriever
+    router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
     # The compiled main graph, set by app.main.start_services once the database is open:

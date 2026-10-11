@@ -1,0 +1,32 @@
+slug: docs
+version: 1.0.0
+name: {ar: "الملفات المرفقة", en: "Attached files"}
+description:
+  ar: "إجابات من الملفات التي رفعها المستخدم في المحادثة، مع ذكر الصفحات."
+  en: "Answers from the files the user uploaded in the conversation, with their pages."
+icon: "file-text"
+enabled_by_default: true
+permission: "cap:docs"
+risk: read
+ui:
+  mode: auto                       # chosen by the router; files are attached in the composer
+  order: 20
+routing_hints:
+  description:
+    ar: "أسئلة عن محتوى الملفات المرفقة في هذه المحادثة: ما تذكره، أو أين يرد شيء فيها، أو تلخيص جزء منها."
+    en: "Questions about the content of the files attached in this conversation: what they say, where something appears in them, or a summary of part of them."
+  keywords: {ar: [], en: []}
+  rules:
+    - when: attachments              # the turn carries a new file (ADR-0139)
+    - when: conversation_attachments # later turns: the router model chooses (ADR-0145)
+model:
+  min_tier: standard                 # README §19.4
+  steps: {}
+  on_overflow: compress
+context:
+  needs: []                          # retrieval goes through the tool; the answer node answers
+  max_input_tokens: 14000            # room for 8 chunks of evidence beside the answer's own blocks
+limits:
+  max_iterations: 1
+  timeout_s: 60
+state_namespace: "cap.docs"

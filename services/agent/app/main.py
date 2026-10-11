@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.api.admin import router as admin_router
+from app.api.attachments import router as attachments_router
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
@@ -34,6 +35,7 @@ from app.db import Database
 from app.graph.build import build_graph
 from app.graph.deps import Services
 from app.graph.judge import GraphJudge
+from app.graph.router_config import load_router_config
 from app.guardrails.cache import RedisVerdictCache
 from app.guardrails.checkers import (
     KeywordListChecker,
@@ -196,6 +198,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         docs_config=docs_config,
         attachments=attachments,
         retriever=retriever,
+        router=load_router_config(settings.config_dir),
         redis=redis,
         closers=(presidio.close,),
     )
@@ -279,6 +282,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.state.runner = TurnRunner(services)
     app.include_router(router)
     app.include_router(admin_router)
+    app.include_router(attachments_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:

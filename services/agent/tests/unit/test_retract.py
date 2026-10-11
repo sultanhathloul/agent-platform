@@ -23,6 +23,8 @@ VALIDATION = ValidationConfig(
     scripts={"ar": ScriptPolicy(letters=["ARABIC", "LATIN"])},
     retry=RetryPolicy(issues=[], attempts=0, temperature=0.0),
 )
+# Page attribution's rule (ADR-0140); these tests carry no sources, so nothing is cited.
+DOCS = SimpleNamespace(citations=SimpleNamespace(ngram=3, min_shared_ngrams=2))
 STREAMING = SimpleNamespace(streaming=StreamingConfig(terminators=[".", "؟"], flush_chars=240))
 
 
@@ -54,7 +56,7 @@ class _Engine:
 
 def _runtime(engine=None):
     written: list[dict] = []
-    services = SimpleNamespace(guard=engine, validation=VALIDATION, guard_config=STREAMING)
+    services = SimpleNamespace(guard=engine, validation=VALIDATION, guard_config=STREAMING, docs_config=DOCS)
     context = TurnContext(
         services=services, principal=Principal(user_id="u"), request_id="r", turn_id="turn-1"
     )

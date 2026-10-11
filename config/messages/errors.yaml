@@ -63,3 +63,22 @@ policy_exists:
 policy_invalid:
   ar: "السياسة غير صالحة."
   en: "The policy is invalid."
+# Attachments (phase 04, ADR-0126, ADR-0129).
+attachment_not_found:
+  ar: "لم يُعثر على هذا الملف في المحادثة."
+  en: "This file was not found in the conversation."
+attachment_limit:
+  ar: "بلغت المحادثة الحد الأقصى لعدد الملفات المرفقة."
+  en: "The conversation already holds the maximum number of files."
+file_type_unsupported:
+  ar: "نوع الملف غير مدعوم. الأنواع المدعومة: مستندات بي دي إف، ومستندات وورد، وجداول إكسل، والنصوص، وملفات ماركداون."
+  en: "This file type is not supported. Supported types: PDF, Word, Excel, text and Markdown."
+file_too_large:
+  ar: "حجم الملف أكبر من الحد المسموح به."
+  en: "The file is larger than the allowed size."
+too_many_pages:
+  ar: "عدد صفحات الملف أكبر من الحد المسموح به."
+  en: "The file has more pages than allowed."
+storage_unavailable:
+  ar: "تعذّر الوصول إلى مخزن الملفات. حاول مرة أخرى لاحقًا."
+  en: "The file storage is unavailable. Please try again later."

@@ -101,6 +101,12 @@ class Citation(_Model):
     url: str | None = None
     kb: str | None = None
     locator: str | None = Field(default=None, description="Page, section or row range inside the source.")
+    document_id: str | None = Field(
+        default=None, description="The attachment (or KB document) the answer drew on (ADR-0140)."
+    )
+    pages: list[int] = Field(
+        default=[], description="Pages of that document the answer drew on, ascending (ADR-0140)."
+    )
 
 
 class Usage(_Model):
