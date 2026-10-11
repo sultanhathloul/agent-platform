@@ -39,7 +39,8 @@ if docker run --rm --entrypoint sh -v rerank-models:/models "$RERANK_IMAGE" \
   echo "  present  $RERANK_MODEL (volume rerank-models)"
 else
   echo "  fetching $RERANK_MODEL into volume rerank-models (about 2.3 GB)"
-  docker run --rm --entrypoint sh -v rerank-models:/models "$RERANK_IMAGE" \
+  # The image enables hf_transfer, which can stall; the plain downloader resumes instead.
+  docker run --rm --entrypoint sh -e HF_HUB_ENABLE_HF_TRANSFER=0 -v rerank-models:/models "$RERANK_IMAGE" \
     -c "huggingface-cli download $RERANK_MODEL --local-dir /models/bge-reranker-v2-m3 --exclude '*.onnx*'" >/dev/null
   echo "every reranker weight is available"
 fi

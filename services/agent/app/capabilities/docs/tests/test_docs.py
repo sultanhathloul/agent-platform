@@ -73,9 +73,49 @@ SOURCES = [
 ]
 
 
+RULE = {"ngram": 2, "min_shared": 3, "relative_to_best": 0.5}  # config/docs.yaml (ADR-0156)
+
+
+def test_the_configured_rule_is_the_one_tested(config_dir):
+    from app.rag.config import load_docs_config
+
+    rule = load_docs_config(config_dir).citations
+    assert {
+        "ngram": rule.ngram,
+        "min_shared": rule.min_shared_ngrams,
+        "relative_to_best": rule.relative_to_best,
+    } == RULE
+
+
+def test_a_page_sharing_only_a_common_phrase_beside_the_page_used_is_not_cited():
+    pages = [
+        {
+            "id": "a",
+            "title": "لائحة.pdf",
+            "kind": "doc",
+            "page": 2,
+            "document_id": "d1",
+            "excerpt": "المادة الثالثة: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما براتب كامل "
+            "عن كل سنة خدمة.",
+        },
+        {
+            "id": "b",
+            "title": "لائحة.pdf",
+            "kind": "doc",
+            "page": 4,
+            "document_id": "d1",
+            "excerpt": "المادة التاسعة: يستحق الموظف إجازة مرضية بتقرير طبي معتمد مدتها ثلاثون "
+            "يوما براتب كامل.",
+        },
+    ]
+    # The answer of rag/leave-annual in the first eval run (make-eval-20261011T135418Z).
+    answer = "مدة الإجازة السنوية للموظف ثلاثون يوماً براتب كامل عن كل سنة خدمة."
+    assert [c["pages"] for c in attribute(answer, pages, **RULE)] == [[2]]
+
+
 def test_an_answer_drawing_on_a_page_cites_that_page_only():
     answer = "وفق اللائحة، تُمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل."
-    assert attribute(answer, SOURCES, ngram=3, min_shared=2) == [
+    assert attribute(answer, SOURCES, **RULE) == [
         {
             "id": "d1",
             "title": "لائحة.pdf",
@@ -92,7 +132,7 @@ def test_pages_of_one_document_merge_and_a_document_without_pages_names_its_sect
         "يستحق الموظف إجازة سنوية مدتها ثلاثون يوما، وتمنح إجازة الأمومة لمدة عشرة أسابيع. "
         "كما يسمح بالعمل عن بعد يومين في الأسبوع."
     )
-    cited = attribute(answer, SOURCES, ngram=3, min_shared=2)
+    cited = attribute(answer, SOURCES, **RULE)
     assert [(c["title"], c["pages"], c["locator"]) for c in cited] == [
         ("لائحة.pdf", [1, 2], None),
         ("دليل.docx", [], "الباب الثاني: العمل عن بعد"),
@@ -108,7 +148,7 @@ def test_pages_of_one_document_merge_and_a_document_without_pages_names_its_sect
     ],
 )
 def test_an_answer_that_draws_on_no_chunk_shows_no_source(answer):
-    assert attribute(answer, SOURCES, ngram=3, min_shared=2) == []
+    assert attribute(answer, SOURCES, **RULE) == []
 
 
 # ------------------------------------------------------------------ turns

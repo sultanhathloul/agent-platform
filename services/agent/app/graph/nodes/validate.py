@@ -43,7 +43,11 @@ async def validate(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     sources = [s for output in state.get("capability_outputs") or [] for s in output.get("sources", [])]
     rule = runtime.context.services.docs_config.citations
     citations = attribute(
-        state.get("draft_answer") or "", sources, ngram=rule.ngram, min_shared=rule.min_shared_ngrams
+        state.get("draft_answer") or "",
+        sources,
+        ngram=rule.ngram,
+        min_shared=rule.min_shared_ngrams,
+        relative_to_best=rule.relative_to_best,
     )
     issues = validation_issues(
         state.get("draft_answer"),

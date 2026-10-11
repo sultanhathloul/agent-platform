@@ -237,18 +237,31 @@ class Judge:
 
 
 def contexts_for(document: str, results: list[dict], sections: dict) -> list[str]:
-    """The text of the pages and sections retrieval returned, once each, in rank order."""
+    """The text of the pages and sections retrieval returned, once each, in rank order, each
+    under the source label the answer model saw (`docs.evidence`), since answers name it."""
     entry = sections.get(document, {})
     texts: list[str] = []
     for result in results or []:
         text = None
         if result.get("page") is not None:
-            text = entry.get("pages", {}).get(str(result["page"]))
+            body = entry.get("pages", {}).get(str(result["page"]))
+            text = body and f"{document}، صفحة {result['page']}:\n{body}"
         elif result.get("section_sha"):
-            text = (entry.get("sections", {}).get(result["section_sha"]) or {}).get("text")
+            section = entry.get("sections", {}).get(result["section_sha"]) or {}
+            text = section.get("text") and f"{document}، {section['path']}:\n{section['text']}"
         if text and text not in texts:
             texts.append(text)
     return texts
+
+
+def reference_with_source(case: dict) -> str:
+    """The case's reference answer naming its source, as `answer.system` asks every answer to."""
+    expect = case["expect"]
+    if expect.get("pages"):
+        where = "، ".join(f"صفحة {p}" for p in expect["pages"])
+    else:
+        where = expect.get("section", "")
+    return f"{expect['reference']} [{case['document']}، {where}]"
 
 
 def expected_section_sha(document: str, section: str, sections: dict) -> str | None:
@@ -308,13 +321,14 @@ def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", 
         if outcome["citations"]:
             problems.append(f"a source line where none belongs: {cited_pages or outcome['citations']}")
     if kind == "abstain":
+        # Saying so is the abstention; showing no source is scored once, as citation accuracy.
         said = any(fold(p) in fold(answer) for p in ABSTAIN_PHRASES)
-        outcome["abstained"] = said and not outcome["citations"]
+        outcome["abstained"] = said
         if not said:
             problems.append("did not say the document lacks the answer")
     if kind == "answerable" and judge is not None:
         contexts = contexts_for(case["document"], results or [], sections)
-        faithfulness, correctness = judge.score(case["message"], answer, contexts, expect["reference"])
+        faithfulness, correctness = judge.score(case["message"], answer, contexts, reference_with_source(case))
         outcome["faithfulness"], outcome["correctness"] = faithfulness, correctness
     outcome["problems"] = problems
     return outcome

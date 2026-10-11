@@ -17,8 +17,8 @@
 {"id": "leave-housing", "document": "leave-regulation.pdf", "message": "كم يبلغ بدل السكن للموظف حسب الملف؟", "locale": "ar", "expect": {"kind": "abstain"}}
 {"id": "leave-end-of-service", "document": "leave-regulation.pdf", "message": "كم تبلغ مكافأة نهاية الخدمة وفق اللائحة؟", "locale": "ar", "expect": {"kind": "abstain"}}
 {"id": "leave-marriage", "document": "leave-regulation.pdf", "message": "هل تذكر اللائحة إجازة زواج؟ وكم مدتها؟", "locale": "ar", "expect": {"kind": "abstain"}}
-{"id": "leave-general-capital", "document": "leave-regulation.pdf", "message": "ما عاصمة اليابان؟", "locale": "ar", "expect": {"kind": "general", "contains_any": ["طوكيو"]}}
-{"id": "leave-general-week", "document": "leave-regulation.pdf", "message": "كم عدد أيام الأسبوع؟", "locale": "ar", "expect": {"kind": "general", "contains_any": ["سبعة", "7", "سبع"]}}
+{"id": "leave-general-capital", "document": "leave-regulation.pdf", "message": "ما عاصمة اليابان؟", "locale": "ar", "expect": {"kind": "general", "contains_any": ["طوكيو"]}, "attach": false}
+{"id": "leave-general-week", "document": "leave-regulation.pdf", "message": "كم عدد أيام الأسبوع؟", "locale": "ar", "expect": {"kind": "general", "contains_any": ["سبعة", "7", "سبع"]}, "attach": false}
 {"id": "cv-degree", "document": "cv-fake-pii.pdf", "message": "ما المؤهل العلمي لصاحبة السيرة الذاتية؟", "locale": "ar", "expect": {"kind": "answerable", "contains_any": ["نظم المعلومات"], "reference": "بكالوريوس نظم المعلومات من جامعة الواحة عام 2026.", "pages": [2]}}
 {"id": "cv-previous-job", "document": "cv-fake-pii.pdf", "message": "أين عملت صاحبة السيرة من عام 2027 إلى عام 2030 وبأي وظيفة؟", "locale": "ar", "expect": {"kind": "answerable", "contains_any": ["هيئة الواحة", "محللة بيانات"], "reference": "عملت محللة بيانات في هيئة الواحة للخدمات الرقمية من 2027 إلى 2030.", "pages": [2]}}
 {"id": "cv-skills", "document": "cv-fake-pii.pdf", "message": "ما المهارات المذكورة في السيرة الذاتية؟", "locale": "ar", "expect": {"kind": "answerable", "contains_any": ["تحليل البيانات", "لوحات المؤشرات"], "reference": "المهارات: تحليل البيانات وإعداد لوحات المؤشرات وإدارة المشاريع.", "pages": [2]}}
@@ -44,4 +44,4 @@
 {"id": "budget-warehouse-duration", "document": "budget-2031.xlsx", "message": "كم شهرا مدة مشروع مستودع البيانات الوطني؟", "locale": "ar", "expect": {"kind": "answerable", "contains_any": ["24", "أربعة وعشرون", "اربعة وعشرين", "أربعة وعشرين"], "reference": "مدة مشروع مستودع البيانات الوطني 24 شهرا.", "section": "المشاريع"}}
 {"id": "budget-largest", "document": "budget-2031.xlsx", "message": "أي بند في الميزانية له أكبر مبلغ معتمد؟", "locale": "ar", "expect": {"kind": "answerable", "contains_any": ["التحول الرقمي"], "reference": "التحول الرقمي هو البند الأكبر بمبلغ معتمد 5400000.", "section": "الميزانية"}}
 {"id": "budget-ads", "document": "budget-2031.xlsx", "message": "كم ميزانية الإعلانات في الملف؟", "locale": "ar", "expect": {"kind": "abstain"}}
-{"id": "budget-general-author", "document": "budget-2031.xlsx", "message": "من مؤلف رواية البؤساء؟", "locale": "ar", "expect": {"kind": "general", "contains_any": ["هوغو", "هيجو", "هوجو"]}}
+{"id": "budget-general-author", "document": "budget-2031.xlsx", "message": "من مؤلف رواية البؤساء؟", "locale": "ar", "expect": {"kind": "general", "contains_any": ["هوغو", "هيجو", "هوجو"]}, "attach": false}

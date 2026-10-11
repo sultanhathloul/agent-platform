@@ -1334,3 +1334,97 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: ADR-0108 refused `kb:` and `tool:` policies that weaken a wider policy at OUTPUT or DATA until phase 04 attributes each part of an answer to its source.
 - Decision: The refusal stays. A generated answer cannot be attributed reliably to its sources: the page attribution of ADR-0140 says which pages an answer drew on, not which sentence came from which source, so an exception scoped to one KB or tool cannot be applied to the part of the answer that came from it. Revisit with the kb capability in phase 05.
 - Consequences: Exceptions for a KB or a tool remain possible at INPUT, TOOL_LIST, PRE_TOOL and POST_TOOL only.
+
+### ADR-0147: `make smoke-airgap`: an internal network for every container but litellm, and a fixed ingress relay
+- Date: 2026-10-11
+- Phase: 04 (tech debt F2)
+- Status: assumed
+- Context: F2 asks for smoke on a stack where only `litellm` can reach out. Measured on the development host (Docker Desktop): a container on an `internal: true` network has no route out, but its published ports do not answer either; a bridge network without IP masquerade still reaches the internet through Docker Desktop's own NAT. Smoke and a browser need the gateway, Keycloak, the web app and Langfuse on the host's ports.
+- Decision: `docker-compose.airgap.yml` puts every service on `airgap` (internal) only; `litellm` also joins `egress` for the model endpoints. `edge`, an `nginx:1.27.5-alpine` stream relay with a fixed configuration (`infra/airgap/nginx.conf`: four TCP forwards to `web`, `gateway`, `keycloak`, `langfuse-web`), joins `airgap` and `ingress` and publishes the four host ports; it runs no application code. `scripts/airgap_check.sh` fails unless every container's networks are internal except `litellm:egress` and `edge:ingress`, a probe container on `airgap` cannot reach the internet, the agent cannot, and litellm still answers an embedding call. `make smoke-airgap` brings the overlay up, runs the check and `scripts/smoke.sh` with `COMPOSE_FILE` set (so smoke's own restart keeps the layout), and restores the normal stack, pass or fail. It replaces the owner's manual offline-profile run (HANDOFF).
+- Consequences: Two containers can reach out instead of one: litellm by design and the relay by necessity. The relay forwards inbound connections only and names no outside destination; a compromise of the relay image is the residual risk. Switching to and from the overlay recreates every container (about two minutes).
+
+### ADR-0148: The seed users `analyst` and `evaluator` hold `cap:docs`
+- Date: 2026-10-11
+- Phase: 04
+- Status: assumed
+- Context: E2 has the viewer probe the analyst's attachment, so the analyst must be able to upload; the rag and routing suites run as `evaluator` (ADR-0074). Neither held `cap:docs`; the gateway requires it to upload.
+- Decision: `infra/keycloak/realm-export.json` gives both users `cap:docs`. README §11 gains a note. The development realm was re-imported by recreating only the Keycloak database (`DROP DATABASE keycloak`, then `make up`), which is what a fresh import does; the owner's `make clean && make up` gives the same realm.
+- Consequences: The analyst can use documents; `cap:docs` is still not part of the base `user` role.
+
+### ADR-0149: The router model reads the conversation's file names as user-role data
+- Date: 2026-10-11
+- Phase: 04 (I11)
+- Status: assumed
+- Context: The first routing run scored 31/34: three questions about the file's topic that did not say "the file" ("متى تبدأ ساعات العمل الصيفية؟") went to `general`, because the router saw only the message and the candidates.
+- Decision: The router's request (`router.request@1.0.0`) carries the names of the conversation's indexed files inside `<conversation_files>` and the message inside `<user_message>`, in the user role (ADR-0068: file names are user data); `router.system@1.1.0` routes a question on a topic the files may cover to `docs`. The names are part of the router cache key.
+- Consequences: The second run scored 34/34. A file name is visible to the fast tier's model, as the message is. Routing still never sees file content.
+
+### ADR-0150: LiteLLM is published on the loopback interface for `make eval`
+- Date: 2026-10-11
+- Phase: 04 (I13)
+- Status: assumed
+- Context: Ragas scores call LiteLLM's judge alias from the host (ADR-0141); LiteLLM had no published port.
+- Decision: `docker-compose.yml` publishes `litellm` on `127.0.0.1:${LITELLM_PORT:-4000}` only, behind its master key. The development overlay keeps its own mapping.
+- Consequences: Any local process with the master key from `.env` can call the model aliases, as `make eval` does; nothing outside the host can.
+
+### ADR-0151: Attachment API details
+- Date: 2026-10-11
+- Phase: 04 (A1, A2)
+- Status: assumed
+- Context: I1 and A1 fix the shape; the details below were open.
+- Decision:
+  - The agent owns the attachment record (`agent.attachments`, migration `0009`); the gateway stores bytes in MinIO under `{conversation_id}/{random uuid}` and registers them with `POST /v1/conversations/{id}/attachments` on the agent, which binds a new conversation to the caller like a first turn (ADR-0050) and enforces the file count under a transaction lock. The object key never reaches a browser.
+  - Uploading needs `cap:docs` (403 `forbidden`); list, status, download and delete need ownership only, so a user can always see and remove what they uploaded. Another owner's conversation is 403 `conversation_forbidden`; an attachment id the caller does not have in that conversation, another user's included, is 404 `attachment_not_found`, at the gateway and at the agent. A conversation nobody has used lists nothing and binds nobody.
+  - The turn request names `attachment_ids` (lower-case UUIDs, at most 10); `ingest_attachments`, after `guard_input`, loads every live attachment of the conversation into `AgentState.attachments` with its status and ends the turn with `attachment_not_found` when the turn names one the caller does not have. `turn_attachment_ids` (AgentState addition) feeds the `attachments` rule. Every turn moves the conversation's expiry (ADR-0125).
+  - The gateway answers `GET /v1/attachments/limits` from `config/docs.yaml`, so the composer shows the limits before upload. A body over the multipart cap (21 MB) is 413 `file_too_large` before the controller runs and is not audited (ADR-0013); 20 MB to 21 MB is refused by the controller and audited.
+  - MinIO is reached with the root credentials from `.env`, as Langfuse already is (ADR-0022); a scoped key is phase 09.
+- Consequences: The file count is checked twice (gateway pre-check, agent under a lock). A turn that names a stranger's attachment id fails the turn rather than ignoring the id.
+
+### ADR-0152: Retrieval details
+- Date: 2026-10-11
+- Phase: 04 (I5, I8, I9)
+- Status: assumed
+- Context: The ADRs of I5 and I8 leave the query, the full-text query form and failures open.
+- Decision:
+  - The query is the turn's message alone; no rewriting model call. Full text matches any of the message's search stems (an OR `tsquery`) less the stopwords of `config/docs.yaml`, ranked by `ts_rank_cd`.
+  - The tool returns chunk texts in its `content`, each after a `⟦chunk {id}⟧` line, so `sanitize_untrusted` runs on them at POST_TOOL; the capability splits the sanitized text back by id. Chunk metadata travels in `sources`.
+  - The `rag.retrieve` span records, per returned chunk, its id, attachment id, page, a SHA-256 prefix of its section path (never the heading), score and ranks; the rag suite matches expected sections by that hash.
+  - When the search fails, the evidence says the files could not be searched, so the answer never presents general knowledge as the files' content; files still pending or failed are named in the evidence, and the capability never waits for them.
+- Consequences: A follow-up such as "وماذا عن المادة الخامسة؟" retrieves on its own words only. The first end-to-end run, before this rule, answered a maternity question from general knowledge while the reranker alias was missing.
+
+### ADR-0153: Tool handlers reach the retrieval library through a binding the services push and pop
+- Date: 2026-10-11
+- Phase: 04 (A3)
+- Status: assumed
+- Context: A `ToolSpec` handler receives only its arguments (README §9), and capabilities register tools before the services exist; the docs tool needs the retriever (database pool, embedding and rerank clients).
+- Decision: `app.rag.runtime` holds the retrievers of the started services: `start_services` binds, `stop_services` unbinds, and `retriever()` returns the most recent. The owner comes from the tool's arguments, which the capability fills from its RuntimeContext principal (trusted first-party code, ADR-0054); every VectorStore query names it. No broker or contract change.
+- Consequences: One process runs one service set, so the binding is unambiguous in production; tests that start several sets keep working because a stopped set leaves the stack.
+
+### ADR-0154: How the rag and routing suites measure
+- Date: 2026-10-11
+- Phase: 04 (I11, I13)
+- Status: assumed
+- Context: I13 names the metrics and thresholds; the method was open.
+- Decision:
+  - Every case runs in a new conversation: its generated document is uploaded through the gateway and indexed first. Rag cases send the file with the question (the `attachments` rule); routing cases send their message without it, so the router decides, except two cases marked `attach`.
+  - hit@8: an expected page, or the hash of an expected section, among the chunks the turn's `rag.retrieve` span reports (answerable and PII cases). Citation page accuracy: answerable PDF cases whose cited pages are non-empty and within the expected pages, plus general-knowledge and not-in-document cases that cite nothing. Abstention: the answer says the document lacks the answer (a list of Arabic and English phrases); that it shows no source is scored once, under citation page accuracy. Faithfulness and answer correctness: Ragas 0.2.15 on answerable cases, with the judge alias; the contexts are the text of the retrieved pages and sections from `evals/docs/sections.json`, each under the source label the answer model saw ("file، صفحة 3"), and the reference is the case's reference answer naming its source, because `answer.system` asks every answer to name the source of each fact and the judge otherwise counts that naming as an unsupported claim (first run: one-sentence correct answers scored 0.50).
+  - General-knowledge cases of the rag suite send their message without the file, so the router decides, as on a later turn of a document conversation; sent with the file, the turn is a docs turn by the `attachments` rule.
+  - `make eval s=<suite>` runs one suite; `make eval` runs them all.
+- Consequences: A run of the rag suite uploads 47 files and makes 47 turns and about 35 Ragas scorings; it takes about 20 minutes on the OpenRouter profile.
+
+### ADR-0155: Web choices for documents
+- Date: 2026-10-11
+- Phase: 04 (D1, D2)
+- Status: assumed
+- Context: D1 and D2 of the phase prompt leave the layout open.
+- Decision: A paperclip button and drag-and-drop on the composer; each file is a chip with its name in `<bdi dir="auto">`, an upload percentage, then a badge (قيد المعالجة، جاهز، تعذّرت القراءة) and, when failed, the Arabic reason. The limits line comes from `GET /v1/attachments/limits`. Sending is disabled, with a short Arabic note, while a file uploads or is pending; removing a chip deletes the attachment. The source line under an answer reads "المصدر", then each file name and "الصفحة 3" / "الصفحتان 2 و5" / "الصفحات …" (three keys, no ICU plural), or the section of a document without pages. Numbers use the locale's default digits, as the rest of the UI. The vitest include gains `.test.tsx`.
+- Consequences: The turn's own file names show under the user's message; the conversation's earlier files are not listed in the UI yet.
+
+### ADR-0156: Page attribution counts word bigrams, with a floor relative to the best chunk
+- Date: 2026-10-11
+- Phase: 04 (ADR-0140)
+- Status: assumed
+- Context: ADR-0140 leaves the n-gram size and threshold to `config/docs.yaml`. The first rag run used trigrams with at least two shared: a paraphrased answer ("الحد الأقصى للإجازة الاضطرارية ... خمسة أيام، وذلك بموافقة المدير") shared no trigram with its page and showed no source, while the annual-leave answer also cited the sick-leave page, which shares only "ثلاثون يوما براتب كامل". Measured offline on that run's 29 answers with a citation expectation: trigrams, two shared: 22/29; bigrams, three shared: 23/29; bigrams, three shared and at least half of the best chunk's count: 25/29, with the remaining misses general-knowledge answers given on a docs turn and two abstentions that name the document.
+- Decision: `citations: {ngram: 2, min_shared_ngrams: 3, relative_to_best: 0.5}`: a chunk is cited when it shares at least three word bigrams with the answer and at least half as many as the best-matching chunk. Still deterministic, no model call, no change to the answer.
+- Consequences: An answer that names the document's title can still cite the page that holds the title. A page that repeats a common phrase beside the page the answer used is no longer cited.
+

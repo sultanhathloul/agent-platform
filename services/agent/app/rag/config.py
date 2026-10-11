@@ -60,6 +60,7 @@ class Retrieval(_Strict):
 class Citations(_Strict):
     ngram: int = Field(ge=1)
     min_shared_ngrams: int = Field(ge=1)
+    relative_to_best: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class Purge(_Strict):

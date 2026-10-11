@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke smoke-airgap logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -60,6 +60,16 @@ eval: .env ## Golden suites against the live stack (real models)
 
 smoke: .env ## End-to-end smoke test against the live stack
 	scripts/smoke.sh
+
+# The stack on an internal network: no container but litellm reaches out (phase 04, F2, ADR-0147).
+# Images and models must be present; the normal stack is restored afterwards, pass or fail.
+AIRGAP_FILES := docker-compose.yml:docker-compose.airgap.yml
+smoke-airgap: .env ## Smoke with egress blocked for every container except litellm
+	COMPOSE_FILE=$(AIRGAP_FILES) $(COMPOSE) up -d --wait --wait-timeout 900 --remove-orphans
+	@status=0; \
+	COMPOSE_FILE=$(AIRGAP_FILES) scripts/airgap_check.sh && COMPOSE_FILE=$(AIRGAP_FILES) scripts/smoke.sh || status=$$?; \
+	$(COMPOSE) up -d --wait --wait-timeout 900 --remove-orphans >/dev/null; \
+	exit $$status
 
 purge-pre-guard: ## One-time purge of memory and summaries stored before the DATA guard (D4); DRY_RUN=1 only counts
 	$(COMPOSE) exec -T agent python -m app.guardrails.purge $(if $(DRY_RUN),--dry-run,)

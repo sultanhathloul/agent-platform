@@ -24,7 +24,7 @@ VALIDATION = ValidationConfig(
     retry=RetryPolicy(issues=[], attempts=0, temperature=0.0),
 )
 # Page attribution's rule (ADR-0140); these tests carry no sources, so nothing is cited.
-DOCS = SimpleNamespace(citations=SimpleNamespace(ngram=3, min_shared_ngrams=2))
+DOCS = SimpleNamespace(citations=SimpleNamespace(ngram=2, min_shared_ngrams=3, relative_to_best=0.5))
 STREAMING = SimpleNamespace(streaming=StreamingConfig(terminators=[".", "؟"], flush_chars=240))
 
 
