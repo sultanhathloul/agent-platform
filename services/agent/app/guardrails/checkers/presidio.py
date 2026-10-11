@@ -2,11 +2,13 @@
 custom Saudi recognizers mounted from infra/presidio/ (mobile, national ID / iqama,
 SA IBAN, email, the Arabic-name heuristic). The text is sent folded with offsets
 kept (digits to ASCII, tatweel and tashkeel removed), so `٠٥٥ـ١٢٣ـ٤٥٦٧` is
-recognized, and spans are mapped back to the original text. The entity list and
-score threshold come from the policy's config."""
+recognized, and spans are mapped back to the original text. An SA_NATIONAL_ID candidate
+is kept only with a valid check digit or a context word before it (ADR-0120). The
+entity list and score threshold come from the policy's config."""
 
 import httpx
 
+from app.guardrails.checkers import saudi_id
 from app.guardrails.checkers.base import CheckContext, CheckerError
 from app.guardrails.schema import CheckResult, PresidioConfig, Span
 from app.text.arabic import fold_with_map, span_in_source
@@ -37,6 +39,10 @@ class PresidioChecker:
         spans = []
         for item in found:
             if item["entity_type"] not in config.entities or item["score"] < config.score_threshold:
+                continue
+            if item["entity_type"] == "SA_NATIONAL_ID" and not saudi_id.confirmed(
+                folded, item["start"], item["end"]
+            ):
                 continue
             start, end = span_in_source(mapping, item["start"], item["end"], len(payload))
             spans.append(

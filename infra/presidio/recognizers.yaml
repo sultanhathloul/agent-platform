@@ -26,6 +26,8 @@ recognizers:
         score: 0.9
 
   # National ID (starts with 1) or iqama (starts with 2): ten digits, contiguous or grouped 4-3-3.
+  # A candidate only: the agent's presidio checker keeps it when its check digit is valid or a
+  # context word stands within five tokens before it (ADR-0120).
   - name: SaudiNationalIdRecognizer
     supported_language: en
     supported_entity: SA_NATIONAL_ID
