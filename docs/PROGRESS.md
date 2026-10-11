@@ -931,6 +931,47 @@ How to verify: `make test`, `make up`, then import `config/policies/*.yaml` as a
 
 Human review needed: `config/policies/**` (the Arabic names, descriptions and messages; both topic definitions and their few-shot examples, the sectarian ones written by the agent; the injection pattern); `evals/golden/guardrails.jsonl`; ADR-0120 (the check digit and its sources; the context words), ADR-0121, ADR-0122.
 
+### UI session 2: the owner's visual check of /admin/policies (2026-10-11)
+
+Scope: the eight owner items, nothing else; `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1 Actor names: migration adds the actor's username and display name beside the id on `guard_policy_changes` and version rows; the gateway sends them from the verified token; seed and backfill rows keep `seed` / `backfill`; history and change log show the display name, username and id in a tooltip, the id when there is no name
+- [x] 2 Scope as kind (عام، جهة، دور، قاعدة معرفة، أداة) and value; global without a value, role from the gateway's `policy:*` list, tenant defaulting to `default`; short Arabic hints with each example id in its own `<bdi>` chip; the same for the group hint
+- [x] 3 Readable configuration summary per checker in the detail view; raw JSON behind "عرض الإعدادات التقنية"
+- [x] 4 A truncated policy name has the full name in a tooltip and in the detail header
+- [x] 5 Structured configuration editors per checker, DATA targets in every editor, "إعدادات متقدمة" JSON view kept in sync, invalid JSON blocks saving; web tests: seed round trip per editor, i18n validation messages, JSON view in sync
+- [x] 6 Daily matches table hides test policies with the same toggle
+- [x] 7 Test panel: result heading per action; Arabic entity labels in the explanation and on span badges; explanation built from i18n parts with technical values in `<bdi>`
+- [x] 8 Import placeholder "الصق هنا ملف السياسات"; the format name in a heading chip
+- [x] make test, make smoke ×2; record per rule 11; push
+
+What changed (ADR-0123):
+- Item 1: migration `0008_actor_names.sql` (`created_by_username`, `created_by_name` on `agent.guard_policies`; `actor_username`, `actor_name` on `agent.guard_policy_changes`; `seed` / `backfill` rows named after themselves). The gateway sends `X-User-Name` and `X-User-Display-Name` (percent-encoded UTF-8) from the verified token on every admin call; the agent stores them beside the id; the API carries them (OpenAPI regenerated, still 1.3.0). The history and change log show the display name, the username and id in a tooltip, the id when there is no name.
+- Item 2: `ScopeField` (kind عام، جهة، دور، قاعدة معرفة، أداة and a value; role from the gateway's policy roles; tenant starts as `default`); scope and group hints are one Arabic sentence each, with each example id in its own `<bdi>` chip.
+- Item 3: `ConfigSummary` in the detail view; the raw JSON behind "عرض الإعدادات التقنية".
+- Item 4: a list name has its full name in `title`; the detail header wraps instead of cutting.
+- Item 5: `ConfigEditor` per checker (keyword tags; pattern rows with an inline Arabic error; entity checkboxes with Arabic labels and the score threshold; topic, examples table, minimum confidence; tier and model roles; DATA targets in every editor); "إعدادات متقدمة" edits the same JSON text; invalid JSON pauses the editor and blocks saving with an Arabic message; the editor refuses before saving what the agent's validator would refuse.
+- Item 6: the page owns the test-policy toggle; the daily matches table hides test policies' rows while it is off.
+- Item 7: the heading over the resulting text follows the action; entity types in the explanation and on span badges use the Arabic labels; explanation sentences carry `<v>` / `<list>` tags, each value in its own `<bdi>`.
+- Item 8: placeholder "الصق هنا ملف السياسات"; the format chip YAML in the section heading.
+- Also, needed by the items: the target label `memory_candidate` is "عناصر الذاكرة" everywhere; the `configInvalid` message is Arabic-only; the helper `explanationArgs` and its test were removed (item 7 replaced it); the web's dev dependency `yaml` 2.8.4 and the `config` build context of `make test-web` let the editor tests read the seed files.
+
+Results (2026-10-11), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack running):
+  - agent (pytest): **509 passed, 0 failed, 0 skipped** (507 before; +2: the admin API keeps the actor's names at the time on version and change rows, none without the headers, the seed named `seed`; migration 0008 names seed and backfill rows and leaves others without a name)
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped** (91 before; the list test also checks `X-User-Name` and the percent-encoded Arabic `X-User-Display-Name`, the change-log test the two name fields)
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **121 passed, 0 failed, 0 skipped** (83 before; −1 `explanationArgs`; +39 in `PolicyEditors.test.ts`: every seed (8) and two written configs round-trip their editor (load, save unchanged, identical config, no problem shown), every checker covered, each editor shows its values, other keys and unknown entities kept, 10 validation messages from i18n in ar and en, Python named groups accepted, invalid JSON pauses the editor and blocks saving, the JSON view and the editor in sync both ways, the readable summary (2), scope parse and fields (2), Arabic-only hints with one `<bdi>` chip per example, the actor's name and tooltip (2), the truncated name's tooltip, the matches table and the toggle, the heading per action, Arabic entity labels in the explanation, one `<bdi>` per value, the import placeholder)
+- `make up`: green; the agent applied `0008_actor_names.sql`: the 8 seed versions and their 8 seed change rows are named `seed`; 9 versions and 54 change rows saved before by an admin keep no name.
+- `make eval`: not run this session (not asked; no change to checkers, prompts, seeds or eval datasets).
+- `make smoke`, two consecutive runs: **76/76 checks passed** each. Policy rows 17 11 before run 1, after it, and after run 2, equal to the stored reference. After run 1, smoke's admin changes are stored with `admin` / `مدير المنصة` beside the id.
+
+How to verify: `make up`, `make test`, `make smoke` (twice); open `/admin/policies` as admin: a change made now shows "مدير المنصة" with the username and id in a tooltip; the scope is two fields; a policy's detail reads its configuration in Arabic, with the JSON behind "عرض الإعدادات التقنية"; "تعديل" shows the editor of its checker, and "إعدادات متقدمة" the same configuration as JSON; the matches table hides `smoke-live-block` until "إظهار سياسات الاختبار".
+
+Human review needed: `services/agent/app/db/migrations/0008_actor_names.sql`; `services/web/src/i18n/ar.json` (scope kinds and hints, the group hint, entity, tier, model-role and target labels, the editor and summary labels, the editors' error messages, the per-action headings, the explanation sentences with their tags, the import placeholder); ADR-0123.
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
