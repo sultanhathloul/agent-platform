@@ -340,3 +340,41 @@ async def test_a_pending_file_is_named_and_never_waited_for(services, litellm):
     assert events[-1].type == "done"
     assert not [e for e in events if e.type == "tool_start"]  # nothing indexed yet: no search
     assert "ما زالت هذه الملفات قيد المعالجة" in seen[0] and "قيد المعالجة.pdf" in seen[0]
+
+
+@pytest.mark.integration
+async def test_a_failed_search_is_said_in_the_evidence(services, litellm, monkeypatch):
+    from app.rag import runtime
+
+    principal = _principal()
+    conversation = str(uuid.uuid4())
+    record = await _indexed(services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION))
+
+    class Broken:
+        async def retrieve(self, *args, **kwargs):
+            raise RuntimeError("rerank down")
+
+    monkeypatch.setattr(runtime, "retriever", lambda: Broken())
+    seen: list[str] = []
+
+    class Recording:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def call(self, decision, package, **kwargs):
+            if decision.role == "reasoning":
+                seen.append("\n".join(m["content"] for m in package.to_messages()))
+            return await self.inner.call(decision, package, **kwargs)
+
+    import dataclasses
+
+    events = await _turn(
+        dataclasses.replace(services, gateway=Recording(services.gateway)),
+        principal,
+        conversation,
+        "كم مدة إجازة الأمومة؟",
+        [record.id],
+    )
+    assert events[-1].type == "done"
+    assert [e.data.status for e in events if e.type == "tool_end"] == ["error"]
+    assert "تعذّر البحث في الملفات المرفقة الآن" in seen[0]

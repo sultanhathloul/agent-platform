@@ -18,3 +18,6 @@ These files are still being processed and were not searched yet: {{ pending | jo
 {% if failed %}
 These files could not be read: {{ failed | join(", ") }}.
 {% endif %}
+{% if unavailable %}
+The attached files could not be searched just now, so no passage of them is available for this question.
+{% endif %}

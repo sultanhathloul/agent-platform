@@ -6,7 +6,8 @@ The chunks come back through POST_TOOL, sanitized (README §10.3); they are comp
 per chunk when over the evidence budget and rendered for the answer inside untrusted
 delimiters (`docs.evidence`). Each chunk is a Source with its document, page and text, so
 the core can attribute pages after the answer (ADR-0140). Files still pending or failed
-are named in the evidence; the capability never waits for ingestion. No model call: the
+are named in the evidence, and so is a search that failed, so the answer never presents
+general knowledge as the files' content; the capability never waits for ingestion. No model call: the
 core answer node answers on this capability's tier floor (ADR-0014)."""
 
 from pathlib import Path
@@ -59,6 +60,7 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     names = {a["id"]: _name(a) for a in attachments}
     chunks: list[dict] = []
     sources: list[Source] = []
+    unavailable = False
     if indexed:
         result = await rt.broker.execute(
             "docs_search",
@@ -70,7 +72,8 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
                 "user_id": rt.principal.user_id,
             },
         )
-        if result.status == "ok":
+        unavailable = result.status != "ok"
+        if not unavailable:
             texts = split_content(result.content, [s["id"] for s in result.sources])
             found = [s for s in result.sources if texts.get(s["id"])]
             budget = load_docs_config(get_settings().config_dir).retrieval.evidence_max_tokens
@@ -92,8 +95,10 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
                     )
                 )
     findings = ""
-    if chunks or pending or failed:
-        findings = PROMPTS.render("docs.evidence", locale, chunks=chunks, pending=pending, failed=failed).text
+    if chunks or pending or failed or unavailable:
+        findings = PROMPTS.render(
+            "docs.evidence", locale, chunks=chunks, pending=pending, failed=failed, unavailable=unavailable
+        ).text
     runs = int(rt.cap_state.get("searches", 0)) + (1 if indexed else 0)
     return {"output": CapabilityOutput(findings=findings, sources=sources, cap_state={"searches": runs})}
 

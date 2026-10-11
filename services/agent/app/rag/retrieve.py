@@ -4,6 +4,7 @@ text, fused by reciprocal rank fusion, the best `rerank_candidates` reranked, th
 `top_k` kept. Every query names the collection and the owner (ADR-0131). The
 `rag.retrieve` span carries ids, pages, scores and counts, never chunk text (ADR-0137)."""
 
+import hashlib
 import json
 from collections.abc import Sequence
 
@@ -14,6 +15,10 @@ from app.rag.rerank import Reranker
 from app.rag.types import Owner, ScoredChunk
 from app.rag.vectorstore.base import VectorStore
 from app.text.arabic import search_stem, search_terms
+
+
+def section_hash(section: str | None) -> str | None:
+    return hashlib.sha256(section.encode("utf-8")).hexdigest()[:16] if section else None
 
 
 def query_terms(question: str, stopwords: Sequence[str]) -> list[str]:
@@ -100,6 +105,9 @@ class HybridRetriever:
                             "chunk_id": c.id,
                             "attachment_id": c.attachment_id,
                             "page": c.page,
+                            # A hash, never the heading itself: the eval matches its expected
+                            # section without document text in the trace (ADR-0137).
+                            "section_sha": section_hash(c.section),
                             "score": round(c.score, 4),
                             "vector_rank": c.vector_rank,
                             "text_rank": c.text_rank,
