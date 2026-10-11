@@ -52,6 +52,7 @@ class Retrieval(_Strict):
     text_top_k: int = Field(gt=0)
     rrf_k: int = Field(gt=0)
     rerank_candidates: int = Field(gt=0)
+    rerank_max_tokens: int = Field(gt=0)
     top_k: int = Field(gt=0)
     evidence_max_tokens: int = Field(gt=0)
     stopwords: dict[str, list[str]] = {}

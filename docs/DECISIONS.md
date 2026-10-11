@@ -1428,3 +1428,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Decision: `citations: {ngram: 2, min_shared_ngrams: 3, relative_to_best: 0.5}`: a chunk is cited when it shares at least three word bigrams with the answer and at least half as many as the best-matching chunk. Still deterministic, no model call, no change to the answer.
 - Consequences: An answer that names the document's title can still cite the page that holds the title. A page that repeats a common phrase beside the page the answer used is no longer cited.
 
+
+### ADR-0157: The reranker scores the best 16 fused candidates on their first 400 tokens
+- Date: 2026-10-11
+- Phase: 04 (ADR-0133, ADR-0134)
+- Status: assumed
+- Context: Measured on the development host (CPU inference, 24 threads), the cross-encoder's time grows with the tokens it scores: 30 candidates of about 800 tokens took 34 s, 16 took 18 s, 8 took 8 s, 30 of about 270 tokens took 10 s. A docs turn on a 20-page Arabic PDF spent 27.3 s (p50, n=20) in `rag.retrieve` and reached its first token after 28.7 s.
+- Decision: `retrieval.rerank_candidates: 16` and `retrieval.rerank_max_tokens: 400` in `config/docs.yaml`: the best 16 of the fused 60 are reranked, each on its first 400 tokens (counted as Context Assembly counts), and the top 8 are kept with their full text. The vector and text searches (30 + 30, RRF) are unchanged.
+- Consequences: `rag.retrieve` p50 6.31 s and time to first token p50 7.72 s on the same document (n=20). A chunk whose answer lies past its first 400 tokens is ranked by its beginning; it still reaches the top 8 when fusion ranks it high. On a GPU-served reranker in production both values can go back up; they are configuration.

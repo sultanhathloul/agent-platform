@@ -1,13 +1,16 @@
 """Hybrid retrieval (README §7 step 6, §9.3; ADR-0133): the top `vector_top_k` chunks by
 vector similarity and the top `text_top_k` by full-text rank over Arabic-normalized
-text, fused by reciprocal rank fusion, the best `rerank_candidates` reranked, the top
-`top_k` kept. Every query names the collection and the owner (ADR-0131). The
-`rag.retrieve` span carries ids, pages, scores and counts, never chunk text (ADR-0137)."""
+text, fused by reciprocal rank fusion, the best `rerank_candidates` reranked on their first
+`rerank_max_tokens` tokens, the top `top_k` kept. Every query names the collection and
+the owner (ADR-0131). The `rag.retrieve` span carries ids, pages, scores and counts,
+never chunk text (ADR-0137)."""
 
 import hashlib
 import json
 from collections.abc import Sequence
 
+from app.context.compress import truncate
+from app.context.tokens import TokenCounter
 from app.models.embeddings import EmbeddingGateway
 from app.observability.otel import tracer
 from app.rag.config import Retrieval
@@ -55,8 +58,14 @@ def fuse(rankings: Sequence[Sequence[ScoredChunk]], k: int) -> list[ScoredChunk]
 
 class HybridRetriever:
     def __init__(
-        self, store: VectorStore, embeddings: EmbeddingGateway, reranker: Reranker, config: Retrieval
+        self,
+        store: VectorStore,
+        embeddings: EmbeddingGateway,
+        reranker: Reranker,
+        config: Retrieval,
+        counter: TokenCounter,
     ):
+        self._counter = counter
         self._store = store
         self._embeddings = embeddings
         self._reranker = reranker
@@ -87,7 +96,10 @@ class HybridRetriever:
                 document_ids=document_ids,
             )
             candidates = fuse([by_vector, by_text], config.rrf_k)[: config.rerank_candidates]
-            scores = await self._reranker.rerank(question, [c.text for c in candidates])
+            # Each candidate is scored on its first `rerank_max_tokens` tokens (ADR-0157).
+            scores = await self._reranker.rerank(
+                question, [truncate(c.text, config.rerank_max_tokens, self._counter) for c in candidates]
+            )
             ranked = sorted(
                 (c.model_copy(update={"score": s}) for c, s in zip(candidates, scores, strict=True)),
                 key=lambda c: (-c.score, c.attachment_id, c.ord),

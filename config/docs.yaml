@@ -38,7 +38,11 @@ retrieval:
   vector_top_k: 30
   text_top_k: 30
   rrf_k: 60
-  rerank_candidates: 30
+  # The cross-encoder runs on CPU in development: its time grows with the tokens it scores
+  # (measured: 30 candidates of 800 tokens, 34 s; 8 of 800, 8 s). The best 16 fused candidates
+  # are reranked, each on its first 400 tokens (ADR-0157).
+  rerank_candidates: 16
+  rerank_max_tokens: 400
   top_k: 8
   evidence_max_tokens: 5000
   # Words left out of the full-text query (compared after normalization); questions are

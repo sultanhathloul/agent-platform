@@ -163,7 +163,9 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         ),
         config=docs_config,
     )
-    retriever = HybridRetriever(vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval)
+    retriever = HybridRetriever(
+        vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval, counter
+    )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
         config=memory_config,
