@@ -135,6 +135,7 @@ public class ChatController {
 
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("selected_kbs", body.selectedKbs());
+        detail.put("attachment_ids", body.attachmentIds());
         AtomicBoolean audited = new AtomicBoolean();
         AuditStatus status = AuditStatus.ERROR;
         try {
@@ -216,7 +217,7 @@ public class ChatController {
                 new AgentTurnRequest.Principal(principal.userId(), principal.tenantId(), principal.permissions(),
                         maxTier, principal.displayName(), body.locale(), principal.policyRoles()),
                 body.message(),
-                body.attachments(),
+                body.attachmentIds(),
                 body.selectedKbs(),
                 body.locale());
     }

@@ -31,4 +31,12 @@ public class JdbcConversationRepository implements ConversationRepository {
                 .query((rs, row) -> new ConversationOwner(rs.getString("user_id"), rs.getString("tenant_id")))
                 .single();
     }
+
+    @Override
+    public java.util.Optional<ConversationOwner> ownerOf(String conversationId) {
+        return jdbc.sql("SELECT user_id, tenant_id FROM gateway.conversations WHERE id = :id")
+                .param("id", UUID.fromString(conversationId))
+                .query((rs, row) -> new ConversationOwner(rs.getString("user_id"), rs.getString("tenant_id")))
+                .optional();
+    }
 }

@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "1.3.0"
+    "version" : "1.4.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -660,6 +660,25 @@
         "tags" : [ "admin-policies" ]
       }
     },
+    "/v1/attachments/limits" : {
+      "get" : {
+        "operationId" : "limits",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeAttachmentLimits"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "The upload limits of config/docs.yaml",
+        "tags" : [ "attachments" ]
+      }
+    },
     "/v1/chat/turns" : {
       "post" : {
         "description" : "Streams agent events as Server-Sent Events. Event payloads are defined in docs/events.schema.json. Errors before the stream starts are JSON envelopes.",
@@ -750,6 +769,389 @@
         "tags" : [ "chat" ]
       }
     },
+    "/v1/conversations/{conversationId}/attachments" : {
+      "get" : {
+        "operationId" : "list",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeAttachmentList"
+                }
+              }
+            },
+            "description" : "The attachments and their status"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The caller's attachments of a conversation, oldest first",
+        "tags" : [ "attachments" ]
+      },
+      "post" : {
+        "description" : "Checked against the limits of config/docs.yaml before it is stored; the agent then indexes it in the background. Poll the attachment for its status.",
+        "operationId" : "upload",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                },
+                "required" : [ "file" ]
+              }
+            }
+          }
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeAttachmentView"
+                }
+              }
+            },
+            "description" : "Stored and registered; status pending"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden (no cap:docs) or conversation_forbidden"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "attachment_limit"
+          },
+          "413" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "file_too_large or too_many_pages"
+          },
+          "415" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "file_type_unsupported"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable or storage_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Uploads one file to a conversation",
+        "tags" : [ "attachments" ]
+      }
+    },
+    "/v1/conversations/{conversationId}/attachments/{attachmentId}" : {
+      "delete" : {
+        "operationId" : "delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "attachmentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "Deleted"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "attachment_not_found, also for another user's id"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Deletes one attachment: its file, its chunks and its record",
+        "tags" : [ "attachments" ]
+      },
+      "get" : {
+        "operationId" : "status",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "attachmentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeAttachmentView"
+                }
+              }
+            },
+            "description" : "The attachment"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "attachment_not_found, also for another user's id"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "One attachment's status: pending, indexed, or failed with a reason",
+        "tags" : [ "attachments" ]
+      }
+    },
+    "/v1/conversations/{conversationId}/attachments/{attachmentId}/content" : {
+      "get" : {
+        "operationId" : "download",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "attachmentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "binary"
+                }
+              }
+            },
+            "description" : "The file's bytes"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "attachment_not_found, also for another user's id"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable or storage_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Downloads one attachment's file (owner only)",
+        "tags" : [ "attachments" ]
+      }
+    },
     "/v1/health" : {
       "get" : {
         "operationId" : "health",
@@ -791,7 +1193,7 @@
     },
     "/v1/memory" : {
       "get" : {
-        "operationId" : "list",
+        "operationId" : "list_1",
         "responses" : {
           "200" : {
             "content" : {
@@ -909,7 +1311,7 @@
     },
     "/v1/memory/{itemId}" : {
       "delete" : {
-        "operationId" : "delete",
+        "operationId" : "delete_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "itemId",
@@ -980,6 +1382,48 @@
   },
   "components" : {
     "schemas" : {
+      "ApiEnvelopeAttachmentLimits" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/AttachmentLimits"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeAttachmentList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/AttachmentList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeAttachmentView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/AttachmentView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiEnvelopeMeResponse" : {
         "properties" : {
           "data" : {
@@ -1193,37 +1637,103 @@
         },
         "required" : [ "error", "request_id" ]
       },
-      "Attachment" : {
-        "default" : [ ],
+      "AttachmentLimits" : {
         "properties" : {
-          "id" : {
+          "extensions" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "max_file_bytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "max_files_per_conversation" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "max_pdf_pages" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "AttachmentList" : {
+        "properties" : {
+          "attachments" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AttachmentView"
+            }
+          }
+        }
+      },
+      "AttachmentView" : {
+        "properties" : {
+          "chunks" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "conversation_id" : {
+            "type" : "string"
+          },
+          "created_at" : {
             "type" : "string",
-            "minLength" : 1
+            "format" : "date-time"
+          },
+          "expires_at" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "30 days after the conversation's last turn (ADR-0125)."
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "indexed_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "kind" : {
+            "type" : "string"
           },
           "mime" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : "string"
           },
           "name" : {
+            "type" : "string"
+          },
+          "pages" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "reason" : {
             "type" : "string",
-            "minLength" : 1
+            "description" : "Why ingestion failed (failed only), e.g. scanned_unsupported."
           },
           "size" : {
             "type" : "integer",
             "format" : "int64"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "pending", "indexed", "failed" ]
           }
-        },
-        "required" : [ "id", "mime", "name" ]
+        }
       },
       "ChatTurnRequest" : {
         "properties" : {
-          "attachments" : {
+          "attachment_ids" : {
             "type" : "array",
             "default" : [ ],
+            "description" : "Attachments sent with this turn, uploaded first (A1, ADR-0129).",
             "items" : {
-              "$ref" : "#/components/schemas/Attachment"
+              "type" : "string",
+              "default" : "[]",
+              "description" : "Attachments sent with this turn, uploaded first (A1, ADR-0129).",
+              "pattern" : "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
             },
-            "maxItems" : 20,
+            "maxItems" : 10,
             "minItems" : 0
           },
           "conversation_id" : {

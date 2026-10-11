@@ -1,7 +1,6 @@
 package sa.ncai.agent.gateway.chat;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -28,22 +27,24 @@ public record ChatTurnRequest(
         @Schema(defaultValue = "[]")
         List<@NotNull @Pattern(regexp = "^[a-z0-9_-]{1,64}$") String> selectedKbs,
 
-        @Valid
-        @Size(max = 20)
-        @Schema(defaultValue = "[]")
-        List<@NotNull Attachment> attachments,
+        @Size(max = 10)
+        @Schema(defaultValue = "[]", description = "Attachments sent with this turn, uploaded first (A1, ADR-0129).")
+        List<@NotNull @Pattern(regexp = UUID) String> attachmentIds,
 
         @Pattern(regexp = "^(ar|en)$")
         @Schema(allowableValues = {"ar", "en"}, defaultValue = "ar")
         String locale) {
 
     public static final int MAX_MESSAGE_CHARS = 8000;
+    static final String UUID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     public ChatTurnRequest {
         conversationId = conversationId == null ? null : conversationId.toLowerCase(Locale.ROOT);
         message = message == null ? null : message.strip();
         selectedKbs = selectedKbs == null ? List.of() : List.copyOf(selectedKbs);
-        attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        attachmentIds = attachmentIds == null
+                ? List.of()
+                : attachmentIds.stream().map(id -> id.toLowerCase(Locale.ROOT)).toList();
         locale = locale == null ? "ar" : locale;
     }
 }

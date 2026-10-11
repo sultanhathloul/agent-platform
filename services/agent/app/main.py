@@ -164,7 +164,6 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         config=docs_config,
     )
     retriever = HybridRetriever(vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval)
-    rag_runtime.bind(retriever)
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
         config=memory_config,
@@ -233,10 +232,12 @@ async def start_services(services: Services) -> Services:
     await services.locks.open()
     await services.policies.seed(policy_roots(services.settings, services.registry))
     await services.policies.start()
+    rag_runtime.bind(services.retriever)
     return dataclasses.replace(services, graph=build_graph(checkpointer))
 
 
 async def stop_services(services: Services) -> None:
+    rag_runtime.unbind(services.retriever)
     await services.policies.stop()
     for close in services.closers:
         await close()

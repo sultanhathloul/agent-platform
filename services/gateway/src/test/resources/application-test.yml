@@ -22,3 +22,6 @@ gateway:
     response-timeout: 5s
   cors:
     allowed-origins: http://localhost:3000
+  storage:
+    endpoint: http://localhost:9
+    bucket: uploads

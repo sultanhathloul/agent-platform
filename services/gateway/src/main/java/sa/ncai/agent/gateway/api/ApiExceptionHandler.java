@@ -15,6 +15,9 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -38,6 +41,17 @@ public class ApiExceptionHandler {
         MissingServletRequestParameterException.class
     })
     void invalidRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        errors.write(request, response, ErrorCode.INVALID_REQUEST);
+    }
+
+    /** Over the multipart limit, before the controller runs: the upload limit's own message (ADR-0126). */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    void tooLarge(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        errors.write(request, response, ErrorCode.FILE_TOO_LARGE);
+    }
+
+    @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
+    void badMultipart(HttpServletRequest request, HttpServletResponse response) throws IOException {
         errors.write(request, response, ErrorCode.INVALID_REQUEST);
     }
 

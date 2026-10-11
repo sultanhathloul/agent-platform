@@ -117,6 +117,14 @@ async def test_a_pending_job_resumes_when_the_worker_starts(services, litellm):
     record = await _upload(
         services, ALICE, conversation, "تعميم.txt", "تعميم بشأن ساعات العمل الصيفية.".encode()
     )
+    # Other tests leave pending rows whose objects never existed; settle them so the queue
+    # holds only this job.
+    async with services.db.connection() as conn:
+        await conn.execute(
+            "UPDATE agent.attachments SET status = 'failed', reason = 'ingest_error' "
+            "WHERE status = 'pending' AND id <> %s",
+            (record.id,),
+        )
     worker = services.attachments.worker
     await worker.start()  # puts every pending attachment back on the queue
     try:
