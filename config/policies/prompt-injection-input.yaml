@@ -2,12 +2,13 @@ id: prompt-injection-input
 name_ar: حظر حقن التعليمات في رسالة المستخدم
 name_en: Block prompt injection in the user message
 description_ar: >-
-  صيغ بالعربية والإنجليزية تحاول تجاوز تعليمات المساعد أو استخراج تعليمات النظام. تُطابَق الأنماط
+  صيغ بالعربية الفصحى واللهجة الخليجية وبالإنجليزية تحاول تجاوز تعليمات المساعد أو استخراج
+  تعليمات النظام، مثل «انسى التعليمات اللي قبل» و«طنّش أوامرك» و«لا تلتزم بقواعدك». تُطابَق الأنماط
   على النص بعد توحيد الحروف العربية (حذف التشكيل والتطويل وتوحيد أشكال الألف والتاء المربوطة)، دون
   تمييز بين الأحرف اللاتينية الكبيرة والصغيرة.
 description_en: >-
-  English and Arabic phrasings that try to override the assistant's instructions or
-  extract its system prompt. Patterns are matched on Arabic-folded text (tashkeel and
+  English, Modern Standard Arabic and Gulf-dialect phrasings that try to override the
+  assistant's instructions or extract its system prompt. Patterns are matched on Arabic-folded text (tashkeel and
   tatweel removed, alef and taa marbuta forms folded), case-insensitively.
 enabled: true
 scope: global
@@ -21,8 +22,11 @@ config:
       pattern: "\\b(?:reveal|print|show|repeat)\\s+(?:me\\s+)?(?:your|the)\\s+(?:system\\s+prompt|hidden\\s+instructions|initial\\s+instructions)"
     - name: ROLE_EN
       pattern: "\\byou\\s+are\\s+now\\s+(?:DAN|in\\s+developer\\s+mode|an?\\s+unrestricted)"
+    # Matched on folded text: انسى and انسي both fold to انسي, ة to ه. A possessive object
+    # (تعليماتك، اوامرك، قواعدك) is enough; a bare one needs السابقة، اعلاه، التي تلقيتها، اللي قبل
+    # or اللي فوق after it. "لا تلتزم ب" takes its object glued (بتعليماتك، بالتعليمات، بكل).
     - name: OVERRIDE_AR
-      pattern: "(?:تجاهل|انس|اهمل)\\s+(?:جميع\\s+|كل\\s+)?(?:التعليمات|الاوامر|القواعد|التوجيهات)\\s+(?:السابقة|اعلاه|التي\\s+تلقيتها)"
+      pattern: "(?:(?:تجاهل|انسى?|اهمل|طنش)\\s+|لا\\s+تلتزم\\s+ب)(?:(?:جميع|كل)\\s+)?(?:(?:تعليمات|اوامر|قواعد|توجيهات)(?:ك|كم)\\b|(?:ال)?(?:تعليمات|اوامر|قواعد|توجيهات)\\s+(?:السابقة|اعلاه|التي\\s+تلقيتها|اللي\\s+(?:قبل|فوق)))"
     - name: EXTRACT_AR
       pattern: "(?:اكشف|اعرض|اطبع|كرر)\\s+(?:لي\\s+)?(?:موجه|تعليمات|رسالة)\\s+النظام"
     - name: ROLE_AR

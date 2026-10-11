@@ -4,7 +4,7 @@ id: web-domain-denylist
 name_ar: نطاقات ويب لا يجوز لأداة الويب جلبها
 name_en: Web domains the web tool may not fetch
 description_ar: >-
-  يُرفض البحث أو الجلب عبر الويب إذا ذكرت وسائطه نطاقًا محظورًا، قبل تشغيل الأداة (PRE_TOOL).
+  يُرفض البحث أو الجلب عبر الويب إذا ذكرت وسائطه نطاقًا محظورًا، قبل تشغيل الأداة.
 description_en: >-
   A web search or fetch whose arguments name a denied domain is refused before the tool
   runs (PRE_TOOL).

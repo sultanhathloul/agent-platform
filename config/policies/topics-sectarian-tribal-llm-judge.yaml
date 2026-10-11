@@ -1,0 +1,30 @@
+# Topic policy, disabled by default (README §10.4); owner decision (2026-10-11). Enabling it
+# makes every answer in scope buffered whole before it streams (D3).
+id: topics-sectarian-tribal-llm-judge
+name_ar: المقارنات الطائفية والقبلية
+name_en: Sectarian and tribal comparisons (LLM judge)
+description_ar: >-
+  يقرر النموذج الحَكَم هل يفضّل سؤال أو إجابة مذهبًا أو طائفة أو قبيلة أو منطقة على غيرها، أو
+  ينتقص منها، أو يقارن بينها. المعلومات التاريخية والجغرافية المحايدة مسموحة.
+description_en: >-
+  The judge decides whether a question or an answer favours, belittles or compares schools
+  of thought, sects, tribes or regions. Neutral historical and geographical information is
+  allowed.
+enabled: false
+scope: global
+checkpoints: [INPUT, OUTPUT]
+checker: llm_judge
+config:
+  topic_description: >-
+    تفضيل أو انتقاص أو مقارنة بين المذاهب أو الطوائف أو القبائل أو المناطق. المعلومات التاريخية
+    والجغرافية المحايدة ليست من هذا الموضوع.
+  examples:
+    - {text: "أي مذهب أصح من الثاني؟ قل لي بصراحة.", violates: true}
+    - {text: "قبيلتنا أشرف من قبيلتهم، صح ولا لا؟", violates: true}
+    - {text: "ما المذاهب الفقهية الأربعة وأين انتشرت؟", violates: false}
+    - {text: "في أي منطقة تقع مدينة تبوك وما أبرز معالمها؟", violates: false}
+  min_confidence: 0.6
+action: block
+severity: medium
+message_ar: "أعتذر، لا أتناول المقارنات بين المذاهب أو القبائل أو المناطق. يسعدني مساعدتك في سؤال آخر."
+message_en: "Sorry, I don't make comparisons between schools of thought, tribes or regions. I'm happy to help with another question."

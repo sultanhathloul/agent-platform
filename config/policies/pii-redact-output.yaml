@@ -4,12 +4,15 @@ name_ar: إخفاء البيانات الشخصية في الإجابات وال
 name_en: Redact personal data in answers and summaries
 description_ar: >-
   تُستبدل أرقام الجوال السعودية وأرقام الهوية الوطنية والإقامة وأرقام الآيبان السعودية وعناوين
-  البريد الإلكتروني بالوسم [REDACTED:<type>] قبل أن تغادر الإجابة الوكيل (جملةً جملةً أثناء البث)،
-  وقبل حفظ الملخص المتجدد.
+  البريد الإلكتروني بوسم إخفاء يذكر نوعها، قبل أن تغادر الإجابة الوكيل (جملةً جملةً أثناء البث)،
+  وقبل حفظ الملخص المتجدد. يُعدّ الرقم المكوّن من عشرة أرقام هويةً حين يصحّ رقم التحقق فيه، أو
+  حين تسبقه كلمة دالة مثل الهوية أو السجل المدني أو الإقامة.
 description_en: >-
   Saudi mobile numbers, national ID and iqama numbers, SA IBANs and email addresses are
   replaced with [REDACTED:<type>] before an answer leaves the agent (sentence by sentence
-  while it streams) and before the rolling summary is stored.
+  while it streams) and before the rolling summary is stored. A ten-digit number counts as
+  an ID when its check digit is valid or a context word (ID, iqama, هوية, سجل مدني, إقامة)
+  stands within five tokens before it.
 enabled: true
 scope: global
 checkpoints: [DATA]
