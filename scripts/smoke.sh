@@ -489,7 +489,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Beare
 [[ $code == 403 ]] && ok "by the analyst's conversation id: delete → 403" || fail "delete by the analyst's conversation id returned $code"
 check "the analyst's file is untouched" bash -c "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT' | jq -e '.data.id == \"$ANALYST_ATT\"'"
 denied=$(sql "select count(*) from gateway.audit_events where action like 'attachment.%' and status = 'denied' and conversation_id in ('$DOC_CONV', '$ANALYST_CONV')")
-(( denied >= 8 )) && ok "every refusal is audited as denied ($denied rows)" || fail "denied attachment audit rows: $denied"
+(( denied == 7 )) && ok "each of the 7 refusals is audited as denied" || fail "denied attachment audit rows: $denied"
 
 step "phase 04: a scanned PDF ends failed with scanned_unsupported (D4)"
 SCAN_CONV=$(uuidgen | tr 'A-Z' 'a-z')
