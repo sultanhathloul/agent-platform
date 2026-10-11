@@ -65,6 +65,8 @@ smoke: .env ## End-to-end smoke test against the live stack
 # Images and models must be present; the normal stack is restored afterwards, pass or fail.
 AIRGAP_FILES := docker-compose.yml:docker-compose.airgap.yml
 smoke-airgap: .env ## Smoke with egress blocked for every container except litellm
+	@# Test-profile containers are not part of the stack under test; `make test` starts them again.
+	$(COMPOSE) --profile test rm -sf litellm-mock embed-mock >/dev/null
 	COMPOSE_FILE=$(AIRGAP_FILES) $(COMPOSE) up -d --wait --wait-timeout 900 --remove-orphans
 	@status=0; \
 	COMPOSE_FILE=$(AIRGAP_FILES) scripts/airgap_check.sh && COMPOSE_FILE=$(AIRGAP_FILES) scripts/smoke.sh || status=$$?; \
