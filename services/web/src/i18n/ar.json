@@ -132,7 +132,7 @@
     "saving": "جارٍ الحفظ…",
     "cancel": "إلغاء",
     "saved": "حُفظت السياسة، والإصدار الحالي هو {version}.",
-    "configInvalid": "الإعدادات ليست كائن JSON صالحًا.",
+    "configInvalid": "نص الإعدادات المتقدمة غير صالح، فلا يمكن الحفظ.",
     "fields": {
       "id": "المعرّف",
       "nameAr": "الاسم بالعربية",
@@ -141,9 +141,8 @@
       "descriptionEn": "الوصف بالإنجليزية",
       "purpose": "الغرض",
       "scope": "النطاق",
-      "scopeHint": "global أو tenant:<المعرّف من سمة Keycloak المسماة tenant_id> (مثل tenant:default) أو role:اسم أو kb:اسم أو tool:اسم. نطاق role يطبَّق على من يحمل دور الحماية policy:الاسم.",
       "group": "المجموعة",
-      "groupHint": "في المجموعة الواحدة تتجاوز السياسة ذات النطاق الأضيق السياسةَ العامة global، فيما طابقته أداة فحصها فقط؛ ولا يتجاوز أيٌّ من نطاقات tenant وrole وkb وtool الآخر، ويغلب بينها الإجراء الأشد. تُترك فارغة لتكون المجموعة هي المعرّف.",
+      "groupHint": "تتجاوز السياسة الأضيق نطاقًا السياسة العامة في مجموعتها. اتركها فارغة لتكون المجموعة هي المعرّف.",
       "checkpoints": "نقاط التفتيش",
       "checker": "أداة الفحص",
       "action": "الإجراء",
@@ -151,10 +150,27 @@
       "onError": "عند تعذّر الفحص",
       "messageAr": "رسالة الحجب بالعربية",
       "messageEn": "رسالة الحجب بالإنجليزية",
-      "config": "الإعدادات (JSON)",
-      "configHint": "حسب أداة الفحص، مثل keywords أو patterns أو entities. يمكن لسياسات DATA أن تحدد targets.",
+      "config": "الإعدادات",
       "enabled": "مفعّلة",
-      "unknownRole": "تنبيه: لا يوجد في Keycloak دور بهذا الاسم حاليًا:"
+      "unknownRole": "تنبيه: هذا الدور غير موجود حاليًا في قائمة أدوار الحماية:",
+      "scopeKind": "نوع النطاق",
+      "scopeValue": "القيمة",
+      "scopeKinds": {
+        "global": "عام",
+        "tenant": "جهة",
+        "role": "دور",
+        "kb": "قاعدة معرفة",
+        "tool": "أداة"
+      },
+      "scopeHints": {
+        "global": "تسري على جميع المستخدمين.",
+        "tenant": "معرّف الجهة كما يرد في رمز الدخول.",
+        "role": "تسري على من يحمل دور الحماية المختار.",
+        "kb": "معرّف قاعدة المعرفة.",
+        "tool": "اسم القدرة أو الأداة."
+      },
+      "example": "مثال:",
+      "noRoles": "لا توجد أدوار حماية معرَّفة بعد."
     },
     "checkpoints": {
       "INPUT": "رسالة المستخدم",
@@ -185,8 +201,8 @@
     },
     "targets": {
       "answer": "الإجابة",
-      "memory_candidate": "الذاكرة",
-      "summary": "الملخص"
+      "summary": "الملخص",
+      "memory_candidate": "عناصر الذاكرة"
     },
     "test": {
       "title": "اختبار السياسة",
@@ -206,13 +222,22 @@
       "error": "خطأ الفحص:",
       "spans": "المقاطع المطابِقة",
       "noSpans": "لم تُحدَّد مقاطع.",
-      "output": "النص بعد الحجب",
+      "output": "النص الناتج",
       "message": "رسالة السياسة:",
       "principal": "التقييم لـ",
       "tenant": "المستأجر",
       "roles": "أدوار الحماية",
       "rolesHint": "افصل بين الأدوار بمسافة",
-      "rolesExample": "مثال:"
+      "rolesExample": "مثال:",
+      "outputBy": {
+        "redact": "النص بعد الإخفاء",
+        "block": "النص بعد الحظر",
+        "warn": "النص بعد التحذير",
+        "rewrite": "النص بعد إعادة الصياغة",
+        "log_only": "النص بعد التسجيل",
+        "allow": "النص بعد السماح",
+        "require_approval": "النص بعد طلب الموافقة"
+      }
     },
     "history": {
       "title": "سجل الإصدارات",
@@ -227,9 +252,10 @@
       "title": "الاستيراد والتصدير",
       "export": "تصدير YAML",
       "file": "اختيار ملف",
-      "placeholder": "الصق وثيقة YAML بالسياسات هنا",
+      "placeholder": "الصق هنا ملف السياسات",
       "import": "استيراد",
-      "report": "أُنشئت {created}، وأُضيف إصدار جديد لـ {versioned}، وتغيّر تفعيل {switched}، وبقيت {unchanged} دون تغيير."
+      "report": "أُنشئت {created}، وأُضيف إصدار جديد لـ {versioned}، وتغيّر تفعيل {switched}، وبقيت {unchanged} دون تغيير.",
+      "format": "YAML"
     },
     "metrics": {
       "title": "المطابقات اليومية لكل سياسة (آخر {days} يومًا)",
@@ -247,21 +273,21 @@
     },
     "explanation": {
       "empty_text": "النص فارغ.",
-      "keywords": "كلمات وُجدت: {items}",
+      "keywords": "كلمات وُجدت: <list></list>",
       "no_keyword": "لم تُوجد أي كلمة.",
-      "allowed": "ضمن قائمة المسموح: {items}",
+      "allowed": "ضمن قائمة المسموح: <list></list>",
       "outside_allow_list": "النص خارج قائمة المسموح.",
-      "patterns": "أنماط طابقت: {items}",
+      "patterns": "أنماط طابقت: <list></list>",
       "no_pattern": "لم يطابق أي نمط.",
-      "entities": "كيانات وُجدت: {items}",
+      "entities": "كيانات وُجدت: <list></list>",
       "no_entity": "لم يُوجد أي كيان.",
-      "judge_violates": "وجد المحكِّم الموضوع ({category})، بثقة {confidence}.",
-      "judge_violates_cached": "وجد المحكِّم الموضوع ({category})، بثقة {confidence}؛ حكم محفوظ.",
-      "judge_clear": "لم يجد المحكِّم الموضوع، بثقة {confidence}.",
-      "judge_clear_cached": "لم يجد المحكِّم الموضوع، بثقة {confidence}؛ حكم محفوظ.",
-      "role_not_covered": "دور النموذج {role} لا يشمله هذا السقف.",
-      "above_ceiling": "المستوى المطلوب {tier} أعلى من السقف {ceiling}.",
-      "within_ceiling": "المستوى المطلوب {tier} ضمن السقف {ceiling}."
+      "judge_violates": "وجد المحكِّم الموضوع (<v>{category}</v>)، بثقة <v>{confidence}</v>.",
+      "judge_violates_cached": "وجد المحكِّم الموضوع (<v>{category}</v>)، بثقة <v>{confidence}</v>؛ حكم محفوظ.",
+      "judge_clear": "لم يجد المحكِّم الموضوع، بثقة <v>{confidence}</v>.",
+      "judge_clear_cached": "لم يجد المحكِّم الموضوع، بثقة <v>{confidence}</v>؛ حكم محفوظ.",
+      "role_not_covered": "دور النموذج <v>{role}</v> لا يشمله هذا السقف.",
+      "above_ceiling": "المستوى المطلوب <v>{tier}</v> أعلى من السقف <v>{ceiling}</v>.",
+      "within_ceiling": "المستوى المطلوب <v>{tier}</v> ضمن السقف <v>{ceiling}</v>."
     },
     "changes": {
       "title": "سجل التغييرات",
@@ -289,6 +315,89 @@
       "production": "تشغيلية",
       "test": "اختبار"
     },
-    "showTest": "إظهار سياسات الاختبار"
+    "showTest": "إظهار سياسات الاختبار",
+    "entities": {
+      "SA_MOBILE": "رقم جوال سعودي",
+      "SA_NATIONAL_ID": "رقم هوية أو إقامة",
+      "SA_IBAN": "آيبان سعودي",
+      "EMAIL_ADDRESS": "بريد إلكتروني",
+      "ARABIC_NAME": "اسم شخص عربي"
+    },
+    "tiers": {
+      "fast": "سريع",
+      "standard": "قياسي",
+      "heavy": "متقدم"
+    },
+    "modelRoles": {
+      "router": "الموجِّه",
+      "summarizer": "الملخِّص",
+      "judge": "المحكِّم",
+      "extractor": "المستخلِص",
+      "reflection": "المراجعة",
+      "reasoning": "الاستدلال"
+    },
+    "config": {
+      "keywords": "الكلمات",
+      "mode": "طريقة المطابقة",
+      "modes": {
+        "deny": "تطابق عند وجود كلمة",
+        "allow": "تطابق عند خروج النص عن القائمة"
+      },
+      "patterns": "الأنماط",
+      "patternName": "الاسم",
+      "pattern": "النمط",
+      "fold": "توحيد الحروف والأرقام قبل المطابقة",
+      "yes": "نعم",
+      "no": "لا",
+      "entities": "الكيانات",
+      "scoreThreshold": "حد الدرجة",
+      "topic": "وصف الموضوع",
+      "examples": "الأمثلة",
+      "exampleText": "النص",
+      "verdict": "الحكم",
+      "violates": "يُحجب",
+      "allowed": "يُسمح",
+      "minConfidence": "أدنى ثقة",
+      "tier": "سقف المستوى",
+      "roles": "أدوار النموذج التي يسري عليها",
+      "allRoles": "جميع الأدوار",
+      "targets": "الوجهات",
+      "allTargets": "جميع الوجهات",
+      "default": "{value} (الافتراضي)",
+      "none": "لا شيء"
+    },
+    "summary": {
+      "showTechnical": "عرض الإعدادات التقنية",
+      "hideTechnical": "إخفاء الإعدادات التقنية"
+    },
+    "editor": {
+      "advanced": "إعدادات متقدمة",
+      "jsonInvalid": "نص الإعدادات المتقدمة غير صالح، فلا يمكن الحفظ.",
+      "paused": "صحّح نص الإعدادات المتقدمة لمتابعة التعديل هنا.",
+      "blocked": "صحّح الإعدادات قبل الحفظ.",
+      "keywordPlaceholder": "اكتب كلمة ثم اضغط إدخال",
+      "add": "إضافة",
+      "remove": "حذف",
+      "removeItem": "حذف: {item}",
+      "addPattern": "إضافة نمط",
+      "addExample": "إضافة مثال",
+      "noChecker": "لا محرر لأداة الفحص هذه؛ استخدم الإعدادات المتقدمة.",
+      "errors": {
+        "keywordsEmpty": "أضف كلمة واحدة على الأقل.",
+        "patternsEmpty": "أضف نمطًا واحدًا على الأقل.",
+        "patternName": "الاسم حروف لاتينية أو أرقام أو شرطة سفلية، حتى أربعة وستين حرفًا.",
+        "patternInvalid": "النمط غير صالح.",
+        "entitiesEmpty": "اختر كيانًا واحدًا على الأقل.",
+        "threshold": "القيمة بين صفر وواحد.",
+        "topicEmpty": "اكتب وصف الموضوع.",
+        "exampleEmpty": "اكتب نص المثال.",
+        "tierEmpty": "اختر المستوى.",
+        "targetsEmpty": "اختر وجهة واحدة على الأقل."
+      }
+    },
+    "actor": {
+      "tooltip": "اسم المستخدم: {username}، المعرّف: {id}",
+      "tooltipId": "المعرّف: {id}"
+    }
   }
 }

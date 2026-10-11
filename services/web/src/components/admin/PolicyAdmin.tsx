@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   PolicyChange,
   PolicyDetail,
@@ -39,7 +39,6 @@ import {
   SEVERITIES,
   TARGETS,
   emptyForm,
-  explanationArgs,
   formatList,
   formFromPolicy,
   highlight,
@@ -50,13 +49,19 @@ import {
   policyDescription,
   policyFromForm,
   policyName,
-  unknownPolicyRole,
+  visibleMatchRows,
   type PolicyForm,
 } from "@/lib/policies";
+import { configProblems, configToText, parseConfig, starterConfig, type Config } from "@/lib/policyConfig";
 import { useAuth } from "../AuthProvider";
 import { useRuntimeConfig } from "../ConfigProvider";
+import { ActorName } from "./ActorName";
+import { ConfigEditor } from "./ConfigEditor";
+import { ConfigSummary } from "./ConfigSummary";
 import { PolicyList } from "./PolicyList";
 import { PolicyMeta } from "./PolicyMeta";
+import { GROUP_EXAMPLES, Hint, ScopeField } from "./ScopeField";
+import { EntityName, Explanation, OutputHeading } from "./TestResultParts";
 
 const METRIC_DAYS = 14;
 // Role names are identifiers, the same in both locales: shown as an example under the field.
@@ -89,6 +94,8 @@ export function PolicyAdmin() {
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<PolicyOverrides | null>(null);
   const [realmRoles, setRealmRoles] = useState<string[] | null>(null);
+  // "Show test policies" (ADR-0119) governs the list and the daily matches table (ADR-0123).
+  const [showTest, setShowTest] = useState(false);
 
   const authorized = useCallback(
     async <T,>(call: (token: string) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
@@ -176,6 +183,15 @@ export function PolicyAdmin() {
       setError({ code: "policy_invalid", details: [t("policies.configInvalid")] });
       return;
     }
+    // The editor never sends what it refuses (ADR-0123); the agent's validator decides the rest.
+    const problems = configProblems(editing.form.checker, (parsed.policy.config ?? {}) as Config, editing.form.checkpoints);
+    if (problems.length > 0) {
+      setError({
+        code: "policy_invalid",
+        details: [t("policies.editor.blocked"), ...new Set(problems.map((p) => t(`policies.editor.errors.${p.key}`)))],
+      });
+      return;
+    }
     setBusy("save");
     setError(null);
     setNotice(null);
@@ -260,6 +276,8 @@ export function PolicyAdmin() {
               policies={policies}
               selected={selected}
               busy={busy}
+              showTest={showTest}
+              onShowTest={setShowTest}
               onOpen={(id) => void open(id)}
               onToggle={(view) => void toggle(view)}
             />
@@ -286,7 +304,7 @@ export function PolicyAdmin() {
           ) : current ? (
             <section className={card} aria-labelledby="policy-detail">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 id="policy-detail" dir="auto" className="font-semibold text-slate-800">
+                <h2 id="policy-detail" dir="auto" className="min-w-0 break-words font-semibold text-slate-800">
                   {policyName(current, locale)}
                 </h2>
                 <button
@@ -310,9 +328,12 @@ export function PolicyAdmin() {
                 </p>
               )}
               <OverridesNote overrides={detail?.current.overrides ?? []} exception={Boolean(detail?.current.exception)} />
-              <pre dir="ltr" className="mt-3 max-h-64 overflow-auto rounded-md bg-slate-50 p-2 text-xs text-slate-700">
-                {JSON.stringify(current.config ?? {}, null, 2)}
-              </pre>
+              <ConfigSummary
+                key={`${current.id}@${current.version}`}
+                checker={current.checker}
+                config={(current.config ?? {}) as Config}
+                checkpoints={current.checkpoints}
+              />
             </section>
           ) : (
             <section className={card}>
@@ -345,7 +366,7 @@ export function PolicyAdmin() {
         </div>
       </div>
 
-      <MatchesPerDay metrics={metrics} />
+      <MatchesPerDay metrics={metrics} policies={policies} showTest={showTest} />
     </div>
   );
 }
@@ -409,7 +430,6 @@ function PolicyEditor({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const missingRole = unknownPolicyRole(form.scope, realmRoles);
   const t = useTranslations();
   const set = <K extends keyof PolicyForm>(key: K, value: PolicyForm[K]) => onChange({ ...form, [key]: value });
   const field = "flex flex-col gap-1 text-sm text-slate-700";
@@ -477,27 +497,7 @@ function PolicyEditor({
             onChange={(e) => set("description_en", e.target.value)}
           />
         </label>
-        <label className={field}>
-          {t("policies.fields.scope")}
-          <input
-            dir="ltr"
-            list="policy-roles"
-            className={`${input} font-mono`}
-            value={form.scope}
-            onChange={(e) => set("scope", e.target.value)}
-          />
-          <datalist id="policy-roles">
-            {(realmRoles ?? []).map((role) => (
-              <option key={role} value={`role:${role.slice("policy:".length)}`} />
-            ))}
-          </datalist>
-          <span className="text-[11px] text-slate-500">{t("policies.fields.scopeHint")}</span>
-          {missingRole && (
-            <span role="status" className="text-[11px] text-amber-800">
-              {t("policies.fields.unknownRole")} <bdi className="font-mono">{missingRole}</bdi>
-            </span>
-          )}
-        </label>
+        <ScopeField scope={form.scope} realmRoles={realmRoles} onChange={(scope) => set("scope", scope)} />
         <label className={field}>
           {t("policies.fields.group")}
           <input
@@ -506,7 +506,7 @@ function PolicyEditor({
             value={form.group ?? ""}
             onChange={(e) => set("group", e.target.value)}
           />
-          <span className="text-[11px] text-slate-500">{t("policies.fields.groupHint")}</span>
+          <Hint text={t("policies.fields.groupHint")} examples={GROUP_EXAMPLES} />
         </label>
         <fieldset className={`${field} sm:col-span-2`}>
           <legend>{t("policies.fields.checkpoints")}</legend>
@@ -528,7 +528,16 @@ function PolicyEditor({
         </fieldset>
         <label className={field}>
           {t("policies.fields.checker")}
-          <select className={input} value={form.checker} onChange={(e) => set("checker", e.target.value)}>
+          <select
+            className={input}
+            value={form.checker}
+            onChange={(e) => {
+              // Another checker reads another config: start from its template, keeping DATA targets.
+              const previous = parseConfig(form.configText);
+              const config = starterConfig(e.target.value, previous.ok ? previous.config : {});
+              onChange({ ...form, checker: e.target.value, configText: configToText(config) });
+            }}
+          >
             {CHECKERS.map((c) => (
               <option key={c} value={c}>
                 {t(`policies.checkers.${c}`)}
@@ -574,18 +583,12 @@ function PolicyEditor({
           {t("policies.fields.messageEn")}
           <input dir="ltr" className={input} value={form.message_en ?? ""} onChange={(e) => set("message_en", e.target.value)} />
         </label>
-        <label className={`${field} sm:col-span-2`}>
-          {t("policies.fields.config")}
-          <textarea
-            dir="ltr"
-            rows={8}
-            spellCheck={false}
-            className={`${input} font-mono text-xs`}
-            value={form.configText}
-            onChange={(e) => set("configText", e.target.value)}
-          />
-          <span className="text-[11px] text-slate-500">{t("policies.fields.configHint")}</span>
-        </label>
+        <ConfigEditor
+          checker={form.checker}
+          configText={form.configText}
+          checkpoints={form.checkpoints}
+          onChange={(configText) => set("configText", configText)}
+        />
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={form.enabled ?? true} onChange={(e) => set("enabled", e.target.checked)} />
           {t("policies.fields.enabled")}
@@ -743,11 +746,7 @@ function TestPanel({
           {(result.explanation_key || result.explanation) && (
             <p className="text-xs text-slate-600">
               {t("policies.test.explanation")}{" "}
-              <bdi dir="auto">
-                {result.explanation_key && t.has(`policies.explanation.${result.explanation_key}`)
-                  ? t(`policies.explanation.${result.explanation_key}`, explanationArgs(result.explanation_args, locale))
-                  : result.explanation}
-              </bdi>
+              <Explanation explanationKey={result.explanation_key} args={result.explanation_args} fallback={result.explanation} />
             </p>
           )}
           {result.error && (
@@ -762,7 +761,7 @@ function TestPanel({
                 segment.entity ? (
                   <mark key={i} title={segment.entity} className="rounded bg-amber-200 px-0.5">
                     {segment.text}
-                    <bdi className="ms-1 align-super font-mono text-[10px] text-amber-900">{segment.entity}</bdi>
+                    <EntityName entity={segment.entity} className="ms-1 align-super text-[10px] text-amber-900" />
                   </mark>
                 ) : (
                   <span key={i}>{segment.text}</span>
@@ -773,7 +772,7 @@ function TestPanel({
           </div>
           {result.output_text != null && result.output_text !== tested && (
             <div>
-              <h3 className="text-xs font-semibold text-slate-500">{t("policies.test.output")}</h3>
+              <OutputHeading action={result.action} />
               <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-2">
                 {result.output_text}
               </p>
@@ -793,8 +792,6 @@ function TestPanel({
 function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form: PolicyForm) => void }) {
   const t = useTranslations();
   const locale = useLocale();
-  // The actor is free text: its direction follows its own first strong character.
-  const who = (chunks: ReactNode) => <bdi dir="auto">{chunks}</bdi>;
   const [shown, setShown] = useState<number | null>(null);
   const currentVersion = detail.current.policy.version;
   return (
@@ -818,7 +815,7 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
                   {t.rich("policies.history.by", {
                     user: v.created_by,
                     date: new Date(v.created_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
-                    who,
+                    who: () => <ActorName id={v.created_by} username={v.created_by_username} name={v.created_by_name} />,
                   })}
                 </span>
               </span>
@@ -854,7 +851,6 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   const [changes, setChanges] = useState<PolicyChange[] | null>(null);
-  const who = (chunks: ReactNode) => <bdi dir="auto">{chunks}</bdi>;
 
   useEffect(() => {
     let live = true;
@@ -900,7 +896,7 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
               {t.rich("policies.changes.by", {
                 user: c.actor,
                 date: new Date(c.changed_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
-                who,
+                who: () => <ActorName id={c.actor} username={c.actor_username} name={c.actor_name} />,
               })}
             </span>
           </li>
@@ -951,7 +947,12 @@ function ImportExport({
 
   return (
     <div className="mt-4 border-t border-slate-100 pt-3">
-      <h3 className="text-sm font-semibold text-slate-700">{t("policies.io.title")}</h3>
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+        {t("policies.io.title")}
+        <bdi dir="ltr" className="rounded-full bg-slate-100 px-1.5 font-mono text-[11px] font-normal text-slate-600" data-chip="format">
+          {t("policies.io.format")}
+        </bdi>
+      </h3>
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" className={quiet} disabled={busy} onClick={() => void download()}>
           {t("policies.io.export")}
@@ -973,7 +974,7 @@ function ImportExport({
         dir="ltr"
         rows={4}
         spellCheck={false}
-        className={`${input} mt-2 font-mono text-xs`}
+        className={`${input} mt-2 font-mono text-xs placeholder:font-sans`}
         value={yaml}
         placeholder={t("policies.io.placeholder")}
         aria-label={t("policies.io.placeholder")}
@@ -996,10 +997,21 @@ function ImportExport({
   );
 }
 
-function MatchesPerDay({ metrics }: { metrics: PolicyMetrics | null }) {
+export function MatchesPerDay({
+  metrics,
+  policies,
+  showTest,
+}: {
+  metrics: PolicyMetrics | null;
+  policies: PolicyView[] | null;
+  showTest: boolean;
+}) {
   const t = useTranslations();
   const days = useMemo(() => lastDays(metrics?.days ?? METRIC_DAYS), [metrics?.days]);
-  const grouped = useMemo(() => matchesByPolicy(metrics?.rows ?? []), [metrics?.rows]);
+  const grouped = useMemo(
+    () => matchesByPolicy(visibleMatchRows(metrics?.rows ?? [], policies, showTest)),
+    [metrics?.rows, policies, showTest],
+  );
   return (
     <section className={card} aria-labelledby="policy-metrics">
       <h2 id="policy-metrics" className="font-semibold text-slate-800">
@@ -1023,7 +1035,7 @@ function MatchesPerDay({ metrics }: { metrics: PolicyMetrics | null }) {
             </thead>
             <tbody>
               {grouped.map((g) => (
-                <tr key={g.policyId} className="border-t border-slate-100">
+                <tr key={g.policyId} className="border-t border-slate-100" data-match-row={g.policyId}>
                   <td className="py-1">
                     <bdi className="font-mono">{g.policyId}</bdi>
                   </td>

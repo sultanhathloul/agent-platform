@@ -132,7 +132,7 @@
     "saving": "Saving…",
     "cancel": "Cancel",
     "saved": "The policy was saved; the current version is {version}.",
-    "configInvalid": "The settings are not a valid JSON object.",
+    "configInvalid": "The advanced settings text is not valid, so saving is blocked.",
     "fields": {
       "id": "Id",
       "nameAr": "Name in Arabic",
@@ -141,9 +141,8 @@
       "descriptionEn": "Description in English",
       "purpose": "Purpose",
       "scope": "Scope",
-      "scopeHint": "global, tenant:<id from the Keycloak attribute tenant_id> (e.g. tenant:default), role:NAME, kb:SLUG or tool:NAME. A role scope applies to holders of the policy role policy:NAME.",
       "group": "Group",
-      "groupHint": "Within one group a policy at any narrower scope overrides a global one, only for what its own checker matched; tenant, role, kb and tool scopes never override each other, and the stricter action wins between them. Leave empty to make the id the group.",
+      "groupHint": "A narrower policy overrides the global one of its group. Leave it empty to make the id the group.",
       "checkpoints": "Checkpoints",
       "checker": "Checker",
       "action": "Action",
@@ -151,10 +150,27 @@
       "onError": "When the check fails",
       "messageAr": "Block message in Arabic",
       "messageEn": "Block message in English",
-      "config": "Settings (JSON)",
-      "configHint": "Per checker, e.g. keywords, patterns or entities. DATA policies may name targets.",
+      "config": "Settings",
       "enabled": "On",
-      "unknownRole": "Warning: Keycloak has no role by this name yet:"
+      "unknownRole": "Warning: this role is not in the list of policy roles now:",
+      "scopeKind": "Scope kind",
+      "scopeValue": "Value",
+      "scopeKinds": {
+        "global": "Global",
+        "tenant": "Tenant",
+        "role": "Role",
+        "kb": "Knowledge base",
+        "tool": "Tool"
+      },
+      "scopeHints": {
+        "global": "Applies to every user.",
+        "tenant": "The tenant id as the sign-in token carries it.",
+        "role": "Applies to holders of the chosen policy role.",
+        "kb": "The knowledge base id.",
+        "tool": "The capability or tool name."
+      },
+      "example": "Example:",
+      "noRoles": "No policy roles are defined yet."
     },
     "checkpoints": {
       "INPUT": "User message",
@@ -185,8 +201,8 @@
     },
     "targets": {
       "answer": "Answer",
-      "memory_candidate": "Memory",
-      "summary": "Summary"
+      "summary": "Summary",
+      "memory_candidate": "Memory items"
     },
     "test": {
       "title": "Test the policy",
@@ -206,13 +222,22 @@
       "error": "Checker error:",
       "spans": "Matched spans",
       "noSpans": "No spans were marked.",
-      "output": "Text after redaction",
+      "output": "Resulting text",
       "message": "Policy message:",
       "principal": "Evaluate for",
       "tenant": "Tenant",
       "roles": "Policy roles",
       "rolesHint": "Separate roles with spaces",
-      "rolesExample": "Example:"
+      "rolesExample": "Example:",
+      "outputBy": {
+        "redact": "Text after redaction",
+        "block": "Text after blocking",
+        "warn": "Text after the warning",
+        "rewrite": "Text after rewriting",
+        "log_only": "Text after logging",
+        "allow": "Text after allowing",
+        "require_approval": "Text after the approval request"
+      }
     },
     "history": {
       "title": "Version history",
@@ -227,9 +252,10 @@
       "title": "Import and export",
       "export": "Export YAML",
       "file": "Choose a file",
-      "placeholder": "Paste a YAML document of policies here",
+      "placeholder": "Paste the policies file here",
       "import": "Import",
-      "report": "{created} created, {versioned} given a new version, {switched} switched, {unchanged} unchanged."
+      "report": "{created} created, {versioned} given a new version, {switched} switched, {unchanged} unchanged.",
+      "format": "YAML"
     },
     "metrics": {
       "title": "Matches per day per policy (last {days} days)",
@@ -247,21 +273,21 @@
     },
     "explanation": {
       "empty_text": "The text is empty.",
-      "keywords": "Keywords found: {items}",
+      "keywords": "Keywords found: <list></list>",
       "no_keyword": "No keyword was found.",
-      "allowed": "Within the allow list: {items}",
+      "allowed": "Within the allow list: <list></list>",
       "outside_allow_list": "The text is outside the allow list.",
-      "patterns": "Patterns matched: {items}",
+      "patterns": "Patterns matched: <list></list>",
       "no_pattern": "No pattern matched.",
-      "entities": "Entities found: {items}",
+      "entities": "Entities found: <list></list>",
       "no_entity": "No entity was found.",
-      "judge_violates": "The judge found the topic ({category}), confidence {confidence}.",
-      "judge_violates_cached": "The judge found the topic ({category}), confidence {confidence}; a saved verdict.",
-      "judge_clear": "The judge did not find the topic, confidence {confidence}.",
-      "judge_clear_cached": "The judge did not find the topic, confidence {confidence}; a saved verdict.",
-      "role_not_covered": "The model role {role} is not covered by this ceiling.",
-      "above_ceiling": "The requested tier {tier} is above the ceiling {ceiling}.",
-      "within_ceiling": "The requested tier {tier} is within the ceiling {ceiling}."
+      "judge_violates": "The judge found the topic (<v>{category}</v>), confidence <v>{confidence}</v>.",
+      "judge_violates_cached": "The judge found the topic (<v>{category}</v>), confidence <v>{confidence}</v>; a saved verdict.",
+      "judge_clear": "The judge did not find the topic, confidence <v>{confidence}</v>.",
+      "judge_clear_cached": "The judge did not find the topic, confidence <v>{confidence}</v>; a saved verdict.",
+      "role_not_covered": "The model role <v>{role}</v> is not covered by this ceiling.",
+      "above_ceiling": "The requested tier <v>{tier}</v> is above the ceiling <v>{ceiling}</v>.",
+      "within_ceiling": "The requested tier <v>{tier}</v> is within the ceiling <v>{ceiling}</v>."
     },
     "changes": {
       "title": "Change log",
@@ -289,6 +315,89 @@
       "production": "Production",
       "test": "Test"
     },
-    "showTest": "Show test policies"
+    "showTest": "Show test policies",
+    "entities": {
+      "SA_MOBILE": "Saudi mobile number",
+      "SA_NATIONAL_ID": "National ID or iqama number",
+      "SA_IBAN": "Saudi IBAN",
+      "EMAIL_ADDRESS": "Email address",
+      "ARABIC_NAME": "Arabic personal name"
+    },
+    "tiers": {
+      "fast": "Fast",
+      "standard": "Standard",
+      "heavy": "Heavy"
+    },
+    "modelRoles": {
+      "router": "Router",
+      "summarizer": "Summarizer",
+      "judge": "Judge",
+      "extractor": "Extractor",
+      "reflection": "Reflection",
+      "reasoning": "Reasoning"
+    },
+    "config": {
+      "keywords": "Keywords",
+      "mode": "Matching",
+      "modes": {
+        "deny": "Matches when a keyword occurs",
+        "allow": "Matches when the text is outside the list"
+      },
+      "patterns": "Patterns",
+      "patternName": "Name",
+      "pattern": "Pattern",
+      "fold": "Fold letters and digits before matching",
+      "yes": "Yes",
+      "no": "No",
+      "entities": "Entities",
+      "scoreThreshold": "Score threshold",
+      "topic": "Topic description",
+      "examples": "Examples",
+      "exampleText": "Text",
+      "verdict": "Verdict",
+      "violates": "Blocked",
+      "allowed": "Allowed",
+      "minConfidence": "Minimum confidence",
+      "tier": "Tier ceiling",
+      "roles": "Model roles it applies to",
+      "allRoles": "All roles",
+      "targets": "Targets",
+      "allTargets": "All targets",
+      "default": "{value} (default)",
+      "none": "None"
+    },
+    "summary": {
+      "showTechnical": "Show technical settings",
+      "hideTechnical": "Hide technical settings"
+    },
+    "editor": {
+      "advanced": "Advanced settings",
+      "jsonInvalid": "The advanced settings text is not valid, so saving is blocked.",
+      "paused": "Fix the advanced settings text to keep editing here.",
+      "blocked": "Fix the settings before saving.",
+      "keywordPlaceholder": "Type a keyword and press Enter",
+      "add": "Add",
+      "remove": "Remove",
+      "removeItem": "Remove: {item}",
+      "addPattern": "Add pattern",
+      "addExample": "Add example",
+      "noChecker": "No editor for this checker; use the advanced settings.",
+      "errors": {
+        "keywordsEmpty": "Add at least one keyword.",
+        "patternsEmpty": "Add at least one pattern.",
+        "patternName": "The name is Latin letters, digits or underscores, up to 64 characters.",
+        "patternInvalid": "The pattern is not valid.",
+        "entitiesEmpty": "Choose at least one entity.",
+        "threshold": "The value is between zero and one.",
+        "topicEmpty": "Write the topic description.",
+        "exampleEmpty": "Write the example's text.",
+        "tierEmpty": "Choose the tier.",
+        "targetsEmpty": "Choose at least one target."
+      }
+    },
+    "actor": {
+      "tooltip": "Username: {username}, id: {id}",
+      "tooltipId": "Id: {id}"
+    }
   }
 }

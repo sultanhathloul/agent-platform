@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyForm,
-  explanationArgs,
   formatList,
   formFromPolicy,
   highlight,
@@ -130,12 +129,6 @@ describe("locale-aware texts (rule 7)", () => {
     expect(messageFor(both, "en")).toBe("Blocked");
     expect(messageFor({ message_ar: "محجوب", message_en: null }, "en")).toBe("محجوب");
     expect(messageFor({}, "en")).toBeNull();
-  });
-
-  it("joins explanation items per locale and keeps other arguments", () => {
-    const args = { items: "EMAIL_ADDRESS\nSA_MOBILE", confidence: "0.90" };
-    expect(explanationArgs(args, "ar")).toEqual({ items: "EMAIL_ADDRESS، SA_MOBILE", confidence: "0.90" });
-    expect(explanationArgs(undefined, "en")).toEqual({});
   });
 
   it("parses policy roles typed with spaces or commas", () => {

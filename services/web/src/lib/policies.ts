@@ -178,17 +178,54 @@ export function messageFor(
   return first || second || null;
 }
 
-/**
- * The arguments of a checker explanation key for the reader's locale: `items` arrives as names
- * separated by newlines and is joined with the locale's separator.
- */
-export function explanationArgs(args: Record<string, string> | null | undefined, locale: string): Record<string, string> {
-  const out: Record<string, string> = { ...(args ?? {}) };
-  if (out.items !== undefined) out.items = formatList(out.items.split("\n").filter(Boolean), locale);
-  return out;
-}
-
 /** Policy roles typed in the test panel: full names separated by spaces or commas, deduplicated. */
 export function parsePolicyRoles(text: string): string[] {
   return [...new Set(text.split(/[\s,،]+/).filter(Boolean))].sort();
+}
+
+/** The kinds of scope (README §10.1), in the order the form lists them (ADR-0123). */
+export const SCOPE_KINDS = ["global", "tenant", "role", "kb", "tool"] as const;
+export type ScopeKind = (typeof SCOPE_KINDS)[number];
+export const DEFAULT_TENANT = "default";
+
+/** A scope as the form's two fields; an unknown kind is shown as global with its text kept. */
+export function parseScope(scope: string): { kind: ScopeKind; value: string } {
+  if (scope === "global") return { kind: "global", value: "" };
+  const at = scope.indexOf(":");
+  const kind = scope.slice(0, at) as ScopeKind;
+  return at > 0 && SCOPE_KINDS.includes(kind) ? { kind, value: scope.slice(at + 1) } : { kind: "global", value: "" };
+}
+
+/** The scope text the agent stores: `global` has no value. */
+export function scopeText(kind: ScopeKind, value: string): string {
+  return kind === "global" ? "global" : `${kind}:${value.trim()}`;
+}
+
+/**
+ * The value a kind starts with when the admin picks it: the default tenant, the first policy
+ * role from the gateway's list (`policy:x` is the scope `role:x`), or nothing.
+ */
+export function scopeValueFor(kind: ScopeKind, realmRoles: string[] | null): string {
+  if (kind === "tenant") return DEFAULT_TENANT;
+  if (kind === "role") return (realmRoles ?? [])[0]?.slice("policy:".length) ?? "";
+  return "";
+}
+
+/**
+ * Who made a change (ADR-0123): the display name kept at the time, the username and id for the
+ * tooltip; a row saved before names were kept shows its id.
+ */
+export function actorLabel(actor: { id: string; username?: string | null; name?: string | null }): {
+  label: string;
+  username: string | null;
+  id: string;
+} {
+  return { label: actor.name || actor.id, username: actor.username || null, id: actor.id };
+}
+
+/** The daily matches table follows the list's "Show test policies" toggle (ADR-0123). */
+export function visibleMatchRows(rows: PolicyMatchRow[], views: PolicyView[] | null, showTest: boolean): PolicyMatchRow[] {
+  if (showTest || views === null) return rows;
+  const test = new Set(views.filter((v) => (v.policy.purpose ?? "production") === "test").map((v) => v.policy.id));
+  return rows.filter((row) => !test.has(row.policy_id));
 }

@@ -1,37 +1,41 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
 import type { PolicyView } from "@/lib/api/types";
 import { policyName, visiblePolicies } from "@/lib/policies";
 import { PolicyMeta } from "./PolicyMeta";
 
 /**
  * The admin's policy list: each policy's name in the reader's locale and its meta line. Test
- * policies (smoke, TTFT) stay hidden until "Show test policies" is on (ADR-0119).
+ * policies (smoke, TTFT) stay hidden until "Show test policies" is on (ADR-0119); the page owns
+ * the toggle, so the daily matches table follows it too (ADR-0123). A name cut short by the
+ * column shows in full in a tooltip.
  */
 export function PolicyList({
   policies,
   selected,
   busy,
+  showTest,
+  onShowTest,
   onOpen,
   onToggle,
 }: {
   policies: PolicyView[];
   selected: string | null;
   busy: string | null;
+  showTest: boolean;
+  onShowTest: (show: boolean) => void;
   onOpen: (id: string) => void;
   onToggle: (view: PolicyView) => void;
 }) {
   const t = useTranslations();
   const locale = useLocale();
-  const [showTest, setShowTest] = useState(false);
   const shown = visiblePolicies(policies, showTest);
 
   return (
     <>
       <label className="mb-2 flex items-center gap-1.5 text-xs text-slate-600">
-        <input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />
+        <input type="checkbox" checked={showTest} onChange={(e) => onShowTest(e.target.checked)} />
         {t("policies.showTest")}
       </label>
       {shown.length === 0 ? (
@@ -49,7 +53,7 @@ export function PolicyList({
                   onClick={() => onOpen(p.id)}
                   className={`min-w-0 flex-1 text-start ${selected === p.id ? "text-emerald-800" : "text-slate-800"}`}
                 >
-                  <span dir="auto" className="block truncate font-medium">
+                  <span dir="auto" className="block truncate font-medium" title={name}>
                     {name}
                   </span>
                   <span className="mt-0.5 block">

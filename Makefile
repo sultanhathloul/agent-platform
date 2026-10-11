@@ -50,8 +50,9 @@ test-gateway-db: .env
 	$(COMPOSE) up -d --wait postgres
 	$(COMPOSE) --profile test run --rm --build gateway-db-tests
 
+# --build-context config: the config editors' tests read the seed policies (ADR-0123).
 test-web:
-	docker build --target test --no-cache-filter test services/web
+	docker build --target test --no-cache-filter test --build-context config=config services/web
 
 eval: .env ## Golden suites against the live stack (real models)
 	uv run evals/run_evals.py

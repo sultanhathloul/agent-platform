@@ -85,7 +85,7 @@ describe("the policy list (ADR-0119)", () => {
     view("prompt-injection-input", "production", "حظر حقن التعليمات", "Block prompt injection"),
     view("smoke-live-block", "test", "الفحص الشامل: حظر كلمة", "Smoke: live keyword block"),
   ];
-  const props = { policies, selected: null, busy: null, onOpen: () => {}, onToggle: () => {} };
+  const props = { policies, selected: null, busy: null, showTest: false, onShowTest: () => {}, onOpen: () => {}, onToggle: () => {} };
 
   for (const locale of ["ar", "en"] as const) {
     it(`hides test policies until the toggle is on and names policies in ${locale}`, () => {
