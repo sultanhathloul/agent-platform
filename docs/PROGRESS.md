@@ -894,6 +894,43 @@ Not changed (outside the eight items): a guard event's `policy_name` stays the E
 
 Human review needed: `config/policies/*.yaml` (the Arabic names and descriptions); the migrations `services/agent/app/db/migrations/0006_backfill_policy_changes.sql` and `0007_bilingual_policy_text.sql` (0007 renames fields inside stored versions; `name_ar` starts as the English name on an older database); `services/web/src/i18n/ar.json` (action labels, field labels, the purpose and toggle strings, the roles placeholder); ADR-0119.
 
+### Seed and eval fix session: the owner's review of config/policies and guardrails.jsonl (2026-10-11)
+
+Scope: the six owner items, nothing else; `docs/HANDOFF.md` untouched. Fake PII only (G3).
+
+Checklist:
+- [x] 1 `prompt-injection-input`: Gulf forms on folded text (انسى/انسي، طنش، لا تلتزم ب…، تعليماتك/اوامرك/قواعدك، اللي قبل/اللي فوق beside السابقة/اعلاه); guardrails.jsonl: ≥5 Gulf block, ≥3 Gulf allow
+- [x] 2 `SA_NATIONAL_ID`: redacted when the Luhn check digit is valid or a context word is within 5 tokens before; new ADR citing the algorithm; positives regenerated with valid check digits; negatives (Hijri-prefixed reference, invoice, order number); an invalid checksum after «رقم الهوية» still redacted
+- [x] 3 TOOL_LIST block: integration test (no client guard event, no message_ar, the turn continues with the remaining capabilities), fixed where needed; `tool-visibility-by-role` uses `regex` `^sql$`; eval case: `nosql_search` kept
+- [x] 4 Arabic-only `name_ar` and `description_ar` in every seed
+- [x] 5 `topics-politics-llm-judge` new text; new seed `topics-sectarian-tribal-llm-judge` (disabled); guardrails.jsonl: politics rewritten (≥25, ≥8 OUTPUT, ≥10 borderline), ≥15 sectarian/tribal, no few-shot repeat; changed seeds imported on the dev stack as new versions
+- [x] 6 Phase 09 tech debt recorded (below)
+- [x] make test, make eval ×3, make smoke ×2; record per rule 11; push
+
+What changed:
+- Item 1: `OVERRIDE_AR` takes انسى/انسي/انس، طنش، «لا تلتزم ب…»، possessive objects alone, and اللي قبل / اللي فوق beside السابقة، اعلاه، التي تلقيتها (ADR-0122). 7 Gulf block and 5 Gulf allow eval cases; unit tests on the seed file.
+- Item 2: `app/guardrails/checkers/saudi_id.py`: an `SA_NATIONAL_ID` candidate is kept when its Luhn check digit is valid or a context word is within the 5 tokens before it (ADR-0120, with the algorithm's sources). Every positive ID case has a valid check digit; new: two checksum-only positives, two context positives with an invalid check digit (Arabic and English), negatives for two Hijri-prefixed references, an invoice, an order number and a context word seven tokens away.
+- Item 3: the test failed before the fix: the TOOL_LIST block streamed a `guard` event with `message_ar`. Fixed in `engine._tool_list` (audit-only, no messages; ADR-0121). New test-only capability `echo` (`tests/fixtures/capabilities/echo`) so a turn routes to two capabilities. `tool-visibility-by-role` uses `regex` `^sql$`; `nosql_search` and `sql_reports` are kept (eval).
+- Item 4: Arabic-only `name_ar`, `description_ar`, `message_ar` in every seed; `tests/unit/test_policy_seeds.py` fails on any Latin letter there.
+- Item 5: `topics-politics-llm-judge` with the owner's text; new `topics-sectarian-tribal-llm-judge` (disabled). Eval: 34 politics cases (9 OUTPUT, 18 borderline, 10 Gulf; the old 37 removed), 19 sectarian/tribal cases (4 OUTPUT, 9 borderline, 5 Gulf); no case repeats a few-shot example (checked by script). Thresholds unchanged.
+- Dev stack import (I2): after `make up` seeded `topics-sectarian-tribal-llm-judge` as version 1, the admin imported every file in `config/policies/` through `POST /v1/admin/policies/import`: versioned `pii-block-in-memory`, `pii-redact-output`, `prompt-injection-input`, `tool-visibility-by-role`, `topics-politics-llm-judge`, `web-domain-denylist` (each now version 2); unchanged `pii-arabic-names-log`, `topics-sectarian-tribal-llm-judge`; none created or switched. Policy rows 11 11 → 17 11.
+- Item 6: two tech debt items under Phase 09 below.
+
+Results (2026-10-11), per rule 11, OpenRouter profile (the same `.env` as the previous session):
+
+- `make test` (exit 0, stack running):
+  - agent (pytest): **507 passed, 0 failed, 0 skipped** (453 before; +54: 6 check-digit, 12 context-word and 6 no-context cases, 5 presidio checker cases with a mocked analyzer, 8 Gulf injection blocks and 7 allows on the seed's patterns, 9 seed tests (8 seeds and the non-empty check), the silent TOOL_LIST turn; the no-capability TOOL_LIST test now reads the block from `guard_audit`)
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped**
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **83 passed, 0 failed, 0 skipped**
+- `make up`: green; the agent seeded `topics-sectarian-tribal-llm-judge`.
+- `make eval`, three runs, each: **guardrails 142/142 PASS** (deterministic 1.00, 89 cases; llm_judge accuracy 1.00, false-positive rate 0.00, 53 cases, 35 borderline or Gulf-dialect, all passed); **general 28/28 (1.00) PASS**. Langfuse dataset runs `make-eval-20261011T063358Z`, `make-eval-20261011T063610Z`, `make-eval-20261011T063801Z`.
+- `make smoke`, two consecutive runs: **76/76 checks passed** each ("every seed policy has its seed row" now covers 8 policies). The stored reference (10 10) predated this session's seed and versions, so it was removed before run 1, which recorded 17 11; **run 2's policy rows equal run 1's (17 11)**; neither run added a row.
+
+How to verify: `make test`, `make up`, then import `config/policies/*.yaml` as admin on an older database (a clean one seeds them), `make eval`, `make smoke` (twice; remove `build/smoke/policy-rows` first on a database whose policies changed).
+
+Human review needed: `config/policies/**` (the Arabic names, descriptions and messages; both topic definitions and their few-shot examples, the sectarian ones written by the agent; the injection pattern); `evals/golden/guardrails.jsonl`; ADR-0120 (the check digit and its sources; the context words), ADR-0121, ADR-0122.
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
@@ -929,5 +966,9 @@ Human review needed: `config/policies/*.yaml` (the Arabic names and descriptions
 - Branch: `phase/09-hardening`
 - Status: not started
 - Done when: CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check.
+
+Tech debt carried from the owner's review of PR #3 (2026-10-11), not implemented in phase 03:
+- A production Keycloak realm export without seed users or passwords; `infra/keycloak/realm-export.json` holds the dev seed users and their passwords and is for development only.
+- Removing a realm role (a `cap:*`, `kb:*` or `policy:*` role) takes effect only when the user's access token expires (300 s): the gateway and the agent read roles from the JWT. Shorten the token lifetime, or revoke sessions or check roles on each request, for immediate removal.
 
 Hardening option carried from the fourth PR #1 review (ADR-0053): capability isolation is enforced in-process (fresh config, exception/return firewall, core-owned compilation, lint). `RuntimeContext`'s callables are still core objects reachable by attribute reflection. If capabilities ever become third-party rather than first-party code in this repo, run each subgraph in a separate worker process with only its `RuntimeContext` marshalled across the boundary. Not needed for v1's five first-party capabilities.
