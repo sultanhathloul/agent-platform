@@ -1,0 +1,33 @@
+# Test-only capability (ADR-0121): a second keyword-routed capability, so a turn can route
+# to two capabilities and a TOOL_LIST policy can remove one while the other answers.
+slug: echo
+version: 1.0.0
+name: {ar: "صدى الاختبار", en: "Test echo"}
+description:
+  ar: "قدرة اختبار بلا أدوات تضيف نتيجة فارغة."
+  en: "Test capability without tools that adds an empty finding."
+icon: "flask"
+enabled_by_default: true
+permission: "cap:echo"
+risk: read
+ui:
+  mode: auto
+  order: 60
+routing_hints:
+  description:
+    ar: "رسائل الاختبار التي تذكر الصدى."
+    en: "Test messages that mention the echo."
+  keywords: {ar: ["صدى"], en: ["echo-capability"]}
+  rules:
+    - when: keyword
+model:
+  min_tier: standard
+  steps: {}
+  on_overflow: compress
+context:
+  needs: []
+  max_input_tokens: 4000
+limits:
+  max_iterations: 1
+  timeout_s: 10
+state_namespace: "cap.echo"

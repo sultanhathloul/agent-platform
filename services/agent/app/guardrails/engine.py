@@ -22,8 +22,9 @@ One call per checkpoint: `evaluate(checkpoint, payload, principal=..., context=.
    A call that executes only some actions (GuardContext.actions) still resolves every
    group that holds one of them in full, so both answer modes resolve alike.
 4. TOOL_LIST filters: each capability is evaluated with its own `tool:` scope, and a
-   blocked one is removed. MODEL_TIER lowers the request's cap to the ceiling of
-   every matching `tier_ceiling` policy (D2). POST_TOOL runs sanitize_untrusted first,
+   blocked one is removed silently: its record is audit-only, without a message
+   (ADR-0121). MODEL_TIER lowers the request's cap to the ceiling of every matching
+   `tier_ceiling` policy (D2). POST_TOOL runs sanitize_untrusted first,
    always (README §10.3).
 
 The engine holds no capability-specific logic (README §18.4) and records nothing
@@ -84,6 +85,12 @@ def redact(text: str, spans: Sequence[Span]) -> str:
         after = " " if end < len(text) and text[end].isalnum() else ""
         text = f"{text[:start]}{before}[REDACTED:{entity}]{after}{text[end:]}"
     return text
+
+
+def _silent(event: GuardEventRecord) -> dict:
+    """A block at TOOL_LIST removes the capability and the turn goes on: the record is
+    audit-only and carries no message, so the client sees nothing (ADR-0121)."""
+    return {"audit_only": True, "message_ar": None, "message_en": None} if event.action == "block" else {}
 
 
 class GuardEngine:
@@ -155,7 +162,8 @@ class GuardEngine:
             )
             outcome = await self._evaluate(Checkpoint.TOOL_LIST, slug, principal, scoped)
             events += [
-                e.model_copy(update={"detail": f"{slug}: {e.detail or ''}".strip()}) for e in outcome.events
+                e.model_copy(update={"detail": f"{slug}: {e.detail or ''}".strip(), **_silent(e)})
+                for e in outcome.events
             ]
             unavailable = unavailable or outcome.unavailable
             if not outcome.blocked:

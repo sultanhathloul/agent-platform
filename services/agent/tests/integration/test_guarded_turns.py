@@ -20,7 +20,7 @@ from app.identity import Principal
 from app.tools.broker import ToolBroker
 from tests.fixtures.replace import replacing
 
-MOBILE, NATIONAL_ID, EMAIL = "0501234567", "1234567890", "test.user@example.org"
+MOBILE, NATIONAL_ID, EMAIL = "0501234567", "1234567897", "test.user@example.org"
 
 
 @pytest.fixture
@@ -80,12 +80,12 @@ def guards(events, policy_id: str | None = None):
 
 
 async def test_pii_is_redacted_before_any_token_leaves(services, spans, litellm):
-    reply = f"رقم الجوال هو {MOBILE}. والهوية ١٢٣٤٥٦٧٨٩٠ للتجربة؟ والبريد {EMAIL}\nانتهى."
+    reply = f"رقم الجوال هو {MOBILE}. والهوية ١٢٣٤٥٦٧٨٩٧ للتجربة؟ والبريد {EMAIL}\nانتهى."
     replaced, _ = replacing(services, {"reasoning": reply}, chunk=3)  # PII spans many chunks
     events, conversation = await turn(replaced, principal())
     assert events[-1].type == "done"
     streamed = tokens(events)
-    for raw in (MOBILE, "١٢٣٤٥٦٧٨٩٠", EMAIL, "0501", "567"):
+    for raw in (MOBILE, "١٢٣٤٥٦٧٨٩٧", EMAIL, "0501", "567"):
         assert not any(raw in t for t in streamed), raw
     answer = events[-1].data.answer
     assert "".join(streamed) == answer
@@ -240,7 +240,36 @@ async def test_tool_list_policies_can_leave_no_capability(services, role, litell
     )
     events, _ = await turn(services, principal(name))
     assert (events[-1].type, events[-1].data.code) == ("error", "no_capability_available")
-    assert any(g.checkpoint == "TOOL_LIST" and g.action == "block" for g in events[-1].data.guard_events)
+    assert any(g.checkpoint == "TOOL_LIST" and g.action == "block" for g in guards(events))
+    assert not any(g.checkpoint == "TOOL_LIST" for g in events[-1].data.guard_events)
+
+
+async def test_a_tool_list_block_removes_the_capability_silently(probe_services, role, litellm):
+    """ADR-0121: no guard event and no message reach the client; the turn goes on with the
+    capabilities left, and only the audit list records the removal."""
+    name, add = role
+    hidden = await add(
+        checkpoints=["TOOL_LIST"],
+        checker="regex",
+        config={"patterns": [{"name": "HIDDEN", "pattern": "^probe$"}]},
+        action="block",
+        message_ar="هذه القدرة غير متاحة لك.",
+        message_en="This capability is not available to you.",
+    )
+    message = "مسبار صدى: ما عاصمة المملكة؟"
+    events, _ = await turn(probe_services, principal(name, "cap:probe", "cap:echo"), message)
+    assert events[-1].type == "done"
+    assert [e for e in events if e.type == "guard"] == []
+    assert not any("message_ar" in e.data.model_dump(exclude_none=True) for e in events if e.type != "done")
+    assert not any(g.checkpoint == "TOOL_LIST" and g.action == "block" for g in events[-1].data.guard_events)
+    assert not any(e.type == "tool_start" for e in events)  # probe_lookup never ran
+    assert tokens(events)
+    [record] = [g for g in guards(events, hidden.id) if g.action == "block"]
+    assert record.checkpoint == "TOOL_LIST" and record.detail.startswith("probe:")
+    assert record.message_ar is None and record.message_en is None
+    # Without the policy the same turn routes to both and probe's tool runs.
+    other, _ = await turn(probe_services, principal(None, "cap:probe", "cap:echo"), message)
+    assert other[-1].type == "done" and any(e.type == "tool_start" for e in other)
 
 
 async def test_a_model_tier_policy_is_a_ceiling(services, role, litellm):

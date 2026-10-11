@@ -414,7 +414,8 @@ class GuardEventRecord(BaseModel):
     usage: CheckUsage | None = None
     # A record the audit delta needs and a client never sees (ADR-0118): a check that made a model
     # call but matched nothing, so its usage is audited, or the tier evaluation of a guard checker's
-    # own model call. Never streamed, never in guard_events.
+    # own model call, or a block at TOOL_LIST, which removes a capability silently (ADR-0121).
+    # Never streamed, never in guard_events.
     audit_only: bool = False
 
     @property
