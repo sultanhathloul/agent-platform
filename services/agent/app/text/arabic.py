@@ -114,3 +114,28 @@ def keyword_stems(word: str, *, min_length: int = 3) -> set[str]:
         if prefix and word.startswith(prefix) and len(word) - len(prefix) >= min_length:
             stems.add(word[len(prefix) :])
     return stems
+
+
+_SEARCH_WORD = re.compile(r"\w+")
+
+
+def search_stem(word: str) -> str:
+    """One canonical form of a normalized word for full-text search (phase 04, I4): the
+    longest proclitic combination of `light_stems` is stripped when at least three letters
+    remain. The same word always gives the same stem, at indexing and at query time."""
+    word = normalize(word)
+    for prefix in _PROCLITICS:  # longest first
+        if word.startswith(prefix) and len(word) - len(prefix) >= 3:
+            return word[len(prefix) :]
+    return word
+
+
+def search_terms(text: str) -> list[str]:
+    """The text's words as search stems, in order: normalized (alef, yaa and taa marbuta
+    folded, tatweel and tashkeel removed, digits to ASCII, case folded) and light-stemmed."""
+    return [search_stem(word) for word in _SEARCH_WORD.findall(normalize(text))]
+
+
+def normalize_for_search(text: str) -> str:
+    """`search_terms` joined by spaces: the `text_norm` of a chunk and of a query."""
+    return " ".join(search_terms(text))

@@ -1,0 +1,57 @@
+# Documents (UC3, README §9.3) and the shared retrieval library (app/rag/). Read by the
+# agent and, for `limits`, by the gateway, so both enforce the same values.
+
+# An uploaded file and everything derived from it expire this many days after the
+# conversation's last turn; a daily purge deletes them (ADR-0125, D1).
+retention_days: 30
+
+# Checked in the gateway before anything is stored, re-checked by the agent (ADR-0126, D2).
+limits:
+  max_file_bytes: 20971520          # 20 MB
+  max_files_per_conversation: 10
+  max_pdf_pages: 300
+  types:
+    pdf:  {extensions: [pdf],  mimes: [application/pdf]}
+    docx: {extensions: [docx], mimes: [application/vnd.openxmlformats-officedocument.wordprocessingml.document]}
+    xlsx: {extensions: [xlsx], mimes: [application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]}
+    txt:  {extensions: [txt],  mimes: [text/plain]}
+    md:   {extensions: [md, markdown], mimes: [text/markdown, text/x-markdown, text/plain]}
+
+# Recursive chunking (README §9.3): tokens counted like Context Assembly (o200k_base).
+chunking:
+  max_tokens: 800
+  overlap_tokens: 120
+
+# A PDF whose pages average fewer characters than this has no text layer: scanned (ADR-0128).
+extraction:
+  min_text_chars_per_page: 20
+
+ingest:
+  workers: 2          # concurrent ingestion jobs per agent process
+  embed_batch: 16     # chunks per embedding request
+  max_attempts: 3     # a job that keeps failing for a transient reason ends as failed
+
+# Hybrid retrieval (ADR-0133): top 30 by vector, top 30 by full text, reciprocal rank
+# fusion, rerank of the fused candidates, top 8 kept; evidence over its budget is
+# compressed extractively, chunk by chunk.
+retrieval:
+  vector_top_k: 30
+  text_top_k: 30
+  rrf_k: 60
+  rerank_candidates: 30
+  top_k: 8
+  evidence_max_tokens: 5000
+  # Words left out of the full-text query (compared after normalization); questions are
+  # matched OR-wise, so function words would match every chunk.
+  stopwords:
+    ar: [ما, ماذا, هل, كم, متى, اين, كيف, لماذا, من, في, على, الى, عن, هو, هي, هذا, هذه, ذلك, تلك, التي, الذي, ان, او, ثم, مع, كل, بعض, قد, لا, لم, لن, ذكر, اذكر, حسب, وفق, يا, ايش, وش, شنو, وين, ليش]
+    en: [what, which, who, when, where, why, how, is, are, the, a, an, of, in, "on", to, for, and, "or", does, do, say, says, document, file]
+
+# Page attribution after the answer (ADR-0140): a retrieved chunk is cited when it shares
+# at least `min_shared_ngrams` normalized word n-grams of `ngram` words with the answer.
+citations:
+  ngram: 3
+  min_shared_ngrams: 2
+
+purge:
+  interval_hours: 24

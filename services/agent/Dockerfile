@@ -17,6 +17,10 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 RUN python -c "import tiktoken; tiktoken.get_encoding('o200k_base')"
 
 FROM deps AS test
+# An Arabic-capable font for the PDFs the extractor tests generate (phase 04, G3, G4).
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+ENV ARABIC_TEST_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 COPY conftest.py ./
 COPY app ./app
