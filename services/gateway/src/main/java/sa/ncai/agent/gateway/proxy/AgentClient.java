@@ -2,7 +2,9 @@ package sa.ncai.agent.gateway.proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.util.function.Supplier;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -27,6 +29,9 @@ public class AgentClient {
     /** Name the caller on agent endpoints without a request body; always from the verified token (ADR-0059). */
     public static final String USER_HEADER = "X-User-Id";
     public static final String TENANT_HEADER = "X-Tenant-Id";
+    /** The admin's username and display name on admin calls, percent-encoded UTF-8 (ADR-0123). */
+    public static final String USER_NAME_HEADER = "X-User-Name";
+    public static final String USER_DISPLAY_NAME_HEADER = "X-User-Display-Name";
 
     /** Consumes the agent's SSE body; runs only after a 2xx response. */
     @FunctionalInterface
@@ -170,6 +175,8 @@ public class AgentClient {
         }
         RestClient.RequestBodySpec request = spec;
         return reach(() -> identified(request, caller, requestId)
+                .header(USER_NAME_HEADER, encoded(caller.username()))
+                .header(USER_DISPLAY_NAME_HEADER, encoded(caller.displayName()))
                 .exchange((clientRequest, response) ->
                         new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
     }
@@ -180,6 +187,11 @@ public class AgentClient {
                 .header(RequestIdFilter.HEADER, requestId)
                 .header(USER_HEADER, caller.userId())
                 .header(TENANT_HEADER, caller.tenantId());
+    }
+
+    /** A name as an HTTP header value: UTF-8, percent-encoded (a display name may be Arabic). */
+    static String encoded(String value) {
+        return value == null ? "" : URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static void requireSuccess(int status, String call) {

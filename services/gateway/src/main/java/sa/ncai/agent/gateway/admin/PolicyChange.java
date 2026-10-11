@@ -13,6 +13,10 @@ public record PolicyChange(
                 description = "flagged / unflagged: another policy's change made this one an exception, or cleared it")
                 String change,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String actor,
+        @Schema(description = "The actor's username at the time (ADR-0123); absent on older rows")
+                String actorUsername,
+        @Schema(description = "The actor's display name at the time (ADR-0123); absent on older rows")
+                String actorName,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean exception,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<String> overrides,
         @Schema(description = "Policies whose exception flag this change set or cleared (ADR-0115)")

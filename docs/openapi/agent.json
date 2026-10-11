@@ -785,6 +785,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "responses": {
@@ -885,6 +923,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "requestBody": {
@@ -1007,6 +1083,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "responses": {
@@ -1120,6 +1234,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "responses": {
@@ -1222,6 +1374,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "requestBody": {
@@ -1334,6 +1524,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "requestBody": {
@@ -1445,6 +1673,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "requestBody": {
@@ -1576,6 +1842,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "responses": {
@@ -1698,6 +2002,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "requestBody": {
@@ -1830,6 +2172,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "requestBody": {
@@ -1962,6 +2342,44 @@
               ],
               "title": "X-Request-Id"
             }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
           }
         ],
         "responses": {
@@ -2275,6 +2693,30 @@
           "actor": {
             "type": "string",
             "title": "Actor"
+          },
+          "actor_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Username",
+            "description": "The actor's username at the time (ADR-0123); none on older rows."
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name",
+            "description": "The actor's display name at the time (ADR-0123); none on older rows."
           },
           "exception": {
             "type": "boolean",
@@ -2856,6 +3298,30 @@
             "type": "string",
             "title": "Created By"
           },
+          "created_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Username",
+            "description": "The creator's username at the time (ADR-0123); none on older rows."
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name",
+            "description": "The creator's display name at the time (ADR-0123); none on older rows."
+          },
           "overrides": {
             "items": {
               "type": "string"
@@ -2894,6 +3360,30 @@
           "created_by": {
             "type": "string",
             "title": "Created By"
+          },
+          "created_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Username",
+            "description": "The creator's username at the time (ADR-0123); none on older rows."
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name",
+            "description": "The creator's display name at the time (ADR-0123); none on older rows."
           },
           "updated_at": {
             "type": "string",

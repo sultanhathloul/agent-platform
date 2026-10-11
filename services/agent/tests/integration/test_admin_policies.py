@@ -3,6 +3,7 @@ admin in X-User-Id. Policies made here use a policy role of their own (ADR-0107)
 switched off afterwards. Fake PII only (rule G3)."""
 
 import uuid
+from urllib.parse import quote
 
 import pytest
 import yaml
@@ -84,6 +85,51 @@ async def test_create_version_and_switch(client, scoped):
     versions = (await client.get(f"/v1/admin/policies/{draft['id']}", headers=ADMIN)).json()["versions"]
     assert [v["policy"]["version"] for v in versions] == [2, 1]
     assert versions[1]["policy"]["action"] == "block"  # version 1 unchanged
+
+
+async def test_versions_and_changes_keep_the_actors_names_at_the_time(client, scoped):
+    """ADR-0123: the username and display name the gateway sent (percent-encoded UTF-8) are kept
+    beside the id on the version and its change rows; a call without them keeps the id only; the
+    seed names itself."""
+    _, body = scoped
+    draft = body()
+    named = {
+        **ADMIN,
+        "X-User-Name": "admin",
+        "X-User-Display-Name": quote("مدير المنصة"),
+    }
+    assert (await client.post("/v1/admin/policies", json=draft, headers=named)).status_code == 201
+    unnamed = await client.post(
+        f"/v1/admin/policies/{draft['id']}/versions", json={**draft, "action": "warn"}, headers=ADMIN
+    )
+    assert unnamed.status_code == 201
+    assert (unnamed.json()["created_by_username"], unnamed.json()["created_by_name"]) == (None, None)
+
+    versions = (await client.get(f"/v1/admin/policies/{draft['id']}", headers=ADMIN)).json()["versions"]
+    first = versions[-1]
+    assert (first["created_by"], first["created_by_username"], first["created_by_name"]) == (
+        "admin-1",
+        "admin",
+        "مدير المنصة",
+    )
+    changes = (await client.get(f"/v1/admin/policies/{draft['id']}/changes", headers=ADMIN)).json()["changes"]
+    by_change = {c["change"]: c for c in changes}
+    assert (
+        by_change["create"]["actor"],
+        by_change["create"]["actor_username"],
+        by_change["create"]["actor_name"],
+    ) == (
+        "admin-1",
+        "admin",
+        "مدير المنصة",
+    )
+    assert (by_change["version"]["actor_username"], by_change["version"]["actor_name"]) == (None, None)
+
+    seeded = (await client.get("/v1/admin/policies/pii-redact-output/changes", headers=ADMIN)).json()[
+        "changes"
+    ]
+    seed_row = next(c for c in seeded if c["change"] == "seed")
+    assert (seed_row["actor"], seed_row["actor_username"], seed_row["actor_name"]) == ("seed", "seed", "seed")
 
 
 async def test_an_invalid_policy_is_refused_with_its_reasons(client, scoped):

@@ -440,6 +440,10 @@ export interface components {
         };
         PolicyChange: {
             actor: string;
+            /** @description The actor's display name at the time (ADR-0123); absent on older rows */
+            actor_name?: string;
+            /** @description The actor's username at the time (ADR-0123); absent on older rows */
+            actor_username?: string;
             /**
              * @description flagged / unflagged: another policy's change made this one an exception, or cleared it
              * @enum {string}
@@ -581,6 +585,10 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string;
+            /** @description The creator's display name at the time (ADR-0123); absent on older rows */
+            created_by_name?: string;
+            /** @description The creator's username at the time (ADR-0123); absent on older rows */
+            created_by_username?: string;
             /** @description Whether it was an exception when it was saved */
             exception?: boolean;
             /** @description What this version overrode when it was saved */
@@ -591,6 +599,10 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string;
+            /** @description The creator's display name at the time (ADR-0123); absent on older rows */
+            created_by_name?: string;
+            /** @description The creator's username at the time (ADR-0123); absent on older rows */
+            created_by_username?: string;
             /** @description It overrides a stricter policy of its group (ADR-0105, ADR-0108) */
             exception?: boolean;
             /** @description id@version of the wider policies of its group it overrides now */

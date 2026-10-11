@@ -12,6 +12,10 @@ public record PolicyView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PolicyDocument policy,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String createdBy,
+        @Schema(description = "The creator's username at the time (ADR-0123); absent on older rows")
+                String createdByUsername,
+        @Schema(description = "The creator's display name at the time (ADR-0123); absent on older rows")
+                String createdByName,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String updatedAt,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String updatedBy,
         @Schema(description = "id@version of the wider policies of its group it overrides now")

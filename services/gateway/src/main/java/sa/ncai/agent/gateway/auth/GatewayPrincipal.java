@@ -10,6 +10,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
  * {@code kb:*:read} roles become permissions (ADR-0006); tenant defaults to "default" (ADR-0010).
  * Realm roles prefixed {@code policy:} become {@code policyRoles}: they select role-scoped guard
  * policies, grant nothing, and are the only roles that leave the gateway (ADR-0107).
+ * {@code username} is {@code preferred_username}; with {@code displayName} it names an admin in
+ * the policy history (ADR-0123).
  */
 public record GatewayPrincipal(
         String userId,
@@ -17,7 +19,8 @@ public record GatewayPrincipal(
         List<String> permissions,
         String displayName,
         boolean admin,
-        List<String> policyRoles) {
+        List<String> policyRoles,
+        String username) {
 
     public static final String DEFAULT_TENANT = "default";
     public static final String ADMIN_ROLE = "admin";
@@ -44,7 +47,7 @@ public record GatewayPrincipal(
                 .sorted()
                 .toList();
         return new GatewayPrincipal(jwt.getSubject(), tenant(jwt), permissions, displayName(jwt),
-                roles.contains(ADMIN_ROLE), policyRoles);
+                roles.contains(ADMIN_ROLE), policyRoles, jwt.getClaimAsString("preferred_username"));
     }
 
     private static String tenant(Jwt jwt) {

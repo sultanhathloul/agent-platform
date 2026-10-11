@@ -133,3 +133,47 @@ async def test_0007_moves_name_and_description_to_the_english_fields(services):
         assert content["description_ar"] == ""
         policy = Policy.model_validate({**content, "id": pid, "version": 1})
         assert policy.purpose == "production"
+
+
+async def test_0008_names_seed_and_backfill_rows_and_leaves_others_without_a_name(services):
+    """ADR-0123: a version and a change row by `seed` or `backfill` get that word as username and
+    display name; a row by an admin saved before keeps no name (the page shows the id); a second
+    run changes nothing. Rolled back."""
+    pid = f"mig-{uuid.uuid4().hex[:10]}"
+    async with services.db.connection() as conn, conn.transaction(force_rollback=True):
+        await _old_version(conn, pid, OLD_CONTENT)
+        # Inserted without names, as before 0008; version 2 by an admin.
+        await conn.execute(
+            "INSERT INTO agent.guard_policies (id, version, content, created_by) "
+            "VALUES (%s, 2, %s, 'user-9')",
+            (pid, Jsonb(OLD_CONTENT)),
+        )
+        await _run(conn, "0006_backfill_policy_changes.sql")
+        await conn.execute(
+            "UPDATE agent.guard_policy_changes SET actor = 'user-9' WHERE policy_id = %s AND version = 2",
+            (pid,),
+        )
+        await _run(conn, "0008_actor_names.sql")
+        await _run(conn, "0008_actor_names.sql")
+        versions = await (
+            await conn.execute(
+                "SELECT version, created_by, created_by_username, created_by_name FROM agent.guard_policies "
+                "WHERE id = %s ORDER BY version",
+                (pid,),
+            )
+        ).fetchall()
+        assert [tuple(r.values()) for r in versions] == [
+            (1, "seed", "seed", "seed"),
+            (2, "user-9", None, None),
+        ]
+        changes = await (
+            await conn.execute(
+                "SELECT version, actor, actor_username, actor_name FROM agent.guard_policy_changes "
+                "WHERE policy_id = %s ORDER BY version",
+                (pid,),
+            )
+        ).fetchall()
+        assert [tuple(r.values()) for r in changes] == [
+            (1, "backfill", "backfill", "backfill"),
+            (2, "user-9", None, None),
+        ]

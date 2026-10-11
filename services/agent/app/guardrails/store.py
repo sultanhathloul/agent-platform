@@ -43,7 +43,23 @@ from app.guardrails.schema import (
 
 log = logging.getLogger(__name__)
 
-SEED_ACTOR = "seed"
+
+@dataclass(frozen=True)
+class Actor:
+    """Who made a change (ADR-0123): the Keycloak subject, with the username and display name
+    the verified token carried at the time, kept beside the id on the version and change rows.
+    The seed names itself in all three."""
+
+    id: str
+    username: str | None = None
+    name: str | None = None
+
+
+SEED_ACTOR = Actor("seed", "seed", "seed")
+
+
+def _actor(actor: "str | Actor") -> Actor:
+    return actor if isinstance(actor, Actor) else Actor(actor)
 
 
 class PolicyExists(ValueError):
@@ -82,6 +98,8 @@ class PolicyView:
     updated_by: str
     overrides: list[str] = field(default_factory=list)
     exception: bool = False
+    created_by_username: str | None = None
+    created_by_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +109,8 @@ class PolicyVersion:
     created_by: str
     overrides: list[str] = field(default_factory=list)
     exception: bool = False
+    created_by_username: str | None = None
+    created_by_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +147,8 @@ class PolicyChange:
     exception: bool
     overrides: list[str]
     induced: list[dict[str, Any]] = field(default_factory=list)
+    actor_username: str | None = None
+    actor_name: str | None = None
 
 
 @dataclass
@@ -153,6 +175,8 @@ def _view(row: dict) -> PolicyView:
         row["updated_by"],
         list(row["overrides"]),
         row["exception"],
+        row["created_by_username"],
+        row["created_by_name"],
     )
 
 
@@ -193,8 +217,8 @@ def export_document(policies: Iterable[Policy]) -> str:
 
 
 _SELECT_CURRENT = (
-    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, h.overrides, h.exception, "
-    "h.enabled, h.updated_at, h.updated_by "
+    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, p.created_by_username, "
+    "p.created_by_name, h.overrides, h.exception, h.enabled, h.updated_at, h.updated_by "
     "FROM agent.guard_policy_heads h JOIN agent.guard_policies p "
     "ON p.id = h.id AND p.version = h.current_version"
 )
@@ -207,13 +231,26 @@ async def _lock(conn) -> None:
     await conn.execute("SELECT pg_advisory_xact_lock(hashtext('agent'), hashtext('guard_policies'))")
 
 
-async def _change_row(conn, policy: Policy, change: str, actor: str, found: Overrides, induced: list) -> None:
-    """One row of agent.guard_policy_changes, in the change's transaction (ADR-0108, ADR-0115)."""
+async def _change_row(
+    conn, policy: Policy, change: str, actor: Actor, found: Overrides, induced: list
+) -> None:
+    """One row of agent.guard_policy_changes, in the change's transaction (ADR-0108, ADR-0115),
+    with the actor's names at the time (ADR-0123)."""
     await conn.execute(
         "INSERT INTO agent.guard_policy_changes "
-        "(policy_id, version, change, actor, exception, overrides, induced) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (policy.id, policy.version, change, actor, found.exception, Jsonb(found.refs), Jsonb(induced)),
+        "(policy_id, version, change, actor, actor_username, actor_name, exception, overrides, induced) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            policy.id,
+            policy.version,
+            change,
+            actor.id,
+            actor.username,
+            actor.name,
+            found.exception,
+            Jsonb(found.refs),
+            Jsonb(induced),
+        ),
     )
 
 
@@ -334,8 +371,8 @@ class PolicyStore:
         async with self._db.connection() as conn:
             rows = await (
                 await conn.execute(
-                    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, p.overrides, "
-                    "p.exception, h.enabled "
+                    "SELECT p.id, p.version, p.content, p.created_at, p.created_by, p.created_by_username, "
+                    "p.created_by_name, p.overrides, p.exception, h.enabled "
                     "FROM agent.guard_policies p JOIN agent.guard_policy_heads h ON h.id = p.id "
                     "WHERE p.id = %s ORDER BY p.version DESC",
                     (policy_id,),
@@ -344,7 +381,15 @@ class PolicyStore:
         if not rows:
             raise PolicyNotFound(policy_id)
         return [
-            PolicyVersion(_policy(r), r["created_at"], r["created_by"], list(r["overrides"]), r["exception"])
+            PolicyVersion(
+                _policy(r),
+                r["created_at"],
+                r["created_by"],
+                list(r["overrides"]),
+                r["exception"],
+                r["created_by_username"],
+                r["created_by_name"],
+            )
             for r in rows
         ]
 
@@ -357,7 +402,8 @@ class PolicyStore:
                 raise PolicyNotFound(policy_id)
             rows = await (
                 await conn.execute(
-                    "SELECT changed_at, policy_id, version, change, actor, exception, overrides, induced "
+                    "SELECT changed_at, policy_id, version, change, actor, actor_username, actor_name, "
+                    "exception, overrides, induced "
                     "FROM agent.guard_policy_changes WHERE policy_id = %s ORDER BY changed_at DESC, id DESC",
                     (policy_id,),
                 )
@@ -372,6 +418,8 @@ class PolicyStore:
                 r["exception"],
                 list(r["overrides"]),
                 list(r["induced"]),
+                r["actor_username"],
+                r["actor_name"],
             )
             for r in rows
         ]
@@ -383,7 +431,8 @@ class PolicyStore:
     # a wider one at OUTPUT or DATA, every policy of each group gets its overrides and exception
     # flag recomputed on its head, and one change row per changed policy names the actor.
 
-    async def create(self, policy: Policy, actor: str) -> Policy:
+    async def create(self, policy: Policy, actor: str | Actor) -> Policy:
+        actor = _actor(actor)
         async with self._db.connection() as conn, conn.transaction():
             await _lock(conn)
             created = await self._insert_new(conn, policy, actor)
@@ -393,9 +442,10 @@ class PolicyStore:
         await self._changed()
         return created
 
-    async def add_version(self, policy: Policy, actor: str) -> Policy:
+    async def add_version(self, policy: Policy, actor: str | Actor) -> Policy:
         """Inserts `policy`'s content as the next version of its id and makes it current;
         the head's switch follows `policy.enabled`."""
+        actor = _actor(actor)
         async with self._db.connection() as conn, conn.transaction():
             await _lock(conn)
             created = await self._insert_version(conn, policy, actor)
@@ -403,13 +453,14 @@ class PolicyStore:
         await self._changed()
         return created
 
-    async def set_enabled(self, policy_id: str, enabled: bool, actor: str) -> Policy:
+    async def set_enabled(self, policy_id: str, enabled: bool, actor: str | Actor) -> Policy:
+        actor = _actor(actor)
         async with self._db.connection() as conn, conn.transaction():
             await _lock(conn)
             cursor = await conn.execute(
                 "UPDATE agent.guard_policy_heads SET enabled = %s, updated_at = now(), updated_by = %s "
                 "WHERE id = %s",
-                (enabled, actor, policy_id),
+                (enabled, actor.id, policy_id),
             )
             if cursor.rowcount != 1:
                 raise PolicyNotFound(policy_id)
@@ -418,9 +469,10 @@ class PolicyStore:
         await self._changed()
         return (await self.get(policy_id)).policy
 
-    async def import_policies(self, policies: Sequence[Policy], actor: str) -> ImportReport:
+    async def import_policies(self, policies: Sequence[Policy], actor: str | Actor) -> ImportReport:
         """In one transaction: an absent id is created, a changed one gets a new version,
         one whose switch alone differs is switched, an identical one is left alone."""
+        actor = _actor(actor)
         report = ImportReport()
         changed: list[tuple[Policy, str]] = []
         async with self._db.connection() as conn, conn.transaction():
@@ -441,7 +493,7 @@ class PolicyStore:
                     await conn.execute(
                         "UPDATE agent.guard_policy_heads "
                         "SET enabled = %s, updated_at = now(), updated_by = %s WHERE id = %s",
-                        (policy.enabled, actor, policy.id),
+                        (policy.enabled, actor.id, policy.id),
                     )
                     changed.append((current.model_copy(update={"enabled": policy.enabled}), "import"))
                     report.switched.append(policy.id)
@@ -485,7 +537,7 @@ class PolicyStore:
         return _policy(row)
 
     async def _settle(
-        self, conn, changed: Sequence[tuple[Policy, str]], actor: str, *, every_group: bool = False
+        self, conn, changed: Sequence[tuple[Policy, str]], actor: Actor, *, every_group: bool = False
     ) -> None:
         current = await _current_versions(conn)
         touched = {p.effective_group for p, _ in changed}
@@ -536,24 +588,33 @@ class PolicyStore:
         """The version's own record of what it overrode when saved (agent.guard_policies)."""
         return flags(policy, await _current_versions(conn))
 
-    async def _insert_new(self, conn, policy: Policy, actor: str) -> Policy | None:
+    async def _insert_new(self, conn, policy: Policy, actor: Actor) -> Policy | None:
         """Version 1 and its head; None when the id exists (concurrent seeders agree)."""
         found = await self._at_save(conn, policy)
         cursor = await conn.execute(
-            "INSERT INTO agent.guard_policies (id, version, content, created_by, overrides, exception) "
-            "VALUES (%s, 1, %s, %s, %s, %s) ON CONFLICT (id, version) DO NOTHING",
-            (policy.id, Jsonb(policy.content()), actor, Jsonb(found.refs), found.exception),
+            "INSERT INTO agent.guard_policies (id, version, content, created_by, created_by_username, "
+            "created_by_name, overrides, exception) "
+            "VALUES (%s, 1, %s, %s, %s, %s, %s, %s) ON CONFLICT (id, version) DO NOTHING",
+            (
+                policy.id,
+                Jsonb(policy.content()),
+                actor.id,
+                actor.username,
+                actor.name,
+                Jsonb(found.refs),
+                found.exception,
+            ),
         )
         if cursor.rowcount != 1:
             return None
         await conn.execute(
             "INSERT INTO agent.guard_policy_heads (id, current_version, enabled, updated_by) "
             "VALUES (%s, 1, %s, %s)",
-            (policy.id, policy.enabled, actor),
+            (policy.id, policy.enabled, actor.id),
         )
         return policy.model_copy(update={"version": 1})
 
-    async def _insert_version(self, conn, policy: Policy, actor: str) -> Policy:
+    async def _insert_version(self, conn, policy: Policy, actor: Actor) -> Policy:
         row = await (
             await conn.execute(
                 "SELECT current_version FROM agent.guard_policy_heads WHERE id = %s FOR UPDATE", (policy.id,)
@@ -569,14 +630,23 @@ class PolicyStore:
         version = latest["v"] + 1
         found = await self._at_save(conn, policy)
         await conn.execute(
-            "INSERT INTO agent.guard_policies (id, version, content, created_by, overrides, exception) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (policy.id, version, Jsonb(policy.content()), actor, Jsonb(found.refs), found.exception),
+            "INSERT INTO agent.guard_policies (id, version, content, created_by, created_by_username, "
+            "created_by_name, overrides, exception) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                policy.id,
+                version,
+                Jsonb(policy.content()),
+                actor.id,
+                actor.username,
+                actor.name,
+                Jsonb(found.refs),
+                found.exception,
+            ),
         )
         await conn.execute(
             "UPDATE agent.guard_policy_heads SET current_version = %s, enabled = %s, updated_at = now(), "
             "updated_by = %s WHERE id = %s",
-            (version, policy.enabled, actor, policy.id),
+            (version, policy.enabled, actor.id, policy.id),
         )
         return policy.model_copy(update={"version": version})
 

@@ -155,6 +155,12 @@ class PolicyView(BaseModel):
     policy: PolicyDocument
     created_at: datetime = Field(description="When this version was created.")
     created_by: str
+    created_by_username: str | None = Field(
+        default=None, description="The creator's username at the time (ADR-0123); none on older rows."
+    )
+    created_by_name: str | None = Field(
+        default=None, description="The creator's display name at the time (ADR-0123); none on older rows."
+    )
     updated_at: datetime = Field(description="When the policy's head (current version, switch) last changed.")
     updated_by: str
     overrides: list[str] = Field(
@@ -172,6 +178,12 @@ class PolicyVersionView(BaseModel):
     policy: PolicyDocument
     created_at: datetime
     created_by: str
+    created_by_username: str | None = Field(
+        default=None, description="The creator's username at the time (ADR-0123); none on older rows."
+    )
+    created_by_name: str | None = Field(
+        default=None, description="The creator's display name at the time (ADR-0123); none on older rows."
+    )
     overrides: list[str] = Field(default=[], description="What this version overrode when it was saved.")
     exception: bool = Field(default=False, description="Whether it was an exception when it was saved.")
 
@@ -189,6 +201,12 @@ class PolicyChangeView(BaseModel):
         "or cleared it (ADR-0115)."
     )
     actor: str
+    actor_username: str | None = Field(
+        default=None, description="The actor's username at the time (ADR-0123); none on older rows."
+    )
+    actor_name: str | None = Field(
+        default=None, description="The actor's display name at the time (ADR-0123); none on older rows."
+    )
     exception: bool
     overrides: list[str]
     induced: list["InducedFlag"] = Field(

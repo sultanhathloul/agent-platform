@@ -77,6 +77,12 @@ class AdminPolicyProxyTest extends GatewayTestSupport {
         assertThat(upstream.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
         assertThat(upstream.getHeader("X-User-Id")).isEqualTo("user-123");
         assertThat(upstream.getHeader("X-Tenant-Id")).isEqualTo("tenant-a");
+        // ADR-0123: the names from the same verified token, percent-encoded UTF-8.
+        assertThat(upstream.getHeader("X-User-Name")).isEqualTo("analyst");
+        assertThat(upstream.getHeader("X-User-Display-Name"))
+                .isEqualTo("%D8%B3%D8%A7%D8%B1%D8%A9%20%D8%A7%D9%84%D9%85%D8%AD%D9%84%D9%84%D8%A9");
+        assertThat(java.net.URLDecoder.decode(upstream.getHeader("X-User-Display-Name"), StandardCharsets.UTF_8))
+                .isEqualTo("سارة المحللة");
         AuditEvent event = singleAudit();
         assertThat(event.status()).isEqualTo(AuditStatus.OK);
         assertThat(event.detail()).containsEntry("policies", 1);
@@ -321,10 +327,13 @@ class AdminPolicyProxyTest extends GatewayTestSupport {
     @Test
     void theChangeLogIsProxiedAndAudited() throws Exception {
         AGENT.enqueue(json(200, "{\"changes\":[{\"changed_at\":\"2026-10-07T10:00:00Z\",\"policy_ref\":\"p-one@2\","
-                + "\"change\":\"version\",\"actor\":\"user-123\",\"exception\":true,\"overrides\":[\"wide@1\"]}]}"));
+                + "\"change\":\"version\",\"actor\":\"user-123\",\"actor_username\":\"analyst\","
+                + "\"actor_name\":\"سارة المحللة\",\"exception\":true,\"overrides\":[\"wide@1\"]}]}"));
         mvc.perform(get("/v1/admin/policies/p-one/changes").header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.changes[0].actor").value("user-123"))
+                .andExpect(jsonPath("$.data.changes[0].actor_username").value("analyst"))
+                .andExpect(jsonPath("$.data.changes[0].actor_name").value("سارة المحللة"))
                 .andExpect(jsonPath("$.data.changes[0].exception").value(true));
         assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath()).isEqualTo("/v1/admin/policies/p-one/changes");
         AuditEvent event = singleAudit();

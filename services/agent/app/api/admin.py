@@ -1,13 +1,16 @@
 """Admin API for guard policies (README §10.4, phase 03 C3), internal: only the gateway
 calls it, after checking the caller's `admin` role and before auditing the call
 (ADR-0042). The agent stays role-blind (ADR-0046): it trusts the internal token and
-records the caller from X-User-Id as the actor of every change.
+records the caller from X-User-Id as the actor of every change, with the username and display
+name the gateway read from the same verified token (X-User-Name, X-User-Display-Name,
+percent-encoded UTF-8, ADR-0123).
 
 The agent owns agent.guard_policies (I1). Every write reaches every agent process
 within 2 s through the store's Redis notification (I3)."""
 
 import uuid
 from typing import Annotated
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Request
 from fastapi.responses import JSONResponse
@@ -39,6 +42,7 @@ from app.api.schemas import (
 from app.guardrails.panel import PanelError, try_policy
 from app.guardrails.schema import Policy
 from app.guardrails.store import (
+    Actor,
     PolicyExists,
     PolicyFileError,
     PolicyNotFound,
@@ -58,8 +62,9 @@ _ERRORS = {
 
 
 class AdminCall:
-    def __init__(self, request: Request, actor: str, tenant: str, request_id: str):
-        self.request, self.actor, self.tenant, self.request_id = request, actor, tenant, request_id
+    def __init__(self, request: Request, actor: Actor, tenant: str, request_id: str):
+        self.request, self.actor, self.tenant, self.request_id = request, actor.id, tenant, request_id
+        self.who = actor
         self.services = request.app.state.services
 
     def error(self, code: str, status: int, details: list[str] | None = None) -> JSONResponse:
@@ -73,11 +78,26 @@ async def _admin(
     x_tenant_id: Annotated[str, Header(min_length=1, max_length=256, description="The admin's tenant.")],
     x_internal_token: Annotated[str | None, Header()] = None,
     x_request_id: Annotated[str | None, Header()] = None,
+    x_user_name: Annotated[
+        str | None, Header(max_length=1024, description="The admin's username, percent-encoded UTF-8.")
+    ] = None,
+    x_user_display_name: Annotated[
+        str | None, Header(max_length=1024, description="The admin's display name, percent-encoded UTF-8.")
+    ] = None,
 ):
-    call = AdminCall(request, x_user_id, x_tenant_id, x_request_id or str(uuid.uuid4()))
+    actor = Actor(x_user_id, _decoded(x_user_name), _decoded(x_user_display_name))
+    call = AdminCall(request, actor, x_tenant_id, x_request_id or str(uuid.uuid4()))
     if not _authorized(x_internal_token, call.services.settings.agent_internal_token):
         return call.error("unauthorized", 401)
     return call
+
+
+def _decoded(value: str | None) -> str | None:
+    """A name header as the gateway sent it (percent-encoded UTF-8); None when absent or blank."""
+    if value is None:
+        return None
+    text = unquote(value, errors="replace").strip()
+    return text[:256] or None
 
 
 Admin = Annotated[AdminCall | JSONResponse, Depends(_admin)]
@@ -93,6 +113,8 @@ def _view(view: StoredView) -> PolicyView:
         policy=_document(view.policy),
         created_at=view.created_at,
         created_by=view.created_by,
+        created_by_username=view.created_by_username,
+        created_by_name=view.created_by_name,
         updated_at=view.updated_at,
         updated_by=view.updated_by,
         overrides=view.overrides,
@@ -160,7 +182,7 @@ async def import_policies(body: PolicyYaml, call: Admin):
     except PolicyFileError as exc:
         return call.error("policy_invalid", 400, [f"{e['id']}: {e['error']}" for e in exc.errors])
     try:
-        report = await call.services.policies.import_policies(policies, actor=call.actor)
+        report = await call.services.policies.import_policies(policies, actor=call.who)
     except PolicyRejected as exc:
         return call.error("policy_invalid", 400, exc.reasons)
     return PolicyImportReport(
@@ -250,7 +272,7 @@ async def create_policy(body: PolicyDocument, call: Admin):
     if isinstance(policy, JSONResponse):
         return policy
     try:
-        await call.services.policies.create(policy, actor=call.actor)
+        await call.services.policies.create(policy, actor=call.who)
     except PolicyExists:
         return call.error("policy_exists", 409)
     except PolicyRejected as exc:
@@ -274,6 +296,8 @@ async def get_policy(policy_id: PolicyId, call: Admin):
                 policy=_document(v.policy),
                 created_at=v.created_at,
                 created_by=v.created_by,
+                created_by_username=v.created_by_username,
+                created_by_name=v.created_by_name,
                 overrides=v.overrides,
                 exception=v.exception,
             )
@@ -298,7 +322,7 @@ async def add_version(policy_id: PolicyId, body: PolicyDocument, call: Admin):
     if isinstance(policy, JSONResponse):
         return policy
     try:
-        await call.services.policies.add_version(policy, actor=call.actor)
+        await call.services.policies.add_version(policy, actor=call.who)
     except PolicyNotFound:
         return call.error("policy_not_found", 404)
     except PolicyRejected as exc:
@@ -314,7 +338,7 @@ async def set_enabled(policy_id: PolicyId, body: PolicyEnabled, call: Admin):
     if isinstance(call, JSONResponse):
         return call
     try:
-        await call.services.policies.set_enabled(policy_id, body.enabled, actor=call.actor)
+        await call.services.policies.set_enabled(policy_id, body.enabled, actor=call.who)
     except PolicyNotFound:
         return call.error("policy_not_found", 404)
     return _view(await call.services.policies.get(policy_id))
@@ -339,6 +363,8 @@ async def policy_changes(policy_id: PolicyId, call: Admin):
                 policy_ref=f"{c.policy_id}@{c.version}",
                 change=c.change,
                 actor=c.actor,
+                actor_username=c.actor_username,
+                actor_name=c.actor_name,
                 exception=c.exception,
                 overrides=c.overrides,
                 induced=[InducedFlag(policy_ref=i["policy"], exception=i["exception"]) for i in c.induced],
