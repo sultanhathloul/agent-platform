@@ -972,6 +972,22 @@ How to verify: `make up`, `make test`, `make smoke` (twice); open `/admin/polici
 
 Human review needed: `services/agent/app/db/migrations/0008_actor_names.sql`; `services/web/src/i18n/ar.json` (scope kinds and hints, the group hint, entity, tier, model-role and target labels, the editor and summary labels, the editors' error messages, the per-action headings, the explanation sentences with their tags, the import placeholder); ADR-0123.
 
+Item 9, added by the owner in the same session (ADR-0124):
+- [x] 9 DATA target chips after the checkpoints chip (one per target, or one "كل الوجهات"); "منع الحفظ" for a DATA-only block whose only target is memory, in the list, detail header, version lines and test panel; the checkpoints chip's tooltip lists its checkpoints' Arabic descriptions
+- [x] make test, make smoke ×2; record per rule 11; push
+
+What changed: `PolicyMeta` gains the target chips and the checkpoints tooltip; `actionLabelKey` / `preventsSaving` name the memory block; the summary and editor say "كل الوجهات" as the chip does.
+
+Results (2026-10-11), per rule 11, OpenRouter profile:
+- `make test` (exit 0, after `make up` rebuilt the web):
+  - agent (pytest): **509 passed, 0 failed, 0 skipped**
+  - gateway (JUnit XML): **91 tests, 91 passed, 0 failed, 0 errors, 0 skipped**
+  - gateway-db-tests (JUnit XML): **5 tests, 5 passed, 0 failed, 0 errors, 0 skipped**
+  - web (vitest, with typecheck and lint): **125 passed, 0 failed, 0 skipped** (121 before; +4: one chip per target in order, one all-targets chip and none without DATA, "منع الحفظ" in ar and en and "حظر" for the four near cases, the checkpoints tooltip and the seven descriptions; the two meta-line order tests now expect the target chip, and the no-separator check reads the visible text, since the tooltip attribute holds a comma)
+- `make smoke`, two consecutive runs: **76/76 checks passed** each; policy rows 17 11 in both, equal to the stored reference.
+
+Human review needed (item 9): `services/web/src/i18n/ar.json` (`actionPreventSave` منع الحفظ, `config.allTargets` كل الوجهات); ADR-0124.
+
 ## Phase 04: UC3 documents (`docs` capability)
 
 - Branch: `phase/04-docs`
