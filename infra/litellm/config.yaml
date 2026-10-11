@@ -50,7 +50,13 @@ model_list:
       api_base: os.environ/EMBED_API_BASE
     model_info:
       mode: embedding
-  # rerank (bge-reranker-v2-m3) is added in phase 04; Ollama cannot serve it (ADR-0008).
+  # bge-reranker-v2-m3 on the local Infinity server (ADR-0134); Ollama has no rerank API (ADR-0008).
+  - model_name: rerank
+    litellm_params:
+      model: infinity/bge-reranker-v2-m3
+      api_base: http://rerank:7997
+    model_info:
+      mode: rerank
 
 router_settings:
   # Only downward fallback that keeps the risk floor (never below standard).

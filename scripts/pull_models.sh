@@ -28,3 +28,18 @@ while read -r model host; do
 done < <(ollama_models)
 
 (( pulled )) && echo "every Ollama model in .env is available" || echo "no Ollama model in .env; nothing to pull"
+
+# The reranker (ADR-0134): bge-reranker-v2-m3 into the volume the `rerank` service reads, with
+# the Infinity image's own Hugging Face client. Skipped when the weights are already there.
+RERANK_IMAGE=michaelf34/infinity:0.0.75
+RERANK_MODEL=BAAI/bge-reranker-v2-m3
+docker volume create rerank-models >/dev/null
+if docker run --rm --entrypoint sh -v rerank-models:/models "$RERANK_IMAGE" \
+     -c 'test -s /models/bge-reranker-v2-m3/model.safetensors'; then
+  echo "  present  $RERANK_MODEL (volume rerank-models)"
+else
+  echo "  fetching $RERANK_MODEL into volume rerank-models (about 2.3 GB)"
+  docker run --rm --entrypoint sh -v rerank-models:/models "$RERANK_IMAGE" \
+    -c "huggingface-cli download $RERANK_MODEL --local-dir /models/bge-reranker-v2-m3 --exclude '*.onnx*'" >/dev/null
+  echo "every reranker weight is available"
+fi

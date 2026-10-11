@@ -14,7 +14,7 @@ env: .env ## Create .env with generated secrets (never overwrites)
 .env:
 	@scripts/init_env.sh
 
-models: ## Pull the models named in infra/litellm/config.yaml into Ollama
+models: ## Pull the Ollama models named in .env and fetch the reranker weights (ADR-0134)
 	@scripts/pull_models.sh
 
 up: .env ## Build and start the full stack, seeded, and wait until healthy

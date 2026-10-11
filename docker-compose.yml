@@ -177,9 +177,31 @@ services:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      rerank:
+        condition: service_healthy
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
+
+  # Cross-encoder reranker bge-reranker-v2-m3 behind the LiteLLM `rerank` alias (ADR-0134). The
+  # weights come from the volume `make models` fills; nothing is downloaded at start.
+  rerank:
+    image: michaelf34/infinity:0.0.75
+    command: ["v2", "--model-id", "/models/bge-reranker-v2-m3", "--served-model-name", "bge-reranker-v2-m3",
+              "--engine", "torch", "--device", "cpu", "--batch-size", "16", "--port", "7997",
+              "--no-bettertransformer"]
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
+      INFINITY_ANONYMOUS_USAGE_STATS: "0"
+    volumes:
+      - rerank-models:/models:ro
+    healthcheck:
+      <<: *healthcheck
+      start_period: 120s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7997/health')"]
 
   # ------------------------------------------------------------------ observability
   clickhouse:
@@ -319,9 +341,16 @@ services:
       GATEWAY_AGENT_INTERNAL_TOKEN: ${AGENT_INTERNAL_TOKEN}
       GATEWAY_CORS_ALLOWED_ORIGINS: ${WEB_PUBLIC_URL}
       GATEWAY_MODELS_CONFIG: /srv/config/models.yaml
+      # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
+      GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
+      GATEWAY_STORAGE_ENDPOINT: http://minio:9000
+      GATEWAY_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER}
+      GATEWAY_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      GATEWAY_STORAGE_BUCKET: uploads
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     volumes:
       - ./config/models.yaml:/srv/config/models.yaml:ro   # role tier caps (ADR-0046)
+      - ./config/docs.yaml:/srv/config/docs.yaml:ro       # upload limits (ADR-0126)
     ports:
       - "${GATEWAY_PORT}:8080"
     depends_on:
@@ -331,6 +360,8 @@ services:
         condition: service_healthy
       agent:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
     healthcheck:
@@ -439,3 +470,5 @@ volumes:
   clickhouse-logs:
   gateway-gradle-cache:
     name: gateway-gradle-cache   # shared with `make openapi`
+  rerank-models:
+    name: rerank-models          # filled by `make models` (ADR-0134)
