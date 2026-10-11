@@ -33,16 +33,19 @@ describe("the policy meta line (ADR-0119)", () => {
         ["exception", "bdi", CATALOGS[locale].policies.overrides.badge],
         ["scope", "bdi", "global"],
         ["checkpoints", "bdi", "OUTPUT, DATA"],
+        ["target", "bdi", CATALOGS[locale].policies.config.allTargets],
         ["checker", "bdi", "presidio"],
         ["ref", "bdi", "pii-redact-output@3"],
       ]);
-      expect(html).not.toContain("·");
-      expect(html).not.toContain("،");
+      // No separators between chips (the checkpoints tooltip, an attribute, may hold a comma).
+      const visible = html.replace(/<[^>]*>/g, "");
+      expect(visible).not.toContain("·");
+      expect(visible).not.toContain("،");
     });
 
     it(`leaves the exception badge out when the policy is not one, in ${locale}`, () => {
       const html = render(locale, createElement(PolicyMeta, { policy: POLICY }));
-      expect(chips(html).map(([name]) => name)).toEqual(["action", "scope", "checkpoints", "checker", "ref"]);
+      expect(chips(html).map(([name]) => name)).toEqual(["action", "scope", "checkpoints", "target", "checker", "ref"]);
     });
   }
 
@@ -70,6 +73,67 @@ describe("the policy meta line (ADR-0119)", () => {
       const tag = html.match(new RegExp(`<bdi[^>]*data-chip="${name}"[^>]*>`))?.[0] ?? "";
       expect(tag, name).not.toContain("font-mono");
     }
+  });
+});
+
+describe("DATA targets and memory wording (ADR-0124)", () => {
+  const memory = {
+    id: "pii-block-in-memory",
+    version: 1,
+    action: "block",
+    scope: "global",
+    checkpoints: ["DATA"],
+    checker: "presidio",
+    config: { entities: ["SA_MOBILE"], targets: ["memory_candidate"] },
+  };
+
+  it("puts one chip per target after the checkpoints chip, in the catalog's order", () => {
+    const policy = { ...POLICY, config: { entities: ["SA_MOBILE"], targets: ["summary", "answer"] } };
+    const html = render("ar", createElement(PolicyMeta, { policy }));
+    expect(chips(html).slice(2, 5)).toEqual([
+      ["checkpoints", "bdi", "OUTPUT, DATA"],
+      ["target", "bdi", "الإجابة"],
+      ["target", "bdi", "الملخص"],
+    ]);
+  });
+
+  it("shows one all-targets chip when the policy covers every target, and none without DATA", () => {
+    const every = { ...POLICY, config: { targets: ["answer", "summary", "memory_candidate"] } };
+    expect(chips(render("ar", createElement(PolicyMeta, { policy: every }))).filter(([n]) => n === "target")).toEqual([
+      ["target", "bdi", "كل الوجهات"],
+    ]);
+    const output = { ...POLICY, checkpoints: ["OUTPUT"], config: { targets: ["answer"] } };
+    expect(chips(render("ar", createElement(PolicyMeta, { policy: output }))).map(([n]) => n)).not.toContain("target");
+  });
+
+  it("names a DATA-only block on memory alone 'prevent saving', and nothing else", () => {
+    const html = render("ar", createElement(PolicyMeta, { policy: memory }));
+    expect(chips(html)[0]).toEqual(["action", "bdi", "منع الحفظ"]);
+    expect(chips(html)[3]).toEqual(["target", "bdi", "عناصر الذاكرة"]);
+    expect(chips(render("en", createElement(PolicyMeta, { policy: memory })))[0]).toEqual(["action", "bdi", "Prevent saving"]);
+    for (const other of [
+      { ...memory, action: "redact" },
+      { ...memory, checkpoints: ["INPUT", "DATA"] },
+      { ...memory, config: { entities: ["SA_MOBILE"], targets: ["memory_candidate", "summary"] } },
+      { ...memory, config: { entities: ["SA_MOBILE"] } },
+    ]) {
+      const [first] = chips(render("ar", createElement(PolicyMeta, { policy: other })));
+      expect(first![2]).toBe(CATALOGS.ar.guardActions[other.action as "block" | "redact"]);
+    }
+  });
+
+  it("gives the checkpoints chip the checkpoints' Arabic descriptions as its tooltip", () => {
+    const html = render("ar", createElement(PolicyMeta, { policy: { ...POLICY, checkpoints: ["INPUT", "TOOL_LIST", "OUTPUT"] } }));
+    expect(html).toMatch(/<bdi data-chip="checkpoints" dir="ltr" class="[^"]*" title="رسالة المستخدم، القدرات المتاحة، الإجابة">/);
+    expect(CATALOGS.ar.policies.checkpoints).toEqual({
+      INPUT: "رسالة المستخدم",
+      TOOL_LIST: "القدرات المتاحة",
+      PRE_TOOL: "قبل الأداة",
+      POST_TOOL: "بعد الأداة",
+      OUTPUT: "الإجابة",
+      DATA: "البيانات الخارجة",
+      MODEL_TIER: "سقف النموذج",
+    });
   });
 });
 

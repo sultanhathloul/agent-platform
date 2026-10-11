@@ -398,6 +398,7 @@
     "actor": {
       "tooltip": "Username: {username}, id: {id}",
       "tooltipId": "Id: {id}"
-    }
+    },
+    "actionPreventSave": "Prevent saving"
   }
 }

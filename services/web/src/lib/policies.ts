@@ -1,6 +1,7 @@
 // Pure helpers for the admin policy page (README §10.4). No API types are written here;
 // they come from the generated gateway types.
 import type { PolicyDocument, PolicyMatchRow, PolicySpan, PolicyView } from "@/lib/api/types";
+import { readTargets, type Config } from "@/lib/policyConfig";
 
 export const CHECKPOINTS = ["INPUT", "TOOL_LIST", "PRE_TOOL", "POST_TOOL", "OUTPUT", "DATA", "MODEL_TIER"] as const;
 export const CHECKERS = ["regex", "presidio", "keyword_list", "llm_judge", "tier_ceiling"] as const;
@@ -228,4 +229,35 @@ export function visibleMatchRows(rows: PolicyMatchRow[], views: PolicyView[] | n
   if (showTest || views === null) return rows;
   const test = new Set(views.filter((v) => (v.policy.purpose ?? "production") === "test").map((v) => v.policy.id));
   return rows.filter((row) => !test.has(row.policy_id));
+}
+
+/**
+ * The DATA targets a policy's meta line names (ADR-0124): null when DATA is not one of its
+ * checkpoints, an empty list when it covers every target (shown as one "all targets" chip).
+ */
+export function metaTargets(policy: Pick<PolicyDocument, "checkpoints" | "config">): string[] | null {
+  if (!policy.checkpoints.includes("DATA")) return null;
+  const targets = readTargets((policy.config ?? {}) as Config);
+  if (targets === undefined || TARGETS.every((t) => targets.includes(t))) return [];
+  return TARGETS.filter((t) => targets.includes(t));
+}
+
+/**
+ * A DATA-only policy whose only target is memory_candidate does not block a reply: a block keeps
+ * the candidate out of memory, so its action is named "prevent saving" (ADR-0124).
+ */
+export function preventsSaving(policy: Pick<PolicyDocument, "checkpoints" | "config" | "action">): boolean {
+  const targets = metaTargets(policy);
+  return (
+    policy.action === "block" &&
+    policy.checkpoints.every((c) => c === "DATA") &&
+    targets !== null &&
+    targets.length === 1 &&
+    targets[0] === "memory_candidate"
+  );
+}
+
+/** The catalog key of a policy's action label: "prevent saving" where it applies (ADR-0124). */
+export function actionLabelKey(policy: Pick<PolicyDocument, "checkpoints" | "config" | "action">): string {
+  return preventsSaving(policy) ? "policies.actionPreventSave" : `guardActions.${policy.action}`;
 }

@@ -49,6 +49,7 @@ import {
   policyDescription,
   policyFromForm,
   policyName,
+  preventsSaving,
   visibleMatchRows,
   type PolicyForm,
 } from "@/lib/policies";
@@ -660,6 +661,13 @@ function TestPanel({
   }
 
   const segments = useMemo(() => (result ? highlight(tested, result.spans) : []), [result, tested]);
+  // ADR-0124: a block that keeps a candidate out of memory is named "prevent saving".
+  const testedConfig = form ? parseConfig(form.configText) : null;
+  const preventsSavingHere =
+    result?.action === "block" &&
+    form !== null &&
+    testedConfig?.ok === true &&
+    preventsSaving({ checkpoints: form.checkpoints, action: form.action, config: testedConfig.config });
 
   return (
     <section className={card} aria-labelledby="policy-test">
@@ -736,7 +744,11 @@ function TestPanel({
             </span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
               {t("policies.test.action")}{" "}
-              {t.has(`guardActions.${result.action}`) ? t(`guardActions.${result.action}`) : result.action}
+              {preventsSavingHere
+                ? t("policies.actionPreventSave")
+                : t.has(`guardActions.${result.action}`)
+                  ? t(`guardActions.${result.action}`)
+                  : result.action}
             </span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
               {t("policies.test.score")} <bdi>{result.score.toFixed(2)}</bdi>

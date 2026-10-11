@@ -362,7 +362,7 @@
       "roles": "أدوار النموذج التي يسري عليها",
       "allRoles": "جميع الأدوار",
       "targets": "الوجهات",
-      "allTargets": "جميع الوجهات",
+      "allTargets": "كل الوجهات",
       "default": "{value} (الافتراضي)",
       "none": "لا شيء"
     },
@@ -398,6 +398,7 @@
     "actor": {
       "tooltip": "اسم المستخدم: {username}، المعرّف: {id}",
       "tooltipId": "المعرّف: {id}"
-    }
+    },
+    "actionPreventSave": "منع الحفظ"
   }
 }
