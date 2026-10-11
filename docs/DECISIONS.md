@@ -1142,3 +1142,14 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - **Test panel.** The heading over the resulting text follows the action (`policies.test.outputBy.*`: النص بعد الإخفاء، النص بعد الحظر، النص بعد التحذير، …). Entity types in the explanation and on matched-span badges use the presidio editor's Arabic labels; a pattern's name stays an identifier. The explanation sentences carry `<v>` around each value and `<list/>` for the matched items, so each technical value is rendered in its own `<bdi>`.
   - **Import.** The placeholder is "الصق هنا ملف السياسات"; the format name, YAML, is a chip in the section heading. Not changed: the export button's label.
 - Consequences: A change made after this names its admin in the page; older rows by an admin show the id until they age out of view. An admin edits configuration without JSON, and the JSON view stays available for keys no editor shows (`mode`, `fold`, `ignore_case`, `language`). A config the editor refuses never reaches the agent; the agent still validates what it receives. `make test-web` needs the `config` build context.
+
+### ADR-0124: DATA targets on the meta line, "prevent saving" for a memory block, checkpoint tooltips
+- Date: 2026-10-11
+- Phase: 03 (PR #3, UI session 2, the owner's item 9)
+- Status: decided (the owner's item 9); the points marked "assumed" are the agent's
+- Context: The meta line (ADR-0119) did not say which DATA targets a policy guards, so `pii-redact-output` and `pii-block-in-memory` looked alike. A block whose only target is a memory candidate does not refuse the reply; it keeps the candidate out of memory, yet it read "حظر". The checkpoints chip showed identifiers only.
+- Decision:
+  - For a policy with DATA among its checkpoints, target chips follow the checkpoints chip: one per target, in the order الإجابة، الملخص، عناصر الذاكرة. A policy that covers every target (no `targets`, or all three) gets one chip, "كل الوجهات"; the configuration summary and editor use the same words. A policy without DATA gets no target chip.
+  - The action chip reads "منع الحفظ" ("Prevent saving") instead of "حظر" when the action is block, every checkpoint is DATA and the only target is `memory_candidate`: in the list, the detail header, each version line (each version by its own content) and the test panel's result. Assumed: a policy that also has another checkpoint keeps "حظر", because it blocks there.
+  - The checkpoints chip has a tooltip: the descriptions of its checkpoints from the locale's catalog (رسالة المستخدم، القدرات المتاحة، قبل الأداة، بعد الأداة، الإجابة، البيانات الخارجة، سقف النموذج), joined with the locale's comma. Assumed: the chip stays one chip for all checkpoints (ADR-0119), so its tooltip lists each one's description.
+- Consequences: The meta line is longer for DATA policies by one to three chips. The guard events, the chat chips and the API are unchanged: the action is still `block`, and only its label changes.
