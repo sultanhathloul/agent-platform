@@ -378,3 +378,36 @@ async def test_a_failed_search_is_said_in_the_evidence(services, litellm, monkey
     assert events[-1].type == "done"
     assert [e.data.status for e in events if e.type == "tool_end"] == ["error"]
     assert "تعذّر البحث في الملفات المرفقة الآن" in seen[0]
+
+
+@pytest.mark.integration
+async def test_the_router_sees_file_names_as_user_data_never_in_the_system_role(services, litellm):
+    principal = _principal()
+    conversation = str(uuid.uuid4())
+    record = await _indexed(
+        services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION), "لائحة الإجازات.pdf"
+    )
+    await _turn(services, principal, conversation, "كم مدة الإجازة السنوية؟", [record.id])
+    seen: list[list[dict]] = []
+
+    class Recording:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def call(self, decision, package, **kwargs):
+            if decision.role == "router":
+                seen.append(package.to_messages())
+            return await self.inner.call(decision, package, **kwargs)
+
+    import dataclasses
+
+    await _turn(
+        dataclasses.replace(services, gateway=Recording(services.gateway)),
+        principal,
+        conversation,
+        f"وماذا عن إجازة الأمومة؟ {uuid.uuid4().hex[:6]}",
+    )
+    [messages] = seen
+    assert messages[0]["role"] == "system" and "لائحة الإجازات.pdf" not in messages[0]["content"]
+    assert messages[-1]["role"] == "user" and "<conversation_files>" in messages[-1]["content"]
+    assert "لائحة الإجازات.pdf" in messages[-1]["content"]

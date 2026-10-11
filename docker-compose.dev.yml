@@ -10,7 +10,7 @@ services:
   minio:
     ports: ["9000:9000", "9001:9001"]
   litellm:
-    ports: ["4000:4000"]
+    ports: !override ["4000:4000"]
   otel-collector:
     ports: ["4318:4318"]
   agent:

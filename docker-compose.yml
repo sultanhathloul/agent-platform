@@ -175,6 +175,10 @@ services:
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
+    # Loopback only, behind the master key: `make eval` scores Ragas metrics through the judge
+    # role's alias from the host (ADR-0141).
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

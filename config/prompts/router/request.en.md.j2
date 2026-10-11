@@ -1,0 +1,16 @@
+---
+id: router.request
+version: 1.0.0
+role: router
+locale: en
+changelog:
+  - "1.0.0: first version (phase 04): the conversation's file names and the message, as data in the user role (ADR-0068)"
+---
+<conversation_files>
+{% for name in files %}
+- {{ name }}
+{% endfor %}
+</conversation_files>
+<user_message>
+{{ message }}
+</user_message>

@@ -56,7 +56,7 @@ test-web:
 	docker build --target test --no-cache-filter test --build-context config=config services/web
 
 eval: .env ## Golden suites against the live stack (real models)
-	uv run evals/run_evals.py
+	uv run evals/run_evals.py $(s)
 
 smoke: .env ## End-to-end smoke test against the live stack
 	scripts/smoke.sh

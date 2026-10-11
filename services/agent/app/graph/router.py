@@ -8,8 +8,9 @@ candidates is ignored, and an unusable answer or a model failure keeps the candi
 the rules found (`router_default`).
 
 A decision is cached in Redis for `cache_ttl_s`, keyed per tenant (ADR-0116 precedent) by
-the router prompt's version, the locale, the candidates, the normalized message and the
-window it saw."""
+the router prompts' versions, the locale, the candidates, the conversation's file names,
+the normalized message and the window it saw. The file names and the message reach the
+model as delimited data in the user role (`router.request`, ADR-0068)."""
 
 import contextlib
 import hashlib
@@ -67,15 +68,21 @@ def _window(state: dict, size: int) -> list[str]:
     return [f"{role}:{content}" for role, content in (m for m in history[-size:] if m)] if size else []
 
 
+def _files(state: dict) -> list[str]:
+    """The names of the conversation's indexed files: user data, sent in the user role (ADR-0068)."""
+    return [a["name"] for a in state.get("attachments") or [] if a.get("status") == "indexed"]
+
+
 def _cache_key(ctx: TurnContext, state: dict, allowed: Sequence[str], window: list[str]) -> str:
     services = ctx.services
-    prompt = services.prompts.ref("router.system", state["locale"])
+    prompts = [services.prompts.ref(p, state["locale"]) for p in ("router.system", "router.request")]
     material = json.dumps(
         [
             ctx.principal.tenant_id,
-            prompt,
+            prompts,
             state["locale"],
             list(allowed),
+            _files(state),
             normalize(state["user_message"]),
             window,
         ],
@@ -117,14 +124,17 @@ async def choose(
         node="router",
         needs=node.needs,
         system_prompt=node.system_prompt,
+        user_prompt=node.request_prompt,
         locale=locale,
         state={k: state.get(k) for k in ("user_message", "messages", "summary_cursor")},
         window_messages=config.window_messages,
         prompt_vars={
+            "files": _files(state),
+            "message": state["user_message"],
             "capabilities": [
                 {"slug": c.slug, "description": getattr(c.manifest.routing_hints.description, locale)}
                 for c in pool
-            ]
+            ],
         },
     )
     try:
