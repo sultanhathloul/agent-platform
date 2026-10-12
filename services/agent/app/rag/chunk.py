@@ -4,7 +4,10 @@
 split on the coarsest separator that works: paragraphs, lines, sentence ends (. ؟ ? !
 ؛), Arabic and Latin commas, then spaces; a run longer than the budget with no
 separator is cut by tokens. A segment's `repeat` line (an XLSX header) opens every
-chunk cut from it and counts against the budget. Tokens are counted as Context
+chunk cut from it and counts against the budget; a header longer than half the budget is
+truncated to half, so it never squeezes out the rows it describes (owner decision A3). After
+a cut, the overlap carried into the next chunk gives way, oldest unit first, until the next
+unit fits beside it: no chunk is longer than the budget. Tokens are counted as Context
 Assembly counts them."""
 
 from collections.abc import Sequence
@@ -43,7 +46,9 @@ def chunk_segments(
 ) -> list[Chunk]:
     chunks: list[Chunk] = []
     for segment in segments:
-        header = (segment.repeat.strip() + "\n") if segment.repeat else ""
+        header = ""
+        if segment.repeat:
+            header = truncate(segment.repeat.strip(), max_tokens // 2 - 1, counter) + "\n"
         budget = max(max_tokens - counter.count(header), 1)
         overlap = min(overlap_tokens, budget // 2)
         units = _units(segment.text, budget, counter)
@@ -62,6 +67,8 @@ def chunk_segments(
                     carried.insert(0, previous)
                     carried_size += previous_cost
                 current, size = carried, carried_size
+            while current and size + cost > budget:  # the overlap gives way to the next unit
+                size -= counter.count(current.pop(0))
             current.append(unit)
             size += cost
         if current and "".join(current).strip():
