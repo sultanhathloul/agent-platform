@@ -2,8 +2,8 @@
 `upload` stores an attachment record through the platform's attachment service, which hands
 it to the backend; `ingest` brings it to a terminal status the way that backend does.
 
-- internal: a generated PDF (pages) or Markdown file (sections) in MinIO, indexed by the
-  phase 04 pipeline;
+- internal: a generated PDF (pages, in visual order as real producers write Arabic), a
+  Markdown file or a DOCX (sections) in MinIO, indexed by the phase 04 pipeline;
 - fake: the in-memory backend of tests/fixtures/fake_backend.py, indexed directly."""
 
 import uuid
@@ -54,7 +54,8 @@ class Harness:
             body = "\n\n".join(f"# {heading}\n{text}" for heading, text in zip(sections, pages, strict=True))
             data, mime = body.encode("utf-8"), "text/markdown"
         else:
-            data, mime = pdf_bytes([page.split("\n") for page in pages], visual=False), "application/pdf"
+            # Laid out as a bidi-aware producer lays Arabic out (python-bidi, owner decision A2).
+            data, mime = pdf_bytes([page.split("\n") for page in pages], visual=True), "application/pdf"
         key = f"test/{scope.conversation_id}/{uuid.uuid4()}"
         if self.name == "internal":
             await self.services.attachments.objects.put(key, data, mime)

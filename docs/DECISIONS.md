@@ -1237,7 +1237,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0135: Extraction per type; Arabic presentation forms and visual order restored; recursive chunking 800/120
 - Date: 2026-10-11
 - Phase: 04 (implementation choice I7)
-- Status: decided
+- Status: decided — Superseded by ADR-0173 on 2026-10-12 (visual-order detection), ADR-0174 (chunk budget, XLSX header)
 - Context: README §9.3; Arabic PDFs often extract as presentation forms in visual (reversed) order.
 - Decision: PDF per page with `pypdf` (BSD); NFKC folds presentation forms; a line detected as visual-order Arabic is reversed back to logical order (digit and Latin runs keep their direction). DOCX split by headings (`python-docx`, MIT); XLSX per sheet with the header row repeated in every chunk (`openpyxl`, MIT); TXT and MD heading-aware. Chunking per README §9.3: recursive, 800 tokens, 120 overlap, never across a page (PDF) or section (DOCX, MD) boundary, so every chunk has one page or section for its citation.
 - Consequences: Visual-order detection is a heuristic with Arabic tests; a mis-detected line stays searchable by its words through the vector half.
@@ -1580,3 +1580,22 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The development overlay published the real LiteLLM on `0.0.0.0:4000` (`!override`), so anyone who could reach the host could use the model keys with the master key; `litellm-mock` was published on `0.0.0.0:4001`; `embed-mock` shared the default network with every service.
 - Decision: The development overlay no longer maps LiteLLM: it keeps the base file's `127.0.0.1:${LITELLM_PORT}`. `litellm-mock` publishes `127.0.0.1:4001`. `embed-mock` joins only `test`, an internal network it shares with `litellm-mock`, its one client. A smoke check fails when LiteLLM or its double is published on any other address.
 - Consequences: A tool on another machine cannot reach LiteLLM through the development stack; local pytest runs still reach the mock on 127.0.0.1:4001.
+
+### ADR-0173: Arabic PDF lines: pypdf's logical order is trusted; runs are reordered only on presentation forms
+- Date: 2026-10-12
+- Phase: 04 (owner decisions A1 and A2; supersedes the visual-order part of ADR-0135)
+- Status: decided
+- Context: Review round 1 found every eval PDF line with digits or Latin scrambled («2031 الإصدار الثالث لعام», the ID after its label's colon), because pypdf already returns each right-to-left run's letters in logical order and `app/rag/bidi.py` reversed lines again on word heuristics, one of which («ends in لا») also reversed «قليلا جدا». The tests built their visual input as the inverse of the code under test.
+- Decision:
+  - pypdf's letter order is trusted. The one strong signal acted on is presentation forms together with a digit or Latin run in the same line: the producer shaped and laid the line out itself, and pypdf left its runs in visual order. The line's pieces (each left-to-right run, and the text between two of them, which pypdf turned already) are then put back in logical order, no piece's own text touched. The «لا» and reversed-particle heuristics are removed; no line is reversed on a guess from its words.
+  - Every line then gets its Arabic/digit and Arabic/Latin boundaries spaced (LibreOffice-style PDFs come back «عام2027  إلى»), spaces collapsed, no space before a mark that ends a clause, and a stranded leading colon put back between the label and its value (any other leading mark at the line's end); NFKC folds presentation forms.
+  - Fixtures (`services/agent/tests/fixtures/pdf/`, built by `make_fixtures.py`): a PDF LibreOffice exported from an Arabic DOCX (digits, Latin, a table, a label before a national ID and an IBAN, «قليلا جدا», «فعلا قليلا مثلا») and a visual-order PDF laid out by python-bidi (an implementation of the bidirectional algorithm this repository does not contain; a dev dependency). The test helper `visual_line` uses python-bidi too, so generated PDFs are laid out as real producers lay them out. Tests compare whole lines in order. DOCX, XLSX, TXT and MD each get a presentation-form test.
+- Consequences: Every line of the eval PDFs (leave-regulation, cv-fake-pii, twenty-pages) comes back exactly as written; the regenerated eval PDFs are byte-identical, since the old helper agreed with python-bidi on their lines. A PDF that draws presentation forms in logical order would be misread; none is known among the producers tested.
+
+### ADR-0174: No chunk passes its budget; an XLSX header is the first row followed by a row of its width
+- Date: 2026-10-12
+- Phase: 04 (owner decision A3; supersedes the chunking and header details of ADR-0135)
+- Status: decided
+- Context: After a cut, the chunker carried the overlap into the next chunk and added the next unit without checking the budget (a 207-token chunk at 200); a header longer than the budget left one token for rows; an XLSX title row above the table became the header repeated in every chunk.
+- Decision: After a cut, the carried overlap gives way, oldest unit first, until the next unit fits. A repeated header is truncated to half the budget. An XLSX sheet's header is its first row (two cells or more) followed by a row of the same width; rows above it stay in the sheet's text; a sheet without such a pair takes its first row. Unit tests cover the overlap, the header, title rows, reciprocal rank fusion and the full-text stopwords on Arabic questions.
+- Consequences: Overlap is shorter where a long unit follows a cut. A one-column table is read without a header.

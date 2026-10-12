@@ -31,6 +31,7 @@ dev = [
     "arabic-reshaper>=3.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "python-bidi==0.6.6",
     "reportlab>=4.2",
     "ruff>=0.6",
 ]

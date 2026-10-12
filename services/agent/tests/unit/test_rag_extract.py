@@ -2,6 +2,9 @@
 extractor, the normalizer and the chunker, including presentation forms and
 visual-order PDF text. Documents are generated here (G3)."""
 
+from pathlib import Path
+
+import arabic_reshaper
 import pytest
 
 from app.context.tokens import default_counter
@@ -16,9 +19,9 @@ from tests.fixtures.documents import (
     docx_bytes,
     pdf_bytes,
     scanned_pdf_bytes,
-    visual_line,
     xlsx_bytes,
 )
+from tests.fixtures.pdf.make_fixtures import MIXED_LINES, MIXED_TABLE, VISUAL_LINES
 
 
 @pytest.fixture(scope="module")
@@ -26,41 +29,84 @@ def docs_config(config_dir):
     return load_docs_config(config_dir)
 
 
-# ------------------------------------------------------------------ normalizer and bidi
+# ------------------------------------------------------------------ normalizer and bidi (A1, A2)
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "pdf"
+
+
+def _lines(document) -> list[str]:
+    return [line for segment in document.segments for line in segment.text.split("\n")]
 
 
 def test_presentation_forms_fold_to_ordinary_letters():
-    assert restore_line("ﺍﻟﺈﺟﺎﺯﺓ") != "الإجازة"[::-1]
+    assert restore_line("ﺍﻹﺟﺎﺯﺓ ﺍﻟﺴﻨﻮﻳﺔ") == "الإجازة السنوية"
     assert normalize_for_search("ﺍﻹﺟﺎﺯﺓ") == normalize_for_search("الإجازة") == "اجازه"
 
 
 @pytest.mark.parametrize(
     "line",
     [
+        "قليلا جدا",  # ends in لا: once taken for reversed text (review round 1)
+        "فعلا قليلا مثلا",
         "يستحق الموظف إجازة سنوية مدتها ثلاثون يوما.",
-        "تمنح إجازة الأمومة لمدة 10 أسابيع في عام 2031 (براتب كامل).",
-        "رقم التعميم HR-77 الصادر من إدارة الموارد البشرية",
+        "المادة الأولى: تسري هذه اللائحة على الموظفين.",
+        "يعمل الموظف من عام 2027 إلى عام 2030 في مشروع Oasis Cloud.",
+        "رقم الهوية الوطنية: 1012345672",
     ],
 )
-def test_a_visual_order_line_is_restored_to_logical_order(line):
-    visual = visual_line(line)
-    assert is_visual(visual)
-    assert restore_line(visual) == line
-
-
-@pytest.mark.parametrize(
-    "line",
-    ["يستحق الموظف إجازة سنوية مدتها ثلاثون يوما.", "المادة الأولى: تسري هذه اللائحة على الموظفين."],
-)
-def test_a_logical_line_is_never_reversed(line):
+def test_a_logical_line_is_left_as_it_is(line):
     assert not is_visual(line)
     assert restore_line(line) == line
 
 
-def test_plain_letters_in_visual_order_are_detected_without_presentation_forms():
-    line = "تسري هذه اللائحة على جميع الموظفين في الهيئة"
-    assert is_visual(line[::-1])
-    assert restore_line(line[::-1]) == line
+def test_a_libreoffice_pdf_comes_back_line_by_line_in_logical_order(docs_config):
+    """Exported by LibreOffice from an Arabic DOCX (tests/fixtures/pdf/make_fixtures.py): pypdf
+    keeps the runs in logical order and only the spacing at a digit or Latin boundary needs
+    putting back. The ID and the IBAN stay after their labels, so PII rules can match them."""
+    document = extract("pdf", (FIXTURES / "libreoffice-mixed.pdf").read_bytes(), docs_config)
+    assert _lines(document) == MIXED_LINES + [" ".join(row) for row in MIXED_TABLE]
+
+
+def test_a_visual_order_pdf_comes_back_line_by_line_in_logical_order(docs_config):
+    """Shaped and laid out by python-bidi, an implementation of the bidirectional algorithm this
+    repository does not contain: nothing here is the inverse of the code under test."""
+    document = extract("pdf", (FIXTURES / "visual-order.pdf").read_bytes(), docs_config)
+    assert _lines(document) == VISUAL_LINES
+
+
+MIXED_PAGE = [
+    "السيرة الذاتية",
+    "البريد الإلكتروني: noura.test@example.org",
+    "رقم الهوية الوطنية: 1012345672",
+    "رقم الآيبان: SA0380000000608010167519",
+    "محللة بيانات في هيئة الواحة من عام 2027 إلى عام 2030.",
+    "الفصل 1: أحكام تنظيمية في الهيئة",
+    "المادة 11: يرفع تقريرا دوريا كل 2 أسابيع إلى مديره المباشر.",
+    "قليلا جدا",
+]
+
+
+def test_generated_visual_pdfs_keep_every_number_label_and_address_in_place(docs_config):
+    document = extract("pdf", pdf_bytes([MIXED_PAGE], visual=True), docs_config)
+    assert _lines(document) == MIXED_PAGE
+
+
+@pytest.mark.parametrize(
+    ("kind", "data"),
+    [
+        ("docx", lambda text: docx_bytes([(text, "p")])),
+        ("xlsx", lambda text: xlsx_bytes({"ورقة": [["العنوان"], [text]]})),
+        ("txt", lambda text: text.encode("utf-8")),
+        ("md", lambda text: f"# عنوان\n{text}".encode()),
+    ],
+)
+def test_presentation_forms_are_folded_by_every_extractor(docs_config, kind, data):
+    logical = "تمنح إجازة الأمومة لمدة عشرة أسابيع"
+    shaped = arabic_reshaper.reshape(logical)
+    assert shaped != logical and any(0xFE70 <= ord(c) <= 0xFEFF for c in shaped)
+    document = extract(kind, data(shaped), docs_config)
+    text = "\n".join(s.text for s in document.segments)
+    assert logical in text and not any(0xFB50 <= ord(c) <= 0xFEFF for c in text)
 
 
 # ------------------------------------------------------------------ detection
@@ -79,15 +125,12 @@ def test_kind_is_detected_by_extension_and_bytes(docs_config):
 # ------------------------------------------------------------------ PDF
 
 
-@pytest.mark.parametrize("visual", [True, False])
-def test_pdf_pages_come_back_in_logical_arabic(docs_config, visual):
-    document = extract("pdf", pdf_bytes(LEAVE_REGULATION, visual=visual), docs_config)
+def test_pdf_pages_come_back_whole_and_in_logical_arabic(docs_config):
+    document = extract("pdf", pdf_bytes(LEAVE_REGULATION, visual=True), docs_config)
     assert document.pages == 3
     assert [s.page for s in document.segments] == [1, 2, 3]
-    page2 = document.segments[1].text
-    assert "تمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل." in page2
-    assert "2031" in document.segments[2].text
-    assert not any(0xFE70 <= ord(c) <= 0xFEFF for s in document.segments for c in s.text)
+    assert [s.text.split("\n") for s in document.segments] == LEAVE_REGULATION
+    assert not any(0xFB50 <= ord(c) <= 0xFEFF for s in document.segments for c in s.text)
 
 
 def test_a_scanned_pdf_fails_as_scanned_unsupported(docs_config):

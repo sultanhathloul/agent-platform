@@ -3,16 +3,16 @@ CV with fake PII, never a real or ministry document (ADR-0065). PDFs are drawn w
 Arabic-capable TrueType font (ARABIC_TEST_FONT; the test image installs DejaVu).
 
 `visual=True` draws each Arabic line the way many real PDFs store it: shaped into
-presentation forms and reversed into visual order, so the extractor has to restore it
-(ADR-0135). `visual=False` stores the logical text unchanged."""
+presentation forms (arabic_reshaper) and put in visual order by python-bidi's implementation
+of the Unicode bidirectional algorithm, which this repository does not contain, so the
+extractor has to restore it and no test is built as the inverse of the code under test
+(owner decision A2). `visual=False` stores the logical text unchanged."""
 
 import io
 import os
-import re
 from collections.abc import Sequence
 
 FONT_ENV = "ARABIC_TEST_FONT"
-_LTR = re.compile(r"[0-9A-Za-z][0-9A-Za-z.,:/%@_\-]*")
 
 
 def font_path() -> str:
@@ -23,12 +23,11 @@ def font_path() -> str:
 
 
 def visual_line(line: str) -> str:
-    """Shaped presentation forms in visual order, with digit and Latin runs kept LTR."""
+    """Shaped presentation forms in visual order, as a bidi-aware producer lays them out."""
     import arabic_reshaper
+    from bidi.algorithm import get_display
 
-    shaped = arabic_reshaper.reshape(line)
-    reversed_line = shaped[::-1].translate(str.maketrans("()[]", ")(]["))
-    return _LTR.sub(lambda m: m.group(0)[::-1], reversed_line)
+    return get_display(arabic_reshaper.reshape(line))
 
 
 def pdf_bytes(pages: Sequence[Sequence[str]], *, visual: bool = True) -> bytes:
