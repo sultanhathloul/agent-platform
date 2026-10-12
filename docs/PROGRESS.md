@@ -1092,6 +1092,40 @@ For human review:
 - infra: `docker-compose.yml` (rerank server, embed-mock test service, MinIO env, LiteLLM on loopback), `docker-compose.dev.yml`, `docker-compose.airgap.yml`, `infra/airgap/nginx.conf`, `infra/litellm/config.yaml`, `infra/litellm/config.mock.yaml`, `infra/keycloak/realm-export.json` (cap:docs)
 - `evals/golden/rag.jsonl`, `evals/golden/routing.jsonl`, `evals/thresholds.yaml`, `evals/docs/generate.py` (all documents fictional, G3)
 
+### Fix session: PR #4 review round 1 (2026-10-12)
+
+Scope: the owner's decisions on review round 1 (main report, addenda 1–3), nothing else; `docs/HANDOFF.md` untouched. Threat model ADR-0054. C6 first; every other item builds on it. Owner principle (ADR): no policy is applied at ingestion; chunks are stored as extracted and every guard policy runs at runtime, per principal; delimiter neutralization is not a policy and applies to everyone, at runtime too.
+
+Checklist:
+- [ ] Plan and `docs/PHASE-04-BUILD-PROMPT.md` in the first commit
+- [ ] C6 DocumentBackend in `rag/` (register, status, search, fetch), `InternalDocumentBackend` from this phase's pipeline, `config/docs.yaml backend: internal`; the capability imports no VectorStore, extractor, chunker or retriever; scope injected by the broker, enforced by every backend; contract suite against the internal and a test-only fake backend; the docs capability's tests pass on both
+- [ ] S1 `docs_search` takes no tenant, user or collection; the broker injects the scope and refuses (and audits) a tool the calling capability's manifest does not declare
+- [ ] S2 evidence and tool results in the user role; decode before tag stripping; delimiters neutralized in content, section, file name and sheet title; attribute values escaped; pending and failed names inside the delimited block; Source fields through POST_TOOL, OUTPUT and DATA per principal before a citation leaves; compression keeps delimiter lines; INPUT checks this turn's file names; the five tests
+- [ ] S3 Ragas telemetry off (run_evals.py before the import, Makefile), test; no other outbound call
+- [ ] S4 no deletion in the product (endpoint, UI, expiry, touch, purge removed); FK with ON DELETE CASCADE; context packages record attachment ids; manual steps here; no chunk text in AgentState (fetch at prepare time); 1 h sweeper for orphaned objects; attachments loaded before INPUT; tests
+- [ ] S5 llm_judge at POST_TOOL content-free with no package; extraction errors by type and reason code only
+- [ ] S6 ports: LiteLLM never published by the dev overlay, litellm-mock on 127.0.0.1, embed-mock on a test network
+- [ ] S7 MinIO users per service (gateway writes uploads; agent and ingest read); no root credentials outside minio-init
+- [ ] S8 router cache key adds the user and the router alias
+- [ ] C1 capabilities may supply citations; validate fails one not among this turn's sources (tested); page attribution a separate generic step before validate; the question's words dropped before matching; no "[docs]" or file labels in answers (prompt fix, test)
+- [ ] C2 manifest `context.needs` drives the answer package; `config/context.yaml` defaults only; tests
+- [ ] C3 no docs-named config or types in the core; generic citation config; backend through RuntimeContext; no `rag_runtime.bind`; capability config through its runtime context; no package for a capability that does not read it
+- [ ] C4 OpenAPI 2.0.0 for the breaking turn request; the bogus `"[]"` default removed
+- [ ] C5 ADR-0149 accepted; file names reach the router only after INPUT
+- [ ] R1 `make up` never depends on `make models`; preflight checks the weights; external `rerank-models`; pinned reranker revision; rerank model and api_base from `.env`
+- [ ] R2 `rerank.enabled`; a malformed rerank response is a span error and falls back to fusion order
+- [ ] R3 one source of truth for limits; `cap:docs` before the body for upload, list, status, download; JSON 413 `file_too_large` (test); ingestion reports `file_too_large`; per-user upload rate limit
+- [ ] R4 ingestion in its own service with a memory limit; a child process per file with CPU, memory and wall-clock limits (`extraction_aborted`); archive limits, nested archives refused; defusedxml; DOCX entity and network resolution off; PDF page, stream and character bounds; extracted text and chunk caps; chunking off the event loop; the five hostile fixtures, each failed with its reason while a chat turn completes
+- [ ] R5 known limitation recorded: partly scanned PDFs
+- [ ] A1 no double reordering: pypdf's logical output trusted; visual order restored only on a strong, tested signal; no "ends in لا" heuristic
+- [ ] A2 LibreOffice-exported PDF fixtures and one genuinely visual-order PDF; whole-line assertions; NFKC tests for DOCX, XLSX, text; visual-order tests not built from the code under test
+- [ ] A3 chunker re-checks overlap plus next segment; long header truncated; XLSX header detection; unit tests for fusion, stopwords, rerank truncation
+- [ ] Q1 ADR superseding ADR-0157; twenty-pages.pdf cases in rag.jsonl (≥ 6 past the first 400 tokens); rag ×3 for full / 16-400 / off with latency; default the fastest that meets every threshold
+- [ ] Q2 abstention: no source line and a whole-phrase match; labels of f5fc687 restored or justified; contains_any matches whole numbers
+- [ ] Q3 weak tests: test_rag_extract.py:33 and :112, runtime isolation for docs and general, AttachmentProxyTest, test_retention.py; deleted-path tests removed
+- [ ] D1 PROGRESS: smoke 76 → 99 (+23 checks); `make models` before `make up`; README §9.3 amendment
+- [ ] Finish: `make test`; `make clean && make models && make up && make smoke && make smoke-airgap`; `make eval` ×3; rule 11 counts, the Q1 table and the R4 results; push
+
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
 - Branch: `phase/05-kb`
