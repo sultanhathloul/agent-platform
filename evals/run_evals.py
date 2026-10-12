@@ -197,12 +197,16 @@ def upload(http: httpx.Client, gateway: str, token: str, conversation_id: str, d
     """Uploads a generated document to a new conversation and waits until it is indexed."""
     path = DOCS / document
     headers = {"Authorization": f"Bearer {token}"}
-    with path.open("rb") as handle:
-        response = http.post(
-            f"{gateway}/v1/conversations/{conversation_id}/attachments",
-            files={"file": (path.name, handle)},
-            headers=headers,
-        )
+    for _ in range(5):
+        with path.open("rb") as handle:
+            response = http.post(
+                f"{gateway}/v1/conversations/{conversation_id}/attachments",
+                files={"file": (path.name, handle)},
+                headers=headers,
+            )
+        if response.status_code != 429:
+            break
+        time.sleep(61)  # the gateway's per-user upload allowance is per minute (ADR-0177)
     response.raise_for_status()
     attachment = response.json()["data"]["id"]
     for _ in range(120):
