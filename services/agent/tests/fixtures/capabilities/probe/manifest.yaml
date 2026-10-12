@@ -28,6 +28,7 @@ model:
 context:
   needs: [system, user_message]
   max_input_tokens: 4000
+tools: [probe_lookup]                     # the only tool the broker lets this capability call (ADR-0160)
 limits:
   max_iterations: 1
   timeout_s: 10

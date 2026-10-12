@@ -179,8 +179,8 @@ def _event_writer(runtime: Runtime[TurnContext], cap: LoadedCapability):
 
 
 class _Broker:
-    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState):
-        self._ctx, self._runtime, self._state = ctx, runtime, state
+    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState, slug: str):
+        self._ctx, self._runtime, self._state, self._slug = ctx, runtime, state, slug
 
     async def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
         # The scope comes from the verified principal and this conversation, never from the
@@ -188,6 +188,7 @@ class _Broker:
         return await self._ctx.services.broker.execute(
             name,
             args,
+            caller=self._slug,
             principal=self._ctx.principal,
             conversation_id=self._state["conversation_id"],
             documents=self._ctx.services.documents,
@@ -335,7 +336,7 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 call_model=_model_caller(cap, ctx, request, runtime),
-                broker=_Broker(ctx, runtime, state),
+                broker=_Broker(ctx, runtime, state, slug),
                 stream_writer=_event_writer(runtime, cap),
                 documents=services.documents,
             )

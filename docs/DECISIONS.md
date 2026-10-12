@@ -1457,3 +1457,13 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - The core reads an attachment's status through the backend: the attachment record says what was uploaded, the backend how far indexing went (the turn's attachments, the status endpoint).
   - A contract suite (`tests/integration/test_document_backend_contract.py`) runs against the internal backend and a test-only in-memory fake (`tests/fixtures/fake_backend.py`): scope isolation across users, tenants and conversations, page and section metadata, status transitions, and untrusted text returned unchanged as data. The docs capability's turn tests run on both backends with no change to capability code.
 - Consequences: Whatever a backend returns passes the same runtime POST_TOOL, OUTPUT and DATA path. A backend's own spans (the internal one's `rag.retrieve`) are its own; the capability's span and the broker's are the same for every backend.
+
+### ADR-0160: A tool's scope comes from the principal; a capability calls only the tools its manifest declares
+- Date: 2026-10-12
+- Phase: 04 (owner decision S1; supersedes the owner-from-arguments part of ADR-0153)
+- Status: decided
+- Context: `docs_search` took `tenant_id`, `user_id` and `collection` from its arguments, which the capability filled from its principal; the broker never checked them, and any capability could call any registered tool.
+- Decision:
+  - `docs_search` takes the query (and `k`) only; its schema forbids any other field, so a call naming another owner or a collection fails validation before anything runs. The broker builds a `ToolScope` from the verified principal and the turn's conversation id in state and passes it to the handler in its `ToolContext`; the backend enforces it (ADR-0159).
+  - The manifest gains `tools`: the tools a capability may call. At startup every declared tool must be registered by some capability. The broker refuses a call to a tool the caller's manifest does not declare, registered or not: nothing runs and nothing streams, the call returns `denied` / `undeclared_tool`, and an audit-only guard record (PRE_TOOL, `block`, reason `undeclared_tool`, naming the caller and the tool) reaches the turn's audit delta. Calls through the broker name their caller.
+- Consequences: Adding a tool to a capability is a manifest line as well as a `tools.py` entry. A capability that wants another capability's tool must declare it, which a reviewer sees.

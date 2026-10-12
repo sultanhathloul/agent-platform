@@ -16,6 +16,9 @@ class ToolRegistry:
             )
         self._tools[spec.name] = (spec, capability)
 
+    def has(self, name: str) -> bool:
+        return name in self._tools
+
     def get(self, name: str) -> ToolSpec:
         return self._tools[name][0]
 

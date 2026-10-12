@@ -134,6 +134,12 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     for cap in registry.all():
         for spec in cap.tools:
             tools.register(spec, cap.slug)
+    for cap in registry.all():
+        unknown = [name for name in cap.manifest.tools if not tools.has(name)]
+        if unknown:
+            raise ManifestError(
+                f"{cap.path}/manifest.yaml: tools {unknown} are not registered by any capability"
+            )
 
     embeddings = EmbeddingGateway(settings, models_config)
     docs_config = load_docs_config(settings.config_dir)
@@ -187,7 +193,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         guard=guard,
         registry=registry,
         tools=tools,
-        broker=ToolBroker(tools, guard),
+        broker=ToolBroker(tools, guard, {cap.slug: cap.manifest.tools for cap in registry.all()}),
         messages=ErrorMessages.load(settings.config_dir),
         validation=load_validation_config(settings.config_dir),
         db=db,

@@ -84,6 +84,8 @@ class Manifest(_Strict):
     context: ContextSpec = ContextSpec()
     limits: Limits = Limits()
     state_namespace: str
+    # The tools this capability may call; the broker refuses any other (S1, ADR-0160).
+    tools: list[str] = []
 
     @model_validator(mode="after")
     def _derived_names(self) -> "Manifest":

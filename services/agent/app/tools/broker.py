@@ -6,7 +6,9 @@ tool_start/tool_end events and one `tool.exec` span.
 
 The handler receives a ToolContext beside its arguments: the scope, built here from the
 verified principal and the turn's conversation (never from the arguments, S1), and the
-document backend of the calling capability's RuntimeContext (C6).
+document backend of the calling capability's RuntimeContext (C6). A capability may call
+only the tools its manifest declares (`tools`); any other call is refused before anything
+runs, with an audit-only record of who called what (ADR-0160).
 
 Both checkpoints evaluate under the scopes `tool:{name}` and `tool:{capability}`
 (ADR-0025) besides the turn's own. PRE_TOOL: a block denies the call; a
@@ -21,14 +23,14 @@ turn end with that code (D8).
 import asyncio
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.engine import GuardEngine
-from app.guardrails.schema import GuardContext, GuardOutcome
+from app.guardrails.schema import GuardContext, GuardEventRecord, GuardOutcome
 from app.identity import Principal
 from app.observability.otel import tracer
 from app.tools.registry import ToolRegistry
@@ -38,16 +40,27 @@ Emit = Callable[[str, dict[str, Any]], None]
 OnGuard = Callable[[GuardOutcome], None]
 
 
+UNDECLARED = "undeclared_tool"
+
+
 class ToolBroker:
-    def __init__(self, registry: ToolRegistry, guard: GuardEngine):
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        guard: GuardEngine,
+        declared: Mapping[str, Collection[str]] | None = None,
+    ):
+        """`declared`: each capability's manifest `tools`, by slug."""
         self.registry = registry
         self.guard = guard
+        self.declared = {slug: frozenset(tools) for slug, tools in (declared or {}).items()}
 
     async def execute(
         self,
         name: str,
         args: dict[str, Any],
         *,
+        caller: str,
         principal: Principal,
         conversation_id: str = "",
         documents: Any = None,
@@ -55,6 +68,8 @@ class ToolBroker:
         context: GuardContext | None = None,
         on_guard: OnGuard | None = None,
     ) -> ToolResult:
+        if name not in self.declared.get(caller, ()):
+            return self._undeclared(name, caller, on_guard)
         spec = self.registry.get(name)
         capability = self.registry.capability_of(name)
         call_id = uuid.uuid4().hex
@@ -95,6 +110,25 @@ class ToolBroker:
                 },
             )
             return result
+
+    def _undeclared(self, name: str, caller: str, on_guard: OnGuard | None) -> ToolResult:
+        """A call to a tool the caller's manifest does not declare: nothing runs, nothing
+        streams, and the audit record names the caller and the tool (ADR-0160)."""
+        with tracer.start_as_current_span("tool.exec") as span:
+            span.set_attribute("tool.name", name)
+            span.set_attribute("tool.caller", caller)
+            span.set_attribute("tool.status", "denied")
+            span.set_attribute("tool.error", UNDECLARED)
+        record = GuardEventRecord(
+            checkpoint=Checkpoint.PRE_TOOL,
+            action="block",
+            detail=f"{caller} called {name}, which its manifest does not declare",
+            reason=UNDECLARED,
+            audit_only=True,
+        )
+        if on_guard is not None:
+            on_guard(GuardOutcome(action="block", events=[record]))
+        return ToolResult(status="denied", error=UNDECLARED)
 
     async def _run(
         self,
