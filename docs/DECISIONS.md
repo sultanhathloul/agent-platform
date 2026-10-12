@@ -1403,7 +1403,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0154: How the rag and routing suites measure
 - Date: 2026-10-11
 - Phase: 04 (I11, I13)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0181 on 2026-10-12 (abstention, number matching, the Ragas reference)
 - Context: I13 names the metrics and thresholds; the method was open.
 - Decision:
   - Every case runs in a new conversation: its generated document is uploaded through the gateway and indexed first. Rag cases send the file with the question (the `attachments` rule); routing cases send their message without it, so the router decides, except two cases marked `attach`.
@@ -1666,3 +1666,17 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - `test_retention.py`: the comment that said the mock embeds every text alike (untrue since ADR-0143) is corrected.
   - The tests of the removed retention paths (delete, expiry, touch, purge) are gone with them (ADR-0166).
 - Consequences: None beyond the tests.
+
+### ADR-0181: Abstention needs a whole phrase and no source line; numbers match whole; the Ragas reference names no source
+- Date: 2026-10-12
+- Phase: 04 (owner decision Q2; supersedes those parts of ADR-0154)
+- Status: decided
+- Context: Abstention scored 1.00 while two or three of its six cases showed a source line in every run, because the scorer matched phrases anywhere and scored the source line elsewhere; `contains_any` let "40" match 140 or 2040; f5fc687 widened three labels.
+- Decision:
+  - An abstention counts only when the answer says so in a whole phrase (word boundaries, after `fold()`) and shows no source line.
+  - `contains_any` matches a number only as a whole number. Writing this test found `fold()` deleting Arabic-Indic digits: its tashkeel range U+064B–U+0670 covered U+0660–U+0669. The range now stops at U+065F (plus U+0670), so «٤٠» folds to "40" as intended.
+  - The labels of f5fc687 are kept, each justified: «أربعين» and «اربعين» are the accusative and genitive of «أربعون», the same number (policy-training); «لا توجد اي معلومات» is the listed «لا توجد معلومات» with «أي»; «لا يمكن تحديد» says the document does not settle the question, an abstention.
+  - An answer carrying a capability label (`[docs]`) or a bracketed file name fails its case (owner decision C1).
+  - Answers no longer name their sources (ADR-0163), so the Ragas reference is the case's reference answer alone, without the source label ADR-0154 appended; contexts keep the label the answer model saw in its delimiter.
+  - `make test-evals` covers each rule.
+- Consequences: Abstention now fails on a source line, so the C1 fix (question words dropped before attribution) is what keeps it above its threshold.

@@ -49,3 +49,31 @@ def test_the_judge_calls_only_the_stacks_litellm():
     embeddings = judge.correctness.embeddings.embeddings
     assert str(llm.openai_api_base) == "http://127.0.0.1:4999/v1"
     assert str(embeddings.openai_api_base) == "http://127.0.0.1:4999/v1"
+
+
+# ------------------------------------------------------------------ scoring (owner decision Q2)
+
+
+def test_a_number_matches_only_as_a_whole_number():
+    harness = _harness()
+    assert harness.contains("يحق لكل موظف 40 ساعة تدريبية", "40")
+    assert harness.contains("يحق لكل موظف ٤٠ ساعة تدريبية", "40")  # Arabic-Indic digits fold
+    assert not harness.contains("يحق لكل موظف 140 ساعة", "40")
+    assert not harness.contains("حتى عام 2040", "40")
+    assert harness.contains("أربعون ساعة", "اربعون")  # words still match after fold()
+
+
+def test_an_abstention_needs_a_whole_phrase_and_no_source_line():
+    harness = _harness()
+    answer = "لا يذكر الملف مدة إجازة الزواج."
+    assert harness.abstained(answer, citations=[])
+    assert not harness.abstained(answer, citations=[{"id": "d1", "pages": [3]}])  # a source line shown
+    assert not harness.abstained("ويليس في الملف ذكر", citations=[])  # «ليس في» inside another word
+    assert harness.says("هذا ليس في الملف", "ليس في")
+
+
+def test_a_label_or_bracketed_file_name_in_an_answer_is_caught():
+    harness = _harness()
+    assert harness.has_label("مدة الإجازة ثلاثون يوما [docs]")
+    assert harness.has_label("ثلاثون يوما [leave-regulation.pdf، صفحة 2]")
+    assert not harness.has_label("مدة الإجازة ثلاثون يوما (المادة الثالثة).")

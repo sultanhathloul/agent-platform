@@ -74,7 +74,9 @@ EVAL_USER = ("evaluator", "evaluator")
 ADMIN_USER = ("admin", "admin")
 DETERMINISTIC = {"regex", "presidio", "keyword_list", "tier_ceiling"}
 _FOLD = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه", **{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}})
-_DIACRITICS = re.compile(r"[ً-ٰٟ]")
+# Tashkeel (U+064B–U+065F) and the superscript alef (U+0670); not U+0660–U+0669, the
+# Arabic-Indic digits between them, which fold() turns into ASCII digits (Q2).
+_DIACRITICS = re.compile("[\u064b-\u065f\u0670]")
 
 
 def fold(text: str) -> str:
@@ -89,11 +91,41 @@ def script_share(text: str, script: str) -> float:
     return (arabic if script == "arabic" else len(letters) - arabic) / len(letters)
 
 
+_DIGITS = re.compile(r"\d+")
+
+
+def contains(answer: str, expected: str) -> bool:
+    """`expected` in the answer after fold(); a number only as a whole number, so 40 never
+    matches 140 or 2040 (owner decision Q2)."""
+    text, wanted = fold(answer), fold(expected)
+    if _DIGITS.fullmatch(wanted):
+        return re.search(rf"(?<!\d){wanted}(?!\d)", text) is not None
+    return wanted in text
+
+
+def says(answer: str, phrase: str) -> bool:
+    """`phrase` in the answer as whole words, after fold() (Q2): «ليس في» is not «وليس فيه»."""
+    return re.search(rf"(?<!\w){re.escape(fold(phrase))}(?!\w)", fold(answer)) is not None
+
+
+def abstained(answer: str, citations: list) -> bool:
+    """An abstention says so in a whole phrase and shows no source line (Q2, ADR-0140)."""
+    return not citations and any(says(answer, phrase) for phrase in ABSTAIN_PHRASES)
+
+
+# A capability label or a bracketed file name copied into an answer (owner decision C1).
+_LABEL = re.compile(r"\[(?:docs|general|kb|sql|web)\]|\[[^\]\n]*\.(?:pdf|docx|xlsx|txt|md)\b", re.I)
+
+
+def has_label(answer: str) -> bool:
+    return _LABEL.search(answer or "") is not None
+
+
 def check(case: dict, answer: str) -> list[str]:
     expect, failures = case.get("expect", {}), []
-    if "contains_any" in expect and not any(fold(s) in fold(answer) for s in expect["contains_any"]):
+    if "contains_any" in expect and not any(contains(answer, s) for s in expect["contains_any"]):
         failures.append(f"none of {expect['contains_any']}")
-    wrong = [s for s in expect.get("excludes_any", []) if fold(s) in fold(answer)]
+    wrong = [s for s in expect.get("excludes_any", []) if contains(answer, s)]
     if wrong:
         failures.append(f"contains {wrong}")
     if "script" in expect and script_share(answer, expect["script"]) < 0.6:
@@ -150,7 +182,9 @@ def run_guard_case(http: httpx.Client, gateway: str, token: str, case: dict) -> 
 # ------------------------------------------------------------------ documents (phase 04)
 
 DOCS = REPO / "evals" / "docs"
-# How an answer says the document does not hold the answer (compared after fold()).
+# How an answer says the document does not hold the answer: whole phrases, after fold() (Q2).
+# Three entries of f5fc687 are kept (ADR-0181): «لا توجد اي معلومات» is «لا توجد معلومات» with «أي»,
+# and «لا يمكن تحديد» says the document does not settle the question.
 ABSTAIN_PHRASES = [
     "لم اجد", "لا اجد", "لم يرد", "لا يرد", "لا يتضمن", "لا تتضمن", "لم يتضمن", "لم تتضمن", "لا يحتوي",
     "لا تحتوي", "لم يذكر", "لم تذكر", "لا يذكر", "لا تذكر", "غير مذكور", "لا توجد معلومات", "لا تتوفر",
@@ -245,7 +279,7 @@ class Judge:
 
 def contexts_for(document: str, results: list[dict], sections: dict) -> list[str]:
     """The text of the pages and sections retrieval returned, once each, in rank order, each
-    under the source label the answer model saw (`docs.evidence`), since answers name it."""
+    under the source label the answer model saw (`context.retrieval`)."""
     entry = sections.get(document, {})
     texts: list[str] = []
     for result in results or []:
@@ -259,16 +293,6 @@ def contexts_for(document: str, results: list[dict], sections: dict) -> list[str
         if text and text not in texts:
             texts.append(text)
     return texts
-
-
-def reference_with_source(case: dict) -> str:
-    """The case's reference answer naming its source, as `answer.system` asks every answer to."""
-    expect = case["expect"]
-    if expect.get("pages"):
-        where = "، ".join(f"صفحة {p}" for p in expect["pages"])
-    else:
-        where = expect.get("section", "")
-    return f"{expect['reference']} [{case['document']}، {where}]"
 
 
 def expected_section_sha(document: str, section: str, sections: dict) -> str | None:
@@ -303,10 +327,12 @@ def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", 
     cited = [c for c in outcome["citations"] if c.get("document_id") == attachment]
     cited_pages = sorted({p for c in cited for p in c.get("pages") or []})
     outcome["cited_pages"] = cited_pages
-    if expect.get("contains_any") and not any(fold(s) in fold(answer) for s in expect["contains_any"]):
+    if expect.get("contains_any") and not any(contains(answer, s) for s in expect["contains_any"]):
         problems.append(f"none of {expect['contains_any']}")
-    if any(fold(s) in fold(answer) for s in expect.get("excludes_any", [])):
+    if any(contains(answer, s) for s in expect.get("excludes_any", [])):
         problems.append("shows text it must not show")
+    if has_label(answer):
+        problems.append("a label or bracketed file name in the answer")
     results = retrieved(http, cfg, auth, outcome["trace_id"]) if outcome["trace_id"] else None
     outcome["retrieved"] = results
     if kind in ("answerable", "pii"):
@@ -328,14 +354,13 @@ def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", 
         if outcome["citations"]:
             problems.append(f"a source line where none belongs: {cited_pages or outcome['citations']}")
     if kind == "abstain":
-        # Saying so is the abstention; showing no source is scored once, as citation accuracy.
-        said = any(fold(p) in fold(answer) for p in ABSTAIN_PHRASES)
-        outcome["abstained"] = said
-        if not said:
-            problems.append("did not say the document lacks the answer")
+        # An abstention says so in a whole phrase and shows no source line (Q2).
+        outcome["abstained"] = abstained(answer, outcome["citations"])
+        if not outcome["abstained"]:
+            problems.append("did not abstain: no whole abstention phrase, or a source line shown")
     if kind == "answerable" and judge is not None:
         contexts = contexts_for(case["document"], results or [], sections)
-        faithfulness, correctness = judge.score(case["message"], answer, contexts, reference_with_source(case))
+        faithfulness, correctness = judge.score(case["message"], answer, contexts, case["expect"]["reference"])
         outcome["faithfulness"], outcome["correctness"] = faithfulness, correctness
     outcome["problems"] = problems
     return outcome
