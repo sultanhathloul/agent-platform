@@ -29,18 +29,21 @@ done < <(ollama_models)
 
 (( pulled )) && echo "every Ollama model in .env is available" || echo "no Ollama model in .env; nothing to pull"
 
-# The reranker (ADR-0134): bge-reranker-v2-m3 into the volume the `rerank` service reads, with
-# the Infinity image's own Hugging Face client. Skipped when the weights are already there.
-RERANK_IMAGE=michaelf34/infinity:0.0.75
-RERANK_MODEL=BAAI/bge-reranker-v2-m3
-docker volume create rerank-models >/dev/null
-if docker run --rm --entrypoint sh -v rerank-models:/models "$RERANK_IMAGE" \
-     -c 'test -s /models/bge-reranker-v2-m3/model.safetensors'; then
-  echo "  present  $RERANK_MODEL (volume rerank-models)"
+# The reranker (ADR-0134, ADR-0179): bge-reranker-v2-m3 at a pinned revision into the external
+# volume the `rerank` service reads, with the Infinity image's own Hugging Face client. Skipped when
+# that revision is already there, or when RERANK_API_BASE points at a reranker served elsewhere.
+if ! local_reranker; then
+  echo "  skipped  reranker weights (RERANK_API_BASE=${RERANK_API_BASE:-unset} is not the stack's rerank service)"
+  exit 0
+fi
+docker volume create "$RERANK_VOLUME" >/dev/null
+if [[ $(rerank_revision_present) == "$RERANK_REVISION" ]]; then
+  echo "  present  $RERANK_REPO@${RERANK_REVISION:0:12} (volume $RERANK_VOLUME)"
 else
-  echo "  fetching $RERANK_MODEL into volume rerank-models (about 2.3 GB)"
+  echo "  fetching $RERANK_REPO@${RERANK_REVISION:0:12} into volume $RERANK_VOLUME (about 2.3 GB)"
   # The image enables hf_transfer, which can stall; the plain downloader resumes instead.
-  docker run --rm --entrypoint sh -e HF_HUB_ENABLE_HF_TRANSFER=0 -v rerank-models:/models "$RERANK_IMAGE" \
-    -c "huggingface-cli download $RERANK_MODEL --local-dir /models/bge-reranker-v2-m3 --exclude '*.onnx*'" >/dev/null
+  docker run --rm --entrypoint sh -e HF_HUB_ENABLE_HF_TRANSFER=0 -v "$RERANK_VOLUME:/models" "$RERANK_IMAGE" \
+    -c "huggingface-cli download $RERANK_REPO --revision $RERANK_REVISION --local-dir /models/bge-reranker-v2-m3 --exclude '*.onnx*'" >/dev/null
+  [[ $(rerank_revision_present) == "$RERANK_REVISION" ]] || { echo "error: the reranker download did not complete" >&2; exit 1; }
   echo "every reranker weight is available"
 fi

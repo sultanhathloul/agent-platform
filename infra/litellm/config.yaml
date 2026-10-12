@@ -50,11 +50,12 @@ model_list:
       api_base: os.environ/EMBED_API_BASE
     model_info:
       mode: embedding
-  # bge-reranker-v2-m3 on the local Infinity server (ADR-0134); Ollama has no rerank API (ADR-0008).
+  # The reranker, named in .env like the embedder (owner decision R1): by default bge-reranker-v2-m3
+  # on the local Infinity server (ADR-0134); Ollama has no rerank API (ADR-0008).
   - model_name: rerank
     litellm_params:
-      model: infinity/bge-reranker-v2-m3
-      api_base: http://rerank:7997
+      model: os.environ/RERANK_MODEL
+      api_base: os.environ/RERANK_API_BASE
     model_info:
       mode: rerank
 

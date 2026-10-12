@@ -753,12 +753,14 @@ No JDK and no Node.js are needed: the gateway and web tests build inside Docker 
 
 ### 21.2 First run
 
+> **Amendment 2026-10-12 (ADR-0179).** `make models` also fetches the reranker's weights, at a pinned revision, into the external volume `rerank-models`, which `make clean` keeps; run it before `make up`, with a remote model endpoint too (it skips what is served elsewhere, and the reranker when `RERANK_API_BASE` points at another server). `make up` never depends on it: without the weights the `rerank` service idles and says what to run, and `scripts/preflight.sh` warns.
+
 ```bash
 git clone https://github.com/<org>/agent-platform.git
 cd agent-platform
 
 scripts/init_env.sh     # writes .env with fresh random secrets; never overwrites an existing one
-make models             # pulls the models named in infra/litellm/config.yaml (skip for a remote endpoint, §21.4)
+make models             # pulls the Ollama models named in .env and fetches the reranker's pinned weights (run it before make up)
 make up                 # builds, starts and waits for every health check (first run: ~10 minutes)
 make smoke              # end-to-end: login, permissions, a streamed Arabic answer, a Langfuse trace, one audit row
 ```

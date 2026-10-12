@@ -1640,3 +1640,16 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The agent, the gateway and Langfuse all used MinIO's root credentials.
 - Decision: `minio-init`, the only holder of the root credentials besides MinIO itself, makes the buckets, four policies and four users from `.env`: `gateway-uploads` (put, get and delete in `uploads`: it stores, downloads and discards an unregistered upload), `ingest-uploads` (get in `uploads`), `sweeper-uploads` (list `uploads`, delete in it; it never reads a document), `langfuse-events` (its own `langfuse` bucket). Each policy also allows the bucket's location, which the clients ask first. The agent gets no MinIO credentials: since ingestion moved to the ingest service (ADR-0176) it reads no upload. A test proves each user can do its part and nothing else, and a smoke check fails when any container but MinIO holds the root password. `scripts/init_env.sh` generates the new secrets; an existing `.env` needs the eight `MINIO_*_ACCESS_KEY` / `_SECRET_KEY` lines of `.env.example` (generated into the development `.env` in this session).
 - Consequences: The owner decision said "agent and ingest: read uploads"; the agent's read access is left out because it has no use for it. A leaked gateway key can write uploads but not list them; a leaked sweeper key cannot read one.
+
+### ADR-0179: `make up` never depends on `make models`; the reranker's weights are pinned and kept in an external volume
+- Date: 2026-10-12
+- Phase: 04 (owner decision R1; amends ADR-0134)
+- Status: decided
+- Context: LiteLLM waited for the `rerank` service to be healthy, which it never was without weights, so `make up` failed until `make models` had run, while README §21.2 said to skip `make models` for a remote endpoint. The download took the repository's latest revision; `make clean` deleted the 2.3 GB volume; the reranker's model and endpoint were written in infra/litellm/config.yaml.
+- Decision:
+  - LiteLLM no longer depends on `rerank`. Without weights, `rerank` idles, logs what to run (`make models`, or `retrieval.rerank.enabled: false`) and reports healthy; a docs search then fails visibly until the weights exist (ADR-0175). `scripts/preflight.sh` creates the volume and warns when the weights are missing or not the pinned revision.
+  - `make models` downloads `BAAI/bge-reranker-v2-m3` at revision `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` (the one measured in phase 04) and checks it arrived; it skips the reranker when `RERANK_API_BASE` is not the stack's `rerank` service.
+  - `rerank-models` is an external volume: `make clean` keeps it.
+  - `RERANK_MODEL` and `RERANK_API_BASE` come from `.env`, like `EMBED_MODEL` and `EMBED_API_BASE` (defaults `infinity/bge-reranker-v2-m3`, `http://rerank:7997`).
+  - README §21.2 and PROGRESS give the order: `make models`, then `make up`.
+- Consequences: A new revision of the reranker is an explicit change of the pin, measured like a model change. Removing the weights is `docker volume rm rerank-models`.

@@ -198,6 +198,9 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY:-}
       EMBED_MODEL: ${EMBED_MODEL:?set EMBED_MODEL in .env, see .env.example}
       EMBED_API_BASE: ${EMBED_API_BASE:?set EMBED_API_BASE in .env, see .env.example}
+      # The reranker, like the embedder, named in .env (owner decision R1).
+      RERANK_MODEL: ${RERANK_MODEL:?set RERANK_MODEL in .env, see .env.example}
+      RERANK_API_BASE: ${RERANK_API_BASE:?set RERANK_API_BASE in .env, see .env.example}
       MODEL_REASONING_ENABLED: ${MODEL_REASONING_ENABLED:-false}
       MODEL_PROVIDER_ALLOW_FALLBACKS: ${MODEL_PROVIDER_ALLOW_FALLBACKS:-false}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
@@ -209,20 +212,26 @@ services:
       - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      rerank:
-        condition: service_healthy
+    # No dependency on `rerank`: the stack starts without the reranker's weights (owner decision R1).
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
 
   # Cross-encoder reranker bge-reranker-v2-m3 behind the LiteLLM `rerank` alias (ADR-0134). The
-  # weights come from the volume `make models` fills; nothing is downloaded at start.
+  # weights come from the external volume `make models` fills (pinned revision, ADR-0179); nothing
+  # is downloaded at start. Without weights it idles and says what to run, so `make up` never
+  # depends on `make models` (owner decision R1); retrieval then cannot rerank until they exist.
   rerank:
     image: michaelf34/infinity:0.0.75
-    command: ["v2", "--model-id", "/models/bge-reranker-v2-m3", "--served-model-name", "bge-reranker-v2-m3",
-              "--engine", "torch", "--device", "cpu", "--batch-size", "16", "--port", "7997",
-              "--no-bettertransformer"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        if [ -s /models/bge-reranker-v2-m3/model.safetensors ]; then
+        exec infinity_emb v2 --model-id /models/bge-reranker-v2-m3 --served-model-name bge-reranker-v2-m3
+        --engine torch --device cpu --batch-size 16 --port 7997 --no-bettertransformer; fi;
+        echo "reranker weights not found in volume rerank-models: run 'make models'
+        (or set retrieval.rerank.enabled: false in config/docs.yaml)";
+        exec sleep infinity
     environment:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -233,7 +242,8 @@ services:
     healthcheck:
       <<: *healthcheck
       start_period: 120s
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7997/health')"]
+      # Healthy when serving, or when idle for want of weights (the message above is in its log).
+      test: ["CMD-SHELL", "test ! -s /models/bge-reranker-v2-m3/model.safetensors || python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:7997/health')\""]
 
   # ------------------------------------------------------------------ observability
   clickhouse:
@@ -558,4 +568,5 @@ volumes:
   gateway-gradle-cache:
     name: gateway-gradle-cache   # shared with `make openapi`
   rerank-models:
-    name: rerank-models          # filled by `make models` (ADR-0134)
+    name: rerank-models          # filled by `make models` (ADR-0134); external, so `make clean` keeps it (R1)
+    external: true

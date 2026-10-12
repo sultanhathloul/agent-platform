@@ -21,4 +21,18 @@ while read -r model host; do
   jq -e --arg m "$model" '.models[] | select(.name == $m or .name == ($m + ":latest"))' <<<"$tags" >/dev/null \
     || echo "warning: Ollama model $model is not pulled at $host (make models)" >&2
 done < <(ollama_models)
+
+# The reranker's weights (owner decision R1): `make up` never waits for them, and the rerank
+# service idles without them; this says what to run. The volume is external, so it is created here.
+if local_reranker; then
+  docker volume create "$RERANK_VOLUME" >/dev/null
+  present=$(rerank_revision_present)
+  if [[ -z $present ]]; then
+    echo "warning: no reranker weights in volume $RERANK_VOLUME: run 'make models' (documents cannot be" \
+      "reranked until then; or set retrieval.rerank.enabled: false in config/docs.yaml)" >&2
+  elif [[ $present != "$RERANK_REVISION" ]]; then
+    echo "warning: the reranker weights are revision ${present:0:12}, not the pinned ${RERANK_REVISION:0:12}:" \
+      "run 'make models'" >&2
+  fi
+fi
 exit 0
