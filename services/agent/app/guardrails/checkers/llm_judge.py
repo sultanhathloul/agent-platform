@@ -9,7 +9,9 @@ model alias the call resolves to, and the normalized text (ADR-0110, ADR-0116): 
 edit, a prompt edit or a new alias never reuses an old verdict, and one tenant never
 reads a verdict another tenant's text produced. The admin test panel never reads or
 writes the cache, for a stored policy and a draft alike: every panel test calls the
-judge (ADR-0117). A judge call on a memory candidate or a summary is content-free in traces (D5, ADR-0110).
+judge (ADR-0117). A judge call on a memory candidate or a summary is content-free in traces (D5, ADR-0110),
+and so is one at POST_TOOL, whose text is tool output: document chunks and their metadata
+(owner decision S5): no messages or output in its trace and no recorded context package.
 The judge call's tokens are the check's `usage`, never the turn's client usage (ADR-0118).
 A malformed answer is a CheckerError: the policy's `on_error` decides (open by
 default, D8)."""
@@ -23,6 +25,7 @@ from typing import Any, NamedTuple, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.guardrails.checkers.base import CheckContext, CheckerError
+from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import CheckResult, CheckUsage, LlmJudgeConfig
 from app.identity import Principal
 from app.text.arabic import normalize
@@ -43,6 +46,8 @@ class Verdict(BaseModel):
 
 # DATA targets whose text must never reach a trace (D5).
 CONTENT_FREE_TARGETS = frozenset({"memory_candidate", "summary"})
+# Checkpoints whose text must never reach a trace: tool output, document chunks included (S5).
+CONTENT_FREE_CHECKPOINTS = frozenset({Checkpoint.POST_TOOL})
 
 
 class JudgeAnswer(NamedTuple):
@@ -134,7 +139,7 @@ class LlmJudgeChecker:
                 examples=[example.model_dump() for example in config.examples],
                 text=payload,
                 turn=ctx.turn,
-                content_free=ctx.target in CONTENT_FREE_TARGETS,
+                content_free=ctx.target in CONTENT_FREE_TARGETS or ctx.checkpoint in CONTENT_FREE_CHECKPOINTS,
             )
             usage = answer.usage
             verdict = parse_verdict(answer.text)

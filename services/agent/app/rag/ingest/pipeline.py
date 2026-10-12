@@ -5,7 +5,8 @@ the status set in one transaction, so a job run twice, or resumed after a crash,
 one copy. A transient failure (storage, embeddings) raises `Retry`; the worker retries
 it until `ingest.max_attempts` and then marks it failed. The `rag.ingest` span carries
 the attachment id, kind, pages, chunk count, outcome and reason, never document text
-(ADR-0137)."""
+(ADR-0137), and an error by its type and reason code only, never a library's message, which can
+quote the document (owner decision S5)."""
 
 import asyncio
 import logging
@@ -59,7 +60,8 @@ class IngestPipeline:
 
     async def run(self, attachment_id: str) -> str:
         """`indexed`, `failed`, or `skipped` (gone, or no longer pending). Raises Retry."""
-        with tracer.start_as_current_span("rag.ingest") as span:
+        # No exception event: its message could quote the document (S5); the type is recorded below.
+        with tracer.start_as_current_span("rag.ingest", record_exception=False) as span:
             span.set_attribute("attachment.id", attachment_id)
             started = time.monotonic()
             record = await self._attachments.start_attempt(attachment_id)
@@ -76,6 +78,12 @@ class IngestPipeline:
                 outcome = "failed"
             except _Abandoned:
                 outcome = "skipped"
+            except Retry as retry:
+                span.set_attribute("ingest.reason", retry.reason)
+                raise
+            except Exception as exc:
+                span.set_attribute("ingest.error_type", type(exc).__name__)
+                raise
             span.set_attribute("ingest.outcome", outcome)
             span.set_attribute("ingest.ms", int((time.monotonic() - started) * 1000))
             return outcome

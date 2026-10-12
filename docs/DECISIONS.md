@@ -1564,3 +1564,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: Ragas 0.2.15 posts usage events to https://t.explodinggradients.com unless `RAGAS_DO_NOT_TRACK` is `true`, and it caches the value the first time it reads it. The harness never set it, so every `make eval` reached an outside service (CLAUDE.md: no external SaaS).
 - Decision: `evals/run_evals.py` sets `RAGAS_DO_NOT_TRACK=true` at import, before anything imports Ragas (it is imported lazily, in the judge), and the Makefile's `eval` target sets it too. A test target, `make test-evals` (part of `make test`), proves it: the variable is set before Ragas is imported, a tracked event sends nothing, and the judge's model and embeddings point at the stack's LiteLLM only. The harness's other calls are the stack's own gateway, Keycloak and Langfuse.
 - Consequences: Rule 11 reports a fifth test layer, `evals` (the harness's tests).
+
+### ADR-0171: A judge call at POST_TOOL is content-free; extraction errors carry their type and reason code only
+- Date: 2026-10-12
+- Phase: 04 (owner decision S5)
+- Status: decided
+- Context: An llm_judge policy at POST_TOOL sent document chunks and their metadata to the judge, and the call's messages and output went to Langfuse with a recorded context package. The ingestion worker logged an unexpected failure with `log.exception`, and its span recorded the exception event: both carry the library's message, which can quote the document.
+- Decision: `CheckContext` names the checkpoint; a judge call at POST_TOOL is content-free like one on a memory candidate or a summary (ADR-0110): no messages or output in its trace, hashes only, no recorded package. The `rag.ingest` span records no exception event; it carries `ingest.error_type` (the type's name) and `ingest.reason` (the code); the worker logs the type and `ingest_error`, never the message.
+- Consequences: Debugging a parser failure uses the type, the code and the owner's own file, not the log.

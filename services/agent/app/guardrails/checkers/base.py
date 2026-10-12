@@ -8,6 +8,7 @@ CheckerError; the engine then applies the policy's `on_error` (D8)."""
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import CheckResult, Policy
 from app.identity import Principal
 
@@ -23,6 +24,7 @@ class CheckContext:
     locale: str = "ar"
     turn: Any = None  # the running TurnContext, when there is one
     target: str | None = None  # the DATA target, when the checkpoint is DATA
+    checkpoint: Checkpoint | None = None  # where the text is checked
     panel: bool = False  # the admin test panel: nothing is recorded or cached
     draft: bool = False  # the policy is an unsaved draft: its id@version names nothing stored
 

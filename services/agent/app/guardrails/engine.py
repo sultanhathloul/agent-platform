@@ -240,6 +240,7 @@ class GuardEngine:
                 locale=context.locale,
                 turn=context.turn,
                 target=target,
+                checkpoint=checkpoint,
                 panel=context.only is not None,
                 draft=context.draft,
             )

@@ -77,6 +77,7 @@ class IngestWorker:
                     return "failed"
                 await asyncio.sleep(min(2**attempt, 30))
             except Exception as exc:  # a defect: the attachment must not stay pending forever
-                log.exception("ingestion of %s failed: %s", attachment_id, type(exc).__name__)
+                # The type and the reason code only: a library's message can quote the document (S5).
+                log.warning("ingestion of %s failed: %s (ingest_error)", attachment_id, type(exc).__name__)
                 await self.pipeline.fail(attachment_id, "ingest_error")
                 return "failed"
