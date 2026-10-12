@@ -21,11 +21,16 @@
 #   phase 04: every container is healthy before the first check and after any restart (F3);
 #             the policy row counts are compared before and after within one run (F3); a
 #             generated Arabic PDF uploaded by the viewer is indexed and a question about it
-#             is answered citing the right page; the viewer gets 404 on status, download and
-#             delete by the analyst's attachment id, and 403 by the analyst's conversation id;
-#             a scanned PDF ends failed with scanned_unsupported; an oversize file is 413 with
-#             the Arabic message; an instruction inside a document has no effect on the answer;
-#             fake PII inside an uploaded document is redacted in the answer.
+#             is answered citing the right page; the viewer gets 404 on status and download by
+#             the analyst's attachment id, and 403 by the analyst's conversation id; there is no
+#             delete (S4); a scanned PDF ends failed with scanned_unsupported; an oversize file is
+#             413 with the Arabic message, a far larger one too (R3); an instruction inside a
+#             document has no effect on the answer; fake PII inside an uploaded document is
+#             redacted in the answer.
+#   phase 04 fix session (review round 1): MinIO's root password in no service, LiteLLM on the
+#             loopback only (S6, S7); a user without cap:docs is refused before any body is read
+#             and uploads past the per-minute allowance are 429 (R3); five hostile files each end
+#             failed with their reason in the ingest service while a chat turn completes (R4).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -482,9 +487,6 @@ for what in "status:" "download:/content" ; do
   [[ $code == 404 ]] && jq -e '.error.code == "attachment_not_found"' "$TMP/denied.json" >/dev/null \
     && ok "by the analyst's attachment id: $label → 404 attachment_not_found" || fail "$label by the analyst's attachment id returned $code"
 done
-code=$(curl -s -o "$TMP/denied.json" -w '%{http_code}' -X DELETE -H "Authorization: Bearer $VIEWER" \
-  "$GW/v1/conversations/$DOC_CONV/attachments/$ANALYST_ATT")
-[[ $code == 404 ]] && ok "by the analyst's attachment id: delete → 404" || fail "delete by the analyst's attachment id returned $code"
 for what in "list:" "status:/$ANALYST_ATT" "download:/$ANALYST_ATT/content"; do
   label=${what%%:*}; suffix=${what#*:}
   code=$(curl -s -o "$TMP/denied.json" -w '%{http_code}' -H "Authorization: Bearer $VIEWER" \
@@ -492,12 +494,12 @@ for what in "list:" "status:/$ANALYST_ATT" "download:/$ANALYST_ATT/content"; do
   [[ $code == 403 ]] && jq -e '.error.code == "conversation_forbidden"' "$TMP/denied.json" >/dev/null \
     && ok "by the analyst's conversation id: $label → 403 conversation_forbidden" || fail "$label by the analyst's conversation id returned $code"
 done
-code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $VIEWER" \
+code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $ANALYST" \
   "$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT")
-[[ $code == 403 ]] && ok "by the analyst's conversation id: delete → 403" || fail "delete by the analyst's conversation id returned $code"
+[[ $code == 405 ]] && ok "there is no delete, not even for the owner: DELETE → 405 (S4)" || fail "DELETE returned $code"
 check "the analyst's file is untouched" bash -c "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT' | jq -e '.data.id == \"$ANALYST_ATT\"'"
 denied=$(sql "select count(*) from gateway.audit_events where action like 'attachment.%' and status = 'denied' and conversation_id in ('$DOC_CONV', '$ANALYST_CONV')")
-(( denied == 7 )) && ok "each of the 7 refusals is audited as denied" || fail "denied attachment audit rows: $denied"
+(( denied == 5 )) && ok "each of the 5 refusals is audited as denied" || fail "denied attachment audit rows: $denied"
 
 step "phase 04: a scanned PDF ends failed with scanned_unsupported (D4)"
 SCAN_CONV=$(uuidgen | tr 'A-Z' 'a-z')
@@ -511,6 +513,11 @@ step "phase 04: an oversize file is refused with 413 and the Arabic message (D2)
 code=$(upload "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$TMP/oversize.pdf")
 [[ $code == 413 ]] && ok "an oversize PDF → 413" || fail "an oversize PDF returned $code"
 check "file_too_large with its Arabic message" jq -e '.error.code == "file_too_large" and .error.message_ar == "حجم الملف أكبر من الحد المسموح به."' "$TMP/upload.json"
+{ printf '%%PDF-1.7\n'; head -c 31457280 /dev/zero; } > "$TMP/far-oversize.pdf"
+code=$(upload "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$TMP/far-oversize.pdf")
+[[ $code == 413 ]] && jq -e '.error.code == "file_too_large"' "$TMP/upload.json" >/dev/null \
+  && ok "a 30 MB file → the JSON 413 file_too_large, refused before its body is read, no reset (R3)" \
+  || fail "a 30 MB file returned $code: $(head -c 200 "$TMP/upload.json")"
 
 step "phase 04: an instruction inside a document has no effect on the answer (ADR-0136)"
 INJ_CONV=$(uuidgen | tr 'A-Z' 'a-z')
@@ -541,5 +548,50 @@ for text in [*texts, "".join(texts[:-1])]:
     if mobile.search(folded) or re.sub(r"\D", "", folded).find("1012345672") >= 0:
         sys.exit(1)' "$TMP/pii-doc.jsonl"
 printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/pii-doc.jsonl")"
+
+step "phase 04 fix: a user without cap:docs is refused before any body is read (R3)"
+ADMIN=$(token_for admin admin) || fail "admin login"
+GATE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+code=$(upload "$ADMIN" "$GATE_CONV" "$DOCS/summer-hours.txt")
+[[ $code == 403 ]] && jq -e '.error.code == "forbidden"' "$TMP/upload.json" >/dev/null \
+  && ok "admin (no cap:docs) uploading → 403 forbidden" || fail "admin's upload returned $code"
+code=$(curl -s -o "$TMP/gate.json" -w '%{http_code}' -H "Authorization: Bearer $ADMIN" "$GW/v1/conversations/$GATE_CONV/attachments")
+[[ $code == 403 ]] && ok "admin (no cap:docs) listing → 403 forbidden" || fail "admin's list returned $code"
+
+step "phase 04 fix: uploads past the per-minute allowance are 429 upload_rate_limited (R3)"
+EVALUATOR=$(token_for evaluator evaluator) || fail "evaluator login"
+ALLOWANCE=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open("config/docs.yaml"))["limits"]["uploads_per_minute"])' 2>/dev/null \
+  || awk '/uploads_per_minute:/ {print $2}' config/docs.yaml)
+printf 'MZ' > "$TMP/refused.exe"
+RATE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+for _ in $(seq 1 "$ALLOWANCE"); do upload "$EVALUATOR" "$RATE_CONV" "$TMP/refused.exe" >/dev/null; done
+code=$(upload "$EVALUATOR" "$RATE_CONV" "$TMP/refused.exe")
+[[ $code == 429 ]] && jq -e '.error.code == "upload_rate_limited" and (.error.message_ar | length > 0)' "$TMP/upload.json" >/dev/null \
+  && ok "upload $((ALLOWANCE + 1)) within a minute → 429 upload_rate_limited with its Arabic message" \
+  || fail "upload $((ALLOWANCE + 1)) returned $code"
+
+step "phase 04 fix: hostile files fail with their reason in the ingest service while a chat turn completes (R4)"
+mkdir -p "$TMP/hostile"
+(cd services/agent && uv run -q python -m tests.fixtures.hostile "$TMP/hostile" >/dev/null) || fail "could not generate the hostile files"
+HOSTILE="zip-bomb.docx:archive_unsafe entity-expansion.docx:xml_unsafe external-entity.docx:xml_unsafe \
+oversized-stream.pdf:stream_too_large fifty-thousand-rows.xlsx:text_too_long"
+HOSTILE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+: > "$TMP/hostile-ids"
+for entry in $HOSTILE; do
+  name=${entry%%:*}
+  [[ $(upload "$VIEWER" "$HOSTILE_CONV" "$TMP/hostile/$name") == 201 ]] || fail "$name was refused at upload: $(cat "$TMP/upload.json")"
+  printf '%s %s\n' "$name" "$(jq -r '.data.id' "$TMP/upload.json")" >> "$TMP/hostile-ids"
+done
+doc_turn "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "ما عاصمة المملكة؟" "" "$TMP/during-hostile.jsonl"
+check "a chat turn started while the hostile files are parsed ends with done" jq -se 'last.type == "done"' "$TMP/during-hostile.jsonl"
+for entry in $HOSTILE; do
+  name=${entry%%:*}; reason=${entry#*:}
+  id=$(awk -v n="$name" '$1 == n {print $2}' "$TMP/hostile-ids")
+  wait_terminal "$VIEWER" "$HOSTILE_CONV" "$id" || fail "$name did not leave pending"
+  jq -e --arg r "$reason" '.data.status == "failed" and .data.reason == $r' "$TMP/status.json" >/dev/null \
+    && ok "$name → failed, $reason" \
+    || fail "$name ended $(jq -c '{status: .data.status, reason: .data.reason}' "$TMP/status.json")"
+done
+check "the ingest service is still healthy" bash -c "[[ \$(docker compose ps --format '{{.Health}}' ingest) == healthy ]]"
 
 printf '\nsmoke: all phase 01 to 04 checks passed\n'
