@@ -434,6 +434,13 @@
       "storage_unavailable": "The file storage could not be reached.",
       "embedding_unavailable": "The file could not be indexed now. Upload it again shortly.",
       "ingest_error": "An unexpected error occurred while reading the file.",
+      "file_too_large": "The file is larger than the allowed size.",
+      "archive_unsafe": "The file's structure is unsafe or larger than allowed, so it was not read.",
+      "xml_unsafe": "The file contains declarations that are not allowed, so it was not read.",
+      "stream_too_large": "The file holds compressed content larger than allowed, so it was not read.",
+      "text_too_long": "The file's text is longer than the allowed limit.",
+      "too_many_chunks": "The file is too large to be indexed whole.",
+      "extraction_aborted": "Reading the file took more time or memory than allowed, so it was stopped.",
       "unknown": "The file could not be read."
     },
     "types": {

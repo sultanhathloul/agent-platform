@@ -324,6 +324,43 @@ services:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health')"]
 
+  # Ingestion out of the agent's process (owner decision R4): the agent's image in a container of
+  # its own with a hard memory limit; each file is parsed in a child process with CPU, memory and
+  # time limits (config/docs.yaml ingest.sandbox). It also runs the orphan sweeper (S4).
+  ingest:
+    build:
+      context: ./services/agent
+      target: runtime
+    command: ["python", "-m", "app.rag.ingest.service"]
+    mem_limit: 2g
+    environment:
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      CONFIG_DIR: /srv/config
+      DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/app
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: ingest
+    volumes:
+      - ./config:/srv/config:ro
+    depends_on:
+      agent:
+        condition: service_healthy   # the agent applies the database migrations
+      redis:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8001), 3)"]
+
   gateway:
     build:
       context: ./services/gateway

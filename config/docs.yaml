@@ -22,15 +22,33 @@ limits:
 chunking:
   max_tokens: 800
   overlap_tokens: 120
+  max_chunks: 2000          # per file; more ends failed with too_many_chunks (R4)
 
 # A PDF whose pages average fewer characters than this has no text layer: scanned (ADR-0128).
+# The bounds of a hostile or oversized file (owner decision R4): extracted text per file (a
+# 300-page text PDF holds about 900 000 characters), and one PDF stream decompressed.
 extraction:
   min_text_chars_per_page: 20
+  max_chars: 1000000           # text_too_long past this
+  max_pdf_stream_bytes: 52428800   # 50 MB; stream_too_large past this
+
+# Checked before a DOCX or XLSX is parsed (R4): archive_unsafe past any of these, or when the
+# file holds an archive; xml_unsafe when its XML declares a DTD or entities.
+archive:
+  max_entries: 1000
+  max_uncompressed_bytes: 104857600   # 100 MB
+  max_ratio: 200                      # uncompressed / compressed, for an entry over 1 MB
 
 ingest:
-  workers: 2          # concurrent ingestion jobs per agent process
+  workers: 2          # concurrent ingestion jobs in the ingest service (R4)
   embed_batch: 16     # chunks per embedding request
   max_attempts: 3     # a job that keeps failing for a transient reason ends as failed
+  # Each file is parsed in a child process with these limits; a child stopped by one of them
+  # ends the file as failed (extraction_aborted) and the service goes on (R4).
+  sandbox:
+    cpu_seconds: 60
+    memory_mb: 1024
+    timeout_seconds: 120
 
 # Hybrid retrieval (ADR-0133): top 30 by vector, top 30 by full text, reciprocal rank
 # fusion, rerank of the fused candidates, top 8 kept. Evidence over its budget is compressed

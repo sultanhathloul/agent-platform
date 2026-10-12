@@ -38,6 +38,8 @@ services:
     networks: !override [airgap]
   agent:
     networks: !override [airgap]
+  ingest:
+    networks: !override [airgap]
   gateway:
     networks: !override [airgap]
     ports: !reset []

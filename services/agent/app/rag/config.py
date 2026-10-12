@@ -31,6 +31,7 @@ class Limits(_Strict):
 class Chunking(_Strict):
     max_tokens: int = Field(gt=0)
     overlap_tokens: int = Field(ge=0)
+    max_chunks: int = Field(gt=0)  # per file; more ends failed with too_many_chunks (R4)
 
     @model_validator(mode="after")
     def _overlap(self) -> "Chunking":
@@ -41,12 +42,31 @@ class Chunking(_Strict):
 
 class Extraction(_Strict):
     min_text_chars_per_page: int = Field(ge=0)
+    max_chars: int = Field(gt=0)  # extracted text per file; more ends failed with text_too_long (R4)
+    max_pdf_stream_bytes: int = Field(gt=0)  # one PDF stream, decompressed (stream_too_large)
+
+
+class Archive(_Strict):
+    """Checked before a DOCX or XLSX is parsed (owner decision R4): archive_unsafe past these."""
+
+    max_entries: int = Field(gt=0)
+    max_uncompressed_bytes: int = Field(gt=0)
+    max_ratio: float = Field(gt=1)
+
+
+class Sandbox(_Strict):
+    """Each file is parsed in a child process with these limits (owner decision R4)."""
+
+    cpu_seconds: int = Field(gt=0)
+    memory_mb: int = Field(gt=0)
+    timeout_seconds: float = Field(gt=0)
 
 
 class Ingest(_Strict):
     workers: int = Field(ge=1)
     embed_batch: int = Field(ge=1)
     max_attempts: int = Field(ge=1)
+    sandbox: Sandbox
 
 
 class Rerank(_Strict):
@@ -78,6 +98,7 @@ class DocsConfig(_Strict):
     limits: Limits
     chunking: Chunking
     extraction: Extraction
+    archive: Archive
     ingest: Ingest
     retrieval: Retrieval
     orphan_sweeper: OrphanSweeper

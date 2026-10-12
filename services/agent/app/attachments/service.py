@@ -1,9 +1,7 @@
 """Attachments of a conversation (phase 04, A1–A3): registration with the file limit, the
 hand-over to the document backend, and owner-scoped reads with the status the backend
-reports. Capability-agnostic. The product deletes no file (owner decision S4): files stay for
+reports. The agent indexes nothing itself: the ingest service does (owner decision R4). Capability-agnostic. The product deletes no file (owner decision S4): files stay for
 as long as the platform keeps them, and deleting one is an operations task."""
-
-from typing import Any
 
 from app.attachments.limits import UploadLimits
 from app.attachments.objects import ObjectStore
@@ -25,14 +23,12 @@ class AttachmentService:
         store: AttachmentStore,
         objects: ObjectStore,
         documents: DocumentBackend,
-        worker: Any,
         limits: UploadLimits,
     ):
         self.db = db
         self.store = store
         self.objects = objects
         self.documents = documents
-        self.worker = worker
         self.limits = limits
 
     async def register(
@@ -89,14 +85,6 @@ class AttachmentService:
         return record.model_copy(
             update={"status": status.status, "reason": status.reason, "pages": status.pages}
         )
-
-    async def start(self) -> None:
-        if self.worker is not None:
-            await self.worker.start()
-
-    async def stop(self) -> None:
-        if self.worker is not None:
-            await self.worker.stop()
 
 
 def _scope(owner: Owner, conversation_id: str) -> DocumentScope:

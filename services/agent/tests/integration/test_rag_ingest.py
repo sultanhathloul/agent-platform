@@ -10,6 +10,7 @@ import pytest
 
 from app.rag.backend import DocumentScope
 from app.rag.types import Owner
+from tests.fixtures.ingestion import ingestion
 from tests.fixtures.documents import LEAVE_REGULATION, docx_bytes, pdf_bytes, scanned_pdf_bytes, xlsx_bytes
 
 pytestmark = pytest.mark.integration
@@ -41,7 +42,7 @@ async def _search(services, owner, conversation, question):
 
 async def _ingest(services, owner, conversation, name, data):
     record = await _upload(services, owner, conversation, name, data)
-    outcome = await services.attachments.worker.pipeline.run(record.id)
+    outcome = await ingestion(services).pipeline.run(record.id)
     return record, outcome, await services.attachments.store.get(owner, conversation, record.id)
 
 
@@ -104,14 +105,14 @@ async def test_ingestion_is_idempotent_by_attachment_id(services, litellm):
     record, _, first = await _ingest(services, ALICE, conversation, "لائحة.pdf", pdf_bytes(LEAVE_REGULATION))
     async with services.db.connection() as conn:
         await conn.execute("UPDATE agent.attachments SET status = 'pending' WHERE id = %s", (record.id,))
-    assert await services.attachments.worker.pipeline.run(record.id) == "indexed"
+    assert await ingestion(services).pipeline.run(record.id) == "indexed"
     async with services.db.connection() as conn:
         cursor = await conn.execute(
             "SELECT count(*) AS n FROM agent.rag_chunks WHERE attachment_id = %s", (record.id,)
         )
         assert (await cursor.fetchone())["n"] == first.chunks
     # An indexed attachment is not processed again.
-    assert await services.attachments.worker.pipeline.run(record.id) == "skipped"
+    assert await ingestion(services).pipeline.run(record.id) == "skipped"
 
 
 async def test_a_pending_job_resumes_when_the_worker_starts(services, litellm):
@@ -127,7 +128,7 @@ async def test_a_pending_job_resumes_when_the_worker_starts(services, litellm):
             "WHERE status = 'pending' AND id <> %s",
             (record.id,),
         )
-    worker = services.attachments.worker
+    worker = ingestion(services).worker
     await worker.start()  # puts every pending attachment back on the queue
     try:
         for _ in range(100):

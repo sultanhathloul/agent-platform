@@ -111,7 +111,6 @@ def with_backend(services, backend):
         store=attachments.store,
         objects=attachments.objects,
         documents=backend,
-        worker=attachments.worker,
         limits=attachments.limits,
     )
     return dataclasses.replace(services, documents=backend, attachments=swapped)

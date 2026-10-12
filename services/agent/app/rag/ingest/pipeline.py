@@ -1,6 +1,7 @@
-"""One ingestion job (README §9.3, ADR-0130): read the upload, detect its type, extract,
-chunk, embed and write the chunks, then mark the attachment `indexed`; or mark it
-`failed` with a reason code. Idempotent by attachment id: the chunks are replaced and
+"""One ingestion job (README §9.3, ADR-0130): read the upload, detect its type, extract and
+chunk it in a child process with CPU, memory and time limits (app/rag/ingest/sandbox.py, owner
+decision R4), embed and write the chunks, then mark the attachment `indexed`; or mark it
+`failed` with a reason code. An object over the upload limit is `file_too_large` (R3). Idempotent by attachment id: the chunks are replaced and
 the status set in one transaction, so a job run twice, or resumed after a crash, leaves
 one copy. A transient failure (storage, embeddings) raises `Retry`; the worker retries
 it until `ingest.max_attempts` and then marks it failed. The `rag.ingest` span carries
@@ -21,9 +22,9 @@ from app.db import Database
 from app.models.embeddings import EmbeddingGateway
 from app.models.gateway import ModelUnavailable
 from app.observability.otel import tracer
-from app.rag.chunk import chunk_segments
 from app.rag.config import DocsConfig
-from app.rag.extract import ExtractionFailed, detect_kind, extract
+from app.rag.extract import ExtractionFailed, detect_kind
+from app.rag.ingest.sandbox import run_sandboxed
 from app.rag.types import FailureReason
 from app.rag.vectorstore.base import VectorStore
 
@@ -98,19 +99,13 @@ class IngestPipeline:
         except StorageUnavailable as exc:
             raise Retry("storage_unavailable") from exc
         if len(data) > config.limits.max_file_bytes:
-            raise ExtractionFailed("unsupported_type", detail="over the size limit")
+            raise ExtractionFailed("file_too_large")
         kind = detect_kind(record.name, data, config)
         if kind is None or kind != record.kind:
             raise ExtractionFailed("unsupported_type")
-        document = await asyncio.to_thread(extract, kind, data, config)
-        chunks = chunk_segments(
-            document.segments,
-            self._counter,
-            max_tokens=config.chunking.max_tokens,
-            overlap_tokens=config.chunking.overlap_tokens,
-        )
-        if not chunks:
-            raise ExtractionFailed("empty_document", pages=document.pages)
+        # Parsed and chunked in a child process, from a thread: never on this event loop (R4).
+        parsed = await asyncio.to_thread(run_sandboxed, kind, data, config)
+        chunks = parsed.chunks
         vectors: list[list[float]] = []
         batch = config.ingest.embed_batch
         try:
@@ -120,7 +115,7 @@ class IngestPipeline:
                 )
         except ModelUnavailable as exc:
             raise Retry("embedding_unavailable") from exc
-        span.set_attribute("ingest.pages", document.pages or 0)
+        span.set_attribute("ingest.pages", parsed.pages or 0)
         span.set_attribute("ingest.chunks", len(chunks))
         async with self._db.connection() as conn, conn.transaction():
             await self._vectors.replace_document(
@@ -132,7 +127,7 @@ class IngestPipeline:
                 conn=conn,
             )
             if not await self._attachments.mark_indexed(
-                record.id, pages=document.pages, chunks=len(chunks), conn=conn
+                record.id, pages=parsed.pages, chunks=len(chunks), conn=conn
             ):
                 # Deleted or finished elsewhere while this job ran: keep nothing it wrote.
                 raise _Abandoned

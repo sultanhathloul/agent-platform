@@ -9,6 +9,7 @@ it to the backend; `ingest` brings it to a terminal status the way that backend 
 import uuid
 from collections.abc import Sequence
 
+from tests.fixtures.ingestion import ingestion
 from tests.fixtures.documents import docx_bytes, pdf_bytes
 from tests.fixtures.fake_backend import FakeDocumentBackend, with_backend
 
@@ -68,7 +69,7 @@ class Harness:
     async def ingest(self, document_id: str) -> str:
         pages, sections, broken = self._content[document_id]
         if self.name == "internal":
-            return await self.services.attachments.worker.pipeline.run(document_id)
+            return await ingestion(self.services).pipeline.run(document_id)
         if broken:
             self.fake.fail(document_id, "corrupt_file")
             return "failed"

@@ -161,7 +161,6 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         store=attachment_store,
         objects=objects,
         documents=documents.backend,
-        worker=documents.worker,
         limits=load_upload_limits(settings.config_dir),
     )
     store = MemoryStore(db, memory_config)
@@ -258,14 +257,8 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
         started = await start_services(app.state.services)
         app.state.services = started
         app.state.runner = TurnRunner(started)
-        # Ingestion runs in the service process (ADR-0130);
-        # tests that hand in started services run jobs themselves.
-        background = start_background and owned
-        if background:
-            await started.attachments.start()
+        # Ingestion runs in the ingest service, never in the agent's process (owner decision R4).
         yield
-        if background:
-            await started.attachments.stop()
         if owned:
             await stop_services(started)
         shutdown_tracing()

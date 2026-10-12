@@ -19,6 +19,14 @@ FailureReason = Literal[
     "storage_unavailable",
     "embedding_unavailable",
     "ingest_error",
+    # Hostile or oversized files (owner decisions R3, R4):
+    "file_too_large",  # the stored object is over the upload limit
+    "archive_unsafe",  # a DOCX or XLSX over the entry, size or ratio limits, or holding an archive
+    "xml_unsafe",  # a DOCX or XLSX whose XML declares a DTD or entities
+    "stream_too_large",  # a PDF stream that decompresses past its limit
+    "text_too_long",  # more extracted text than the limit
+    "too_many_chunks",
+    "extraction_aborted",  # the parser ran out of time or memory and was stopped
 ]
 
 DocumentKind = Literal["pdf", "docx", "xlsx", "txt", "md"]

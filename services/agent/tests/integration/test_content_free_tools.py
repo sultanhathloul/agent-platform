@@ -8,6 +8,7 @@ import logging
 import uuid
 
 import pytest
+from tests.fixtures.ingestion import ingestion
 from tests.fixtures.backends import Harness
 from tests.fixtures.replace import replacing
 
@@ -97,17 +98,29 @@ async def test_a_judge_at_post_tool_is_content_free_and_records_no_package(debug
         await debug_services.policies.set_enabled(pid, False, actor="test")
 
 
+SECRET = "SECRET-LIBRARY-MESSAGE quoting the document: رقم الهوية 1234567897"
+
+
+def test_the_parsing_child_sends_a_defects_type_never_its_message(config_dir, monkeypatch):
+    from app.rag.config import load_docs_config
+    from app.rag.ingest import sandbox
+
+    def explode(kind, data, config):
+        raise ValueError(SECRET)
+
+    monkeypatch.setattr(sandbox, "extract", explode)
+    assert sandbox.outcome("md", b"# x", load_docs_config(config_dir)) == ("error", "ValueError", None)
+
+
 async def test_an_extraction_error_is_reported_by_type_and_code_only(
     services, spans, litellm, caplog, monkeypatch
 ):
     from app.rag.ingest import pipeline as pipeline_module
 
-    secret = "SECRET-LIBRARY-MESSAGE quoting the document: رقم الهوية 1234567897"
-
     def explode(kind, data, config):
-        raise ValueError(secret)
+        raise ValueError(SECRET)
 
-    monkeypatch.setattr(pipeline_module, "extract", explode)
+    monkeypatch.setattr(pipeline_module, "run_sandboxed", explode)
     harness = Harness("internal", services)
     scope = DocumentScope(
         tenant_id="default", user_id=f"u-s5-{uuid.uuid4().hex[:6]}", conversation_id=str(uuid.uuid4())
@@ -115,7 +128,7 @@ async def test_an_extraction_error_is_reported_by_type_and_code_only(
     document = await harness.upload(scope, "ملف.md", ["نص"], sections=["عنوان"])
     spans.clear()
     with caplog.at_level(logging.DEBUG):
-        outcome = await services.attachments.worker._job(document)
+        outcome = await ingestion(services).worker._job(document)
     assert outcome == "failed"
     status = await services.documents.status(document, scope)
     assert (status.status, status.reason) == ("failed", "ingest_error")

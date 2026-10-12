@@ -1,21 +1,33 @@
 """DOCX by headings, with python-docx (MIT): body paragraphs and tables in document
 order; a Heading or Title paragraph starts a new section, named by the heading path
-(e.g. «الباب الأول › المادة الثالثة»)."""
+(e.g. «الباب الأول › المادة الثالثة»). The archive is checked first (app/rag/extract/archive.py)
+and python-docx parses with entities, DTDs and network access off (owner decision R4)."""
 
 import io
 import unicodedata
 import zipfile
 
+import docx.oxml.parser as oxml
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from lxml import etree
 
 from app.rag.config import DocsConfig
+from app.rag.extract.archive import check_archive
 from app.rag.extract.base import ExtractionFailed
 from app.rag.types import ExtractedDocument, Segment
 
 _SEPARATOR = " › "
+
+# Owner decision R4: python-docx's parser resolves no entity, loads no DTD and reaches no network
+# (the archive check refuses a DTD before this parser runs; this is the second wall).
+_HARDENED = etree.XMLParser(
+    remove_blank_text=True, resolve_entities=False, load_dtd=False, no_network=True, huge_tree=False
+)
+_HARDENED.set_element_class_lookup(oxml.element_class_lookup)
+oxml.oxml_parser = _HARDENED
 
 
 def _heading_level(paragraph: Paragraph) -> int | None:
@@ -34,6 +46,7 @@ class DocxExtractor:
     kind = "docx"
 
     def extract(self, data: bytes, config: DocsConfig) -> ExtractedDocument:
+        check_archive(data, config.archive)
         try:
             document = Document(io.BytesIO(data))
         except (PackageNotFoundError, zipfile.BadZipFile, KeyError, ValueError) as exc:
