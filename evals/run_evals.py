@@ -45,6 +45,7 @@ indexed first.
 import asyncio
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -52,6 +53,12 @@ import unicodedata
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
+# Ragas posts usage events to an outside service (https://t.explodinggradients.com) unless this is
+# set, and it caches the value the first time it reads it; so it is set here, before anything
+# imports ragas (owner decision S3). The harness calls nothing outside the platform: the gateway,
+# Keycloak and Langfuse of the stack, and LiteLLM for the judge.
+os.environ["RAGAS_DO_NOT_TRACK"] = "true"
 
 import httpx
 import yaml

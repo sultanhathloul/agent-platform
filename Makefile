@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke smoke-airgap logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web test-evals eval smoke smoke-airgap logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -30,7 +30,7 @@ clean: ## Stop the stack and delete every volume
 seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot)
 	$(COMPOSE) run --rm minio-init
 
-test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
+test: test-agent test-gateway test-gateway-db test-web test-evals ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
 	$(COMPOSE) up -d --wait postgres redis presidio-analyzer minio
@@ -55,8 +55,15 @@ test-gateway-db: .env
 test-web:
 	docker build --target test --no-cache-filter test --build-context config=config services/web
 
+# RAGAS_DO_NOT_TRACK: no usage event leaves for Ragas' own service (S3); run_evals.py sets it too.
+# The eval harness's own tests (S3): no call leaves the platform. Offline; the harness's script
+# dependencies plus pytest.
+test-evals:
+	uv run --no-project --with pytest --with httpx --with pyyaml --with ragas==0.2.15 \
+		--with 'langchain-openai>=0.2,<0.4' pytest -q evals/tests
+
 eval: .env ## Golden suites against the live stack (real models)
-	uv run evals/run_evals.py $(s)
+	RAGAS_DO_NOT_TRACK=true uv run evals/run_evals.py $(s)
 
 smoke: .env ## End-to-end smoke test against the live stack
 	scripts/smoke.sh

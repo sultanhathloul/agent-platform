@@ -1556,3 +1556,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The router decision was cached per tenant by the prompts, locale, candidates, file names, message and window. Two users of a tenant with the same file names and message shared a decision, and a change of the router's model or a tier ceiling reused answers the old model gave.
 - Decision: The key adds the user id and the LiteLLM alias the `router` role resolves to for the principal (ceilings included), the judge cache's precedent (ADR-0110).
 - Consequences: The cache hit rate falls to one user's repeated questions. A model change takes effect on the next turn (tested: another tenant, another user and another alias each miss the cache).
+
+### ADR-0170: Ragas' usage tracking is off; the eval harness calls nothing outside the platform
+- Date: 2026-10-12
+- Phase: 04 (owner decision S3)
+- Status: decided
+- Context: Ragas 0.2.15 posts usage events to https://t.explodinggradients.com unless `RAGAS_DO_NOT_TRACK` is `true`, and it caches the value the first time it reads it. The harness never set it, so every `make eval` reached an outside service (CLAUDE.md: no external SaaS).
+- Decision: `evals/run_evals.py` sets `RAGAS_DO_NOT_TRACK=true` at import, before anything imports Ragas (it is imported lazily, in the judge), and the Makefile's `eval` target sets it too. A test target, `make test-evals` (part of `make test`), proves it: the variable is set before Ragas is imported, a tracked event sends nothing, and the judge's model and embeddings point at the stack's LiteLLM only. The harness's other calls are the stack's own gateway, Keycloak and Langfuse.
+- Consequences: Rule 11 reports a fifth test layer, `evals` (the harness's tests).
