@@ -1,7 +1,8 @@
 """Attachments of a conversation (phase 04, A1–A3): registration with the file limit, the
 hand-over to the document backend, and owner-scoped reads with the status the backend
-reports. The agent indexes nothing itself: the ingest service does (owner decision R4). Capability-agnostic. The product deletes no file (owner decision S4): files stay for
-as long as the platform keeps them, and deleting one is an operations task."""
+reports. The agent indexes nothing itself: the ingest service does (owner decision R4).
+Capability-agnostic. The product deletes no file (owner decision S4): files stay for as long
+as the platform keeps them, and deleting one is an operations task."""
 
 from app.attachments.limits import UploadLimits
 from app.attachments.objects import ObjectStore

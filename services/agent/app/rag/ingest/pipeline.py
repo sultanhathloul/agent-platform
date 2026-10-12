@@ -1,9 +1,9 @@
 """One ingestion job (README §9.3, ADR-0130): read the upload, detect its type, extract and
 chunk it in a child process with CPU, memory and time limits (app/rag/ingest/sandbox.py, owner
 decision R4), embed and write the chunks, then mark the attachment `indexed`; or mark it
-`failed` with a reason code. An object over the upload limit is `file_too_large` (R3). Idempotent by attachment id: the chunks are replaced and
-the status set in one transaction, so a job run twice, or resumed after a crash, leaves
-one copy. A transient failure (storage, embeddings) raises `Retry`; the worker retries
+`failed` with a reason code. An object over the upload limit is `file_too_large` (R3).
+Idempotent by attachment id: the chunks are replaced and the status set in one transaction,
+so a job run twice, or resumed after a crash, leaves one copy. A transient failure (storage, embeddings) raises `Retry`; the worker retries
 it until `ingest.max_attempts` and then marks it failed. The `rag.ingest` span carries
 the attachment id, kind, pages, chunk count, outcome and reason, never document text
 (ADR-0137), and an error by its type and reason code only, never a library's message, which can

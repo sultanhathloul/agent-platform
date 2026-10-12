@@ -16,8 +16,8 @@ the PDF drew them in. What it does not undo:
   the start of the line («:رقم الهوية1012345672»).
 
 So every line gets its boundaries spaced, its spaces collapsed (none before a mark that ends a
-clause), and stranded leading punctuation put back: a colon at the first boundary between Arabic and a value that follows
-it, any other mark at the end of the line. No line is ever reversed on a guess from its words
+clause), and stranded leading punctuation put back: a colon at the first boundary between
+Arabic and a value that follows it, any other mark at the end of the line. No line is ever reversed on a guess from its words
 (the old «ends in لا» and reversed-particle heuristics are gone: «قليلا جدا» is left alone).
 NFKC then folds presentation forms to ordinary letters."""
 
