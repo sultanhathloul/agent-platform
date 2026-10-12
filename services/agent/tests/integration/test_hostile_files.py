@@ -7,7 +7,6 @@ import asyncio
 import uuid
 
 import pytest
-from tests.fixtures.backends import Harness
 from tests.fixtures.hostile import BUILDERS, EXPECTED, external_entity_docx
 from tests.fixtures.ingestion import ingestion
 
