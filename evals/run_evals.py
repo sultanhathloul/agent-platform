@@ -217,9 +217,20 @@ def upload(http: httpx.Client, gateway: str, token: str, conversation_id: str, d
     raise RuntimeError(f"{document} was not indexed within 120 s")
 
 
-def retrieved(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: str) -> list[dict] | None:
+def _milliseconds(span: dict) -> float | None:
+    """A span's duration from its Langfuse start and end times."""
+    try:
+        start = datetime.fromisoformat(span["startTime"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(span["endTime"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    return (end - start).total_seconds() * 1000
+
+
+def retrieved(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: str, timing: dict | None = None):
     """What the turn's `rag.retrieve` span reports (ids, pages, section hashes, scores), from
-    Langfuse; None when the trace has no retrieval."""
+    Langfuse; None when the trace has no retrieval. With `timing`, its duration lands in
+    timing["retrieve_ms"] (owner decision Q1: latency per rerank configuration)."""
     for _ in range(60):
         response = http.get(f"{cfg['LANGFUSE_PUBLIC_URL']}/api/public/traces/{trace_id}", auth=auth)
         if response.status_code == 200:
@@ -229,6 +240,8 @@ def retrieved(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: st
                 attributes = metadata.get("attributes", metadata)
                 if "rag.results" in attributes:
                     value = attributes["rag.results"]
+                    if timing is not None:
+                        timing["retrieve_ms"] = _milliseconds(span)
                     return json.loads(value) if isinstance(value, str) else value
             names = {o.get("name") for o in response.json().get("observations", [])}
             if "model.call" in names and "tool.exec" not in names and "rag.retrieve" not in names:
@@ -333,8 +346,11 @@ def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", 
         problems.append("shows text it must not show")
     if has_label(answer):
         problems.append("a label or bracketed file name in the answer")
-    results = retrieved(http, cfg, auth, outcome["trace_id"]) if outcome["trace_id"] else None
+    timing: dict = {}
+    results = retrieved(http, cfg, auth, outcome["trace_id"], timing) if outcome["trace_id"] else None
     outcome["retrieved"] = results
+    if timing.get("retrieve_ms") is not None:
+        outcome["retrieve_ms"] = timing["retrieve_ms"]
     if kind in ("answerable", "pii"):
         pages = {r.get("page") for r in results or []}
         shas = {r.get("section_sha") for r in results or []}
@@ -375,19 +391,35 @@ def rag_scores(outcomes: list[tuple[dict, dict]]) -> dict:
     abstentions = [o.get("abstained", False) for c, o in outcomes if c["expect"].get("kind") == "abstain"]
     faithfulness = [o["faithfulness"] for _, o in outcomes if "faithfulness" in o]
     correctness = [o["correctness"] for _, o in outcomes if "correctness" in o]
+    latencies = sorted(o["retrieve_ms"] for _, o in outcomes if o.get("retrieve_ms") is not None)
+
+    def percentile(share: float) -> float:
+        return latencies[min(len(latencies) - 1, int(share * len(latencies)))] if latencies else 0.0
+
     return {
         "hit_at_8": mean([float(h) for h in hits]),
         "citation_page_accuracy": mean([float(c) for c in citations]),
         "faithfulness": mean(faithfulness),
         "answer_correctness": mean(correctness),
         "abstention": mean([float(a) for a in abstentions]),
+        "retrieve_ms_p50": percentile(0.5),
+        "retrieve_ms_p95": percentile(0.95),
         "counts": {"hit": len(hits), "citation": len(citations), "abstain": len(abstentions),
-                   "ragas": len(faithfulness)},
+                   "ragas": len(faithfulness), "retrieve": len(latencies)},
     }
 
 
 def rag_threshold_ok(scores: dict, threshold: dict) -> bool:
     return all(scores[name] >= value for name, value in threshold.items())
+
+
+def rerank_config() -> str:
+    """The rerank configuration the stack runs with (config/docs.yaml), for the rag summary (Q1)."""
+    rerank = (yaml.safe_load((REPO / "config" / "docs.yaml").read_text()) or {})["retrieval"]["rerank"]
+    if not rerank.get("enabled"):
+        return "rerank off"
+    bound = rerank.get("max_chars")
+    return f"rerank {rerank['candidates']} candidates, {f'{bound} chars' if bound else 'full text'}"
 
 
 def guard_trace(http: httpx.Client, cfg: dict, auth: tuple[str, str], case: dict, result: dict | None) -> str:
@@ -516,7 +548,8 @@ def main() -> int:
                     trace_id = outcome.get("trace_id")
                     if trace_id:
                         metadata = {k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
-                                                                "correctness", "cited_pages", "capabilities")}
+                                                                "correctness", "cited_pages", "capabilities",
+                                                                "retrieve_ms")}
                         langfuse(
                             http, cfg, auth, "dataset-run-items",
                             {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
@@ -598,7 +631,9 @@ def main() -> int:
                     f"{scores['citation_page_accuracy']:.2f} ({counts['citation']}), faithfulness "
                     f"{scores['faithfulness']:.2f} and answer correctness {scores['answer_correctness']:.2f} "
                     f"({counts['ragas']}, judge alias {judge.alias if judge else '-'}), abstention "
-                    f"{scores['abstention']:.2f} ({counts['abstain']})"
+                    f"{scores['abstention']:.2f} ({counts['abstain']}); {rerank_config()}: rag.retrieve p50 "
+                    f"{scores['retrieve_ms_p50'] / 1000:.2f} s, p95 {scores['retrieve_ms_p95'] / 1000:.2f} s "
+                    f"({counts['retrieve']})"
                 )
             elif guard_results:
                 scores = guard_scores(guard_results)

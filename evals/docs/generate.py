@@ -173,6 +173,7 @@ def main(out: Path) -> None:
     sections = {
         "leave-regulation.pdf": {"pages": {str(i + 1): "\n".join(p) for i, p in enumerate(LEAVE_PDF)}},
         "cv-fake-pii.pdf": {"pages": {str(i + 1): "\n".join(p) for i, p in enumerate(CV_PDF)}},
+        "twenty-pages.pdf": {"pages": {str(i + 1): "\n".join(p) for i, p in enumerate(twenty_pages())}},
         "internal-policies.docx": {"sections": {sha(k): {"path": k, "text": v} for k, v in docx_sections.items()}},
         "budget-2031.xlsx": {"sections": {sha(k): {"path": k, "text": v} for k, v in xlsx_sections.items()}},
         "summer-hours.txt": {"sections": {}},
