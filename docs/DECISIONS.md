@@ -1362,7 +1362,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0150: LiteLLM is published on the loopback interface for `make eval`
 - Date: 2026-10-11
 - Phase: 04 (I13)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0172 on 2026-10-12 (the development overlay's mapping)
 - Context: Ragas scores call LiteLLM's judge alias from the host (ADR-0141); LiteLLM had no published port.
 - Decision: `docker-compose.yml` publishes `litellm` on `127.0.0.1:${LITELLM_PORT:-4000}` only, behind its master key. The development overlay keeps its own mapping.
 - Consequences: Any local process with the master key from `.env` can call the model aliases, as `make eval` does; nothing outside the host can.
@@ -1572,3 +1572,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: An llm_judge policy at POST_TOOL sent document chunks and their metadata to the judge, and the call's messages and output went to Langfuse with a recorded context package. The ingestion worker logged an unexpected failure with `log.exception`, and its span recorded the exception event: both carry the library's message, which can quote the document.
 - Decision: `CheckContext` names the checkpoint; a judge call at POST_TOOL is content-free like one on a memory candidate or a summary (ADR-0110): no messages or output in its trace, hashes only, no recorded package. The `rag.ingest` span records no exception event; it carries `ingest.error_type` (the type's name) and `ingest.reason` (the code); the worker logs the type and `ingest_error`, never the message.
 - Consequences: Debugging a parser failure uses the type, the code and the owner's own file, not the log.
+
+### ADR-0172: LiteLLM and its test double listen on the loopback interface only; the test embedding service sits on a network of its own
+- Date: 2026-10-12
+- Phase: 04 (owner decision S6; supersedes ADR-0150's "the development overlay keeps its own mapping")
+- Status: decided
+- Context: The development overlay published the real LiteLLM on `0.0.0.0:4000` (`!override`), so anyone who could reach the host could use the model keys with the master key; `litellm-mock` was published on `0.0.0.0:4001`; `embed-mock` shared the default network with every service.
+- Decision: The development overlay no longer maps LiteLLM: it keeps the base file's `127.0.0.1:${LITELLM_PORT}`. `litellm-mock` publishes `127.0.0.1:4001`. `embed-mock` joins only `test`, an internal network it shares with `litellm-mock`, its one client. A smoke check fails when LiteLLM or its double is published on any other address.
+- Consequences: A tool on another machine cannot reach LiteLLM through the development stack; local pytest runs still reach the mock on 127.0.0.1:4001.

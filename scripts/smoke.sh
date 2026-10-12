@@ -72,6 +72,8 @@ check "web /api/health" curl -fsS "$WEB/api/health"
 check "keycloak issuer is $KC/realms/$KC_REALM" bash -c \
   "curl -fsS '$KC/realms/$KC_REALM/.well-known/openid-configuration' | jq -e '.issuer == \"$KC/realms/$KC_REALM\"'"
 check "langfuse /api/public/health" curl -fsS "$LF/api/public/health"
+check "LiteLLM, which holds the model keys, is published on the loopback interface only (S6)" bash -c \
+  "docker compose --profile test ps --format json | jq -se '[.[] | select(.Service == \"litellm\" or .Service == \"litellm-mock\") | .Publishers[]? | select(.PublishedPort > 0) | .URL] | length > 0 and all(. == \"127.0.0.1\")'"
 
 step "login through the web client (authorization code + PKCE)"
 ANALYST=$(token_for analyst analyst) || fail "analyst login"

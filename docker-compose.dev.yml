@@ -9,8 +9,8 @@ services:
     ports: ["5002:3000"]
   minio:
     ports: ["9000:9000", "9001:9001"]
-  litellm:
-    ports: !override ["4000:4000"]
+  # litellm keeps the base file's loopback-only port (127.0.0.1:LITELLM_PORT, ADR-0150): it
+  # holds the model keys, so no overlay publishes it beyond the host (owner decision S6).
   otel-collector:
     ports: ["4318:4318"]
   agent:
