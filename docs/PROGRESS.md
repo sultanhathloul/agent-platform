@@ -1045,7 +1045,7 @@ Results (2026-10-11, final runs on commit a84e62a, rule 11):
 
 Baseline before any phase 04 code: agent 509, gateway 91, gateway-db 5, web 125.
 
-- `make smoke`: 99/99 checks ("all phase 01 to 04 checks passed"); the phase 04 block adds six checks, including the seven attachment refusals each audited as denied.
+- `make smoke`: 99/99 checks ("all phase 01 to 04 checks passed"); the phase 04 block adds six steps and 23 checks (76 → 99), including the seven attachment refusals each audited as denied. (Corrected in the fix session of 2026-10-12, owner decision D1: this line first said "six checks".)
 - `make smoke-airgap`: 104/104 (5 airgap layout checks + the 99 smoke checks on the internal `airgap` network).
 
 `make eval`, three full runs (all four suites PASS in each):
@@ -1074,9 +1074,9 @@ Owner notes:
 - `make models` now also fetches the reranker weights (HF transfer disabled; it hung).
 - Answers sometimes carry an inline "[docs]" or file label from the findings prompt; harmless for the evals, worth a prompt look in review.
 
-How to verify:
+How to verify (order corrected in the fix session, D1: `make models` before `make up`):
 ```
-make up && make models
+make models && make up
 make test           # agent 575, gateway 104, gateway-db 5, web 138
 make eval           # general, guardrails, rag, routing
 make smoke          # 99/99
@@ -1097,34 +1097,34 @@ For human review:
 Scope: the owner's decisions on review round 1 (main report, addenda 1–3), nothing else; `docs/HANDOFF.md` untouched. Threat model ADR-0054. C6 first; every other item builds on it. Owner principle (ADR): no policy is applied at ingestion; chunks are stored as extracted and every guard policy runs at runtime, per principal; delimiter neutralization is not a policy and applies to everyone, at runtime too.
 
 Checklist:
-- [ ] Plan and `docs/PHASE-04-BUILD-PROMPT.md` in the first commit
-- [ ] C6 DocumentBackend in `rag/` (register, status, search, fetch), `InternalDocumentBackend` from this phase's pipeline, `config/docs.yaml backend: internal`; the capability imports no VectorStore, extractor, chunker or retriever; scope injected by the broker, enforced by every backend; contract suite against the internal and a test-only fake backend; the docs capability's tests pass on both
-- [ ] S1 `docs_search` takes no tenant, user or collection; the broker injects the scope and refuses (and audits) a tool the calling capability's manifest does not declare
-- [ ] S2 evidence and tool results in the user role; decode before tag stripping; delimiters neutralized in content, section, file name and sheet title; attribute values escaped; pending and failed names inside the delimited block; Source fields through POST_TOOL, OUTPUT and DATA per principal before a citation leaves; compression keeps delimiter lines; INPUT checks this turn's file names; the five tests
-- [ ] S3 Ragas telemetry off (run_evals.py before the import, Makefile), test; no other outbound call
-- [ ] S4 no deletion in the product (endpoint, UI, expiry, touch, purge removed); FK with ON DELETE CASCADE; context packages record attachment ids; manual steps here; no chunk text in AgentState (fetch at prepare time); 1 h sweeper for orphaned objects; attachments loaded before INPUT; tests
-- [ ] S5 llm_judge at POST_TOOL content-free with no package; extraction errors by type and reason code only
-- [ ] S6 ports: LiteLLM never published by the dev overlay, litellm-mock on 127.0.0.1, embed-mock on a test network
-- [ ] S7 MinIO users per service (gateway writes uploads; agent and ingest read); no root credentials outside minio-init
-- [ ] S8 router cache key adds the user and the router alias
-- [ ] C1 capabilities may supply citations; validate fails one not among this turn's sources (tested); page attribution a separate generic step before validate; the question's words dropped before matching; no "[docs]" or file labels in answers (prompt fix, test)
-- [ ] C2 manifest `context.needs` drives the answer package; `config/context.yaml` defaults only; tests
-- [ ] C3 no docs-named config or types in the core; generic citation config; backend through RuntimeContext; no `rag_runtime.bind`; capability config through its runtime context; no package for a capability that does not read it
-- [ ] C4 OpenAPI 2.0.0 for the breaking turn request; the bogus `"[]"` default removed
-- [ ] C5 ADR-0149 accepted; file names reach the router only after INPUT
-- [ ] R1 `make up` never depends on `make models`; preflight checks the weights; external `rerank-models`; pinned reranker revision; rerank model and api_base from `.env`
-- [ ] R2 `rerank.enabled`; a malformed rerank response is a span error and falls back to fusion order
-- [ ] R3 one source of truth for limits; `cap:docs` before the body for upload, list, status, download; JSON 413 `file_too_large` (test); ingestion reports `file_too_large`; per-user upload rate limit
-- [ ] R4 ingestion in its own service with a memory limit; a child process per file with CPU, memory and wall-clock limits (`extraction_aborted`); archive limits, nested archives refused; defusedxml; DOCX entity and network resolution off; PDF page, stream and character bounds; extracted text and chunk caps; chunking off the event loop; the five hostile fixtures, each failed with its reason while a chat turn completes
-- [ ] R5 known limitation recorded: partly scanned PDFs
-- [ ] A1 no double reordering: pypdf's logical output trusted; visual order restored only on a strong, tested signal; no "ends in لا" heuristic
-- [ ] A2 LibreOffice-exported PDF fixtures and one genuinely visual-order PDF; whole-line assertions; NFKC tests for DOCX, XLSX, text; visual-order tests not built from the code under test
-- [ ] A3 chunker re-checks overlap plus next segment; long header truncated; XLSX header detection; unit tests for fusion, stopwords, rerank truncation
-- [ ] Q1 ADR superseding ADR-0157; twenty-pages.pdf cases in rag.jsonl (≥ 6 past the first 400 tokens); rag ×3 for full / 16-400 / off with latency; default the fastest that meets every threshold
-- [ ] Q2 abstention: no source line and a whole-phrase match; labels of f5fc687 restored or justified; contains_any matches whole numbers
-- [ ] Q3 weak tests: test_rag_extract.py:33 and :112, runtime isolation for docs and general, AttachmentProxyTest, test_retention.py; deleted-path tests removed
-- [ ] D1 PROGRESS: smoke 76 → 99 (+23 checks); `make models` before `make up`; README §9.3 amendment
-- [ ] Finish: `make test`; `make clean && make models && make up && make smoke && make smoke-airgap`; `make eval` ×3; rule 11 counts, the Q1 table and the R4 results; push
+- [x] Plan and `docs/PHASE-04-BUILD-PROMPT.md` in the first commit
+- [x] C6 DocumentBackend in `rag/` (register, status, search, fetch), `InternalDocumentBackend` from this phase's pipeline, `config/docs.yaml backend: internal`; the capability imports no VectorStore, extractor, chunker or retriever; scope injected by the broker, enforced by every backend; contract suite against the internal and a test-only fake backend; the docs capability's tests pass on both
+- [x] S1 `docs_search` takes no tenant, user or collection; the broker injects the scope and refuses (and audits) a tool the calling capability's manifest does not declare
+- [x] S2 evidence and tool results in the user role; decode before tag stripping; delimiters neutralized in content, section, file name and sheet title; attribute values escaped; pending and failed names inside the delimited block; Source fields through POST_TOOL, OUTPUT and DATA per principal before a citation leaves; compression keeps delimiter lines; INPUT checks this turn's file names; the five tests
+- [x] S3 Ragas telemetry off (run_evals.py before the import, Makefile), test; no other outbound call
+- [x] S4 no deletion in the product (endpoint, UI, expiry, touch, purge removed); FK with ON DELETE CASCADE; context packages record attachment ids; manual steps here; no chunk text in AgentState (fetch at prepare time); 1 h sweeper for orphaned objects; attachments loaded before INPUT; tests
+- [x] S5 llm_judge at POST_TOOL content-free with no package; extraction errors by type and reason code only
+- [x] S6 ports: LiteLLM never published by the dev overlay, litellm-mock on 127.0.0.1, embed-mock on a test network
+- [x] S7 MinIO users per service (gateway writes uploads; agent and ingest read); no root credentials outside minio-init
+- [x] S8 router cache key adds the user and the router alias
+- [x] C1 capabilities may supply citations; validate fails one not among this turn's sources (tested); page attribution a separate generic step before validate; the question's words dropped before matching; no "[docs]" or file labels in answers (prompt fix, test)
+- [x] C2 manifest `context.needs` drives the answer package; `config/context.yaml` defaults only; tests
+- [x] C3 no docs-named config or types in the core; generic citation config; backend through RuntimeContext; no `rag_runtime.bind`; capability config through its runtime context; no package for a capability that does not read it
+- [x] C4 OpenAPI 2.0.0 for the breaking turn request; the bogus `"[]"` default removed
+- [x] C5 ADR-0149 accepted; file names reach the router only after INPUT
+- [x] R1 `make up` never depends on `make models`; preflight checks the weights; external `rerank-models`; pinned reranker revision; rerank model and api_base from `.env`
+- [x] R2 `rerank.enabled`; a malformed rerank response is a span error and falls back to fusion order
+- [x] R3 one source of truth for limits; `cap:docs` before the body for upload, list, status, download; JSON 413 `file_too_large` (test); ingestion reports `file_too_large`; per-user upload rate limit
+- [x] R4 ingestion in its own service with a memory limit; a child process per file with CPU, memory and wall-clock limits (`extraction_aborted`); archive limits, nested archives refused; defusedxml; DOCX entity and network resolution off; PDF page, stream and character bounds; extracted text and chunk caps; chunking off the event loop; the five hostile fixtures, each failed with its reason while a chat turn completes
+- [x] R5 known limitation recorded: partly scanned PDFs
+- [x] A1 no double reordering: pypdf's logical output trusted; visual order restored only on a strong, tested signal; no "ends in لا" heuristic
+- [x] A2 LibreOffice-exported PDF fixtures and one genuinely visual-order PDF; whole-line assertions; NFKC tests for DOCX, XLSX, text; visual-order tests not built from the code under test
+- [x] A3 chunker re-checks overlap plus next segment; long header truncated; XLSX header detection; unit tests for fusion, stopwords, rerank truncation
+- [x] Q1 ADR superseding ADR-0157; twenty-pages.pdf cases in rag.jsonl (≥ 6 past the first 400 tokens); rag ×3 for full / 16-400 / off with latency; default the fastest that meets every threshold
+- [x] Q2 abstention: no source line and a whole-phrase match; labels of f5fc687 restored or justified; contains_any matches whole numbers
+- [x] Q3 weak tests: test_rag_extract.py:33 and :112, runtime isolation for docs and general, AttachmentProxyTest, test_retention.py; deleted-path tests removed
+- [x] D1 PROGRESS: smoke 76 → 99 (+23 checks); `make models` before `make up`; README §9.3 amendment
+- [x] Finish: `make test`; `make clean && make models && make up && make smoke && make smoke-airgap`; `make eval` ×3; rule 11 counts, the Q1 table and the R4 results; push
 
 Operations: deleting an uploaded file (owner decision S4, ADR-0166). The product deletes no file; an operator does, in this order:
 1. Find the attachment: `SELECT id, object_key FROM agent.attachments WHERE conversation_id = '<conversation>' AND name = '<file name>';`
@@ -1132,6 +1132,76 @@ Operations: deleting an uploaded file (owner decision S4, ADR-0166). The product
 3. Delete the record; its chunks go with it (ON DELETE CASCADE): `DELETE FROM agent.attachments WHERE id = '<attachment id>';`
 4. Delete the object with the MinIO root credentials, which only `minio-init` holds: `docker compose run --rm --entrypoint sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc rm "local/uploads/<object_key>"'`. (Left alone, the orphan sweeper removes it within the hour, since no record names it any more.)
 Checkpoints hold no chunk text (ADR-0162); answers that quoted the file stay in the conversation's history like any other message.
+
+Results (2026-10-12, rule 11; `make test`, `make smoke` and `make smoke-airgap` on commit f1a2809, `make eval` ×3 on it with the PROGRESS and README changes only):
+
+- `make test`: agent 689 passed / 0 failed / 0 skipped; gateway 111 / 0 / 0; gateway-db 5 / 0 / 0; web 139 / 0 / 0 (10 files); evals harness 6 / 0 / 0. Baseline at the start of the session: agent 575, gateway 104, gateway-db 5, web 138.
+- `make clean && make models && make up && make smoke && make smoke-airgap`, one command, nothing started by hand: exit 0. `make models` found the Ollama models and the pinned reranker (`BAAI/bge-reranker-v2-m3@953dc6f6f85a` in the external volume `rerank-models`, kept by `make clean`). `make smoke`: 111/111 checks, 0 failed ("all phase 01 to 04 checks passed"; 99 before this session, +12: no delete, the 30 MB JSON 413, the cap:docs gate, the rate limit, the hostile files and the ports and credentials checks). `make smoke-airgap`: 116/116 (5 airgap layout and egress checks + the 111).
+- `make eval`, three runs on the current profile (OpenRouter development tiers, ADR-0065; rerank off, ADR-0184). All four suites PASS in each:
+
+  | run (Langfuse dataset run) | general | guardrails | routing | rag | rag hit@8 | citation | faithfulness | correctness | abstention | rag.retrieve p50 / p95 |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | make-eval-20261012T163659Z | 28/28 (1.00 ≥ 0.85) | 142/142 (det. 1.00, judge 1.00, FPR 0.00) | 34/34 (1.00 ≥ 0.90) | 51/53 | 1.00 | 0.94 | 0.95 | 0.89 | 1.00 | 0.13 / 0.14 s |
+  | make-eval-20261012T170752Z | 28/28 (1.00) | 142/142 (1.00, 1.00, 0.00) | 34/34 (1.00) | 51/53 | 1.00 | 0.94 | 0.96 | 0.89 | 1.00 | 0.13 / 0.14 s |
+  | make-eval-20261012T173801Z | 28/28 (1.00) | 142/142 (1.00, 1.00, 0.00) | 34/34 (1.00) | 51/53 | 1.00 | 0.94 | 0.95 | 0.90 | 1.00 | 0.13 / 0.14 s |
+
+  The rag thresholds are per metric: hit@8 0.90, citation page accuracy 0.85, faithfulness 0.85, answer correctness 0.80, abstention 0.90. The two failed rag cases of each run are twenty-pages citations, never a wrong answer (p3 cites its neighbours 2 and 4 in runs 1 and 2; p15 and p18 answer only "كل 17 أسبوعا", which cannot single out one of twenty templated pages).
+
+Q1, rerank configurations: rag ×3 each, on ADR-0183's attribution, before the final runs above. The default is the fastest configuration that met every rag threshold in all three runs: off (ADR-0184).
+
+| configuration | run (Langfuse dataset run) | passed | hit@8 | citation | faithfulness | correctness | abstention | rag.retrieve p50 | p95 (n) |
+|---|---|---|---|---|---|---|---|---|---|
+| rerank 30, full text | make-eval-20261012T130958Z | 52/53 | 1.00 | 1.00 | 0.93 | 0.89 | 1.00 | 0.74 s | 26.01 s (49) |
+| rerank 30, full text | make-eval-20261012T155206Z | 52/53 | 1.00 | 1.00 | 0.96 | 0.89 | 1.00 | 0.74 s | 26.63 s (51) |
+| rerank 30, full text | make-eval-20261012T134924Z | 51/53 | 1.00 | 0.94 | 0.94 | 0.90 | 1.00 | 0.78 s | 27.03 s (50) |
+| rerank 16, 1070 characters | make-eval-20261012T120352Z | 51/53 | 1.00 | 1.00 | 0.95 | 0.90 | 1.00 | 0.76 s | 5.67 s (49) |
+| rerank 16, 1070 characters | make-eval-20261012T122659Z | 52/53 | 1.00 | 1.00 | 0.96 | 0.92 | 1.00 | 0.75 s | 5.68 s (50) |
+| rerank 16, 1070 characters | make-eval-20261012T124759Z | 50/53 | 1.00 | 0.97 | 0.91 | 0.91 | 1.00 | 0.75 s | 5.61 s (48) |
+| rerank off | make-eval-20261012T141704Z | 50/53 | 1.00 | 0.91 | 0.93 | 0.89 | 1.00 | 0.13 s | 0.14 s (50) |
+| rerank off | make-eval-20261012T150240Z | 50/53 | 1.00 | 0.91 | 0.97 | 0.89 | 1.00 | 0.13 s | 0.15 s (50) |
+| rerank off | make-eval-20261012T152342Z | 51/53 | 1.00 | 0.94 | 0.96 | 0.89 | 1.00 | 0.13 s | 0.15 s (50) |
+
+- 1070 characters is the documented character bound for 400 reranker tokens (2.68 characters per token, the fewest measured on the eval documents).
+- On the six past-truncation cases, 16/1070 answered the neighbouring line's 16 for 17 once per run (p15 twice, p9 once); full text and off answered every number right.
+- Failed cases that were not a metric: `agent_stream_interrupted` on 1, 0, 2 cases of the 16/1070 runs and 1 of the first full run. These are OpenRouter 429 retries of about 62 s in the model call, past the gateway's 60 s idle limit on the stream; environmental, a dev-tier artefact.
+- The first attempt at full run 2 (started 13:39:58 UTC; it printed no dataset run name) stopped after 16 cases on one gateway 502 `storage_unavailable`, a SocketException from the gateway to MinIO, the only one in the day's logs. It was repeated as make-eval-20261012T155206Z.
+- The earlier attribution rules were measured live too and replaced: ADR-0163's rule scored citation 0.69 (make-eval-20261012T105801Z) and ADR-0182's 0.76 with abstention 0.67 (make-eval-20261012T113452Z), both below threshold. See ADR-0182 and ADR-0183.
+
+R4, hostile files in the ingest service (smoke, final run; also `tests/integration/test_hostile_files.py`). A chat turn started while they were parsed ended with `done`, and the ingest service stayed healthy:
+
+| fixture | status | reason |
+|---|---|---|
+| zip-bomb.docx | failed | archive_unsafe |
+| entity-expansion.docx | failed | xml_unsafe |
+| external-entity.docx | failed | xml_unsafe |
+| oversized-stream.pdf | failed | stream_too_large |
+| fifty-thousand-rows.xlsx | failed | text_too_long |
+
+A child stopped by its CPU, memory or time limit ends `extraction_aborted` (integration test).
+
+Known limitation (R5): a partly scanned PDF is indexed from its text pages only; its scanned pages are not read, and nothing tells the user. A PDF fails `scanned_unsupported` only when its text averages under `extraction.min_text_chars_per_page` per page over the whole file. OCR is v2.
+
+Found while finishing: the sweeper's integration test swept the whole `uploads` bucket against the test database, so it removed the development stack's eval uploads older than an hour (509 objects; the stack was then rebuilt by `make clean`). It now sweeps only its own key prefix (f1a2809); the ingest service still sweeps the whole bucket against the stack's own records.
+
+How to verify:
+```
+make models && make up
+make test           # agent 689, gateway 111, gateway-db 5, web 139, evals 6
+make smoke          # 111/111
+make smoke-airgap   # 116/116
+make eval           # general, guardrails, rag, routing; all PASS
+```
+
+Human review (owner's list):
+- the new ADRs, ADR-0158 to ADR-0184 in `docs/DECISIONS.md`;
+- `config/docs.yaml` (backend, rerank off with 16/1070 when on, archive, sandbox and extraction caps, `uploads_per_minute`, orphan sweeper), and `config/citations.yaml`;
+- `services/agent/app/capabilities/docs/prompts/**` (`docs.evidence` 2.1.0);
+- the new migration `services/agent/app/db/migrations/0010_no_deletion_in_the_product.sql`;
+- `docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.airgap.yml`;
+- `infra/litellm/config.yaml`;
+- `scripts/pull_models.sh`;
+- `evals/golden/rag.jsonl`;
+- `evals/thresholds.yaml` (from phase 04's 12e29b1; unchanged in this fix session).
 
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
