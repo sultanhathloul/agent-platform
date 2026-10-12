@@ -1354,7 +1354,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0149: The router model reads the conversation's file names as user-role data
 - Date: 2026-10-11
 - Phase: 04 (I11)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-12
 - Context: The first routing run scored 31/34: three questions about the file's topic that did not say "the file" ("متى تبدأ ساعات العمل الصيفية؟") went to `general`, because the router saw only the message and the candidates.
 - Decision: The router's request (`router.request@1.0.0`) carries the names of the conversation's indexed files inside `<conversation_files>` and the message inside `<user_message>`, in the user role (ADR-0068: file names are user data); `router.system@1.1.0` routes a question on a topic the files may cover to `docs`. The names are part of the router cache key.
 - Consequences: The second run scored 34/34. A file name is visible to the fast tier's model, as the message is. Routing still never sees file content.
@@ -1540,3 +1540,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: Phase 04 replaced the turn request's `attachments` (objects) with `attachment_ids` (strings) in both APIs, and removed the attachment delete and `expires_at` (ADR-0166): a client of 1.3.0 breaks, so a minor version was wrong. The gateway document also gave the items of `attachment_ids` and `selected_kbs` a string default `"[]"`.
 - Decision: Agent and gateway OpenAPI move to 2.0.0. The array default moves to the array (`@ArraySchema(arraySchema = @Schema(defaultValue = "[]"))`), so no item carries a default; `selected_kbs` had the same defect since phase 01 and is fixed with it. Changes until this PR merges stay within 2.0.0 (ADR-0046).
 - Consequences: The drift tests pin both documents at 2.0.0; the web's generated types are regenerated.
+
+### ADR-0168: File names reach the router only after INPUT, on every turn
+- Date: 2026-10-12
+- Phase: 04 (owner decision C5, with ADR-0149 accepted by the owner)
+- Status: decided
+- Context: The owner accepted ADR-0149 (the router reads the conversation's file names as user-role data) on the condition that the names reach the router only after the INPUT check. INPUT checks the files sent with a turn (ADR-0165), but an earlier file's name is read again from its record on every later turn, and a redaction INPUT made on its own turn is not stored.
+- Decision: INPUT checks the message with the names of all the conversation's files, those sent with this turn and the earlier ones, since every one of them can reach a prompt this turn (the router reads the indexed files' names, the answer the pending and failed ones). The checked names replace the names in state before the router or a capability runs. `router.request` 1.1.0 escapes them (ADR-0165).
+- Consequences: A policy added after a file was uploaded applies to its name from the next turn on (tested). A name an INPUT policy blocks blocks every later turn of that conversation, as it would block the turn that sent it.

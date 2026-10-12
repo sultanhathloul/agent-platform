@@ -1,9 +1,10 @@
 """Graph-level guard checkpoints: INPUT (1), TOOL_LIST (2), OUTPUT (5), DATA (6).
 PRE_TOOL/POST_TOOL run in the broker, MODEL_TIER in the tier resolver (README §10.1).
 
-- INPUT: the message and the names of the files sent with this turn, checked as one (S2).
-  A block ends the turn with the policy's message (`input_blocked`); a redaction replaces
-  the user message, and the file names in state, before any model sees them.
+- INPUT: the message and the names of the conversation's files, checked as one (S2): the
+  files sent with this turn and the earlier ones, whose names reach the router and the answer
+  this turn too (C5). A block ends the turn with the policy's message (`input_blocked`); a
+  redaction replaces the user message, and the file names in state, before any model sees them.
 - TOOL_LIST: routed capabilities the principal has no permission for are dropped
   (defense in depth), then each is evaluated under its own `tool:{slug}` scope.
 - Buffered mode (D3): OUTPUT and DATA run on the whole answer before any text left; a
@@ -42,9 +43,10 @@ RESENT_REASON = "answer_redacted"
 @traced("guard.INPUT")
 async def guard_input(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
-    sent = set(state.get("turn_attachment_ids") or [])
+    # Every name that can reach a prompt this turn: this turn's files and the earlier ones
+    # (the router reads the indexed files' names, the answer the pending and failed ones).
     attachments = [dict(a) for a in state.get("attachments") or []]
-    turn_files = [a for a in attachments if a["id"] in sent]
+    turn_files = attachments
     payload = {"message": state["user_message"]}
     if turn_files:
         payload["files"] = [a["name"] for a in turn_files]

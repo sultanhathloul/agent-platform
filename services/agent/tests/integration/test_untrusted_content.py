@@ -152,6 +152,39 @@ async def test_input_checks_the_names_of_the_files_sent_with_the_turn(harness, r
     assert redacted and redacted[0].policy_id.startswith(name)
 
 
+async def test_an_earlier_files_name_reaches_the_router_only_after_input(harness, role):
+    """C5: on a later turn, the names of the conversation's files go through INPUT again
+    before the router reads them; a redaction applies to that turn."""
+    name, add = role
+    principal, conversation = _principal(name), str(uuid.uuid4())
+    document = await harness.upload(
+        _scope(principal, conversation), "تقرير مختبرسري.pdf", ["تمنح إجازة الأمومة عشرة أسابيع."]
+    )
+    assert await harness.ingest(document) == "indexed"
+    first, _ = await _turn(harness.services, principal, conversation, "كم مدة إجازة الأمومة؟", [document])
+    assert first[-1].type == "done"
+    await add(checkpoints=["INPUT"], checker="keyword_list", config={"keywords": ["مختبرسري"]}, action="redact")
+    routed, gateway = replacing(harness.services, {"router": '{"capabilities": ["general"]}'})
+    seen: list[str] = []
+
+    class _Router:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def call(self, decision, package, **kwargs):
+            if decision.role == "router":
+                seen.append("\n".join(m["content"] for m in package.to_messages()))
+            return await self.inner.call(decision, package, **kwargs)
+
+    request = TurnRequest(
+        conversation_id=conversation, principal=principal, message=f"وماذا عن غيرها؟ {uuid.uuid4().hex[:6]}"
+    )
+    services = dataclasses.replace(routed, gateway=_Router(routed.gateway))
+    events = [e async for e in TurnRunner(services).stream(request, "r")]
+    assert events[-1].type == "done" and seen
+    assert "مختبرسري" not in seen[0] and "[REDACTED:KEYWORD]" in seen[0]
+
+
 async def test_a_file_name_an_input_policy_blocks_ends_the_turn(harness, role):
     name, add = role
     await add(
