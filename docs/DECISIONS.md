@@ -1467,3 +1467,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - `docs_search` takes the query (and `k`) only; its schema forbids any other field, so a call naming another owner or a collection fails validation before anything runs. The broker builds a `ToolScope` from the verified principal and the turn's conversation id in state and passes it to the handler in its `ToolContext`; the backend enforces it (ADR-0159).
   - The manifest gains `tools`: the tools a capability may call. At startup every declared tool must be registered by some capability. The broker refuses a call to a tool the caller's manifest does not declare, registered or not: nothing runs and nothing streams, the call returns `denied` / `undeclared_tool`, and an audit-only guard record (PRE_TOOL, `block`, reason `undeclared_tool`, naming the caller and the tool) reaches the turn's audit delta. Calls through the broker name their caller.
 - Consequences: Adding a tool to a capability is a manifest line as well as a `tools.py` entry. A capability that wants another capability's tool must declare it, which a reviewer sees.
+
+### ADR-0161: The manifest's context.needs drives the answer package; config/context.yaml supplies defaults only
+- Date: 2026-10-12
+- Phase: 04 (owner decision C2)
+- Status: decided
+- Context: README §18.4 says Context Assembly builds a capability's package from `context.needs`, but the answer package of every turn used `nodes.answer.needs` of config/context.yaml whatever ran, so a general turn in a conversation with files had the same blocks as a docs turn, and `needs: []` meant nothing for the answer.
+- Decision: The answer package's optional blocks are the union of the turn's capabilities' `context.needs`, in pipeline order; the system instructions and the user message are always there. A manifest that leaves `needs` out takes `nodes.answer.needs`; `needs: []` yields no optional block. `general` declares `[state_digest, summary, window, memory]`, `docs` adds its evidence. A capability's own model calls use its `needs` as before (none when it leaves them out).
+- Consequences: A capability that wants history in the answer says so in its manifest. A general turn in a conversation with indexed files carries no evidence block (tested), and adding an evidence-producing capability adds its blocks only to its own turns.

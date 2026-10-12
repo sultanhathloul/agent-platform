@@ -106,7 +106,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     for prompt_id in (*CORE_PROMPTS, *node_prompts):
         prompts.require(prompt_id)
     for cap in registry.all():
-        if "system" in cap.manifest.context.needs:
+        if "system" in (cap.manifest.context.needs or ()):
             try:
                 prompts.require(f"{cap.slug}.system")
             except ValueError as exc:

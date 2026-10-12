@@ -60,8 +60,15 @@ class ModelSpec(_Strict):
 
 
 class ContextSpec(_Strict):
-    needs: list[BlockName] = []
+    # The Context Assembly blocks this capability's model calls receive: its own calls and the
+    # answer the core synthesizes from its output (README §18.4, owner decision C2). [] means no
+    # optional block at all, only the system instructions and the user message. None gives the
+    # answer the node's defaults from config/context.yaml and the capability's own calls nothing.
+    needs: list[BlockName] | None = None
     max_input_tokens: int | None = None
+
+    def needs_or(self, default: Sequence[BlockName]) -> list[BlockName]:
+        return list(default) if self.needs is None else list(self.needs)
 
 
 class Limits(_Strict):

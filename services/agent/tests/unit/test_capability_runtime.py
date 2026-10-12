@@ -19,6 +19,7 @@ from app.capabilities.contract import (
     CapabilityEvent,
     CapabilityInput,
     CapabilityOutput,
+    ContextSpec,
     RuntimeContext,
     Usage,
 )
@@ -48,9 +49,10 @@ def _graph(run, **compile_kwargs):
 
 
 def _runtime(services, run, **compile_kwargs):
-    """The `general` manifest (needs: []) with a test subgraph in place of its own."""
+    """The `general` manifest with `needs: []` and a test subgraph in place of its own."""
     general = services.registry.get("general")
-    fake = LoadedCapability(manifest=general.manifest, graph=_graph(run, **compile_kwargs), path=general.path)
+    manifest = general.manifest.model_copy(update={"context": ContextSpec(needs=[], max_input_tokens=6000)})
+    fake = LoadedCapability(manifest=manifest, graph=_graph(run, **compile_kwargs), path=general.path)
     written: list[dict] = []
     context = TurnContext(
         services=dataclasses.replace(services, registry=CapabilityRegistry([fake])),

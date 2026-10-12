@@ -94,19 +94,20 @@ def _state_for(needs: Sequence[BlockName], state: AgentState) -> dict[str, Any]:
 def _request_for(cap: LoadedCapability, state: AgentState, ctx: TurnContext) -> AssemblyRequest:
     manifest = cap.manifest
     locale = state["locale"]
+    needs = manifest.context.needs or []  # None: the answer defaults, but nothing for its own calls
     return AssemblyRequest(
         node=f"capability.{cap.slug}",
-        needs=manifest.context.needs,
+        needs=needs,
         # A capability that does not need the system block ships no system prompt (ADR-0020).
-        system_prompt=f"{cap.slug}.system" if "system" in manifest.context.needs else None,
+        system_prompt=f"{cap.slug}.system" if "system" in needs else None,
         locale=locale,
-        state=_state_for(manifest.context.needs, state),
+        state=_state_for(needs, state),
         tools=[
             spec.description_ar if locale == "ar" else spec.description_en
             for spec in cap.tools
             if ctx.principal.has(spec.required_permission)
         ],
-        memory_scope=MemoryScope.of(ctx.principal) if "memory" in manifest.context.needs else None,
+        memory_scope=MemoryScope.of(ctx.principal) if "memory" in needs else None,
     )
 
 
@@ -138,7 +139,7 @@ def _findings(cap: LoadedCapability, extra_blocks: Sequence[Block]) -> list[dict
             raise CapabilityContractError(
                 f"capability {cap.slug}: extra_blocks carry findings only, got {name!r}"
             )
-    if extra_blocks and "findings" not in cap.manifest.context.needs:
+    if extra_blocks and "findings" not in (cap.manifest.context.needs or ()):
         raise CapabilityContractError(f"capability {cap.slug}: extra_blocks need 'findings' in context.needs")
     return [{"capability": cap.slug, "findings": block.content} for block in extra_blocks]
 
