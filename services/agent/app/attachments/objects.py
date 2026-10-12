@@ -52,18 +52,18 @@ class ObjectStore:
         except Exception as exc:
             raise StorageUnavailable(type(exc).__name__) from exc
 
-    def _older_than(self, age: timedelta) -> list[str]:
+    def _older_than(self, age: timedelta, prefix: str) -> list[str]:
         cutoff = datetime.now(UTC) - age
         return [
             item.object_name
-            for item in self._client.list_objects(self.bucket, recursive=True)
+            for item in self._client.list_objects(self.bucket, prefix=prefix or None, recursive=True)
             if item.last_modified is not None and item.last_modified < cutoff
         ]
 
-    async def keys_older_than(self, age: timedelta) -> list[str]:
-        """Keys of the objects stored longer ago than `age` (the orphan sweeper)."""
+    async def keys_older_than(self, age: timedelta, prefix: str = "") -> list[str]:
+        """Keys of the objects stored longer ago than `age`, under `prefix` (the orphan sweeper)."""
         try:
-            return await asyncio.to_thread(self._older_than, age)
+            return await asyncio.to_thread(self._older_than, age, prefix)
         except Exception as exc:
             raise StorageUnavailable(type(exc).__name__) from exc
 

@@ -3,6 +3,8 @@ registers it with the agent; when the registration fails and the gateway cannot 
 object (a storage outage, a crash between the two steps), the object stays without a record.
 The sweeper removes every object of the uploads bucket that no attachment record names and
 that is older than `min_age_minutes`, so an upload still being registered is never touched.
+`prefix` limits it to keys under one prefix; the service sweeps the whole bucket, and a test
+sweeps only its own keys, never the stack's that share the bucket.
 It deletes nothing a record names: the product deletes no registered file."""
 
 import asyncio
@@ -19,15 +21,18 @@ _BATCH = 500
 
 
 class OrphanSweeper:
-    def __init__(self, objects: ObjectStore, attachments: AttachmentStore, *, min_age: timedelta):
+    def __init__(
+        self, objects: ObjectStore, attachments: AttachmentStore, *, min_age: timedelta, prefix: str = ""
+    ):
         self._objects = objects
         self._attachments = attachments
         self._min_age = min_age
+        self._prefix = prefix
 
     async def sweep(self) -> dict[str, int]:
         counts = {"seen": 0, "removed": 0, "errors": 0}
         with tracer.start_as_current_span("attachments.sweep") as span:
-            keys = await self._objects.keys_older_than(self._min_age)
+            keys = await self._objects.keys_older_than(self._min_age, self._prefix)
             counts["seen"] = len(keys)
             for start in range(0, len(keys), _BATCH):
                 batch = keys[start : start + _BATCH]

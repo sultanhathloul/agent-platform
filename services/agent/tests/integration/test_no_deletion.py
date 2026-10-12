@@ -82,10 +82,12 @@ async def test_the_sweeper_removes_only_old_objects_no_record_names(services):
     )
 
     # Too young: an upload may still be registering, so nothing is removed.
-    young = await OrphanSweeper(sweeping, store, min_age=timedelta(hours=1)).sweep()
+    # Only this test's keys: the bucket is the stack's too, and its records are in another database.
+    mine = f"test/{conversation}/"
+    young = await OrphanSweeper(sweeping, store, min_age=timedelta(hours=1), prefix=mine).sweep()
     assert await objects.exists(orphan) and young["removed"] == 0
     # Old enough: the orphan goes, the named object stays.
-    await OrphanSweeper(sweeping, store, min_age=timedelta(seconds=0)).sweep()
+    await OrphanSweeper(sweeping, store, min_age=timedelta(seconds=0), prefix=mine).sweep()
     assert not await objects.exists(orphan)
     assert await objects.exists(named)
 
