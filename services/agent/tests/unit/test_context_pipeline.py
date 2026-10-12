@@ -245,7 +245,7 @@ async def test_tool_results_are_truncated_and_marked_untrusted(config, prompts):
     block = next(b for b in package.blocks if b.name == "tool_results")
     assert '<untrusted source="web_fetch">' in block.content
     assert block.content.count("س") == 100
-    assert package.prompt_refs[-1] == "context.tool_result@1.0.0"
+    assert package.prompt_refs[-1] == "context.tool_result@1.1.0"
 
 
 async def test_the_reference_form_names_the_capability_without_its_findings(config, prompts):

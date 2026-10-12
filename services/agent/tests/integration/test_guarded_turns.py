@@ -15,39 +15,11 @@ from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.guardrails.checkers.base import CheckerError
 from app.guardrails.engine import GuardEngine
-from app.guardrails.schema import Policy
 from app.identity import Principal
 from app.tools.broker import ToolBroker
 from tests.fixtures.replace import replacing
 
 MOBILE, NATIONAL_ID, EMAIL = "0501234567", "1234567897", "test.user@example.org"
-
-
-@pytest.fixture
-async def role(services, request):
-    """A policy role of its own; every policy created through `add` is switched off afterwards.
-    A test on probe_services runs a second service instance, a second "process" whose
-    store would see the change only when its pub/sub reload lands, so it is reloaded."""
-    name = f"t-{uuid.uuid4().hex[:10]}"
-    created: list[str] = []
-    stores = [services.policies]
-    if "probe_services" in request.fixturenames:
-        stores.append(request.getfixturevalue("probe_services").policies)
-
-    async def add(**fields) -> Policy:
-        base = {"name_ar": "سياسة اختبار", "name_en": "test", "scope": f"role:{name}", "severity": "medium"}
-        policy = Policy.model_validate({"id": f"{name}-{len(created)}", **base, **fields})
-        await services.policies.create(policy, actor="test")
-        created.append(policy.id)
-        for store in stores[1:]:
-            await store.load()
-        return policy
-
-    yield name, add
-    for pid in created:
-        await services.policies.set_enabled(pid, False, actor="test")
-    for store in stores[1:]:
-        await store.load()
 
 
 def principal(role_name: str | None = None, *extra: str) -> Principal:

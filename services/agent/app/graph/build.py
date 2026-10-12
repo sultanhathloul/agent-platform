@@ -1,7 +1,8 @@
 """The main graph (README §5.2). Capability-agnostic: capabilities run inside
 `run_capabilities`, never as branches here. Reflection and the HITL interrupt
 join in later phases; `ingest_attachments` (phase 04) only reads attachment status,
-ingestion runs in the background worker. `release_answer` (phase 03) streams
+ingestion runs in the ingest service, and it runs before INPUT so INPUT sees the names of
+the files sent with the turn (owner decision S2). `release_answer` (phase 03) streams
 an answer that was buffered for its OUTPUT and DATA checks (D3)."""
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -23,8 +24,11 @@ from app.graph.state import AgentState
 
 PIPELINE = [
     ("load_identity_and_state", load_identity_and_state),
-    ("guard_input", guard_input),  # checkpoint 1
-    ("ingest_attachments", ingest_attachments),  # reads the conversation's files and their status (A1)
+    (
+        "ingest_attachments",
+        ingest_attachments,
+    ),  # the conversation's files and their status (A1), before INPUT
+    ("guard_input", guard_input),  # checkpoint 1: the message and this turn's file names (S2)
     ("assemble_context", assemble_context),
     ("route", route),
     ("guard_tool_list", guard_tool_list),  # checkpoint 2

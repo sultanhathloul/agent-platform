@@ -23,8 +23,11 @@ BLOCK_NAMES: tuple[str, ...] = get_args(BlockName)
 PROTECTED_BLOCKS: frozenset[str] = frozenset({"system", "user_message"})
 
 
-# The blocks that form the current user message; only these merge (ADR-0076).
-CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset({"summary", "memory", "user_message"})
+# The blocks that form the current user message; only these merge (ADR-0076). The evidence
+# blocks are data in the user role and travel with the question (owner decision S2).
+CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset(
+    {"summary", "memory", "retrieval", "tool_results", "findings", "user_message"}
+)
 
 
 class HistoryEndsWithUserMessage(RuntimeError):

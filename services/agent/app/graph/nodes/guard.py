@@ -1,13 +1,17 @@
 """Graph-level guard checkpoints: INPUT (1), TOOL_LIST (2), OUTPUT (5), DATA (6).
 PRE_TOOL/POST_TOOL run in the broker, MODEL_TIER in the tier resolver (README §10.1).
 
-- INPUT: a block ends the turn with the policy's message (`input_blocked`); a
-  redaction replaces the user message before any model sees it.
+- INPUT: the message and the names of the files sent with this turn, checked as one (S2).
+  A block ends the turn with the policy's message (`input_blocked`); a redaction replaces
+  the user message, and the file names in state, before any model sees them.
 - TOOL_LIST: routed capabilities the principal has no permission for are dropped
   (defense in depth), then each is evaluated under its own `tool:{slug}` scope.
 - Buffered mode (D3): OUTPUT and DATA run on the whole answer before any text left; a
   block ends the turn, a `rewrite` asks the model once more with the violation
   explained, and a redaction changes the text release_answer streams.
+- Citations: their titles and locators pass OUTPUT and DATA too, per principal, and leave
+  only from `release_answer`, with their checked values (owner decision S2). A citation
+  text a policy would rewrite is withheld; one it blocks ends the turn like the answer.
 - Streaming mode: the OUTPUT redact policies and DATA already ran on every sentence
   before it was released (ADR-0106). Both still run once on the whole released text
   (ADR-0111): a span the sentence buffer split (a number broken by a newline) is caught
@@ -22,7 +26,7 @@ from opentelemetry import trace
 from app.errors import TurnError
 from app.graph.calls import call_model
 from app.graph.deps import TurnContext
-from app.graph.guarding import blocked, check, guard_context
+from app.graph.guarding import blocked, check, check_citations, guard_context
 from app.graph.nodes import emit, retract_streamed, traced
 from app.graph.nodes.answer import prepare_answer
 from app.graph.nodes.validate import validation_issues
@@ -38,16 +42,21 @@ RESENT_REASON = "answer_redacted"
 @traced("guard.INPUT")
 async def guard_input(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
-    outcome = await check(
-        ctx,
-        state,
-        Checkpoint.INPUT,
-        {"message": state["user_message"], "attachments": state.get("attachments") or []},
-        tools=(),
-    )
+    sent = set(state.get("turn_attachment_ids") or [])
+    attachments = [dict(a) for a in state.get("attachments") or []]
+    turn_files = [a for a in attachments if a["id"] in sent]
+    payload = {"message": state["user_message"]}
+    if turn_files:
+        payload["files"] = [a["name"] for a in turn_files]
+    outcome = await check(ctx, state, Checkpoint.INPUT, payload, tools=())
     if outcome.blocked:
         raise blocked("input_blocked", outcome)
-    return {"user_message": outcome.payload["message"], "guard_events": ctx.guard_records()}
+    update = {"user_message": outcome.payload["message"], "guard_events": ctx.guard_records()}
+    if turn_files:
+        for attachment, name in zip(turn_files, outcome.payload["files"], strict=True):
+            attachment["name"] = name  # the checked name is the one the router and the answer see
+        update["attachments"] = attachments
+    return update
 
 
 @traced("guard.TOOL_LIST")
@@ -117,7 +126,13 @@ async def guard_output(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         # A span no single sentence held: the released text goes again, redacted (ADR-0111).
         answer = outcome.payload["answer"]
         _resend(state, runtime, answer, "output.final_pass")
-        return {"draft_answer": answer, "shown_answer": answer, "guard_events": ctx.guard_records()}
+        citations = await _checked_citations(state, runtime, Checkpoint.OUTPUT, "output_blocked", streaming)
+        return {
+            "draft_answer": answer,
+            "shown_answer": answer,
+            "citations": citations,
+            "guard_events": ctx.guard_records(),
+        }
     if outcome.action == "rewrite":
         rewritten = await _rewrite(state, ctx, outcome)
         scripts = ctx.services.validation.scripts_for(state.get("locale") or "en")
@@ -130,7 +145,24 @@ async def guard_output(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         answer = second.payload["answer"]
     elif outcome.action == "redact":
         answer = outcome.payload["answer"]
-    return {"draft_answer": answer, "guard_events": ctx.guard_records()}
+    citations = await _checked_citations(state, runtime, Checkpoint.OUTPUT, "output_blocked", streaming)
+    return {"draft_answer": answer, "citations": citations, "guard_events": ctx.guard_records()}
+
+
+async def _checked_citations(
+    state: AgentState, runtime: Runtime[TurnContext], checkpoint: Checkpoint, code: str, streaming: bool
+) -> list[dict]:
+    """The citations after `checkpoint` (S2). A block ends the turn as the answer's would; a
+    rewrite cannot apply to a file name or a heading, so it withholds the citations."""
+    outcome, citations = await check_citations(runtime.context, state, checkpoint)
+    if outcome is None:
+        return citations
+    if outcome.blocked:
+        raise _late_block(state, runtime, outcome, code) if streaming else blocked(code, outcome)
+    if outcome.action == "rewrite":
+        trace.get_current_span().add_event("citations.withheld", {"checkpoint": checkpoint.value})
+        return []
+    return citations
 
 
 @traced("guard.DATA")
@@ -146,7 +178,8 @@ async def guard_data(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     )
     if outcome.blocked:
         raise blocked("data_blocked", outcome)
-    return {"draft_answer": outcome.payload.text, "guard_events": ctx.guard_records()}
+    citations = await _checked_citations(state, runtime, Checkpoint.DATA, "data_blocked", False)
+    return {"draft_answer": outcome.payload.text, "citations": citations, "guard_events": ctx.guard_records()}
 
 
 async def _final_data_pass(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
@@ -154,7 +187,7 @@ async def _final_data_pass(state: AgentState, runtime: Runtime[TurnContext]) -> 
     released = state.get("draft_answer") or ""
     span = trace.get_current_span()
     if not released:
-        return {}
+        return await _citations_update(state, runtime)
     outcome = await ctx.services.guard.evaluate(
         Checkpoint.DATA,
         DataPayload(text=released, target="answer"),
@@ -174,21 +207,39 @@ async def _final_data_pass(state: AgentState, runtime: Runtime[TurnContext]) -> 
         # except a clear judge call's audit-only usage record, which is new (ADR-0118).
         span.set_attribute("data.final_pass", "clean")
         ctx.report_guard([e for e in matched if e.audit_only])
-        return {}
+        return await _citations_update(state, runtime)
     ctx.report_guard(matched)
     text = outcome.payload.text
     _resend(state, runtime, text, "data.final_pass")
-    return {"draft_answer": text, "shown_answer": text, "guard_events": ctx.guard_records()}
+    citations = await _checked_citations(state, runtime, Checkpoint.DATA, "data_blocked", True)
+    return {
+        "draft_answer": text,
+        "shown_answer": text,
+        "citations": citations,
+        "guard_events": ctx.guard_records(),
+    }
+
+
+async def _citations_update(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
+    """Streaming mode, nothing to re-send: only the citations go through DATA, when there are any."""
+    if not state.get("citations"):
+        return {}
+    citations = await _checked_citations(state, runtime, Checkpoint.DATA, "data_blocked", True)
+    return {"citations": citations, "guard_events": runtime.context.guard_records()}
 
 
 @traced("release_answer")
 async def release_answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
-    """Buffered mode: the checked answer leaves now, a sentence per token event."""
-    if state.get("answer_mode") != "buffered":
-        return {}
+    """Buffered mode: the checked answer leaves now, a sentence per token event. Both modes:
+    the citations leave now, after OUTPUT and DATA checked them (owner decision S2)."""
     ctx = runtime.context
-    config = ctx.services.guard_config.streaming
-    text = state["draft_answer"]
-    for sentence in split_sentences(text, config.terminators, config.flush_chars):
-        ctx.emit("token", {"text": sentence})
-    return {"shown_answer": text}
+    update: dict = {}
+    if state.get("answer_mode") == "buffered":
+        config = ctx.services.guard_config.streaming
+        text = state["draft_answer"]
+        for sentence in split_sentences(text, config.terminators, config.flush_chars):
+            ctx.emit("token", {"text": sentence})
+        update["shown_answer"] = text
+    for citation in state.get("citations") or []:
+        emit(runtime, "citation", citation)
+    return update

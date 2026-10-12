@@ -1,12 +1,13 @@
 ---
 id: context.tool_result
-version: 1.0.0
+version: 1.1.0
 role: context
 locale: en
 changelog:
   - "1.0.0: first version (phase 02): one tool result of this turn, wrapped as untrusted data (README §7 step 7, §10.3)"
+  - "1.1.0: the tool's name escaped in the delimiter (owner decision S2)"
 ---
 Result of the tool {{ tool }}:
-<untrusted source="{{ tool }}">
+<untrusted source="{{ tool | e }}">
 {{ content }}
 </untrusted>

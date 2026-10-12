@@ -9,7 +9,7 @@ it to the backend; `ingest` brings it to a terminal status the way that backend 
 import uuid
 from collections.abc import Sequence
 
-from tests.fixtures.documents import pdf_bytes
+from tests.fixtures.documents import docx_bytes, pdf_bytes
 from tests.fixtures.fake_backend import FakeDocumentBackend, with_backend
 
 from app.rag.backend import DocumentScope
@@ -39,9 +39,17 @@ class Harness:
         broken: bool = False,
     ) -> str:
         """`pages` are page texts (lines split on newlines), or section bodies when `sections`
-        names their headings (a Markdown file without pages)."""
+        names their headings (a Markdown file without pages, or a DOCX when `name` ends so)."""
         if broken:
             data, mime = b"%PDF-1.4\nnot really a pdf", "application/pdf"
+        elif sections and name.endswith(".docx"):
+            blocks = [
+                block
+                for heading, text in zip(sections, pages, strict=True)
+                for block in ((heading, 1), (text, "p"))
+            ]
+            data = docx_bytes(blocks)
+            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif sections:
             body = "\n\n".join(f"# {heading}\n{text}" for heading, text in zip(sections, pages, strict=True))
             data, mime = body.encode("utf-8"), "text/markdown"

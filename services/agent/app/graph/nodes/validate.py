@@ -11,7 +11,7 @@ from opentelemetry import trace
 
 from app.errors import TurnError
 from app.graph.deps import TurnContext
-from app.graph.nodes import emit, retract_streamed, traced
+from app.graph.nodes import retract_streamed, traced
 from app.graph.state import AgentState
 from app.text.script import ScriptPolicy, script_issues
 
@@ -54,6 +54,5 @@ async def validate(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         raise TurnError("validation_failed", detail=",".join(issues))
     span.set_attribute("validate.citations", len(citations))
     span.set_attribute("validate.cited_pages", sum(len(c["pages"]) for c in citations))
-    for citation in citations:
-        emit(runtime, "citation", citation)
+    # The citations leave from release_answer, after OUTPUT and DATA checked them (S2).
     return {}
