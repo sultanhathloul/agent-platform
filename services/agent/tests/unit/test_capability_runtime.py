@@ -92,6 +92,7 @@ async def test_capability_cannot_reach_history_other_namespaces_or_the_state(ser
 
     async def run(state, runtime):
         seen["input"], seen["runtime"] = state["input"], runtime.context
+        seen["package"] = await runtime.context.context()
         state["input"].cap_state["runs"] = 99  # mutating the copies must not reach AgentState
         runtime.context.cap_state["runs"] = 99
         return {"output": CapabilityOutput(findings="", cap_state={"runs": 2})}
@@ -100,10 +101,10 @@ async def test_capability_cannot_reach_history_other_namespaces_or_the_state(ser
     state = _state()
     update = await run_capabilities(state, runtime)
 
-    cap_input, rt = seen["input"], seen["runtime"]
-    assert cap_input.context.request is None
-    assert [b.name for b in cap_input.context.blocks] == ["user_message"]
-    reachable = " ".join(_texts([cap_input, rt.slug, rt.principal, rt.cap_state]))
+    cap_input, rt, package = seen["input"], seen["runtime"], seen["package"]
+    assert package.request is None
+    assert [b.name for b in package.blocks] == ["user_message"]
+    reachable = " ".join(_texts([cap_input, package, rt.slug, rt.principal, rt.cap_state, rt.config]))
     for forbidden in (SECRET_HISTORY, SECRET_NAMESPACE, "cap.other", "messages", "capability_outputs"):
         assert forbidden not in reachable
     assert cap_input.cap_state == {"runs": 99} and rt.cap_state == {"runs": 99}
@@ -111,10 +112,61 @@ async def test_capability_cannot_reach_history_other_namespaces_or_the_state(ser
     assert update["cap_state"] == {"cap.general": {"runs": 2}, "cap.other": {"secret": SECRET_NAMESPACE}}
 
 
+class _CountingAssembler:
+    def __init__(self, inner):
+        self.inner, self.assembled = inner, []
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    async def assemble(self, request, budget):
+        self.assembled.append(request.node)
+        return await self.inner.assemble(request, budget)
+
+
+async def test_no_package_is_assembled_for_a_capability_that_does_not_read_it(services):
+    async def run(state, runtime):
+        return {"output": CapabilityOutput(findings="", cap_state={})}
+
+    runtime, _ = _runtime(services, run)
+    counting = _CountingAssembler(services.assembler)
+    runtime.context.services = dataclasses.replace(runtime.context.services, assembler=counting)
+    await run_capabilities(_state(), runtime)
+    assert counting.assembled == []
+
+
+async def test_a_package_read_twice_is_assembled_once_and_copied_each_time(services):
+    packages = []
+
+    async def run(state, runtime):
+        first, second = await runtime.context.context(), await runtime.context.context()
+        first.blocks.clear()  # a capability changing its copy changes nothing else
+        packages.extend([first, second])
+        return {"output": CapabilityOutput(findings="", cap_state={})}
+
+    runtime, _ = _runtime(services, run)
+    counting = _CountingAssembler(services.assembler)
+    runtime.context.services = dataclasses.replace(runtime.context.services, assembler=counting)
+    await run_capabilities(_state(), runtime)
+    assert counting.assembled == ["capability.general"]
+    assert [b.name for b in packages[1].blocks] == ["user_message"]
+
+
 def test_runtime_context_is_the_narrow_interface():
     names = {field.name for field in dataclasses.fields(RuntimeContext)}
     # `documents`: the DocumentBackend, reached by the capability's tools through the broker (C6).
-    assert names == {"slug", "principal", "cap_state", "call_model", "broker", "stream_writer", "documents"}
+    # `context`: the package, read on demand; `config`: the capability's own config/<slug>.yaml (C3).
+    assert names == {
+        "slug",
+        "principal",
+        "cap_state",
+        "call_model",
+        "broker",
+        "stream_writer",
+        "documents",
+        "context",
+        "config",
+    }
     for core in ("resolver", "models", "guard", "models_config", "services", "state"):
         assert core not in names
 

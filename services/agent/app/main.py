@@ -24,10 +24,11 @@ from app.api.ownership import ConversationOwners
 from app.api.routes import router
 from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
+from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
 from app.attachments.store import AttachmentStore
-from app.capabilities.registry import CapabilityRegistry, ManifestError
+from app.capabilities.registry import CapabilityRegistry, ManifestError, load_capability_config
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.log import ContextLog
 from app.context.tokens import default_counter
@@ -59,15 +60,8 @@ from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.otel import setup_tracing, shutdown_tracing
-from app.rag.backend import DocumentBackend
 from app.rag.citations import load_attribution_rule
-from app.rag.config import load_docs_config
-from app.rag.ingest.pipeline import IngestPipeline
-from app.rag.ingest.queue import IngestQueue
-from app.rag.ingest.worker import IngestWorker
-from app.rag.internal import InternalDocumentBackend
-from app.rag.rerank import Reranker
-from app.rag.retrieve import HybridRetriever
+from app.rag.setup import build_documents
 from app.rag.vectorstore import PgVectorStore
 from app.settings import Settings, get_settings
 from app.text.script import load_validation_config
@@ -97,6 +91,8 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         for root, package in extra_capabilities:
             loaded += CapabilityRegistry.discover(models_config, root=root, package=package).all()
         registry = CapabilityRegistry(loaded)
+    for cap in registry.all():
+        cap.config = load_capability_config(settings.config_dir, cap.slug)
     prompts = PromptLibrary.load(settings.config_dir / "prompts", *registry.prompt_dirs())
     context_config = load_context_config(settings.config_dir)
     memory_config = load_memory_config(settings.config_dir)
@@ -143,8 +139,6 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
             )
 
     embeddings = EmbeddingGateway(settings, models_config)
-    docs_config = load_docs_config(settings.config_dir)
-    vectors = PgVectorStore(db)
     attachment_store = AttachmentStore(db)
     objects = ObjectStore(
         settings.minio_endpoint,
@@ -153,28 +147,26 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         settings.uploads_bucket,
         secure=settings.minio_secure,
     )
-    pipeline = IngestPipeline(
+    documents = build_documents(
+        settings,
         db=db,
+        redis=redis,
+        embeddings=embeddings,
+        models_config=models_config,
+        counter=counter,
         attachments=attachment_store,
         objects=objects,
-        vectors=vectors,
-        embeddings=embeddings,
-        config=docs_config,
-        counter=counter,
     )
-    queue = IngestQueue(redis, namespace=settings.redis_namespace)
-    retriever = HybridRetriever(
-        vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval, counter
-    )
-    documents = document_backend(docs_config.backend, attachment_store, vectors, retriever, queue)
     attachments = AttachmentService(
         db=db,
         store=attachment_store,
         objects=objects,
-        vectors=vectors,
-        documents=documents,
-        worker=IngestWorker(pipeline, attachment_store, docs_config, queue) if redis is not None else None,
-        config=docs_config,
+        vectors=PgVectorStore(db),
+        documents=documents.backend,
+        worker=documents.worker,
+        limits=load_upload_limits(settings.config_dir),
+        retention_days=documents.config.retention_days,
+        purge_interval_hours=documents.config.purge.interval_hours,
     )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
@@ -206,26 +198,15 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         policies=policies,
         guard_config=guard_config,
         locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
-        docs_config=docs_config,
         attachments=attachments,
-        documents=documents,
+        documents=documents.backend,
         citations=load_attribution_rule(settings.config_dir),
-        retriever=retriever,
         router=load_router_config(settings.config_dir),
         redis=redis,
         closers=(presidio.close,),
     )
     judge.bind(services)
     return services
-
-
-def document_backend(name: str, attachments, vectors, retriever, queue) -> DocumentBackend:
-    """The DocumentBackend `config/docs.yaml` names (C6); a new backend adds its name here."""
-    if name == "internal":
-        return InternalDocumentBackend(
-            attachments=attachments, vectors=vectors, retriever=retriever, queue=queue
-        )
-    raise ValueError(f"unknown document backend {name!r}")
 
 
 def _redis(settings: Settings):

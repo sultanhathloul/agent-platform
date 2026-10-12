@@ -8,13 +8,14 @@ import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 
+from typing import Any
+
+from app.attachments.limits import UploadLimits
 from app.attachments.objects import ObjectStore, StorageUnavailable
 from app.attachments.store import AttachmentRecord, AttachmentStore, collection_for
 from app.db import Database
 from app.observability.otel import tracer
 from app.rag.backend import DocumentBackend, DocumentScope, StoredFile
-from app.rag.config import DocsConfig
-from app.rag.ingest.worker import IngestWorker
 from app.rag.types import Owner
 from app.rag.vectorstore.base import VectorStore
 
@@ -34,8 +35,10 @@ class AttachmentService:
         objects: ObjectStore,
         vectors: VectorStore,
         documents: DocumentBackend,
-        worker: IngestWorker | None,
-        config: DocsConfig,
+        worker: Any,
+        limits: UploadLimits,
+        retention_days: int,
+        purge_interval_hours: float,
     ):
         self.db = db
         self.store = store
@@ -43,7 +46,9 @@ class AttachmentService:
         self.vectors = vectors
         self.documents = documents
         self.worker = worker
-        self.config = config
+        self.limits = limits
+        self.retention_days = retention_days
+        self.purge_interval_hours = purge_interval_hours
         self._purge_task: asyncio.Task | None = None
 
     async def register(
@@ -51,7 +56,7 @@ class AttachmentService:
     ) -> AttachmentRecord:
         """Raises UnsupportedType or LimitReached; hands the stored file to the document
         backend, which indexes it in the background (C6)."""
-        kind = self.config.kind_of(name)
+        kind = self.limits.kind_of(name)
         if kind is None:
             raise UnsupportedType(name)
         record = await self.store.register(
@@ -62,8 +67,8 @@ class AttachmentService:
             kind=kind,
             size=size,
             object_key=object_key,
-            max_files=self.config.limits.max_files_per_conversation,
-            retention_days=self.config.retention_days,
+            max_files=self.limits.max_files_per_conversation,
+            retention_days=self.retention_days,
         )
         await self.documents.register(
             StoredFile(
@@ -125,7 +130,7 @@ class AttachmentService:
 
     async def touch(self, owner: Owner, conversation_id: str) -> None:
         """A turn of the conversation moves the expiry of its files and chunks (D1)."""
-        expires_at = datetime.now(UTC) + timedelta(days=self.config.retention_days)
+        expires_at = datetime.now(UTC) + timedelta(days=self.retention_days)
         async with self.db.connection() as conn, conn.transaction():
             if await self.store.touch(owner, conversation_id, expires_at, conn=conn):
                 await self.vectors.touch(owner, collection_for(conversation_id), expires_at, conn=conn)
@@ -171,4 +176,4 @@ class AttachmentService:
                 raise
             except Exception as exc:
                 log.warning("attachment purge failed: %s", type(exc).__name__)
-            await asyncio.sleep(self.config.purge.interval_hours * 3600)
+            await asyncio.sleep(self.purge_interval_hours * 3600)

@@ -1497,3 +1497,13 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - Attribution drops the question's words from the answer before taking its n-grams (owner decision). The rule moves to the generic `config/citations.yaml` (`attribution: ngram 2, min_shared_ngrams 3, relative_to_best 0.5`, values unchanged from ADR-0156).
   - `context.findings` 1.1.0 no longer labels each finding with its capability, and says not to copy tags or bracketed file names; `answer.system` (ar 1.4.0, en 1.2.0) no longer asks the answer to name its sources and forbids bracketed tags and file names. Unit tests reject a label in either prompt.
 - Consequences: An abstention that only restates the question shows no source. An answer quoting a heading or a phrase the question did not contain still cites its page. Answers no longer name their sources in text; the source line under the answer does.
+
+### ADR-0164: The core holds no docs-named configuration or type; a capability reads its package and its configuration through its runtime context
+- Date: 2026-10-12
+- Phase: 04 (owner decision C3)
+- Status: decided
+- Context: `Services` held `docs_config` and the retriever; `validate` read `docs_config.citations`; the docs capability loaded config/docs.yaml through the core's settings; every capability got a context package assembled whether it read it or not.
+- Decision:
+  - `Services` holds the generic `DocumentBackend` and `citations` (config/citations.yaml, ADR-0163); `docs_config` and the retriever are gone. `app/rag/setup.py` builds the backend `config/docs.yaml` names (and, for the internal backend, its pipeline and worker); the core calls it. The attachment service takes a generic `UploadLimits` (the `limits` of config/docs.yaml, the file the gateway reads too).
+  - `RuntimeContext` gains `context()` and `config`. `context()` assembles the capability's package per its `context.needs` on the first call only and returns a fresh detached copy on each; `CapabilityInput.context` is removed, so no package is assembled, resolved or recorded for a capability that never reads it (tested). `config` is a copy of `config/<slug>.yaml` when that file exists; the docs capability reads its `retrieval.top_k` there and passes it to its tool.
+- Consequences: A turn of `general` or `docs` assembles and records one package fewer. A capability that needs its package awaits `rt.context()`; README §18.3's `CapabilityInput.context` is amended by this entry.

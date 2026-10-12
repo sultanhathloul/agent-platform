@@ -39,7 +39,9 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     sources: list[Source] = []
     unavailable = False
     if indexed:
-        result = await rt.broker.execute("docs_search", {"query": request.message})
+        # The number of passages comes from the capability's own configuration (C3).
+        k = int((rt.config.get("retrieval") or {}).get("top_k", 8))
+        result = await rt.broker.execute("docs_search", {"query": request.message, "k": k})
         unavailable = result.status != "ok"
         if not unavailable:
             sources = [

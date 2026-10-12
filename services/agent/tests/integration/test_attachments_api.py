@@ -81,7 +81,7 @@ async def test_the_internal_token_is_required(client):
 async def test_the_file_limit_and_the_type_are_enforced(client, services):
     user = f"u-lim-{uuid.uuid4().hex[:6]}"
     conversation = str(uuid.uuid4())
-    limit = services.docs_config.limits.max_files_per_conversation
+    limit = services.attachments.limits.max_files_per_conversation
     for index in range(limit):
         assert (await _register(client, conversation, user, f"ملف {index}.md")).status_code == 201
     over = await _register(client, conversation, user, "زائد.md")

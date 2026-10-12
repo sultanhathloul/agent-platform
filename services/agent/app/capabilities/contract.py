@@ -3,8 +3,8 @@ included, is a package under app/capabilities/<slug>/ with a manifest.yaml and
 a graph.py whose build() returns a compiled LangGraph subgraph. The subgraph's
 state holds `input: CapabilityInput` and returns `output: CapabilityOutput`."""
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -177,8 +177,10 @@ class Usage(_Strict):
 
 
 class CapabilityInput(_Strict):
+    """What a capability is invoked with. Its context package is not here: it is assembled
+    only when the capability reads it, through `RuntimeContext.context()` (owner decision C3)."""
+
     message: str
-    context: ContextPackage  # detached: blocks only, no reference to AgentState (ADR-0047)
     principal: Principal
     cap_state: dict[str, Any]  # a copy of this capability's own namespace
     attachments: list[dict[str, Any]] = []
@@ -230,14 +232,28 @@ class EventWriter(Protocol):
     def __call__(self, event: CapabilityEvent) -> None: ...
 
 
+ContextReader = Callable[[], Awaitable[ContextPackage]]
+
+
+async def _no_context() -> ContextPackage:
+    raise CapabilityContractError("no context package is available outside a turn")
+
+
 @dataclass(frozen=True)
 class RuntimeContext:
     """The LangGraph runtime context of a capability subgraph (`Runtime[RuntimeContext]`).
     This is the whole surface a capability has into the core: its slug, the
     principal, a copy of its own state slice, `call_model`, the broker, the
-    event writer and the document backend. No resolver, guard engine, model config or
-    AgentState (ADR-0047). The backend reaches the capability's tool handlers through
-    the broker, which scopes every call to the principal and the conversation (C6, S1)."""
+    event writer, the document backend, its context package and its configuration. No
+    resolver, guard engine, model config or AgentState (ADR-0047).
+
+    - `documents`: the DocumentBackend; it reaches the capability's tool handlers through the
+      broker, which scopes every call to the principal and the conversation (C6, S1).
+    - `context()`: the package assembled per `context.needs`, detached from AgentState; it
+      is assembled on the first call only, so a capability that never reads it costs no
+      assembly (owner decision C3).
+    - `config`: a copy of the capability's own configuration, `config/<slug>.yaml` when that
+      file exists; never the core's settings (C3)."""
 
     slug: str
     principal: Principal
@@ -246,3 +262,5 @@ class RuntimeContext:
     broker: CapabilityBroker
     stream_writer: EventWriter
     documents: Any = None
+    context: ContextReader = _no_context
+    config: Mapping[str, Any] = field(default_factory=dict)

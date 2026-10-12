@@ -160,9 +160,8 @@ async def test_trace_has_context_block_token_counts(client, spans, litellm):
     assert turn.attributes["langfuse.user.id"] != principal["user_id"]  # hashed
 
     assembled = {s.attributes["context.node"]: s for s in by_name["context.assemble"]}
-    # general's own package goes through the resolver and gets a real budget (ADR-0038)
-    general = assembled["capability.general"]
-    assert general.attributes["context.tier"] == "standard" and general.attributes["context.budget_limit"] > 0
+    # general never reads its own package, so none is assembled for it (owner decision C3)
+    assert "capability.general" not in assembled
 
     assemble = assembled["answer"]
     for block in ("system", "user_message"):

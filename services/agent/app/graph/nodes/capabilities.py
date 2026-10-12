@@ -132,6 +132,20 @@ def _detached(package: ContextPackage) -> ContextPackage:
     return ContextPackage.model_validate(package.model_dump())
 
 
+def _context_reader(cap: LoadedCapability, request: AssemblyRequest, ctx: TurnContext):
+    """The capability's package, assembled through the resolver at its floor (no step) on the
+    first read only, then a fresh detached copy on every read (owner decision C3)."""
+    assembled: list[ContextPackage] = []
+
+    async def context() -> ContextPackage:
+        if not assembled:
+            prepared = await _prepare(cap, request, ctx, role="reasoning")
+            assembled.append(_detached(prepared.package))
+        return _detached(assembled[0])
+
+    return context
+
+
 def _findings(cap: LoadedCapability, extra_blocks: Sequence[Block]) -> list[dict[str, str]]:
     for block in extra_blocks:
         if not isinstance(block, Block) or block.name != "findings":
@@ -320,13 +334,9 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
         manifest = cap.manifest
         with tracer.start_as_current_span(f"capability.{slug}") as span:
             request = _request_for(cap, state, ctx)
-            # The input package goes through the resolver at the capability's floor
-            # (no step) and gets that tier's real budget.
-            prepared = await _prepare(cap, request, ctx, role="reasoning")
             own_state = cap_state.get(manifest.state_namespace) or {}
             cap_input = CapabilityInput(
                 message=state["user_message"],
-                context=_detached(prepared.package),
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 attachments=copy.deepcopy(list(state.get("attachments") or [])),
@@ -340,6 +350,8 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 broker=_Broker(ctx, runtime, state, slug),
                 stream_writer=_event_writer(runtime, cap),
                 documents=services.documents,
+                context=_context_reader(cap, request, ctx),
+                config=copy.deepcopy(cap.config),
             )
             try:
                 payload = await _invoke_isolated(cap, cap_input, runtime_context)

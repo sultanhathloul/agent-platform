@@ -155,7 +155,7 @@ async def test_with_memory_off_nothing_is_written_or_retrieved(fixed_client, fix
 
     spans.clear()
     _, recorded = await _turn(fixed_client, principal)
-    assert [p["node"] for p in recorded["packages"]] == ["capability.general", "answer"]  # no extractor call
+    assert [p["node"] for p in recorded["packages"]] == ["answer"]  # no extractor call
     assert "memory" not in [b["name"] for b in _answer_blocks(recorded)]
     finished = spans.get_finished_spans()
     assert not [

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.attachments.store import collection_for
+from app.rag.backend import DocumentScope
 from app.rag.types import Owner
 from tests.fixtures.documents import LEAVE_REGULATION, docx_bytes, pdf_bytes, scanned_pdf_bytes, xlsx_bytes
 
@@ -34,6 +34,12 @@ async def _upload(services, owner: Owner, conversation: str, name: str, data: by
     )
 
 
+async def _search(services, owner, conversation, question):
+    """The conversation's chunks through the DocumentBackend, as the docs tool reaches them (C6)."""
+    scope = DocumentScope(tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation)
+    return await services.documents.search(question, scope, 8)
+
+
 async def _ingest(services, owner, conversation, name, data):
     record = await _upload(services, owner, conversation, name, data)
     outcome = await services.attachments.worker.pipeline.run(record.id)
@@ -48,14 +54,12 @@ async def test_a_visual_order_arabic_pdf_is_indexed_and_the_right_page_ranks_fir
     assert outcome == "indexed" and stored.status == "indexed"
     assert stored.pages == 3 and stored.chunks == 3
 
-    hits = await services.retriever.retrieve(ALICE, collection_for(conversation), "كم مدة إجازة الأمومة؟")
+    hits = await _search(services, ALICE, conversation, "كم مدة إجازة الأمومة؟")
     assert hits[0].page == 2 and "الأمومة" in hits[0].text
-    hits = await services.retriever.retrieve(
-        ALICE, collection_for(conversation), "اعتبارا من أي عام يعمل بهذه اللائحة؟"
-    )
+    hits = await _search(services, ALICE, conversation, "اعتبارا من أي عام يعمل بهذه اللائحة؟")
     assert hits[0].page == 3
     # Another user, by the same collection, retrieves nothing (G6).
-    assert await services.retriever.retrieve(BOB, collection_for(conversation), "إجازة الأمومة") == []
+    assert await _search(services, BOB, conversation, "إجازة الأمومة") == []
 
 
 async def test_docx_sections_and_xlsx_rows_are_retrieved_in_the_top_three(services, litellm):
@@ -77,10 +81,9 @@ async def test_docx_sections_and_xlsx_rows_are_retrieved_in_the_top_three(servic
     for name, data in (("السياسات.docx", policy), ("الميزانية.xlsx", sheet)):
         _, outcome, _ = await _ingest(services, ALICE, conversation, name, data)
         assert outcome == "indexed"
-    collection = collection_for(conversation)
-    hits = await services.retriever.retrieve(ALICE, collection, "كم يوما يسمح بالعمل عن بعد في الأسبوع؟")
+    hits = await _search(services, ALICE, conversation, "كم يوما يسمح بالعمل عن بعد في الأسبوع؟")
     assert any(h.section and h.section.endswith("العمل عن بعد") for h in hits[:3])
-    hits = await services.retriever.retrieve(ALICE, collection, "ما مبلغ بند التدريب في الميزانية؟")
+    hits = await _search(services, ALICE, conversation, "ما مبلغ بند التدريب في الميزانية؟")
     assert any("التدريب" in h.text and h.section == "الميزانية" for h in hits[:3])
 
 
@@ -145,7 +148,7 @@ async def test_delete_removes_the_record_its_chunks_and_its_object(services, lit
     assert await services.attachments.delete(ALICE, conversation, record.id)
     assert await services.attachments.store.get(ALICE, conversation, record.id) is None
     assert not await services.attachments.objects.exists(record.object_key)
-    assert await services.retriever.retrieve(ALICE, collection_for(conversation), "إجازة الأمومة") == []
+    assert await _search(services, ALICE, conversation, "إجازة الأمومة") == []
 
 
 async def test_the_retention_purge_deletes_expired_files_and_is_idempotent(services, litellm):

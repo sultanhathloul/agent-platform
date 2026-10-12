@@ -27,8 +27,6 @@ from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.rag.backend import DocumentBackend
 from app.rag.citations import AttributionRule
-from app.rag.config import DocsConfig
-from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 from app.text.script import ValidationConfig
 from app.tools.broker import ToolBroker
@@ -57,11 +55,9 @@ class Services:
     policies: PolicyStore
     guard_config: GuardrailsConfig
     locks: TurnLocks
-    docs_config: DocsConfig
     attachments: AttachmentService
     documents: DocumentBackend
     citations: AttributionRule
-    retriever: HybridRetriever
     router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
