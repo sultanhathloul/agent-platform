@@ -1298,7 +1298,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0142: Agent and gateway API versions move to 1.4.0
 - Date: 2026-10-11
 - Phase: 04 (implementation choice I14)
-- Status: decided
+- Status: decided — Superseded by ADR-0167 on 2026-10-12
 - Context: Phase 04 adds attachment endpoints and changes the turn request.
 - Decision: One bump for the whole phase: agent and gateway OpenAPI 1.4.0. `docs/events.schema.json` changes additively (id stays `events.v1`).
 - Consequences: The drift tests (ADR-0044) pin both documents at 1.4.0 until the PR merges.
@@ -1532,3 +1532,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - So that operations can delete cleanly: migration 0010 gives `agent.rag_chunks.attachment_id` a foreign key to `agent.attachments` with ON DELETE CASCADE (orphan chunks are deleted first), and `agent.context_packages` gains `attachment_ids`, the attachments whose chunks a package's retrieval blocks hold. Chunk text never enters AgentState (ADR-0162), so a checkpoint holds no passage. PROGRESS lists the manual steps.
   - An orphan sweeper removes objects of the uploads bucket that no attachment record names, once older than `orphan_sweeper.min_age_minutes` (60), every `interval_minutes` (30): uploads whose registration failed. It never touches an object a record names.
 - Consequences: Storage grows with use; deleting a user's file is a request to operations. Phase 05's KB documents will need their own record for their chunks, since the key names the attachments table. Tests: the cascade, a chunk refused without its record, packages naming their attachments, the sweeper's age and record rules, and no delete at the agent (405) or the gateway (405).
+
+### ADR-0167: Agent and gateway API versions move to 2.0.0
+- Date: 2026-10-12
+- Phase: 04 (owner decision C4; supersedes ADR-0142)
+- Status: decided
+- Context: Phase 04 replaced the turn request's `attachments` (objects) with `attachment_ids` (strings) in both APIs, and removed the attachment delete and `expires_at` (ADR-0166): a client of 1.3.0 breaks, so a minor version was wrong. The gateway document also gave the items of `attachment_ids` and `selected_kbs` a string default `"[]"`.
+- Decision: Agent and gateway OpenAPI move to 2.0.0. The array default moves to the array (`@ArraySchema(arraySchema = @Schema(defaultValue = "[]"))`), so no item carries a default; `selected_kbs` had the same defect since phase 01 and is fixed with it. Changes until this PR merges stay within 2.0.0 (ADR-0046).
+- Consequences: The drift tests pin both documents at 2.0.0; the web's generated types are regenerated.

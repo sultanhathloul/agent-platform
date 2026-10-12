@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "1.4.0"
+    "version" : "2.0.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -1663,8 +1663,6 @@
             "description" : "Attachments sent with this turn, uploaded first (A1, ADR-0129).",
             "items" : {
               "type" : "string",
-              "default" : "[]",
-              "description" : "Attachments sent with this turn, uploaded first (A1, ADR-0129).",
               "pattern" : "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
             },
             "maxItems" : 10,
@@ -1691,7 +1689,6 @@
             "default" : [ ],
             "items" : {
               "type" : "string",
-              "default" : "[]",
               "pattern" : "^[a-z0-9_-]{1,64}$"
             },
             "maxItems" : 20,

@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "1.4.0"
+    "version": "2.0.0"
   },
   "paths": {
     "/v1/health": {

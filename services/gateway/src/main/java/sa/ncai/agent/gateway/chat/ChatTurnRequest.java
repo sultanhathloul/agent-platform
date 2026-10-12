@@ -1,5 +1,6 @@
 package sa.ncai.agent.gateway.chat;
 
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -23,12 +24,16 @@ public record ChatTurnRequest(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
         String message,
 
+        // The default belongs to the array, not to its items (owner decision C4: no "[]" item default).
         @Size(max = 20)
-        @Schema(defaultValue = "[]")
+        @ArraySchema(arraySchema = @Schema(defaultValue = "[]"), schema = @Schema(pattern = "^[a-z0-9_-]{1,64}$"))
         List<@NotNull @Pattern(regexp = "^[a-z0-9_-]{1,64}$") String> selectedKbs,
 
         @Size(max = 10)
-        @Schema(defaultValue = "[]", description = "Attachments sent with this turn, uploaded first (A1, ADR-0129).")
+        @ArraySchema(
+                arraySchema = @Schema(defaultValue = "[]",
+                        description = "Attachments sent with this turn, uploaded first (A1, ADR-0129)."),
+                schema = @Schema(pattern = UUID))
         List<@NotNull @Pattern(regexp = UUID) String> attachmentIds,
 
         @Pattern(regexp = "^(ar|en)$")

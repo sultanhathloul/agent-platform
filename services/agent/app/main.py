@@ -77,7 +77,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "1.4.0"
+API_VERSION = "2.0.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
