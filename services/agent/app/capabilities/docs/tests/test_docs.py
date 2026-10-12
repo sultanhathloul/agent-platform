@@ -59,7 +59,7 @@ TEXTS = {
     "c3": "يسمح بالعمل عن بعد يومين في الأسبوع بموافقة المدير المباشر.",
 }
 RULE = AttributionRule(  # config/citations.yaml (ADR-0182)
-    ngram=2, min_shared_ngrams=1, min_new_word_coverage=0.25, relative_to_best=0.6
+    ngram=2, min_shared_ngrams=1, min_new_word_coverage=0.35, relative_to_best=0.6
 )
 
 
@@ -450,6 +450,14 @@ async def test_the_router_sees_file_names_as_user_data_never_in_the_system_role(
     assert "لائحة الإجازات.pdf" in messages[-1]["content"]
 
 
+PAGE_ONE = (  # page 1 of evals/docs leave-regulation.pdf
+    "لائحة الإجازات في هيئة الواحة للخدمات الرقمية\n"
+    "الإصدار الثالث لعام 2031\n"
+    "المادة الأولى: تسري أحكام هذه اللائحة على جميع موظفي الهيئة المتعاقدين والرسميين.\n"
+    "المادة الثانية: يقصد بالإجازة كل غياب عن العمل يأذن به الرئيس المباشر وفق هذه اللائحة."
+)
+
+
 def _twenty_pages() -> tuple[list[dict], dict[str, str]]:
     """Pages built like evals/docs twenty-pages.pdf: every line is the same sentence, told apart
     only by the department and article numbers the question gives."""
@@ -500,5 +508,19 @@ def test_an_abstention_that_names_the_document_cites_nothing():
     texts = {"cv": "السيرة الذاتية\nنورة الواحي\nقائدة فريق تحليل الأداء في شركة النخيل للتقنية منذ 2029."}
     question = "كم سنة خبرة لدى صاحبة السيرة في إدارة المستشفيات؟"
     answer = "لا توجد معلومات في السيرة الذاتية تشير إلى خبرة صاحبة السيرة في إدارة المستشفيات."
-    assert attribute(answer, sources, texts, RULE) != []  # without the question, it would cite
+    assert attribute(answer, sources, texts, RULE, question=question) == []
+
+
+def test_an_abstention_that_describes_the_document_in_passing_cites_nothing():
+    """rag/leave-housing in make-eval-20261012T113452Z: ADR-0182's quarter coverage let one
+    loose bigram ("اللائحة على") cite page 1 under a "not in the file" answer."""
+    sources = [{"id": "p1", "ref": "p1", "title": "لائحة.pdf", "kind": "doc", "page": 1, "document_id": "d1"}]
+    texts = {"p1": PAGE_ONE}
+    question = "كم يبلغ بدل السكن للموظف حسب الملف؟"
+    answer = (
+        "لا توجد معلومات في الملف المرفق بخصوص بدل السكن للموظف، "
+        "حيث يقتصر محتوى اللائحة على تنظيم أنواع الإجازات وشروطها."
+    )
+    loose = RULE.model_copy(update={"min_new_word_coverage": 0.25})
+    assert attribute(answer, sources, texts, loose, question=question) != []
     assert attribute(answer, sources, texts, RULE, question=question) == []

@@ -11,5 +11,5 @@
 attribution:
   ngram: 2
   min_shared_ngrams: 1
-  min_new_word_coverage: 0.25
+  min_new_word_coverage: 0.35
   relative_to_best: 0.6

@@ -1,14 +1,15 @@
 ---
 id: docs.evidence
-version: 2.0.0
+version: 2.1.0
 role: context
 locale: ar
 changelog:
   - "1.0.0: first version (phase 04): retrieved chunks of the conversation's files, each delimited as untrusted data (ADR-0136)"
   - "2.0.0: notes only: the chunks are fetched and delimited by the answer step (S4); names of pending and failed files inside the delimited block, escaped (S2)"
+  - "2.1.0: a passage set without the answer is said in one sentence, without describing the rest of the file (owner decision C1, ADR-0183)"
 ---
 {% if found %}
-المقاطع المسترجعة من الملفات المرفقة بالمحادثة هي الأقرب إلى سؤال المستخدم، وقد لا تتضمن الجواب.
+المقاطع المسترجعة من الملفات المرفقة بالمحادثة هي الأقرب إلى سؤال المستخدم، وقد لا تتضمن الجواب. فإن لم تتضمنه فقل ذلك في جملة واحدة، ولا تصف ما يتناوله الملف غير ذلك.
 {% endif %}
 {% if pending or failed %}
 <untrusted source="الملفات المرفقة">

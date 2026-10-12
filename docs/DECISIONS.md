@@ -1684,7 +1684,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0182: Attribution in two steps: the question's words decide whether a chunk may be cited, rarity decides which
 - Date: 2026-10-12
 - Phase: 04 (owner decision C1; supersedes the attribution rule of ADR-0156 and ADR-0163)
-- Status: decided
+- Status: decided — Superseded by ADR-0183 on 2026-10-12 (the scoring and the coverage measured on live turns)
 - Context: The first Q1 run (make-eval-20261012T105801Z, rerank 16/1070) scored citation page accuracy 0.69, below its 0.85 threshold. Dropping the question's words before forming n-grams (ADR-0163) left a short answer with too few bigrams to reach three ("مدة الإجازة المرضية براتب كامل هي ثلاثون يوماً" keeps only "ثلاثون يوما" once the question's words go), so it cited nothing. Dropping only the n-grams made of question words cited all twenty pages of twenty-pages.pdf, whose lines differ only in the department and article numbers the question itself gives. An abstention naming the document ("لا توجد معلومات في السيرة الذاتية ...") cited the CV's title page.
 - Decision: `config/citations.yaml` `attribution: {ngram: 2, min_shared_ngrams: 1, min_new_word_coverage: 0.25, relative_to_best: 0.6}`, applied in two steps:
   - Eligible (the owner's rule): the question's words are dropped from the answer first. A chunk may be cited only when it shares at least one answer bigram not made only of question words, and holds at least a quarter of the answer's words that are not in the question. An answer that restates the question, or adds only its own phrasing around the document's name, cites nothing.
@@ -1692,4 +1692,20 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - Still deterministic and capability-agnostic, with no model call and no change to the answer.
 - Measured offline, before the rerun, with `attribute` on the eval's six documents (every page a candidate, which is harsher than the retrieved top 8): 56 answers, made of the reference answers with a page expectation and the run's answers as the log prints them (first 70 characters). ADR-0163's rule: 38/56. Dropping question-only n-grams: 42/56. This rule: 55/56. The one miss is a log answer cut before its fact. relative_to_best 0.5–0.8 give the same 55/56.
 - Consequences: The question's words still decide whether a source line shows, so "not found" answers show none. Among the chunks that pass, the question's words help pick the page, which is what tells templated pages apart. `app/capabilities/docs/tests/test_docs.py` covers the templated pages, the short answer and the abstention that names the document.
+
+### ADR-0183: Attribution scores a chunk by its best sentence with rarity weights; coverage is per answer sentence; "not found" is said in one sentence
+- Date: 2026-10-12
+- Phase: 04 (owner decision C1; supersedes ADR-0182's scoring and coverage)
+- Status: decided
+- Context: ADR-0182 was measured offline with whole pages as chunks and answers as the log prints them. The live run on it (make-eval-20261012T113452Z, rerank 16/1070) scored citation page accuracy 0.76 and abstention 0.67. The real twenty-pages.pdf chunks hold about fifteen lines each, two per page, and article numbers repeat on neighbouring pages (page 3 holds articles 31 to 51, page 4 holds 41 to 61). So an answer's numbers matched page 4 too, on other lines, and 1/n weights left the neighbours above 0.6 of the best: "المادة 46 ... رقم 3 ... كل 17" cited pages 2, 3 and 4. A quarter coverage let one loose bigram ("اللائحة على") cite page 1 under "لا توجد معلومات في الملف ... حيث يقتصر محتوى اللائحة على ...". The cv-hospital answer abstained and then described the CV's other experience, which page 2 holds.
+- Decision: `config/citations.yaml` `attribution: {ngram: 2, min_shared_ngrams: 1, min_new_word_coverage: 0.35, relative_to_best: 0.6}`:
+  - Eligibility keeps ADR-0182's owner rule: the question's words are dropped first, and a chunk shares at least one remaining bigram. Coverage is now per answer sentence: the chunk holds at least 0.35 of the non-question words of one sentence of the answer. An answer drawing one fact from each of several chunks still cites each chunk.
+  - Score: a chunk scores by its best sentence (split at line ends and . ! ? ؟). A sentence scores the sum, over the answer bigrams it holds, of log((N + 1) / n), where N is the number of retrieved chunks and n the number holding that bigram. A bigram every retrieved chunk holds weighs almost nothing. The page whose one line holds the department, the article and the weeks together outscores a neighbour that holds them on separate lines.
+  - `docs.evidence` 2.1.0 (ar, en): when the passages do not contain the answer, the model says so in one sentence and does not describe what else the file covers. A "not found" answer then holds nothing a page could be cited for.
+  - Measured with `attribute` on the 65 live turns of today's two runs (answers, retrieved chunks and their texts read from the checkpoints and agent.rag_chunks), against the case expectations:
+    - ADR-0182: 52/65.
+    - Sentence scoring with 1/n weights: 52/65.
+    - Sentence scoring with log weights at coverage 0.25: 61/65.
+    - This rule: 63/65. The two misses are cv-hospital, whose answer drew on page 2 before the prompt change.
+- Consequences: No model call and no change to the answer text. A "not found" answer gets shorter: one sentence. The rule needs the chunk text, which the answer step already fetches (ADR-0162). Tests: the templated pages with overlapping numbers, the short answer adding only the number, the restating abstention, and the leave-housing abstention, which a quarter coverage cites and this rule does not. The answer drawing on three chunks still cites all three.
 
