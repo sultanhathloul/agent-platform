@@ -1632,3 +1632,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - `server.tomcat.max-swallow-size: -1`: the rest of a refused body is read and discarded, so the client gets the JSON 413; a chunked body over the cap gets it from the multipart handler. A test sends 40 MB over a real connection both ways.
   - The ingestion of an object over the limit fails as `file_too_large` (ADR-0176).
 - Consequences: A user without `cap:docs` no longer reads the list of their own earlier uploads. Reading and discarding an oversize body costs the gateway that bandwidth; the per-user allowance and authentication bound who can make it read one. Several gateway processes would each keep their own allowance.
+
+### ADR-0178: One MinIO user per service; the root credentials stay in minio-init
+- Date: 2026-10-12
+- Phase: 04 (owner decision S7; supersedes ADR-0151's "MinIO is reached with the root credentials" and ADR-0022's for Langfuse)
+- Status: decided
+- Context: The agent, the gateway and Langfuse all used MinIO's root credentials.
+- Decision: `minio-init`, the only holder of the root credentials besides MinIO itself, makes the buckets, four policies and four users from `.env`: `gateway-uploads` (put, get and delete in `uploads`: it stores, downloads and discards an unregistered upload), `ingest-uploads` (get in `uploads`), `sweeper-uploads` (list `uploads`, delete in it; it never reads a document), `langfuse-events` (its own `langfuse` bucket). Each policy also allows the bucket's location, which the clients ask first. The agent gets no MinIO credentials: since ingestion moved to the ingest service (ADR-0176) it reads no upload. A test proves each user can do its part and nothing else, and a smoke check fails when any container but MinIO holds the root password. `scripts/init_env.sh` generates the new secrets; an existing `.env` needs the eight `MINIO_*_ACCESS_KEY` / `_SECRET_KEY` lines of `.env.example` (generated into the development `.env` in this session).
+- Consequences: The owner decision said "agent and ingest: read uploads"; the agent's read access is left out because it has no use for it. A leaked gateway key can write uploads but not list them; a leaked sweeper key cannot read one.

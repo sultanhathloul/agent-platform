@@ -72,6 +72,12 @@ check "web /api/health" curl -fsS "$WEB/api/health"
 check "keycloak issuer is $KC/realms/$KC_REALM" bash -c \
   "curl -fsS '$KC/realms/$KC_REALM/.well-known/openid-configuration' | jq -e '.issuer == \"$KC/realms/$KC_REALM\"'"
 check "langfuse /api/public/health" curl -fsS "$LF/api/public/health"
+check "no container but minio itself holds MinIO's root password; each service has its own user (S7)" bash -c '
+  for id in $(docker compose ps -q); do
+    service=$(docker inspect --format "{{index .Config.Labels \"com.docker.compose.service\"}}" "$id")
+    [[ $service == minio ]] && continue
+    docker inspect --format "{{range .Config.Env}}{{println .}}{{end}}" "$id" | grep -qF "=$MINIO_ROOT_PASSWORD" && exit 1
+  done; exit 0'
 check "LiteLLM, which holds the model keys, is published on the loopback interface only (S6)" bash -c \
   "docker compose --profile test ps --format json | jq -se '[.[] | select(.Service == \"litellm\" or .Service == \"litellm-mock\") | .Publishers[]? | select(.PublishedPort > 0) | .URL] | length > 0 and all(. == \"127.0.0.1\")'"
 

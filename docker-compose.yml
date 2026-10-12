@@ -22,8 +22,9 @@ x-langfuse-env: &langfuse-env
   CLICKHOUSE_CLUSTER_ENABLED: "false"
   LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
   LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  # Its own MinIO user, limited to the langfuse bucket (owner decision S7).
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_LANGFUSE_ACCESS_KEY:?run scripts/init_env.sh or see .env.example}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_LANGFUSE_SECRET_KEY:?see .env.example}
   LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
   LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
@@ -44,11 +45,7 @@ x-agent-env: &agent-env
   PRESIDIO_URL: http://presidio-analyzer:3000
   # Connections reserved for per-conversation turn locks (D6).
   LOCK_POOL_SIZE: ${LOCK_POOL_SIZE:-20}
-  # Uploads in MinIO, bucket `uploads` (phase 04, ADR-0129): read for ingestion, deleted with
-  # their attachment.
-  MINIO_ENDPOINT: minio:9000
-  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  # No MinIO credentials: the agent reads no upload; the ingest service does (S7, R4).
 
 services:
   # ------------------------------------------------------------------ data
@@ -90,6 +87,12 @@ services:
       <<: *healthcheck
       test: ["CMD", "mc", "ready", "local"]
 
+  # The only holder of MinIO's root credentials (owner decision S7): it makes the buckets, and one
+  # user per service with a policy of its own; every service then uses its own user.
+  #   gateway-uploads  writes, reads and discards uploads   (uploads-write)
+  #   ingest-uploads   reads uploads                        (uploads-read)
+  #   sweeper-uploads  lists uploads, removes an object     (uploads-sweep)
+  #   langfuse-events  Langfuse's own bucket                (langfuse-bucket)
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
@@ -98,11 +101,36 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_GATEWAY_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY:?see .env.example}
+      MINIO_GATEWAY_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY:?see .env.example}
+      MINIO_INGEST_ACCESS_KEY: ${MINIO_INGEST_ACCESS_KEY:?see .env.example}
+      MINIO_INGEST_SECRET_KEY: ${MINIO_INGEST_SECRET_KEY:?see .env.example}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY:?see .env.example}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY:?see .env.example}
+      MINIO_LANGFUSE_ACCESS_KEY: ${MINIO_LANGFUSE_ACCESS_KEY:?see .env.example}
+      MINIO_LANGFUSE_SECRET_KEY: ${MINIO_LANGFUSE_SECRET_KEY:?see .env.example}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
-        mc mb --ignore-existing local/uploads local/kb-docs local/langfuse
+        set -e;
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD";
+        mc mb --ignore-existing local/uploads local/kb-docs local/langfuse;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-write.json;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-read.json;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:DeleteObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-sweep.json;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::langfuse","arn:aws:s3:::langfuse/*"]}]}' > /tmp/langfuse-bucket.json;
+        for policy in uploads-write uploads-read uploads-sweep langfuse-bucket; do
+        mc admin policy create local "$$policy" "/tmp/$$policy.json"; done;
+        mc admin user add local "$$MINIO_GATEWAY_ACCESS_KEY" "$$MINIO_GATEWAY_SECRET_KEY";
+        mc admin user add local "$$MINIO_INGEST_ACCESS_KEY" "$$MINIO_INGEST_SECRET_KEY";
+        mc admin user add local "$$MINIO_SWEEPER_ACCESS_KEY" "$$MINIO_SWEEPER_SECRET_KEY";
+        mc admin user add local "$$MINIO_LANGFUSE_ACCESS_KEY" "$$MINIO_LANGFUSE_SECRET_KEY";
+        attach() { mc admin policy attach local "$$1" --user "$$2" >/dev/null 2>&1 || mc admin user info local "$$2" | grep -q "$$1"; };
+        attach uploads-write "$$MINIO_GATEWAY_ACCESS_KEY";
+        attach uploads-read "$$MINIO_INGEST_ACCESS_KEY";
+        attach uploads-sweep "$$MINIO_SWEEPER_ACCESS_KEY";
+        attach langfuse-bucket "$$MINIO_LANGFUSE_ACCESS_KEY";
+        echo "minio: buckets, users and policies ready"
     restart: "no"
 
   # Pattern recognizers only (infra/presidio/recognizers.yaml); its NLP model is never asked for
@@ -339,11 +367,12 @@ services:
       CONFIG_DIR: /srv/config
       DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/app
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # Its own MinIO users (owner decision S7): read uploads; list and remove orphans.
       MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SWEEPER_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_ACCESS_KEY: ${MINIO_INGEST_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_INGEST_SECRET_KEY}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: ingest
     volumes:
@@ -385,8 +414,9 @@ services:
       # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
       GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
       GATEWAY_STORAGE_ENDPOINT: http://minio:9000
-      GATEWAY_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER}
-      GATEWAY_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # Its own MinIO user (owner decision S7): write, read and discard uploads.
+      GATEWAY_STORAGE_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY}
+      GATEWAY_STORAGE_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY}
       GATEWAY_STORAGE_BUCKET: uploads
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     volumes:
@@ -475,6 +505,12 @@ services:
       AGENT_TEST_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/agent_test
       # Redis database 15 and a namespace of its own: tests never meet the stack's keys or channels.
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/15
+      # Tests store uploads as the gateway does, and sweep as the ingest service does (S7).
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY}
     volumes:
       - ./config:/srv/config:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)

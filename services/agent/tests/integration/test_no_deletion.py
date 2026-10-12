@@ -51,7 +51,17 @@ async def test_a_context_package_names_the_attachments_its_chunks_came_from(debu
 
 
 async def test_the_sweeper_removes_only_old_objects_no_record_names(services):
+    from app.attachments.objects import ObjectStore
+
     objects, store = services.attachments.objects, services.attachments.store
+    settings = services.settings
+    # The sweeper's own MinIO user lists and removes; the gateway's (objects) stores (S7).
+    sweeping = ObjectStore(
+        settings.minio_endpoint,
+        settings.minio_sweeper_access_key,
+        settings.minio_sweeper_secret_key,
+        settings.uploads_bucket,
+    )
     conversation = str(uuid.uuid4())
     orphan = f"test/{conversation}/{uuid.uuid4()}"
     named = f"test/{conversation}/{uuid.uuid4()}"
@@ -72,9 +82,35 @@ async def test_the_sweeper_removes_only_old_objects_no_record_names(services):
     )
 
     # Too young: an upload may still be registering, so nothing is removed.
-    young = await OrphanSweeper(objects, store, min_age=timedelta(hours=1)).sweep()
+    young = await OrphanSweeper(sweeping, store, min_age=timedelta(hours=1)).sweep()
     assert await objects.exists(orphan) and young["removed"] == 0
     # Old enough: the orphan goes, the named object stays.
-    await OrphanSweeper(objects, store, min_age=timedelta(seconds=0)).sweep()
+    await OrphanSweeper(sweeping, store, min_age=timedelta(seconds=0)).sweep()
     assert not await objects.exists(orphan)
     assert await objects.exists(named)
+
+
+async def test_each_service_user_can_do_only_its_own_part(services):
+    """S7: the gateway's user stores, reads and discards; the ingest user only reads; the
+    sweeper only lists and removes. No service holds MinIO's root credentials."""
+    from app.attachments.objects import ObjectStore, StorageUnavailable
+
+    settings = services.settings
+
+    def store(key: str, secret: str) -> ObjectStore:
+        return ObjectStore(settings.minio_endpoint, key, secret, settings.uploads_bucket)
+
+    gateway = services.attachments.objects
+    sweeper = store(settings.minio_sweeper_access_key, settings.minio_sweeper_secret_key)
+    key = f"test/{uuid.uuid4()}/{uuid.uuid4()}"
+    await gateway.put(key, b"%PDF-1.4 user test", "application/pdf")
+    assert await gateway.get(key) == b"%PDF-1.4 user test"
+    with pytest.raises(StorageUnavailable):
+        await sweeper.get(key)  # the sweeper cannot read a document
+    with pytest.raises(Exception):  # noqa: B017 (minio raises S3Error on a refused put)
+        await sweeper.put(f"{key}-2", b"x", "application/pdf")
+    assert key in await sweeper.keys_older_than(timedelta(seconds=0))
+    with pytest.raises(StorageUnavailable):
+        await gateway.keys_older_than(timedelta(seconds=0))  # the gateway's user cannot list
+    assert await sweeper.delete(key)
+    assert not await gateway.exists(key)
