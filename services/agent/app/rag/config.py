@@ -49,12 +49,20 @@ class Ingest(_Strict):
     max_attempts: int = Field(ge=1)
 
 
+class Rerank(_Strict):
+    """The cross-encoder step (owner decisions R2, Q1): on or off; how many fused candidates it
+    scores; and how much of each, in characters (None: the whole chunk)."""
+
+    enabled: bool
+    candidates: int = Field(gt=0)
+    max_chars: int | None = Field(default=None, gt=0)
+
+
 class Retrieval(_Strict):
     vector_top_k: int = Field(gt=0)
     text_top_k: int = Field(gt=0)
     rrf_k: int = Field(gt=0)
-    rerank_candidates: int = Field(gt=0)
-    rerank_max_tokens: int = Field(gt=0)
+    rerank: Rerank
     top_k: int = Field(gt=0)
     stopwords: dict[str, list[str]] = {}
 

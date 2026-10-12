@@ -1599,3 +1599,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: After a cut, the chunker carried the overlap into the next chunk and added the next unit without checking the budget (a 207-token chunk at 200); a header longer than the budget left one token for rows; an XLSX title row above the table became the header repeated in every chunk.
 - Decision: After a cut, the carried overlap gives way, oldest unit first, until the next unit fits. A repeated header is truncated to half the budget. An XLSX sheet's header is its first row (two cells or more) followed by a row of the same width; rows above it stay in the sheet's text; a sheet without such a pair takes its first row. Unit tests cover the overlap, the header, title rows, reciprocal rank fusion and the full-text stopwords on Arabic questions.
 - Consequences: Overlap is shorter where a long unit follows a cut. A one-column table is read without a header.
+
+### ADR-0175: A rerank switch; a malformed rerank answer is a span error and the fusion order stands
+- Date: 2026-10-12
+- Phase: 04 (owner decision R2)
+- Status: decided
+- Context: A rerank answer without results, or with a missing index, was read as zeros for the missing documents, which then ranked last on a score they never had; there was no way to run retrieval without the reranker.
+- Decision: `config/docs.yaml` `retrieval.rerank` holds `enabled`, `candidates` and `max_chars` (how much of each candidate the reranker reads, in characters; null for the whole chunk). Switched off, the top `top_k` are taken in fusion order. A rerank answer that does not score every document exactly once with a finite number raises `RerankMalformed`; `rag.retrieve` then carries an error status and `rag.rerank.error`, and the fusion order stands. An unreachable reranker is still a failed search (ADR-0152). Unit tests cover each malformed shape, the switch, the fallback and the character bound.
+- Consequences: Q1 measures `enabled` and `candidates`/`max_chars` against the rag thresholds (ADR-0157 is superseded there). Rerank cannot zero a chunk silently.

@@ -1,20 +1,23 @@
 """Hybrid retrieval (README §7 step 6, §9.3; ADR-0133): the top `vector_top_k` chunks by
 vector similarity and the top `text_top_k` by full-text rank over Arabic-normalized
-text, fused by reciprocal rank fusion, the best `rerank_candidates` reranked on their first
-`rerank_max_tokens` tokens, the top `top_k` kept. Every query names the collection and
-the owner (ADR-0131). The `rag.retrieve` span carries ids, pages, scores and counts,
-never chunk text (ADR-0137)."""
+text, fused by reciprocal rank fusion; with `rerank.enabled`, the best `rerank.candidates`
+reranked, each on its first `rerank.max_chars` characters (or whole), and the top `top_k`
+kept by rerank score; without it, the top `top_k` in fusion order. A malformed rerank answer is
+an error on the span and the fusion order stands (owner decision R2). Every query names the
+collection and the owner (ADR-0131). The `rag.retrieve` span carries ids, pages, scores and
+counts, never chunk text (ADR-0137)."""
 
 import hashlib
 import json
 from collections.abc import Sequence
 
-from app.context.compress import truncate
+from opentelemetry.trace import Status, StatusCode
+
 from app.context.tokens import TokenCounter
 from app.models.embeddings import EmbeddingGateway
 from app.observability.otel import tracer
 from app.rag.config import Retrieval
-from app.rag.rerank import Reranker
+from app.rag.rerank import Reranker, RerankMalformed
 from app.rag.types import Owner, ScoredChunk
 from app.rag.vectorstore.base import VectorStore
 from app.text.arabic import search_stem, search_terms
@@ -95,15 +98,26 @@ class HybridRetriever:
                 limit=config.text_top_k,
                 document_ids=document_ids,
             )
-            candidates = fuse([by_vector, by_text], config.rrf_k)[: config.rerank_candidates]
-            # Each candidate is scored on its first `rerank_max_tokens` tokens (ADR-0157).
-            scores = await self._reranker.rerank(
-                question, [truncate(c.text, config.rerank_max_tokens, self._counter) for c in candidates]
-            )
-            ranked = sorted(
-                (c.model_copy(update={"score": s}) for c, s in zip(candidates, scores, strict=True)),
-                key=lambda c: (-c.score, c.attachment_id, c.ord),
-            )
+            fused = fuse([by_vector, by_text], config.rrf_k)
+            rerank = config.rerank
+            span.set_attribute("rag.rerank", "on" if rerank.enabled else "off")
+            ranked = fused
+            candidates = fused[: rerank.candidates] if rerank.enabled else []
+            if candidates:
+                bound = rerank.max_chars
+                try:
+                    scores = await self._reranker.rerank(
+                        question, [c.text[:bound] if bound else c.text for c in candidates]
+                    )
+                except RerankMalformed as exc:
+                    # An error on the span, and the fusion order stands: never all-zero scores (R2).
+                    span.set_status(Status(StatusCode.ERROR, "rerank answer malformed"))
+                    span.set_attribute("rag.rerank.error", type(exc).__name__)
+                else:
+                    ranked = sorted(
+                        (c.model_copy(update={"score": s}) for c, s in zip(candidates, scores, strict=True)),
+                        key=lambda c: (-c.score, c.attachment_id, c.ord),
+                    )
             top = ranked[: top_k or config.top_k]
             span.set_attribute("rag.vector_hits", len(by_vector))
             span.set_attribute("rag.text_hits", len(by_text))
