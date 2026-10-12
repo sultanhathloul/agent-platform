@@ -1,22 +1,24 @@
 ---
 id: docs.evidence
-version: 1.0.0
+version: 2.0.0
 role: context
 locale: ar
 changelog:
   - "1.0.0: first version (phase 04): retrieved chunks of the conversation's files, each delimited as untrusted data (ADR-0136)"
+  - "2.0.0: notes only: the chunks are fetched and delimited by the answer step (S4); names of pending and failed files inside the delimited block, escaped (S2)"
 ---
-هذه أقرب المقاطع إلى سؤال المستخدم من الملفات المرفقة بالمحادثة، وقد لا تتضمن الجواب.
-{% for c in chunks %}
-<untrusted source="{{ c.name }}{% if c.page %}، صفحة {{ c.page }}{% elif c.section %}، {{ c.section }}{% endif %}">
-{{ c.text }}
-</untrusted>
-{% endfor %}
+{% if found %}
+المقاطع المسترجعة من الملفات المرفقة بالمحادثة هي الأقرب إلى سؤال المستخدم، وقد لا تتضمن الجواب.
+{% endif %}
+{% if pending or failed %}
+<untrusted source="الملفات المرفقة">
 {% if pending %}
-ما زالت هذه الملفات قيد المعالجة ولم يُبحث فيها بعد: {{ pending | join("، ") }}.
+ما زالت هذه الملفات قيد المعالجة ولم يُبحث فيها بعد: {{ pending | map("e") | join("، ") }}.
 {% endif %}
 {% if failed %}
-تعذّرت قراءة هذه الملفات: {{ failed | join("، ") }}.
+تعذّرت قراءة هذه الملفات: {{ failed | map("e") | join("، ") }}.
+{% endif %}
+</untrusted>
 {% endif %}
 {% if unavailable %}
 تعذّر البحث في الملفات المرفقة الآن، فلا تتوفر مقاطع منها لهذا السؤال.

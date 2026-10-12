@@ -26,6 +26,7 @@ from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.rag.backend import DocumentBackend
+from app.rag.citations import AttributionRule
 from app.rag.config import DocsConfig
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
@@ -59,6 +60,7 @@ class Services:
     docs_config: DocsConfig
     attachments: AttachmentService
     documents: DocumentBackend
+    citations: AttributionRule
     retriever: HybridRetriever
     router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
@@ -98,6 +100,9 @@ class TurnContext:
     writer: Callable[[dict], None] | None = None
     # policy_id@version of a fail-closed tool policy that could not run (D8).
     guard_unavailable: str | None = None
+    # This turn's chunk texts by reference, fetched for the answer and checked at POST_TOOL;
+    # page attribution reads them. Never written to state (owner decision S4).
+    evidence: dict[str, str] = field(default_factory=dict)
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

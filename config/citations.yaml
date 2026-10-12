@@ -1,0 +1,11 @@
+# Citations (owner decision C1, ADR-0140, ADR-0156). Capability-agnostic: after the answer, a
+# chunk the turn's capabilities retrieved is cited when it shares at least `min_shared_ngrams`
+# normalized word n-grams of `ngram` words with the answer, and at least `relative_to_best` of
+# what the best-matching chunk shares, so a page that only repeats a common phrase
+# ("ثلاثون يوما براتب كامل") beside the page the answer used is not cited. The question's own
+# words are dropped from the answer before matching, so an answer that only restates the
+# question ("the document does not give the length of marriage leave") cites nothing.
+attribution:
+  ngram: 2
+  min_shared_ngrams: 3
+  relative_to_best: 0.5

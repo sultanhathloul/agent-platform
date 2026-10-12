@@ -1277,7 +1277,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0140: Citations are file name and pages, attributed after the answer by shared word n-grams
 - Date: 2026-10-11
 - Phase: 04 (owner decision on the G5 stop; replaces I12 and the preview panel of D2)
-- Status: decided
+- Status: decided — Superseded by ADR-0163 on 2026-10-12 (where attribution runs, its input and validate's check)
 - Context: I12 asked for citations naming chunk ids, a check that fails an answer citing a chunk not retrieved, and a preview panel. Each needed markers in the answer and a change to `answer.system`; the owner chose a simpler design when the session stopped under G5.
 - Decision:
   - Under the answer the UI shows the file name and the page or pages only: no markers in the answer text, no change to `answer.system`, no preview panel.
@@ -1475,3 +1475,25 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: README §18.4 says Context Assembly builds a capability's package from `context.needs`, but the answer package of every turn used `nodes.answer.needs` of config/context.yaml whatever ran, so a general turn in a conversation with files had the same blocks as a docs turn, and `needs: []` meant nothing for the answer.
 - Decision: The answer package's optional blocks are the union of the turn's capabilities' `context.needs`, in pipeline order; the system instructions and the user message are always there. A manifest that leaves `needs` out takes `nodes.answer.needs`; `needs: []` yields no optional block. `general` declares `[state_digest, summary, window, memory]`, `docs` adds its evidence. A capability's own model calls use its `needs` as before (none when it leaves them out).
 - Consequences: A capability that wants history in the answer says so in its manifest. A general turn in a conversation with indexed files carries no evidence block (tested), and adding an evidence-producing capability adds its blocks only to its own turns.
+
+### ADR-0162: Chunk text never enters AgentState; the answer step fetches it through the DocumentBackend
+- Date: 2026-10-12
+- Phase: 04 (owner decision S4, the state part)
+- Status: decided
+- Context: The docs capability's findings held every retrieved chunk inside its evidence, and each Source carried its chunk as `excerpt`; both were checkpointed with the turn, so document text lived in every checkpoint of the conversation.
+- Decision:
+  - A capability returns source references: `Source` loses `excerpt` and gains `ref` (the chunk's DocumentBackend reference) and `score`. `docs_search` returns references with file name, page, section and score, and no text; the docs findings are notes only (passages may not answer; pending and failed files; a failed search).
+  - The answer step, when its blocks include `retrieval` (ADR-0161), fetches the referenced chunks through `DocumentBackend.fetch`, scoped to the verified principal and the conversation, and checks the texts at POST_TOOL (sanitize_untrusted first, then the policies) under the scope of the capability that found them, as any tool output. Context Assembly renders each chunk in its own `context.retrieval` block (2.0.0: the file and page or section in the delimiter only, escaped) and compresses a chunk's text, never its delimiters. A POST_TOOL block withholds that capability's evidence.
+  - The texts stay on the turn context for page attribution (ADR-0163) and are gone when the turn ends.
+- Consequences: A checkpoint holds the answer and the references, not the passages (tested). The evidence of an answer is fetched once per answer call (twice on a rewrite). The evidence budget is Context Assembly's `blocks.retrieval`; `retrieval.evidence_max_tokens` leaves config/docs.yaml.
+
+### ADR-0163: Capabilities may supply citations; page attribution is a separate generic step before validate, without the question's words
+- Date: 2026-10-12
+- Phase: 04 (owner decision C1; supersedes ADR-0140 on where attribution runs and what validate checks)
+- Status: decided
+- Context: validate computed the citations itself, so its "citations ⊆ sources" check could never fail; attribution read docs-named configuration; "not found" answers restating the question cited a page (the known gap of the first run); answers carried "[docs]" labels copied from the findings block, and `answer.system` asked every answer to name its sources.
+- Decision:
+  - `CapabilityOutput` gains `citations`. A new node `attribute_citations`, after `answer` and before `validate`, keeps the capabilities' citations and adds page attribution's, capability-agnostically, from sources with a document and page or section metadata, comparing the answer with the chunk texts the answer step fetched. `validate` checks every citation against this turn's sources and fails with `citation_not_in_sources` otherwise (tested); attribution never bypasses it.
+  - Attribution drops the question's words from the answer before taking its n-grams (owner decision). The rule moves to the generic `config/citations.yaml` (`attribution: ngram 2, min_shared_ngrams 3, relative_to_best 0.5`, values unchanged from ADR-0156).
+  - `context.findings` 1.1.0 no longer labels each finding with its capability, and says not to copy tags or bracketed file names; `answer.system` (ar 1.4.0, en 1.2.0) no longer asks the answer to name its sources and forbids bracketed tags and file names. Unit tests reject a label in either prompt.
+- Consequences: An abstention that only restates the question shows no source. An answer quoting a heading or a phrase the question did not contain still cites its page. Answers no longer name their sources in text; the source line under the answer does.

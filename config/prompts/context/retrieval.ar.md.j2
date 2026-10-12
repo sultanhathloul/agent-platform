@@ -1,12 +1,12 @@
 ---
 id: context.retrieval
-version: 1.0.0
+version: 2.0.0
 role: context
 locale: ar
 changelog:
   - "1.0.0: first version (phase 02): one retrieved chunk, wrapped as untrusted data (README §7 step 6, §9.2)"
+  - "2.0.0: the chunk's file and page or section in the delimiter only, escaped (S2); chunks fetched at prepare time (S4)"
 ---
-مقطع مسترجع من {% if kb %}{{ kb }} › {% endif %}{{ source }}{% if locator %} ({{ locator }}){% endif %}:
-<untrusted source="{{ source }}">
+<untrusted source="{{ source | e }}{% if kb %} › {{ kb | e }}{% endif %}{% if page %}، صفحة {{ page }}{% elif locator %}، {{ locator | e }}{% endif %}">
 {{ text }}
 </untrusted>

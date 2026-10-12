@@ -24,7 +24,7 @@ model:
   steps: {}
   on_overflow: compress
 context:
-  needs: [state_digest, summary, window, memory, findings]   # the answer's blocks (C2); the evidence is in findings
+  needs: [state_digest, summary, window, memory, retrieval, findings]   # the answer's blocks (C2): chunks and notes
   max_input_tokens: 14000            # room for 8 chunks of evidence beside the answer's own blocks
 tools: [docs_search]                     # the only tool the broker lets this capability call (ADR-0160)
 limits:

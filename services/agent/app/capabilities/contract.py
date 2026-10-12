@@ -122,12 +122,28 @@ class Source(_Strict):
     url: str | None = None
     kb: str | None = None
     locator: str | None = None
-    # Page attribution after the answer (ADR-0140): the document a chunk came from, its
-    # page, and the sanitized chunk text the attribution compares with the answer. The
-    # excerpt never leaves the agent: citations carry the document and its pages only.
+    # A document chunk: the document it came from and its page (ADR-0140), and its reference
+    # in the DocumentBackend. A source carries no text: the answer step fetches the chunk's
+    # text through the backend, scoped to the principal and the conversation, so chunk text
+    # never enters AgentState or a checkpoint (owner decision S4).
     page: int | None = Field(default=None, ge=1)
     document_id: str | None = None
-    excerpt: str | None = None
+    ref: str | None = None
+    score: float | None = Field(default=None, description="Relevance as the backend ranked it, best first.")
+
+
+class Citation(_Strict):
+    """A citation a capability supplies (owner decision C1). It must name one of this turn's
+    sources, by its id or its document id; validate fails the answer otherwise."""
+
+    id: str
+    title: str
+    kind: str = "doc"
+    url: str | None = None
+    kb: str | None = None
+    locator: str | None = None
+    document_id: str | None = None
+    pages: list[int] = []
 
 
 class Artifact(_Strict):
@@ -172,6 +188,7 @@ class CapabilityInput(_Strict):
 class CapabilityOutput(_Strict):
     findings: str
     sources: list[Source] = []
+    citations: list[Citation] = []
     artifacts: list[Artifact] = []
     events: list[CapabilityEvent] = []
     cap_state: dict[str, Any]  # required: persisted back into the namespace as returned

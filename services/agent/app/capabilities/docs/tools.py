@@ -2,16 +2,13 @@
 the DocumentBackend (C6), executed by the broker, so its result passes POST_TOOL with
 sanitize_untrusted first (README §10.3). The tool names no owner and no collection: the broker
 injects the scope from the verified principal and the conversation (S1), and the backend
-enforces it."""
+enforces it. It returns what it found as references with their file name, page and section,
+and no chunk text: the answer step fetches the text when it assembles the answer (S4)."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.rag.backend import DocumentScope
 from app.tools.spec import ToolContext, ToolOutput, ToolSpec
-
-# A line that opens each chunk in the tool's content; the capability splits on it after
-# sanitize_untrusted ran. Angle brackets would be stripped as tags, so none are used.
-CHUNK_MARK = "⟦chunk {id}⟧"
 
 
 class SearchArgs(BaseModel):
@@ -27,18 +24,18 @@ async def search(args: SearchArgs, ctx: ToolContext) -> ToolOutput:
         tenant_id=ctx.scope.tenant_id, user_id=ctx.scope.user_id, conversation_id=ctx.scope.conversation_id
     )
     hits = await ctx.documents.search(args.query, scope, args.k)
-    content = "\n".join(f"{CHUNK_MARK.format(id=h.ref)}\n{h.text}" for h in hits)
     sources = [
         {
             "id": h.ref,
             "attachment_id": h.document_id,
+            "title": h.file_name,
             "page": h.page,
-            "section": h.section,
+            "locator": h.section,
             "score": round(h.score, 6),
         }
         for h in hits
     ]
-    return ToolOutput(content=content, sources=sources)
+    return ToolOutput(content="", sources=sources)
 
 
 def tools() -> list[ToolSpec]:

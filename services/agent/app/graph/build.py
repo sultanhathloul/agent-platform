@@ -11,6 +11,7 @@ from app.graph.deps import TurnContext
 from app.graph.nodes.answer import answer
 from app.graph.nodes.assemble import assemble_context, fold_summary
 from app.graph.nodes.attachments import ingest_attachments
+from app.graph.nodes.attribute import attribute_citations
 from app.graph.nodes.capabilities import run_capabilities
 from app.graph.nodes.guard import guard_data, guard_input, guard_output, guard_tool_list, release_answer
 from app.graph.nodes.identity import load_identity_and_state
@@ -29,6 +30,7 @@ PIPELINE = [
     ("guard_tool_list", guard_tool_list),  # checkpoint 2
     ("run_capabilities", run_capabilities),  # checkpoints 3, 4 inside the broker
     ("answer", answer),  # checkpoint 7 inside the tier resolver; checkpoint 6 per sentence while streaming
+    ("attribute_citations", attribute_citations),  # capability-agnostic page attribution (C1)
     ("validate", validate),
     ("guard_output", guard_output),  # checkpoint 5
     ("guard_data", guard_data),  # checkpoint 6 on the whole answer in buffered mode (D3)

@@ -259,7 +259,8 @@ async def test_the_reference_form_names_the_capability_without_its_findings(conf
     block = next(
         b for b in (await assembler.assemble(request, _budget(10**6))).blocks if b.name == "findings"
     )
-    assert "[kb]" in block.content and "نص الدليل" not in block.content
+    # Named in a sentence, never as a bracketed label an answer could copy (C1).
+    assert "- kb:" in block.content and "[kb]" not in block.content and "نص الدليل" not in block.content
 
 
 async def test_the_compress_pass_shortens_the_window_and_the_memory(config, prompts):

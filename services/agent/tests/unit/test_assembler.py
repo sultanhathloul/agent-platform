@@ -47,7 +47,7 @@ async def test_blocks_are_ordered_and_counted(assembler):
     assert all(b.tokens == len(b.content) for b in package.blocks)
     assert package.tokens_by_block()["window"] == len("رسالة رقم 0") + len("رسالة رقم 1")
     assert package.total_tokens() == sum(package.tokens_by_block().values())
-    assert package.prompt_refs == ["answer.system@1.3.0", "context.state_digest@1.1.0"]
+    assert package.prompt_refs == ["answer.system@1.4.0", "context.state_digest@1.1.0"]
 
     messages = package.to_messages()
     assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
@@ -59,7 +59,7 @@ async def test_empty_state_digest_is_omitted(assembler):
     state = {"turn": 1, "user_message": "سؤال", "messages": []}
     package = await assembler.assemble(_request(state), _budget(100_000))
     assert [b.name for b in package.blocks] == ["system", "user_message"]
-    assert package.prompt_refs == ["answer.system@1.3.0"]
+    assert package.prompt_refs == ["answer.system@1.4.0"]
 
 
 async def test_needs_filter_keeps_system_and_user_message(assembler):

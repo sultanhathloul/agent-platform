@@ -17,12 +17,10 @@ from tests.fixtures.replace import replacing
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
-from app.capabilities.docs.graph import split_content
-from app.capabilities.docs.tools import CHUNK_MARK
 from app.capabilities.registry import load_manifest
 from app.identity import Principal
 from app.rag.backend import DocumentScope
-from app.rag.citations import attribute
+from app.rag.citations import AttributionRule, attribute, load_attribution_rule
 
 MANIFEST = Path(__file__).resolve().parents[1] / "manifest.yaml"
 PERMISSIONS = ("cap:general", "cap:docs")
@@ -40,86 +38,50 @@ def test_manifest_is_valid(models_config):
     assert [rule.when for rule in manifest.routing_hints.rules] == ["attachments", "conversation_attachments"]
 
 
-def test_split_content_maps_sanitized_text_back_to_chunks():
-    a, b = str(uuid.uuid4()), str(uuid.uuid4())
-    content = f"{CHUNK_MARK.format(id=a)}\nالنص الأول\n{CHUNK_MARK.format(id=b)}\nالنص الثاني"
-    assert split_content(content, [a, b, "missing"]) == {a: "النص الأول", b: "النص الثاني"}
-
-
-# ------------------------------------------------------------------ page attribution (ADR-0140)
+# ------------------------------------------------------------------ page attribution (ADR-0140, C1)
 
 SOURCES = [
-    {
-        "id": "c1",
-        "title": "لائحة.pdf",
-        "kind": "doc",
-        "page": 2,
-        "document_id": "d1",
-        "excerpt": "المادة الثالثة: تمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل.",
-    },
-    {
-        "id": "c2",
-        "title": "لائحة.pdf",
-        "kind": "doc",
-        "page": 1,
-        "document_id": "d1",
-        "excerpt": "المادة الثانية: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما.",
-    },
+    {"id": "c1", "ref": "c1", "title": "لائحة.pdf", "kind": "doc", "page": 2, "document_id": "d1"},
+    {"id": "c2", "ref": "c2", "title": "لائحة.pdf", "kind": "doc", "page": 1, "document_id": "d1"},
     {
         "id": "c3",
+        "ref": "c3",
         "title": "دليل.docx",
         "kind": "doc",
         "page": None,
         "locator": "الباب الثاني: العمل عن بعد",
         "document_id": "d2",
-        "excerpt": "يسمح بالعمل عن بعد يومين في الأسبوع بموافقة المدير المباشر.",
     },
 ]
-
-
-RULE = {"ngram": 2, "min_shared": 3, "relative_to_best": 0.5}  # config/docs.yaml (ADR-0156)
+TEXTS = {
+    "c1": "المادة الثالثة: تمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل.",
+    "c2": "المادة الثانية: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما.",
+    "c3": "يسمح بالعمل عن بعد يومين في الأسبوع بموافقة المدير المباشر.",
+}
+RULE = AttributionRule(ngram=2, min_shared_ngrams=3, relative_to_best=0.5)  # config/citations.yaml
 
 
 def test_the_configured_rule_is_the_one_tested(config_dir):
-    from app.rag.config import load_docs_config
-
-    rule = load_docs_config(config_dir).citations
-    assert {
-        "ngram": rule.ngram,
-        "min_shared": rule.min_shared_ngrams,
-        "relative_to_best": rule.relative_to_best,
-    } == RULE
+    assert load_attribution_rule(config_dir) == RULE
 
 
 def test_a_page_sharing_only_a_common_phrase_beside_the_page_used_is_not_cited():
     pages = [
-        {
-            "id": "a",
-            "title": "لائحة.pdf",
-            "kind": "doc",
-            "page": 2,
-            "document_id": "d1",
-            "excerpt": "المادة الثالثة: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما براتب كامل "
-            "عن كل سنة خدمة.",
-        },
-        {
-            "id": "b",
-            "title": "لائحة.pdf",
-            "kind": "doc",
-            "page": 4,
-            "document_id": "d1",
-            "excerpt": "المادة التاسعة: يستحق الموظف إجازة مرضية بتقرير طبي معتمد مدتها ثلاثون "
-            "يوما براتب كامل.",
-        },
+        {"id": "a", "ref": "a", "title": "لائحة.pdf", "kind": "doc", "page": 2, "document_id": "d1"},
+        {"id": "b", "ref": "b", "title": "لائحة.pdf", "kind": "doc", "page": 4, "document_id": "d1"},
     ]
+    texts = {
+        "a": "المادة الثالثة: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما براتب كامل عن كل سنة خدمة.",
+        "b": "المادة التاسعة: يستحق الموظف إجازة مرضية بتقرير طبي معتمد مدتها ثلاثون يوما براتب كامل.",
+    }
     # The answer of rag/leave-annual in the first eval run (make-eval-20261011T135418Z).
     answer = "مدة الإجازة السنوية للموظف ثلاثون يوماً براتب كامل عن كل سنة خدمة."
-    assert [c["pages"] for c in attribute(answer, pages, **RULE)] == [[2]]
+    assert [c["pages"] for c in attribute(answer, pages, texts, RULE)] == [[2]]
 
 
 def test_an_answer_drawing_on_a_page_cites_that_page_only():
     answer = "وفق اللائحة، تُمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل."
-    assert attribute(answer, SOURCES, **RULE) == [
+    assert attribute(answer, SOURCES, TEXTS, RULE) == [
         {
             "id": "d1",
             "title": "لائحة.pdf",
@@ -136,7 +98,7 @@ def test_pages_of_one_document_merge_and_a_document_without_pages_names_its_sect
         "يستحق الموظف إجازة سنوية مدتها ثلاثون يوما، وتمنح إجازة الأمومة لمدة عشرة أسابيع. "
         "كما يسمح بالعمل عن بعد يومين في الأسبوع."
     )
-    cited = attribute(answer, SOURCES, **RULE)
+    cited = attribute(answer, SOURCES, TEXTS, RULE)
     assert [(c["title"], c["pages"], c["locator"]) for c in cited] == [
         ("لائحة.pdf", [1, 2], None),
         ("دليل.docx", [], "الباب الثاني: العمل عن بعد"),
@@ -152,7 +114,29 @@ def test_pages_of_one_document_merge_and_a_document_without_pages_names_its_sect
     ],
 )
 def test_an_answer_that_draws_on_no_chunk_shows_no_source(answer):
-    assert attribute(answer, SOURCES, **RULE) == []
+    assert attribute(answer, SOURCES, TEXTS, RULE) == []
+
+
+def test_a_chunk_without_its_fetched_text_is_never_cited():
+    answer = "وفق اللائحة، تُمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل."
+    assert attribute(answer, SOURCES, {"c2": TEXTS["c2"]}, RULE) == []
+
+
+def test_a_not_found_answer_that_restates_the_question_cites_nothing():
+    """The known gap of the first PR run (owner decision C1): the abstention repeated the
+    question's words, which the chunk the question matched shares."""
+    sources = [{"id": "m", "ref": "m", "title": "لائحة.pdf", "kind": "doc", "page": 3, "document_id": "d1"}]
+    texts = {
+        "m": "المادة الرابعة: تمنح إجازة الزواج للموظف مرة واحدة خلال مدة خدمته في الهيئة، "
+        "ومدتها خمسة أيام عمل براتب كامل."
+    }
+    question = "كم مدة إجازة الزواج للموظف خلال مدة خدمته في الهيئة؟"
+    answer = "لا يذكر الملف كم مدة إجازة الزواج للموظف خلال مدة خدمته في الهيئة."
+    assert attribute(answer, sources, texts, RULE) != []  # without the question, it would cite
+    assert attribute(answer, sources, texts, RULE, question=question) == []
+    # An answer that says what the question did not still cites its page.
+    found = "مدتها خمسة أيام عمل براتب كامل، وتمنح مرة واحدة."
+    assert [c["pages"] for c in attribute(found, sources, texts, RULE, question=question)] == [[3]]
 
 
 # ------------------------------------------------------------------ turns
@@ -253,6 +237,27 @@ async def test_the_turn_a_file_is_attached_runs_docs_and_cites_the_page_the_answ
     ]
     captured = answer_call.attributes["langfuse.observation.input"]
     assert "[findings:" in captured and "المادة الثالثة" not in captured
+
+
+@pytest.mark.integration
+async def test_no_chunk_text_enters_the_checkpointed_state(harness):
+    """Sources are references; the answer step fetched the text and kept it off the state (S4)."""
+    import json
+
+    principal = _principal()
+    conversation = str(uuid.uuid4())
+    document = await _indexed(harness, principal, conversation)
+    replaced, _ = replacing(
+        harness.services, {"reasoning": "تُمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل."}
+    )
+    events = await _turn(replaced, principal, conversation, "كم مدة إجازة الأمومة؟", [document])
+    assert events[-1].type == "done" and events[-1].data.citations
+    snapshot = await harness.services.graph.aget_state({"configurable": {"thread_id": conversation}})
+    stored = json.dumps(snapshot.values, default=str, ensure_ascii=False)
+    for line in [line for page in LEAVE_REGULATION for line in page]:
+        assert line not in stored, line  # no page's text, not even the page the answer used
+    [output] = snapshot.values["capability_outputs"]
+    assert output["sources"] and all(s["ref"] and "excerpt" not in s for s in output["sources"])
 
 
 @pytest.mark.integration

@@ -75,7 +75,9 @@ async def test_a_general_turn_in_a_conversation_with_indexed_files_carries_no_ev
     harness = Harness("internal", services)
     principal = Principal(user_id=f"u-needs-{uuid.uuid4().hex[:6]}", permissions=("cap:general", "cap:docs"))
     conversation = str(uuid.uuid4())
-    scope = DocumentScope(tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation)
+    scope = DocumentScope(
+        tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
+    )
     document = await harness.upload(scope, "لائحة.pdf", ["\n".join(page) for page in LEAVE_REGULATION])
     assert await harness.ingest(document) == "indexed"
     routed, _ = replacing(services, {"router": '{"capabilities": ["general"]}'})

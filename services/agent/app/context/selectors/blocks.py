@@ -187,11 +187,14 @@ class SemanticRetrieval(Step):
             if kept != text:
                 reason = "block_budget" if form == "full" else f"form_{form}"
                 self.drop(package, "retrieval", counter.count(text) - counter.count(kept), reason)
+            # Compression works on the chunk's text alone; the delimiters are rendered around
+            # what is kept, so they are never cut (owner decision S2).
             prompt = self.deps.prompts.render(
                 "context.retrieval",
                 req.locale,
                 source=chunk.get("source") or "",
                 kb=chunk.get("kb"),
+                page=chunk.get("page"),
                 locator=chunk.get("locator"),
                 text=kept,
             )
@@ -202,6 +205,7 @@ class SemanticRetrieval(Step):
                     prompt.text,
                     prompt=prompt.ref,
                     id=chunk.get("id"),
+                    document_id=chunk.get("document_id"),
                     score=chunk.get("score"),
                 )
             )

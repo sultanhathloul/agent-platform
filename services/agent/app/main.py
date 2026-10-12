@@ -60,6 +60,7 @@ from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.otel import setup_tracing, shutdown_tracing
 from app.rag.backend import DocumentBackend
+from app.rag.citations import load_attribution_rule
 from app.rag.config import load_docs_config
 from app.rag.ingest.pipeline import IngestPipeline
 from app.rag.ingest.queue import IngestQueue
@@ -208,6 +209,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         docs_config=docs_config,
         attachments=attachments,
         documents=documents,
+        citations=load_attribution_rule(settings.config_dir),
         retriever=retriever,
         router=load_router_config(settings.config_dir),
         redis=redis,

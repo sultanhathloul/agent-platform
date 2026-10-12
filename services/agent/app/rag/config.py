@@ -1,6 +1,7 @@
-"""config/docs.yaml: limits, retention, chunking, ingestion, retrieval and page
-attribution (phase 04; ADR-0125, ADR-0126, ADR-0133, ADR-0140). The gateway reads the
-same file for the upload limits, so the two services cannot disagree."""
+"""config/docs.yaml: the document backend, limits, retention, chunking, ingestion and
+retrieval (phase 04; ADR-0125, ADR-0126, ADR-0133, ADR-0159). The gateway reads the same
+file for the upload limits, so the two services cannot disagree. Page attribution is
+capability-agnostic and lives in config/citations.yaml (owner decision C1)."""
 
 from pathlib import Path
 from typing import Literal
@@ -55,14 +56,7 @@ class Retrieval(_Strict):
     rerank_candidates: int = Field(gt=0)
     rerank_max_tokens: int = Field(gt=0)
     top_k: int = Field(gt=0)
-    evidence_max_tokens: int = Field(gt=0)
     stopwords: dict[str, list[str]] = {}
-
-
-class Citations(_Strict):
-    ngram: int = Field(ge=1)
-    min_shared_ngrams: int = Field(ge=1)
-    relative_to_best: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class Purge(_Strict):
@@ -78,7 +72,6 @@ class DocsConfig(_Strict):
     extraction: Extraction
     ingest: Ingest
     retrieval: Retrieval
-    citations: Citations
     purge: Purge
 
     def kind_of(self, name: str) -> DocumentKind | None:

@@ -37,8 +37,8 @@ ingest:
   max_attempts: 3     # a job that keeps failing for a transient reason ends as failed
 
 # Hybrid retrieval (ADR-0133): top 30 by vector, top 30 by full text, reciprocal rank
-# fusion, rerank of the fused candidates, top 8 kept; evidence over its budget is
-# compressed extractively, chunk by chunk.
+# fusion, rerank of the fused candidates, top 8 kept. Evidence over its budget is compressed
+# by Context Assembly, chunk by chunk (config/context.yaml `blocks.retrieval`).
 retrieval:
   vector_top_k: 30
   text_top_k: 30
@@ -49,21 +49,11 @@ retrieval:
   rerank_candidates: 16
   rerank_max_tokens: 400
   top_k: 8
-  evidence_max_tokens: 5000
   # Words left out of the full-text query (compared after normalization); questions are
   # matched OR-wise, so function words would match every chunk.
   stopwords:
     ar: [ما, ماذا, هل, كم, متى, اين, كيف, لماذا, من, في, على, الى, عن, هو, هي, هذا, هذه, ذلك, تلك, التي, الذي, ان, او, ثم, مع, كل, بعض, قد, لا, لم, لن, ذكر, اذكر, حسب, وفق, يا, ايش, وش, شنو, وين, ليش]
     en: [what, which, who, when, where, why, how, is, are, the, a, an, of, in, "on", to, for, and, "or", does, do, say, says, document, file]
-
-# Page attribution after the answer (ADR-0140, ADR-0156): a retrieved chunk is cited when it
-# shares at least `min_shared_ngrams` normalized word n-grams of `ngram` words with the answer,
-# and at least `relative_to_best` of what the best-matching chunk shares, so a page that only
-# repeats a common phrase ("ثلاثون يوما براتب كامل") beside the page the answer used is not cited.
-citations:
-  ngram: 2
-  min_shared_ngrams: 3
-  relative_to_best: 0.5
 
 purge:
   interval_hours: 24
