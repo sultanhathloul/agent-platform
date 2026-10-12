@@ -23,6 +23,14 @@
     "callbackFailed": "Sign-in could not be completed. Please try again.",
     "retry": "Try again"
   },
+  "admin": {
+    "checking": "Checking your permissions…",
+    "deniedTitle": "Administrators only",
+    "deniedDescription": "This page is available to administrators only. Your account does not have the administrator role.",
+    "unavailableTitle": "Permissions could not be checked",
+    "unavailableDescription": "The service could not confirm your permissions right now. Please try again later.",
+    "backToChat": "Back to chat"
+  },
   "chat": {
     "starting": "Starting a new conversation…",
     "emptyTitle": "How can I help you today?",
