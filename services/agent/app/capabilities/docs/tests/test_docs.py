@@ -2,13 +2,17 @@
 broker, evidence inside untrusted delimiters, page attribution after the answer, routing
 on the turn a file is attached and by the router model later, and isolation (G6). Turns
 run through the real graph and the mock LiteLLM (ADR-0007); where a test needs the model
-to say something, it replaces the returned text of a real call (ADR-0075)."""
+to say something, it replaces the returned text of a real call (ADR-0075).
+
+Every turn test runs twice, on the internal DocumentBackend and on a test-only fake (C6):
+the capability depends on the DocumentBackend protocol only."""
 
 import uuid
 from pathlib import Path
 
 import pytest
-from tests.fixtures.documents import LEAVE_REGULATION, pdf_bytes
+from tests.fixtures.backends import BACKENDS, Harness
+from tests.fixtures.documents import LEAVE_REGULATION
 from tests.fixtures.replace import replacing
 
 from app.api.runner import TurnRunner
@@ -17,8 +21,8 @@ from app.capabilities.docs.graph import split_content
 from app.capabilities.docs.tools import CHUNK_MARK
 from app.capabilities.registry import load_manifest
 from app.identity import Principal
+from app.rag.backend import DocumentScope
 from app.rag.citations import attribute
-from app.rag.types import Owner
 
 MANIFEST = Path(__file__).resolve().parents[1] / "manifest.yaml"
 PERMISSIONS = ("cap:general", "cap:docs")
@@ -154,14 +158,27 @@ def test_an_answer_that_draws_on_no_chunk_shows_no_source(answer):
 # ------------------------------------------------------------------ turns
 
 
-async def _indexed(services, owner: Owner, conversation: str, data: bytes, name: str = "لائحة الإجازات.pdf"):
-    key = f"test/{conversation}/{uuid.uuid4()}"
-    await services.attachments.objects.put(key, data, "application/pdf")
-    record = await services.attachments.register(
-        owner, conversation, name=name, mime="application/pdf", size=len(data), object_key=key
+@pytest.fixture(params=BACKENDS)
+def harness(request, services, litellm) -> Harness:
+    return Harness(request.param, services)
+
+
+def _scope(principal: Principal, conversation: str) -> DocumentScope:
+    return DocumentScope(
+        tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
-    assert await services.attachments.worker.pipeline.run(record.id) == "indexed"
-    return record
+
+
+async def _indexed(
+    harness: Harness,
+    principal: Principal,
+    conversation: str,
+    pages=LEAVE_REGULATION,
+    name="لائحة الإجازات.pdf",
+) -> str:
+    document = await harness.upload(_scope(principal, conversation), name, ["\n".join(p) for p in pages])
+    assert await harness.ingest(document) == "indexed"
+    return document
 
 
 async def _turn(services, principal: Principal, conversation: str, message: str, ids=()) -> list:
@@ -175,20 +192,38 @@ async def _turn(services, principal: Principal, conversation: str, message: str,
     return [event async for event in TurnRunner(services).stream(request, "req-docs")]
 
 
-def _owner(principal: Principal) -> Owner:
-    return Owner(tenant_id=principal.tenant_id, user_id=principal.user_id)
+class _Recording:
+    """Records the messages of every call of `role` and forwards it."""
+
+    def __init__(self, inner, role: str, seen: list):
+        self.inner, self.role, self.seen = inner, role, seen
+
+    async def call(self, decision, package, **kwargs):
+        if decision.role == self.role:
+            self.seen.append(package.to_messages())
+        return await self.inner.call(decision, package, **kwargs)
+
+
+def _recording(services, role: str = "reasoning"):
+    import dataclasses
+
+    seen: list[list[dict]] = []
+    return dataclasses.replace(services, gateway=_Recording(services.gateway, role, seen)), seen
+
+
+def _text(messages: list[dict]) -> str:
+    return "\n".join(m["content"] for m in messages)
 
 
 @pytest.mark.integration
-async def test_the_turn_a_file_is_attached_runs_docs_and_cites_the_page_the_answer_used(
-    services, litellm, spans
-):
+async def test_the_turn_a_file_is_attached_runs_docs_and_cites_the_page_the_answer_used(harness, spans):
     principal = _principal()
     conversation = str(uuid.uuid4())
-    record = await _indexed(services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION))
+    document = await _indexed(harness, principal, conversation)
     answer = "تُمنح إجازة الأمومة لمدة عشرة أسابيع براتب كامل، وفق المادة الثالثة."
-    replaced, _ = replacing(services, {"reasoning": answer})
-    events = await _turn(replaced, principal, conversation, "كم مدة إجازة الأمومة؟", [record.id])
+    replaced, _ = replacing(harness.services, {"reasoning": answer})
+    spans.clear()
+    events = await _turn(replaced, principal, conversation, "كم مدة إجازة الأمومة؟", [document])
 
     done = events[-1]
     assert done.type == "done", done
@@ -196,13 +231,14 @@ async def test_the_turn_a_file_is_attached_runs_docs_and_cites_the_page_the_answ
     assert [e.data.tool for e in events if e.type == "tool_end"] == ["docs_search"]
     [citation] = done.data.citations
     assert (
-        citation.document_id == record.id and citation.title == "لائحة الإجازات.pdf" and citation.pages == [2]
+        citation.document_id == document and citation.title == "لائحة الإجازات.pdf" and citation.pages == [2]
     )
     assert [e.data.pages for e in events if e.type == "citation"] == [[2]]
 
     finished = spans.get_finished_spans()
-    retrieve = next(s for s in finished if s.name == "rag.retrieve")
-    assert record.id in retrieve.attributes["rag.results"]
+    if harness.name == "internal":
+        retrieve = next(s for s in finished if s.name == "rag.retrieve")
+        assert document in retrieve.attributes["rag.results"]
     # No span carries chunk text (ADR-0137): only the answer itself, captured as the turn's and
     # the answer call's output (ADR-0021), may quote the document. The answer call's captured
     # input holds the evidence as a placeholder (ADR-0144).
@@ -220,17 +256,17 @@ async def test_the_turn_a_file_is_attached_runs_docs_and_cites_the_page_the_answ
 
 
 @pytest.mark.integration
-async def test_a_general_answer_in_a_docs_conversation_shows_no_source(services, litellm):
+async def test_a_general_answer_in_a_docs_conversation_shows_no_source(harness):
     principal = _principal()
     conversation = str(uuid.uuid4())
-    record = await _indexed(services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION))
-    replaced, _ = replacing(services, {"reasoning": "عاصمة المملكة العربية السعودية هي الرياض."})
-    events = await _turn(replaced, principal, conversation, "ما عاصمة المملكة؟", [record.id])
+    document = await _indexed(harness, principal, conversation)
+    replaced, _ = replacing(harness.services, {"reasoning": "عاصمة المملكة العربية السعودية هي الرياض."})
+    events = await _turn(replaced, principal, conversation, "ما عاصمة المملكة؟", [document])
     assert events[-1].type == "done" and events[-1].data.citations == []
 
 
 @pytest.mark.integration
-async def test_an_instruction_inside_a_document_reaches_the_model_only_as_sanitized_data(services, litellm):
+async def test_an_instruction_inside_a_document_reaches_the_model_only_as_sanitized_data(harness):
     principal = _principal()
     conversation = str(uuid.uuid4())
     poisoned = [
@@ -240,26 +276,11 @@ async def test_an_instruction_inside_a_document_reaches_the_model_only_as_saniti
             "تبدأ ساعات العمل الصيفية الساعة السابعة صباحا.",
         ]
     ]
-    record = await _indexed(
-        services, _owner(principal), conversation, pdf_bytes(poisoned, visual=False), "تعميم.pdf"
-    )
-    seen: list[str] = []
-
-    class Recording:
-        def __init__(self, inner):
-            self.inner = inner
-
-        async def call(self, decision, package, **kwargs):
-            if decision.role == "reasoning":
-                seen.append("\n".join(m["content"] for m in package.to_messages()))
-            return await self.inner.call(decision, package, **kwargs)
-
-    import dataclasses
-
-    recorded = dataclasses.replace(services, gateway=Recording(services.gateway))
-    events = await _turn(recorded, principal, conversation, "متى تبدأ ساعات العمل الصيفية؟", [record.id])
+    document = await _indexed(harness, principal, conversation, poisoned, "تعميم.pdf")
+    recorded, seen = _recording(harness.services)
+    events = await _turn(recorded, principal, conversation, "متى تبدأ ساعات العمل الصيفية؟", [document])
     assert events[-1].type == "done"
-    [answer_input] = seen
+    [answer_input] = [_text(m) for m in seen]
     assert (
         "تبدأ ساعات العمل الصيفية" in answer_input
         and '<untrusted source="تعميم.pdf، صفحة 1">' in answer_input
@@ -268,24 +289,24 @@ async def test_an_instruction_inside_a_document_reaches_the_model_only_as_saniti
 
 
 @pytest.mark.integration
-async def test_later_turns_go_to_the_router_model_and_its_choice_is_cached(services, litellm, spans):
+async def test_later_turns_go_to_the_router_model_and_its_choice_is_cached(harness, spans):
     principal = _principal()
     conversation = str(uuid.uuid4())
-    record = await _indexed(services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION))
-    first = await _turn(services, principal, conversation, "كم مدة الإجازة السنوية؟", [record.id])
+    document = await _indexed(harness, principal, conversation)
+    first = await _turn(harness.services, principal, conversation, "كم مدة الإجازة السنوية؟", [document])
     assert first[-1].data.state_digest.capabilities == ["docs"]  # the attachments rule
 
     general = '{"capabilities": ["general"], "complexity": "low", "risk": "low"}'
-    routed, gateway = replacing(services, {"router": general})
+    routed, gateway = replacing(harness.services, {"router": general})
     spans.clear()
-    second = await _turn(routed, principal, conversation, "ما عاصمة فرنسا؟")
+    second = await _turn(routed, principal, conversation, f"ما عاصمة فرنسا؟ {uuid.uuid4().hex[:6]}")
     assert second[-1].data.state_digest.capabilities == ["general"]
     assert gateway.calls.count("router") == 1
     route = next(s for s in spans.get_finished_spans() if s.name == "node.route")
     assert route.attributes["route.decided_by"] == "general:model"
 
     docs = '{"capabilities": ["docs"], "complexity": "low", "risk": "low"}'
-    routed, gateway = replacing(services, {"router": docs})
+    routed, gateway = replacing(harness.services, {"router": docs})
     third = await _turn(routed, principal, conversation, "وما مدة إجازة الأمومة؟")
     assert third[-1].data.state_digest.capabilities == ["docs"]
 
@@ -312,12 +333,12 @@ async def test_the_router_decision_is_cached_per_tenant(services, litellm):
 
 
 @pytest.mark.integration
-async def test_an_unusable_router_answer_keeps_the_documents(services, litellm):
+async def test_an_unusable_router_answer_keeps_the_documents(harness):
     principal = _principal()
     conversation = str(uuid.uuid4())
-    record = await _indexed(services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION))
-    await _turn(services, principal, conversation, "كم مدة الإجازة السنوية؟", [record.id])
-    routed, _ = replacing(services, {"router": "لا أعرف"})
+    document = await _indexed(harness, principal, conversation)
+    await _turn(harness.services, principal, conversation, "كم مدة الإجازة السنوية؟", [document])
+    routed, _ = replacing(harness.services, {"router": "لا أعرف"})
     events = await _turn(routed, principal, conversation, "وماذا عن إجازة الأمومة؟")
     assert events[-1].data.state_digest.capabilities == ["docs"]
 
@@ -332,121 +353,70 @@ async def test_a_conversation_without_indexed_files_never_calls_the_router(servi
 
 
 @pytest.mark.integration
-async def test_another_users_attachment_id_ends_the_turn_and_retrieves_nothing(services, litellm):
+async def test_another_users_attachment_id_ends_the_turn_and_retrieves_nothing(harness):
     owner = _principal()
     intruder = _principal()
-    victim_conversation = str(uuid.uuid4())
-    record = await _indexed(services, _owner(owner), victim_conversation, pdf_bytes(LEAVE_REGULATION))
-    events = await _turn(services, intruder, str(uuid.uuid4()), "ماذا في الملف؟", [record.id])
+    document = await _indexed(harness, owner, str(uuid.uuid4()))
+    events = await _turn(harness.services, intruder, str(uuid.uuid4()), "ماذا في الملف؟", [document])
     assert events[-1].type == "error" and events[-1].data.code == "attachment_not_found"
     assert not [e for e in events if e.type == "tool_start"]
 
 
 @pytest.mark.integration
-async def test_a_pending_file_is_named_and_never_waited_for(services, litellm):
+async def test_a_pending_file_is_named_and_never_waited_for(harness):
     principal = _principal()
     conversation = str(uuid.uuid4())
-    key = f"test/{conversation}/{uuid.uuid4()}"
-    data = pdf_bytes(LEAVE_REGULATION)
-    await services.attachments.objects.put(key, data, "application/pdf")
-    record = await services.attachments.register(
-        _owner(principal),
-        conversation,
-        name="قيد المعالجة.pdf",
-        mime="application/pdf",
-        size=len(data),
-        object_key=key,
-    )
-    seen: list[str] = []
-
-    class Recording:
-        def __init__(self, inner):
-            self.inner = inner
-
-        async def call(self, decision, package, **kwargs):
-            if decision.role == "reasoning":
-                seen.append("\n".join(m["content"] for m in package.to_messages()))
-            return await self.inner.call(decision, package, **kwargs)
-
-    import dataclasses
-
-    events = await _turn(
-        dataclasses.replace(services, gateway=Recording(services.gateway)),
-        principal,
-        conversation,
-        "ماذا في الملف؟",
-        [record.id],
-    )
+    pending = ["\n".join(page) for page in LEAVE_REGULATION]
+    document = await harness.upload(_scope(principal, conversation), "قيد المعالجة.pdf", pending)
+    recorded, seen = _recording(harness.services)
+    events = await _turn(recorded, principal, conversation, "ماذا في الملف؟", [document])
     assert events[-1].type == "done"
     assert not [e for e in events if e.type == "tool_start"]  # nothing indexed yet: no search
-    assert "ما زالت هذه الملفات قيد المعالجة" in seen[0] and "قيد المعالجة.pdf" in seen[0]
+    assert "ما زالت هذه الملفات قيد المعالجة" in _text(seen[0]) and "قيد المعالجة.pdf" in _text(seen[0])
+
+
+class _Unavailable:
+    """A backend whose search fails, as a backend outage does."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def register(self, stored):
+        return await self.inner.register(stored)
+
+    async def status(self, document_id, scope):
+        return await self.inner.status(document_id, scope)
+
+    async def search(self, query, scope, k):
+        raise RuntimeError("backend down")
+
+    async def fetch(self, refs, scope):
+        return await self.inner.fetch(refs, scope)
 
 
 @pytest.mark.integration
-async def test_a_failed_search_is_said_in_the_evidence(services, litellm, monkeypatch):
-    from app.rag import runtime
+async def test_a_failed_search_is_said_in_the_evidence(harness):
+    from tests.fixtures.fake_backend import with_backend
 
     principal = _principal()
     conversation = str(uuid.uuid4())
-    record = await _indexed(services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION))
-
-    class Broken:
-        async def retrieve(self, *args, **kwargs):
-            raise RuntimeError("rerank down")
-
-    monkeypatch.setattr(runtime, "retriever", lambda: Broken())
-    seen: list[str] = []
-
-    class Recording:
-        def __init__(self, inner):
-            self.inner = inner
-
-        async def call(self, decision, package, **kwargs):
-            if decision.role == "reasoning":
-                seen.append("\n".join(m["content"] for m in package.to_messages()))
-            return await self.inner.call(decision, package, **kwargs)
-
-    import dataclasses
-
-    events = await _turn(
-        dataclasses.replace(services, gateway=Recording(services.gateway)),
-        principal,
-        conversation,
-        "كم مدة إجازة الأمومة؟",
-        [record.id],
-    )
+    document = await _indexed(harness, principal, conversation)
+    broken = with_backend(harness.services, _Unavailable(harness.backend))
+    recorded, seen = _recording(broken)
+    events = await _turn(recorded, principal, conversation, "كم مدة إجازة الأمومة؟", [document])
     assert events[-1].type == "done"
     assert [e.data.status for e in events if e.type == "tool_end"] == ["error"]
-    assert "تعذّر البحث في الملفات المرفقة الآن" in seen[0]
+    assert "تعذّر البحث في الملفات المرفقة الآن" in _text(seen[0])
 
 
 @pytest.mark.integration
-async def test_the_router_sees_file_names_as_user_data_never_in_the_system_role(services, litellm):
+async def test_the_router_sees_file_names_as_user_data_never_in_the_system_role(harness):
     principal = _principal()
     conversation = str(uuid.uuid4())
-    record = await _indexed(
-        services, _owner(principal), conversation, pdf_bytes(LEAVE_REGULATION), "لائحة الإجازات.pdf"
-    )
-    await _turn(services, principal, conversation, "كم مدة الإجازة السنوية؟", [record.id])
-    seen: list[list[dict]] = []
-
-    class Recording:
-        def __init__(self, inner):
-            self.inner = inner
-
-        async def call(self, decision, package, **kwargs):
-            if decision.role == "router":
-                seen.append(package.to_messages())
-            return await self.inner.call(decision, package, **kwargs)
-
-    import dataclasses
-
-    await _turn(
-        dataclasses.replace(services, gateway=Recording(services.gateway)),
-        principal,
-        conversation,
-        f"وماذا عن إجازة الأمومة؟ {uuid.uuid4().hex[:6]}",
-    )
+    document = await _indexed(harness, principal, conversation)
+    await _turn(harness.services, principal, conversation, "كم مدة الإجازة السنوية؟", [document])
+    recorded, seen = _recording(harness.services, "router")
+    await _turn(recorded, principal, conversation, f"وماذا عن إجازة الأمومة؟ {uuid.uuid4().hex[:6]}")
     [messages] = seen
     assert messages[0]["role"] == "system" and "لائحة الإجازات.pdf" not in messages[0]["content"]
     assert messages[-1]["role"] == "user" and "<conversation_files>" in messages[-1]["content"]

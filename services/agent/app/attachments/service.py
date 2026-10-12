@@ -12,6 +12,7 @@ from app.attachments.objects import ObjectStore, StorageUnavailable
 from app.attachments.store import AttachmentRecord, AttachmentStore, collection_for
 from app.db import Database
 from app.observability.otel import tracer
+from app.rag.backend import DocumentBackend, DocumentScope, StoredFile
 from app.rag.config import DocsConfig
 from app.rag.ingest.worker import IngestWorker
 from app.rag.types import Owner
@@ -32,13 +33,15 @@ class AttachmentService:
         store: AttachmentStore,
         objects: ObjectStore,
         vectors: VectorStore,
-        worker: IngestWorker,
+        documents: DocumentBackend,
+        worker: IngestWorker | None,
         config: DocsConfig,
     ):
         self.db = db
         self.store = store
         self.objects = objects
         self.vectors = vectors
+        self.documents = documents
         self.worker = worker
         self.config = config
         self._purge_task: asyncio.Task | None = None
@@ -46,7 +49,8 @@ class AttachmentService:
     async def register(
         self, owner: Owner, conversation_id: str, *, name: str, mime: str, size: int, object_key: str
     ) -> AttachmentRecord:
-        """Raises UnsupportedType or LimitReached; enqueues the ingestion job."""
+        """Raises UnsupportedType or LimitReached; hands the stored file to the document
+        backend, which indexes it in the background (C6)."""
         kind = self.config.kind_of(name)
         if kind is None:
             raise UnsupportedType(name)
@@ -61,8 +65,47 @@ class AttachmentService:
             max_files=self.config.limits.max_files_per_conversation,
             retention_days=self.config.retention_days,
         )
-        await self.worker.enqueue(record.id)
+        await self.documents.register(
+            StoredFile(
+                id=record.id,
+                conversation_id=record.conversation_id,
+                tenant_id=record.tenant_id,
+                user_id=record.user_id,
+                name=record.name,
+                mime=record.mime,
+                kind=record.kind,
+                size=record.size,
+                object_key=record.object_key,
+            )
+        )
         return record
+
+    async def with_status(self, owner: Owner, conversation_id: str) -> list[AttachmentRecord]:
+        """The owner's attachments of the conversation, each with the status its document
+        backend reports (C6): the record says what was uploaded, the backend how far indexing
+        went. A record the backend does not know reads `pending`."""
+        scope = DocumentScope(
+            tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation_id
+        )
+        records = await self.store.list_for(owner, conversation_id)
+        return [await self._with_status(record, scope) for record in records]
+
+    async def get_with_status(self, owner: Owner, conversation_id: str, attachment_id: str):
+        record = await self.store.get(owner, conversation_id, attachment_id)
+        if record is None:
+            return None
+        scope = DocumentScope(
+            tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation_id
+        )
+        return await self._with_status(record, scope)
+
+    async def _with_status(self, record: AttachmentRecord, scope: DocumentScope) -> AttachmentRecord:
+        status = await self.documents.status(record.id, scope)
+        if status is None:
+            return record.model_copy(update={"status": "pending", "reason": None})
+        return record.model_copy(
+            update={"status": status.status, "reason": status.reason, "pages": status.pages}
+        )
 
     async def delete(self, owner: Owner, conversation_id: str, attachment_id: str) -> bool:
         """The record and its chunks go in one transaction, then the object (D1 purge
@@ -106,7 +149,8 @@ class AttachmentService:
         return counts
 
     async def start(self) -> None:
-        await self.worker.start()
+        if self.worker is not None:
+            await self.worker.start()
         self._purge_task = asyncio.create_task(self._purge_loop())
 
     async def stop(self) -> None:
@@ -114,7 +158,8 @@ class AttachmentService:
             self._purge_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._purge_task
-        await self.worker.stop()
+        if self.worker is not None:
+            await self.worker.stop()
 
     async def _purge_loop(self) -> None:
         while True:

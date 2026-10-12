@@ -3,6 +3,7 @@ attribution (phase 04; ADR-0125, ADR-0126, ADR-0133, ADR-0140). The gateway read
 same file for the upload limits, so the two services cannot disagree."""
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -69,6 +70,8 @@ class Purge(_Strict):
 
 
 class DocsConfig(_Strict):
+    # Which DocumentBackend serves documents (C6): the phase 04 pipeline, `internal`, for now.
+    backend: Literal["internal"]
     retention_days: int = Field(gt=0)
     limits: Limits
     chunking: Chunking

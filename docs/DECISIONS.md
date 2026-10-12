@@ -1395,7 +1395,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0153: Tool handlers reach the retrieval library through a binding the services push and pop
 - Date: 2026-10-11
 - Phase: 04 (A3)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0159 on 2026-10-12
 - Context: A `ToolSpec` handler receives only its arguments (README §9), and capabilities register tools before the services exist; the docs tool needs the retriever (database pool, embedding and rerank clients).
 - Decision: `app.rag.runtime` holds the retrievers of the started services: `start_services` binds, `stop_services` unbinds, and `retriever()` returns the most recent. The owner comes from the tool's arguments, which the capability fills from its RuntimeContext principal (trusted first-party code, ADR-0054); every VectorStore query names it. No broker or contract change.
 - Consequences: One process runs one service set, so the binding is unambiguous in production; tests that start several sets keep working because a stopped set leaves the stack.
@@ -1436,3 +1436,24 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: Measured on the development host (CPU inference, 24 threads), the cross-encoder's time grows with the tokens it scores: 30 candidates of about 800 tokens took 34 s, 16 took 18 s, 8 took 8 s, 30 of about 270 tokens took 10 s. A docs turn on a 20-page Arabic PDF spent 27.3 s (p50, n=20) in `rag.retrieve` and reached its first token after 28.7 s.
 - Decision: `retrieval.rerank_candidates: 16` and `retrieval.rerank_max_tokens: 400` in `config/docs.yaml`: the best 16 of the fused 60 are reranked, each on its first 400 tokens (counted as Context Assembly counts), and the top 8 are kept with their full text. The vector and text searches (30 + 30, RRF) are unchanged.
 - Consequences: `rag.retrieve` p50 6.31 s and time to first token p50 7.72 s on the same document (n=20). A chunk whose answer lies past its first 400 tokens is ranked by its beginning; it still reaches the top 8 when fusion ranks it high. On a GPU-served reranker in production both values can go back up; they are configuration.
+
+### ADR-0158: No policy at ingestion; delimiters are neutralized at runtime, for everyone
+- Date: 2026-10-12
+- Phase: 04 (owner principle, review round 1)
+- Status: decided
+- Context: Review round 1 found PII and instruction-like text handled in several places, and asked where a policy may act on uploaded content.
+- Decision: No guard policy is applied when a file is ingested: chunks, headings, sheet titles and file names are stored as extracted. Every guard policy runs at runtime, per principal (POST_TOOL on what a backend returns, OUTPUT and DATA on what leaves), so role exceptions (ADR-0107) keep working for their holders. Neutralizing delimiter tokens is not a policy: it applies to everyone, also at runtime, wherever untrusted text reaches a prompt.
+- Consequences: A document backend applies no policy (the contract suite asserts it, ADR-0159). Redacting a national ID in a section heading happens on the way out, for the user who asks, and not for a holder of an exception.
+
+### ADR-0159: The docs capability talks to one DocumentBackend; the phase 04 pipeline is InternalDocumentBackend
+- Date: 2026-10-12
+- Phase: 04 (owner decision C6; supersedes ADR-0153)
+- Status: decided
+- Context: The owner plans a RAG/OCR service of their own. The docs capability reached the vector store and the retriever through a module-global binding (ADR-0153), and its tool took the owner from its arguments.
+- Decision:
+  - `app/rag/backend.py` defines `DocumentBackend`: `register(stored file)`, `status(document id, scope)` (pending, indexed, failed with a reason), `search(query, scope, k)` (sources: chunk reference, text, page, section, file name, score) and `fetch(chunk references, scope)` (texts). `DocumentScope` names the tenant, the user and the conversation; every backend enforces it and returns nothing outside it, whatever reference a call names. A backend applies no policy (ADR-0158).
+  - `InternalDocumentBackend` (`app/rag/internal.py`) is this phase's pipeline: registering enqueues the ingestion job, status is the attachment record's, search is the hybrid retrieval of ADR-0133 over the conversation's indexed files, fetch reads chunk texts from the VectorStore. `config/docs.yaml` `backend: internal` selects it; a future MCP backend implements the same protocol and is named there. Not built now.
+  - The capability imports no VectorStore, extractor, chunker or retriever. Its tool receives a `ToolContext` from the broker: the scope (built from the verified principal and the conversation in state, never from arguments, ADR-0160) and the backend the capability's `RuntimeContext` carries. `app/rag/runtime.py` and its binding are removed.
+  - The core reads an attachment's status through the backend: the attachment record says what was uploaded, the backend how far indexing went (the turn's attachments, the status endpoint).
+  - A contract suite (`tests/integration/test_document_backend_contract.py`) runs against the internal backend and a test-only in-memory fake (`tests/fixtures/fake_backend.py`): scope isolation across users, tenants and conversations, page and section metadata, status transitions, and untrusted text returned unchanged as data. The docs capability's turn tests run on both backends with no change to capability code.
+- Consequences: Whatever a backend returns passes the same runtime POST_TOOL, OUTPUT and DATA path. A backend's own spans (the internal one's `rag.retrieve`) are its own; the capability's span and the broker's are the same for every backend.

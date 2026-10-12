@@ -28,7 +28,7 @@ def _spec(handler, *, name="echo", timeout_s=1.0, max_retries=0, permission="cap
     )
 
 
-async def _echo(args: EchoArgs) -> ToolOutput:
+async def _echo(args: EchoArgs, ctx) -> ToolOutput:
     return ToolOutput(content=args.text, sources=[{"id": "s1"}])
 
 
@@ -75,7 +75,7 @@ async def test_ok_result_is_normalized_and_events_emitted():
 async def test_missing_permission_is_denied_without_running():
     ran = []
 
-    async def handler(args):
+    async def handler(args, ctx):
         ran.append(args)
         return ToolOutput(content="x")
 
@@ -91,7 +91,7 @@ async def test_invalid_arguments_are_an_error():
 async def test_timeout_retries_then_errors():
     calls = []
 
-    async def slow(args):
+    async def slow(args, ctx):
         calls.append(1)
         await asyncio.sleep(1)
         return ToolOutput(content="late")

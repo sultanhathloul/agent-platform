@@ -1,7 +1,7 @@
 """docs (UC3, README §9.3): answers from the files attached to the conversation.
 
-One broker call to `docs_search` (hybrid retrieval with rerank over the session
-collection, ADR-0133, ADR-0136) for the question, over the conversation's indexed files.
+One broker call to `docs_search` (a search of the conversation's indexed files through the
+DocumentBackend, C6; the broker scopes it to the principal and the conversation, S1).
 The chunks come back through POST_TOOL, sanitized (README §10.3); they are compressed
 per chunk when over the evidence budget and rendered for the answer inside untrusted
 delimiters (`docs.evidence`). Each chunk is a Source with its document, page and text, so
@@ -62,16 +62,7 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     sources: list[Source] = []
     unavailable = False
     if indexed:
-        result = await rt.broker.execute(
-            "docs_search",
-            {
-                "collection": indexed[0]["collection"],
-                "attachment_ids": [a["id"] for a in indexed],
-                "query": request.message,
-                "tenant_id": rt.principal.tenant_id,
-                "user_id": rt.principal.user_id,
-            },
-        )
+        result = await rt.broker.execute("docs_search", {"query": request.message})
         unavailable = result.status != "ok"
         if not unavailable:
             texts = split_content(result.content, [s["id"] for s in result.sources])

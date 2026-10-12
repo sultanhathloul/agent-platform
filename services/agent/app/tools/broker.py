@@ -4,6 +4,10 @@ Validates arguments, checks the permission, runs PRE_TOOL, executes with
 timeout and retries, runs POST_TOOL, normalizes the result, emits
 tool_start/tool_end events and one `tool.exec` span.
 
+The handler receives a ToolContext beside its arguments: the scope, built here from the
+verified principal and the turn's conversation (never from the arguments, S1), and the
+document backend of the calling capability's RuntimeContext (C6).
+
 Both checkpoints evaluate under the scopes `tool:{name}` and `tool:{capability}`
 (ADR-0025) besides the turn's own. PRE_TOOL: a block denies the call; a
 `require_approval` ends it with status `pending_approval` and error
@@ -28,7 +32,7 @@ from app.guardrails.schema import GuardContext, GuardOutcome
 from app.identity import Principal
 from app.observability.otel import tracer
 from app.tools.registry import ToolRegistry
-from app.tools.spec import ToolOutput, ToolResult
+from app.tools.spec import ToolContext, ToolOutput, ToolResult, ToolScope
 
 Emit = Callable[[str, dict[str, Any]], None]
 OnGuard = Callable[[GuardOutcome], None]
@@ -45,6 +49,8 @@ class ToolBroker:
         args: dict[str, Any],
         *,
         principal: Principal,
+        conversation_id: str = "",
+        documents: Any = None,
         emit: Emit | None = None,
         context: GuardContext | None = None,
         on_guard: OnGuard | None = None,
@@ -65,7 +71,15 @@ class ToolBroker:
             scoped = GuardContext(
                 kbs=base.kbs, tools=(*base.tools, name, capability), locale=base.locale, turn=base.turn
             )
-            result = await self._run(spec, args, principal, scoped, on_guard or (lambda _outcome: None))
+            tool_context = ToolContext(
+                scope=ToolScope(
+                    tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation_id
+                ),
+                documents=documents,
+            )
+            result = await self._run(
+                spec, args, principal, scoped, tool_context, on_guard or (lambda _outcome: None)
+            )
             result.latency_ms = int((time.monotonic() - started) * 1000)
 
             span.set_attribute("tool.status", result.status)
@@ -83,7 +97,13 @@ class ToolBroker:
             return result
 
     async def _run(
-        self, spec, args: dict[str, Any], principal: Principal, context: GuardContext, on_guard: OnGuard
+        self,
+        spec,
+        args: dict[str, Any],
+        principal: Principal,
+        context: GuardContext,
+        tool_context: ToolContext,
+        on_guard: OnGuard,
     ) -> ToolResult:
         if not principal.has(spec.required_permission):
             return ToolResult(status="denied", error="permission")
@@ -111,7 +131,7 @@ class ToolBroker:
         attempt = 0
         for attempt in range(spec.max_retries + 1):  # noqa: B007 (attempt is reported)
             try:
-                output = await asyncio.wait_for(spec.handler(parsed), timeout=spec.timeout_s)
+                output = await asyncio.wait_for(spec.handler(parsed, tool_context), timeout=spec.timeout_s)
                 break
             except TimeoutError:
                 error = f"timeout after {spec.timeout_s}s"

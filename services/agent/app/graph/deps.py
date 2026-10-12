@@ -25,6 +25,7 @@ from app.models.embeddings import EmbeddingGateway
 from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
+from app.rag.backend import DocumentBackend
 from app.rag.config import DocsConfig
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
@@ -57,6 +58,7 @@ class Services:
     locks: TurnLocks
     docs_config: DocsConfig
     attachments: AttachmentService
+    documents: DocumentBackend
     retriever: HybridRetriever
     router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL

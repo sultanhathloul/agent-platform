@@ -7,7 +7,7 @@ class LookupArgs(BaseModel):
     text: str
 
 
-async def _lookup(args: LookupArgs) -> ToolOutput:
+async def _lookup(args: LookupArgs, ctx) -> ToolOutput:
     return ToolOutput(content=f"lookup:{args.text}", sources=[{"id": "probe-1"}])
 
 

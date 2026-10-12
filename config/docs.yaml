@@ -1,6 +1,11 @@
 # Documents (UC3, README §9.3) and the shared retrieval library (app/rag/). Read by the
 # agent and, for `limits`, by the gateway, so both enforce the same values.
 
+# The DocumentBackend the docs capability talks to (C6): `internal` is this phase's pipeline
+# (extraction, chunking, pgvector, hybrid retrieval with rerank). A future backend (the owner's
+# RAG/OCR service) implements the same interface and is selected here.
+backend: internal
+
 # An uploaded file and everything derived from it expire this many days after the
 # conversation's last turn; a daily purge deletes them (ADR-0125, D1).
 retention_days: 30

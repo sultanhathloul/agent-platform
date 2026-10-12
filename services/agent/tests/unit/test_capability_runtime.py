@@ -111,7 +111,8 @@ async def test_capability_cannot_reach_history_other_namespaces_or_the_state(ser
 
 def test_runtime_context_is_the_narrow_interface():
     names = {field.name for field in dataclasses.fields(RuntimeContext)}
-    assert names == {"slug", "principal", "cap_state", "call_model", "broker", "stream_writer"}
+    # `documents`: the DocumentBackend, reached by the capability's tools through the broker (C6).
+    assert names == {"slug", "principal", "cap_state", "call_model", "broker", "stream_writer", "documents"}
     for core in ("resolver", "models", "guard", "models_config", "services", "state"):
         assert core not in names
 

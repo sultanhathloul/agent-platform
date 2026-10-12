@@ -59,10 +59,12 @@ from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.otel import setup_tracing, shutdown_tracing
-from app.rag import runtime as rag_runtime
+from app.rag.backend import DocumentBackend
 from app.rag.config import load_docs_config
 from app.rag.ingest.pipeline import IngestPipeline
+from app.rag.ingest.queue import IngestQueue
 from app.rag.ingest.worker import IngestWorker
+from app.rag.internal import InternalDocumentBackend
 from app.rag.rerank import Reranker
 from app.rag.retrieve import HybridRetriever
 from app.rag.vectorstore import PgVectorStore
@@ -153,18 +155,19 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         config=docs_config,
         counter=counter,
     )
+    queue = IngestQueue(redis, namespace=settings.redis_namespace)
+    retriever = HybridRetriever(
+        vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval, counter
+    )
+    documents = document_backend(docs_config.backend, attachment_store, vectors, retriever, queue)
     attachments = AttachmentService(
         db=db,
         store=attachment_store,
         objects=objects,
         vectors=vectors,
-        worker=IngestWorker(
-            pipeline, attachment_store, docs_config, redis, namespace=settings.redis_namespace
-        ),
+        documents=documents,
+        worker=IngestWorker(pipeline, attachment_store, docs_config, queue) if redis is not None else None,
         config=docs_config,
-    )
-    retriever = HybridRetriever(
-        vectors, embeddings, Reranker(settings, models_config), docs_config.retrieval, counter
     )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
@@ -198,6 +201,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
         docs_config=docs_config,
         attachments=attachments,
+        documents=documents,
         retriever=retriever,
         router=load_router_config(settings.config_dir),
         redis=redis,
@@ -205,6 +209,15 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     )
     judge.bind(services)
     return services
+
+
+def document_backend(name: str, attachments, vectors, retriever, queue) -> DocumentBackend:
+    """The DocumentBackend `config/docs.yaml` names (C6); a new backend adds its name here."""
+    if name == "internal":
+        return InternalDocumentBackend(
+            attachments=attachments, vectors=vectors, retriever=retriever, queue=queue
+        )
+    raise ValueError(f"unknown document backend {name!r}")
 
 
 def _redis(settings: Settings):
@@ -234,12 +247,10 @@ async def start_services(services: Services) -> Services:
     await services.locks.open()
     await services.policies.seed(policy_roots(services.settings, services.registry))
     await services.policies.start()
-    rag_runtime.bind(services.retriever)
     return dataclasses.replace(services, graph=build_graph(checkpointer))
 
 
 async def stop_services(services: Services) -> None:
-    rag_runtime.unbind(services.retriever)
     await services.policies.stop()
     for close in services.closers:
         await close()

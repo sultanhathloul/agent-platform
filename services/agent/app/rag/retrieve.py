@@ -78,7 +78,7 @@ class HybridRetriever:
         question: str,
         *,
         document_ids: Sequence[str] | None = None,
-        locale: str = "ar",
+        top_k: int | None = None,
     ) -> list[ScoredChunk]:
         config = self._config
         with tracer.start_as_current_span("rag.retrieve") as span:
@@ -104,7 +104,7 @@ class HybridRetriever:
                 (c.model_copy(update={"score": s}) for c, s in zip(candidates, scores, strict=True)),
                 key=lambda c: (-c.score, c.attachment_id, c.ord),
             )
-            top = ranked[: config.top_k]
+            top = ranked[: top_k or config.top_k]
             span.set_attribute("rag.vector_hits", len(by_vector))
             span.set_attribute("rag.text_hits", len(by_text))
             span.set_attribute("rag.candidates", len(candidates))

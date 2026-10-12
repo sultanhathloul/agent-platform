@@ -49,6 +49,10 @@ class VectorStore(Protocol):
         """The chunks whose normalized text matches any of `terms`, by full-text rank."""
         ...
 
+    async def fetch(self, owner: Owner, collection: str, ids: Sequence[str]) -> dict[str, str]:
+        """The text of each chunk id in the owner's collection; ids outside it are left out."""
+        ...
+
     async def delete_document(self, owner: Owner, collection: str, document_id: str, *, conn=None) -> int: ...
 
     async def touch(self, owner: Owner, collection: str, expires_at: datetime, *, conn=None) -> int:

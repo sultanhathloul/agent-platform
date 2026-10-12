@@ -208,8 +208,10 @@ class EventWriter(Protocol):
 class RuntimeContext:
     """The LangGraph runtime context of a capability subgraph (`Runtime[RuntimeContext]`).
     This is the whole surface a capability has into the core: its slug, the
-    principal, a copy of its own state slice, `call_model`, the broker and the
-    event writer. No resolver, guard engine, model config or AgentState (ADR-0047)."""
+    principal, a copy of its own state slice, `call_model`, the broker, the
+    event writer and the document backend. No resolver, guard engine, model config or
+    AgentState (ADR-0047). The backend reaches the capability's tool handlers through
+    the broker, which scopes every call to the principal and the conversation (C6, S1)."""
 
     slug: str
     principal: Principal
@@ -217,3 +219,4 @@ class RuntimeContext:
     call_model: ModelCaller
     broker: CapabilityBroker
     stream_writer: EventWriter
+    documents: Any = None

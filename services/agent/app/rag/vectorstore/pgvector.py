@@ -5,6 +5,7 @@ returned, even before the purge deletes them (ADR-0125). Similarity is computed 
 against vectors of the query's dimension, so the embedding model can change without a
 migration (ADR-0058's reasoning)."""
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -13,6 +14,7 @@ from app.rag.types import Chunk, Owner, ScoredChunk
 from app.text.arabic import normalize_for_search
 
 _LIVE = "(expires_at IS NULL OR expires_at > now())"
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _FIELDS = "id::text AS id, attachment_id::text AS attachment_id, page, section, ord, text"
 
 
@@ -154,6 +156,20 @@ class PgVectorStore:
             )
             for rank, r in enumerate(rows, start=1)
         ]
+
+    async def fetch(self, owner: Owner, collection: str, ids: Sequence[str]) -> dict[str, str]:
+        wanted = [i for i in dict.fromkeys(ids) if _UUID.match(i)]
+        if not wanted:
+            return {}
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT id::text AS id, text FROM agent.rag_chunks "
+                "WHERE collection = %s AND tenant_id = %s AND user_id = %s "
+                f"AND {_LIVE} AND id = ANY(%s::uuid[])",
+                (collection, owner.tenant_id, owner.user_id, wanted),
+            )
+            rows = await cursor.fetchall()
+        return {r["id"]: r["text"] for r in rows}
 
     async def delete_document(self, owner: Owner, collection: str, document_id: str, *, conn=None) -> int:
         sql = (

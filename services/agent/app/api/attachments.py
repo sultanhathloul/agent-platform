@@ -110,7 +110,7 @@ async def list_attachments(
     if not await _owned(request, conversation_id, caller):
         return _error(request, request_id, "conversation_forbidden", 403)
     owner = DataOwner(tenant_id=caller.tenant_id, user_id=caller.user_id)
-    records = await services.attachments.store.list_for(owner, conversation_id)
+    records = await services.attachments.with_status(owner, conversation_id)
     return AttachmentList(attachments=[_view(r) for r in records])
 
 
@@ -132,7 +132,7 @@ async def get_attachment(
     if not await _owned(request, conversation_id, caller):
         return _error(request, request_id, "conversation_forbidden", 403)
     owner = DataOwner(tenant_id=caller.tenant_id, user_id=caller.user_id)
-    record = await services.attachments.store.get(owner, conversation_id, attachment_id)
+    record = await services.attachments.get_with_status(owner, conversation_id, attachment_id)
     if record is None:
         return _error(request, request_id, "attachment_not_found", 404)
     return _view(record)

@@ -22,7 +22,7 @@ async def ingest_attachments(state: AgentState, runtime: Runtime[TurnContext]) -
     owner = Owner(tenant_id=principal.tenant_id, user_id=principal.user_id)
     conversation_id = state["conversation_id"]
     service = ctx.services.attachments
-    records = await service.store.list_for(owner, conversation_id)
+    records = await service.with_status(owner, conversation_id)
     known = {record.id for record in records}
     named = list(state.get("turn_attachment_ids") or [])
     span = trace.get_current_span()

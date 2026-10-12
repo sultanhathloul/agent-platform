@@ -24,6 +24,25 @@ class ToolResult(BaseModel):
 
 
 @dataclass(frozen=True)
+class ToolScope:
+    """Whose data a tool call may touch. The broker builds it from the verified principal and
+    the conversation in state; it is never an argument a capability or a model fills (S1)."""
+
+    tenant_id: str
+    user_id: str
+    conversation_id: str
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    """What a handler receives beside its arguments: the scope and the document backend the
+    calling capability's RuntimeContext holds (C3, C6). No module global reaches a handler."""
+
+    scope: ToolScope
+    documents: Any = None
+
+
+@dataclass(frozen=True)
 class ToolSpec:
     name: str
     description_ar: str
@@ -33,4 +52,4 @@ class ToolSpec:
     required_permission: str
     timeout_s: float
     max_retries: int
-    handler: Callable[[BaseModel], Awaitable[ToolOutput]]
+    handler: Callable[[BaseModel, ToolContext], Awaitable[ToolOutput]]

@@ -12,6 +12,7 @@ import logging
 from app.attachments.store import AttachmentStore
 from app.rag.config import DocsConfig
 from app.rag.ingest.pipeline import IngestPipeline, Retry
+from app.rag.ingest.queue import IngestQueue
 
 log = logging.getLogger(__name__)
 
@@ -24,30 +25,18 @@ class IngestWorker:
         pipeline: IngestPipeline,
         attachments: AttachmentStore,
         config: DocsConfig,
-        redis,
-        *,
-        namespace: str,
+        queue: IngestQueue,
     ):
         self.pipeline = pipeline
         self._attachments = attachments
         self._config = config
-        self._redis = redis
-        self.queue = f"{namespace}:rag:ingest"
+        self.queue = queue
         self._tasks: list[asyncio.Task] = []
 
-    async def enqueue(self, attachment_id: str) -> None:
-        if self._redis is None:  # no queue: run beside the request
-            self._tasks.append(asyncio.create_task(self._job(attachment_id)))
-            return
-        await self._redis.rpush(self.queue, attachment_id)
-
     async def start(self) -> None:
-        if self._redis is not None:
-            await self._redis.delete(self.queue)
-            for attachment_id in await self._attachments.pending_ids():
-                await self._redis.rpush(self.queue, attachment_id)
-            for _ in range(self._config.ingest.workers):
-                self._tasks.append(asyncio.create_task(self._loop()))
+        await self.queue.requeue(await self._attachments.pending_ids())
+        for _ in range(self._config.ingest.workers):
+            self._tasks.append(asyncio.create_task(self._loop()))
         log.info("ingestion worker started (%d tasks)", len(self._tasks))
 
     async def stop(self) -> None:
@@ -61,7 +50,7 @@ class IngestWorker:
     async def _loop(self) -> None:
         while True:
             try:
-                item = await self._redis.blpop([self.queue], timeout=_POP_TIMEOUT_S)
+                item = await self.queue.take(_POP_TIMEOUT_S)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -69,7 +58,7 @@ class IngestWorker:
                 await asyncio.sleep(2)
                 continue
             if item is not None:
-                await self._job(item[1])
+                await self._job(item)
 
     async def _job(self, attachment_id: str) -> str:
         attempt = 0
