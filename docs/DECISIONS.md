@@ -1423,7 +1423,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0156: Page attribution counts word bigrams, with a floor relative to the best chunk
 - Date: 2026-10-11
 - Phase: 04 (ADR-0140)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0182 on 2026-10-12 (the attribution rule)
 - Context: ADR-0140 leaves the n-gram size and threshold to `config/docs.yaml`. The first rag run used trigrams with at least two shared: a paraphrased answer ("الحد الأقصى للإجازة الاضطرارية ... خمسة أيام، وذلك بموافقة المدير") shared no trigram with its page and showed no source, while the annual-leave answer also cited the sick-leave page, which shares only "ثلاثون يوما براتب كامل". Measured offline on that run's 29 answers with a citation expectation: trigrams, two shared: 22/29; bigrams, three shared: 23/29; bigrams, three shared and at least half of the best chunk's count: 25/29, with the remaining misses general-knowledge answers given on a docs turn and two abstentions that name the document.
 - Decision: `citations: {ngram: 2, min_shared_ngrams: 3, relative_to_best: 0.5}`: a chunk is cited when it shares at least three word bigrams with the answer and at least half as many as the best-matching chunk. Still deterministic, no model call, no change to the answer.
 - Consequences: An answer that names the document's title can still cite the page that holds the title. A page that repeats a common phrase beside the page the answer used is no longer cited.
@@ -1490,7 +1490,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0163: Capabilities may supply citations; page attribution is a separate generic step before validate, without the question's words
 - Date: 2026-10-12
 - Phase: 04 (owner decision C1; supersedes ADR-0140 on where attribution runs and what validate checks)
-- Status: decided
+- Status: decided — Superseded by ADR-0182 on 2026-10-12 (the attribution rule only; the separate step, validate and the prompts stand)
 - Context: validate computed the citations itself, so its "citations ⊆ sources" check could never fail; attribution read docs-named configuration; "not found" answers restating the question cited a page (the known gap of the first run); answers carried "[docs]" labels copied from the findings block, and `answer.system` asked every answer to name its sources.
 - Decision:
   - `CapabilityOutput` gains `citations`. A new node `attribute_citations`, after `answer` and before `validate`, keeps the capabilities' citations and adds page attribution's, capability-agnostically, from sources with a document and page or section metadata, comparing the answer with the chunk texts the answer step fetched. `validate` checks every citation against this turn's sources and fails with `citation_not_in_sources` otherwise (tested); attribution never bypasses it.
@@ -1680,3 +1680,16 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - Answers no longer name their sources (ADR-0163), so the Ragas reference is the case's reference answer alone, without the source label ADR-0154 appended; contexts keep the label the answer model saw in its delimiter.
   - `make test-evals` covers each rule.
 - Consequences: Abstention now fails on a source line, so the C1 fix (question words dropped before attribution) is what keeps it above its threshold.
+
+### ADR-0182: Attribution in two steps: the question's words decide whether a chunk may be cited, rarity decides which
+- Date: 2026-10-12
+- Phase: 04 (owner decision C1; supersedes the attribution rule of ADR-0156 and ADR-0163)
+- Status: decided
+- Context: The first Q1 run (make-eval-20261012T105801Z, rerank 16/1070) scored citation page accuracy 0.69, below its 0.85 threshold. Dropping the question's words before forming n-grams (ADR-0163) left a short answer with too few bigrams to reach three ("مدة الإجازة المرضية براتب كامل هي ثلاثون يوماً" keeps only "ثلاثون يوما" once the question's words go), so it cited nothing. Dropping only the n-grams made of question words cited all twenty pages of twenty-pages.pdf, whose lines differ only in the department and article numbers the question itself gives. An abstention naming the document ("لا توجد معلومات في السيرة الذاتية ...") cited the CV's title page.
+- Decision: `config/citations.yaml` `attribution: {ngram: 2, min_shared_ngrams: 1, min_new_word_coverage: 0.25, relative_to_best: 0.6}`, applied in two steps:
+  - Eligible (the owner's rule): the question's words are dropped from the answer first. A chunk may be cited only when it shares at least one answer bigram not made only of question words, and holds at least a quarter of the answer's words that are not in the question. An answer that restates the question, or adds only its own phrasing around the document's name, cites nothing.
+  - Cited: each eligible chunk is scored by all the answer's bigrams it shares, each weighted by one over the number of retrieved chunks that hold it. It is cited at 0.6 of the best score or more. Boilerplate every page repeats counts for little; the bigram naming the page's own article and department counts most. 0.6, not 0.5, so a page that ties at exactly half the best (two pages sharing "ثلاثون يوما براتب كامل") is not cited.
+  - Still deterministic and capability-agnostic, with no model call and no change to the answer.
+- Measured offline, before the rerun, with `attribute` on the eval's six documents (every page a candidate, which is harsher than the retrieved top 8): 56 answers, made of the reference answers with a page expectation and the run's answers as the log prints them (first 70 characters). ADR-0163's rule: 38/56. Dropping question-only n-grams: 42/56. This rule: 55/56. The one miss is a log answer cut before its fact. relative_to_best 0.5–0.8 give the same 55/56.
+- Consequences: The question's words still decide whether a source line shows, so "not found" answers show none. Among the chunks that pass, the question's words help pick the page, which is what tells templated pages apart. `app/capabilities/docs/tests/test_docs.py` covers the templated pages, the short answer and the abstention that names the document.
+

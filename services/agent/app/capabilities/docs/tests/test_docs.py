@@ -58,7 +58,9 @@ TEXTS = {
     "c2": "المادة الثانية: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما.",
     "c3": "يسمح بالعمل عن بعد يومين في الأسبوع بموافقة المدير المباشر.",
 }
-RULE = AttributionRule(ngram=2, min_shared_ngrams=3, relative_to_best=0.5)  # config/citations.yaml
+RULE = AttributionRule(  # config/citations.yaml (ADR-0182)
+    ngram=2, min_shared_ngrams=1, min_new_word_coverage=0.25, relative_to_best=0.6
+)
 
 
 def test_the_configured_rule_is_the_one_tested(config_dir):
@@ -446,3 +448,57 @@ async def test_the_router_sees_file_names_as_user_data_never_in_the_system_role(
     assert messages[0]["role"] == "system" and "لائحة الإجازات.pdf" not in messages[0]["content"]
     assert messages[-1]["role"] == "user" and "<conversation_files>" in messages[-1]["content"]
     assert "لائحة الإجازات.pdf" in messages[-1]["content"]
+
+
+def _twenty_pages() -> tuple[list[dict], dict[str, str]]:
+    """Pages built like evals/docs twenty-pages.pdf: every line is the same sentence, told apart
+    only by the department and article numbers the question gives."""
+    sources, texts = [], {}
+    for page in range(1, 6):
+        ref = f"p{page}"
+        sources.append(
+            {"id": ref, "ref": ref, "title": "عشرون.pdf", "kind": "doc", "page": page, "document_id": "d1"}
+        )
+        texts[ref] = "\n".join(
+            f"المادة {page * 10 + line}: يلتزم الموظف في الإدارة رقم {page} بإجراءات العمل المعتمدة "
+            f"ويرفع تقريرا دوريا كل {line + 2} أسابيع إلى مديره المباشر."
+            for line in range(1, 16)
+        )
+    return sources, texts
+
+
+def test_a_templated_page_is_told_apart_by_the_words_only_it_holds():
+    """rag/twenty-past-truncation-*: the boilerplate every page repeats counts for little; the
+    page whose own article and department the answer names is the one cited (ADR-0182)."""
+    sources, texts = _twenty_pages()
+    question = "في الإدارة رقم 3، كل كم أسبوعا يرفع الموظف تقريره الدوري حسب المادة 36؟"
+    # The answer of rag/twenty-past-truncation-p3 in make-eval-20261012T105801Z, its numbers moved.
+    answer = "وفقاً للمادة 36، يلتزم الموظف في الإدارة رقم 3 برفع تقرير دوري كل 8 أسابيع إلى مديره المباشر."
+    assert [c["pages"] for c in attribute(answer, sources, texts, RULE, question=question)] == [[3]]
+
+
+def test_a_short_answer_whose_only_new_words_are_the_fact_cites_its_page():
+    """rag/leave-sick-full: the answer restates the question and adds only the number."""
+    pages = [
+        {"id": "a", "ref": "a", "title": "لائحة.pdf", "kind": "doc", "page": 2, "document_id": "d1"},
+        {"id": "b", "ref": "b", "title": "لائحة.pdf", "kind": "doc", "page": 4, "document_id": "d1"},
+    ]
+    texts = {  # pages 2 and 4 of evals/docs leave-regulation.pdf
+        "a": "المادة الثالثة: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما براتب كامل عن كل سنة خدمة.\n"
+        "المادة الرابعة: يجوز ترحيل خمسة عشر يوما من رصيد الإجازة السنوية إلى السنة التالية فقط.",
+        "b": "المادة التاسعة: يستحق الموظف إجازة مرضية بتقرير طبي معتمد مدتها ثلاثون يوما براتب كامل.\n"
+        "المادة الحادية عشرة: يقدم التقرير الطبي خلال ثلاثة أيام من بداية الإجازة المرضية.",
+    }
+    question = "كم مدة الإجازة المرضية براتب كامل؟"
+    answer = "مدة الإجازة المرضية براتب كامل هي ثلاثون يوماً."
+    assert [c["pages"] for c in attribute(answer, pages, texts, RULE, question=question)] == [[4]]
+
+
+def test_an_abstention_that_names_the_document_cites_nothing():
+    """rag/cv-hospital: "the CV says nothing of it" shares the CV's own title, and nothing more."""
+    sources = [{"id": "cv", "ref": "cv", "title": "سيرة.pdf", "kind": "doc", "page": 1, "document_id": "d1"}]
+    texts = {"cv": "السيرة الذاتية\nنورة الواحي\nقائدة فريق تحليل الأداء في شركة النخيل للتقنية منذ 2029."}
+    question = "كم سنة خبرة لدى صاحبة السيرة في إدارة المستشفيات؟"
+    answer = "لا توجد معلومات في السيرة الذاتية تشير إلى خبرة صاحبة السيرة في إدارة المستشفيات."
+    assert attribute(answer, sources, texts, RULE) != []  # without the question, it would cite
+    assert attribute(answer, sources, texts, RULE, question=question) == []
