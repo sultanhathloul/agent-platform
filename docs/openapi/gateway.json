@@ -939,71 +939,6 @@
       }
     },
     "/v1/conversations/{conversationId}/attachments/{attachmentId}" : {
-      "delete" : {
-        "operationId" : "delete",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "conversationId",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "in" : "path",
-          "name" : "attachmentId",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "204" : {
-            "description" : "Deleted"
-          },
-          "403" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
-                }
-              }
-            },
-            "description" : "conversation_forbidden"
-          },
-          "404" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
-                }
-              }
-            },
-            "description" : "attachment_not_found, also for another user's id"
-          },
-          "502" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
-                }
-              }
-            },
-            "description" : "agent_unavailable"
-          },
-          "503" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
-                }
-              }
-            },
-            "description" : "audit_unavailable"
-          }
-        },
-        "summary" : "Deletes one attachment: its file, its chunks and its record",
-        "tags" : [ "attachments" ]
-      },
       "get" : {
         "operationId" : "status",
         "parameters" : [ {
@@ -1311,7 +1246,7 @@
     },
     "/v1/memory/{itemId}" : {
       "delete" : {
-        "operationId" : "delete_1",
+        "operationId" : "delete",
         "parameters" : [ {
           "in" : "path",
           "name" : "itemId",
@@ -1684,11 +1619,6 @@
             "type" : "string",
             "format" : "date-time"
           },
-          "expires_at" : {
-            "type" : "string",
-            "format" : "date-time",
-            "description" : "30 days after the conversation's last turn (ADR-0125)."
-          },
           "id" : {
             "type" : "string"
           },
@@ -1723,7 +1653,7 @@
             "enum" : [ "pending", "indexed", "failed" ]
           }
         },
-        "required" : [ "conversation_id", "created_at", "expires_at", "id", "kind", "mime", "name", "size", "status" ]
+        "required" : [ "conversation_id", "created_at", "id", "kind", "mime", "name", "size", "status" ]
       },
       "ChatTurnRequest" : {
         "properties" : {

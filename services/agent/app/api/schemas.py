@@ -355,7 +355,6 @@ class AttachmentView(BaseModel):
     chunks: int | None = None
     created_at: datetime
     indexed_at: datetime | None = None
-    expires_at: datetime = Field(description="30 days after the conversation's last turn (ADR-0125).")
     object_key: str = Field(description="Where the gateway reads the bytes; never sent to a browser.")
 
 

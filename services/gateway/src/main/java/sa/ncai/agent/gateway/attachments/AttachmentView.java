@@ -22,6 +22,4 @@ public record AttachmentView(
         Integer pages,
         Integer chunks,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
-        @Schema(format = "date-time") String indexedAt,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time",
-                description = "30 days after the conversation's last turn (ADR-0125).") String expiresAt) {}
+        @Schema(format = "date-time") String indexedAt) {}

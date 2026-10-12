@@ -62,7 +62,6 @@ from app.models.routing import TierResolver
 from app.observability.otel import setup_tracing, shutdown_tracing
 from app.rag.citations import load_attribution_rule
 from app.rag.setup import build_documents
-from app.rag.vectorstore import PgVectorStore
 from app.settings import Settings, get_settings
 from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
@@ -161,12 +160,9 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         db=db,
         store=attachment_store,
         objects=objects,
-        vectors=PgVectorStore(db),
         documents=documents.backend,
         worker=documents.worker,
         limits=load_upload_limits(settings.config_dir),
-        retention_days=documents.config.retention_days,
-        purge_interval_hours=documents.config.purge.interval_hours,
     )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
@@ -262,7 +258,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
         started = await start_services(app.state.services)
         app.state.services = started
         app.state.runner = TurnRunner(started)
-        # Ingestion and the retention purge run in the service process (ADR-0125, ADR-0130);
+        # Ingestion runs in the service process (ADR-0130);
         # tests that hand in started services run jobs themselves.
         background = start_background and owned
         if background:

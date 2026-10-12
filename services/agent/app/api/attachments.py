@@ -1,6 +1,7 @@
 """A conversation's attachments, internal API (phase 04, A2; ADR-0129). The gateway stores
-an upload in MinIO and registers it here; list, status, delete and the object key for a
-download are answered for the conversation's owner only. A caller is named by the
+an upload in MinIO and registers it here; list, status and the object key for a download are
+answered for the conversation's owner only. There is no delete: the product deletes no file
+(owner decision S4). A caller is named by the
 principal in the body (registration) or by X-User-Id and X-Tenant-Id, which the gateway
 sets from the verified token (ADR-0059). Another owner's conversation is 403
 `conversation_forbidden`; an attachment id the caller does not have in this conversation,
@@ -9,7 +10,7 @@ another user's included, is 404 `attachment_not_found` (G6)."""
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Path, Request, Response
+from fastapi import APIRouter, Depends, Header, Path, Request
 from fastapi.responses import JSONResponse
 
 from app.api.ownership import Owner
@@ -136,33 +137,3 @@ async def get_attachment(
     if record is None:
         return _error(request, request_id, "attachment_not_found", 404)
     return _view(record)
-
-
-@router.delete(
-    "/{attachment_id}",
-    status_code=204,
-    response_class=Response,
-    responses={
-        204: {"description": "The file, its chunks and its record are deleted."},
-        **_ERRORS,
-        **_NOT_FOUND,
-    },
-)
-async def delete_attachment(
-    request: Request,
-    conversation_id: ConversationId,
-    attachment_id: AttachmentId,
-    caller: Caller,
-    x_internal_token: str | None = Header(default=None),
-    x_request_id: str | None = Header(default=None),
-):
-    services = request.app.state.services
-    request_id = _request_id(x_request_id)
-    if not _authorized(x_internal_token, services.settings.agent_internal_token):
-        return _error(request, request_id, "unauthorized", 401)
-    if not await _owned(request, conversation_id, caller):
-        return _error(request, request_id, "conversation_forbidden", 403)
-    owner = DataOwner(tenant_id=caller.tenant_id, user_id=caller.user_id)
-    if not await services.attachments.delete(owner, conversation_id, attachment_id):
-        return _error(request, request_id, "attachment_not_found", 404)
-    return Response(status_code=204)

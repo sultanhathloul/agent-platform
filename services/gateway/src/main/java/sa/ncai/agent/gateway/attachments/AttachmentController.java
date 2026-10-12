@@ -31,7 +31,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -57,8 +56,8 @@ import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
 /**
  * A conversation's attachments (phase 04, A2; ADR-0126, ADR-0129). The browser uploads through the
  * gateway: the limits of config/docs.yaml are checked before anything is stored, the bytes go to
- * MinIO, and the agent registers and ingests them. Upload, list, status, download and delete are
- * for the conversation's owner only: another user's conversation is 403
+ * MinIO, and the agent registers and ingests them. Upload, list, status and download are for the
+ * conversation's owner only; there is no delete, the product deletes no file (owner decision S4): another user's conversation is 403
  * {@code conversation_forbidden}, an attachment id the caller does not have in it (another user's
  * included) is 404 {@code attachment_not_found} (G6). Every request is audited fail-closed
  * (ADR-0042): refused while the log is unreachable, answered only once its record is written.
@@ -72,7 +71,6 @@ public class AttachmentController {
     static final String LIST = "attachment.list";
     static final String STATUS = "attachment.status";
     static final String DOWNLOAD = "attachment.download";
-    static final String DELETE = "attachment.delete";
     static final String DOCS_PERMISSION = "cap:docs";
 
     private static final Logger log = LoggerFactory.getLogger(AttachmentController.class);
@@ -393,51 +391,6 @@ public class AttachmentController {
             in.transferTo(out);
             out.flush();
         }
-    }
-
-    @DeleteMapping(path = "/v1/conversations/{conversationId}/attachments/{attachmentId}")
-    @Operation(
-            summary = "Deletes one attachment: its file, its chunks and its record",
-            responses = {
-                @ApiResponse(responseCode = "204", description = "Deleted"),
-                @ApiResponse(responseCode = "403", description = "conversation_forbidden", content = @Content(
-                        mediaType = MediaType.APPLICATION_JSON_VALUE,
-                        schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "404", description = "attachment_not_found, also for another user's id",
-                        content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                                schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "502", description = "agent_unavailable", content = @Content(
-                        mediaType = MediaType.APPLICATION_JSON_VALUE,
-                        schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "503", description = "audit_unavailable", content = @Content(
-                        mediaType = MediaType.APPLICATION_JSON_VALUE,
-                        schema = @Schema(implementation = ApiErrorEnvelope.class)))
-            })
-    public ResponseEntity<Void> delete(
-            @PathVariable("conversationId") String conversationId,
-            @PathVariable("attachmentId") String attachmentId,
-            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            HttpServletRequest request,
-            HttpServletResponse response) throws IOException {
-        Owned owned = owned(conversationId, attachmentId, DELETE, jwt, request, response);
-        if (owned == null) {
-            return null;
-        }
-        Call call = owned.call();
-        if (owned.unused()) {
-            return call.refuse(ErrorCode.ATTACHMENT_NOT_FOUND, AuditStatus.DENIED);
-        }
-        AgentReply reply = call.agent(HttpMethod.DELETE, owned.path());
-        if (reply == null) {
-            return null;
-        }
-        if (reply.status() != 204) {
-            return call.refuse(refusal(reply.status()), status(refusal(reply.status())));
-        }
-        if (!audit.append(call.event(AuditStatus.OK))) {
-            return failed(request, response, ErrorCode.AUDIT_UNAVAILABLE);
-        }
-        return ResponseEntity.noContent().build();
     }
 
     // ------------------------------------------------------------------ shared steps

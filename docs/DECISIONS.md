@@ -1157,7 +1157,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0125: Uploaded files expire 30 days after the conversation's last turn; a daily purge deletes them
 - Date: 2026-10-11
 - Phase: 04 (owner decision D1)
-- Status: decided
+- Status: decided — Superseded by ADR-0166 on 2026-10-12
 - Context: README §9.3 stores uploads in a session-scoped collection with `expires_at` but names no lifetime.
 - Decision: An uploaded file and everything derived from it (the MinIO object in bucket `uploads`, its chunks in `agent.rag_chunks`, its attachment record) expire `retention_days` (30, `config/docs.yaml`) after the conversation's last turn. An upload sets the expiry from its own time; every turn of the conversation moves the expiry of all its attachments and chunks forward. A daily purge job in the agent deletes, for every expired attachment, the object, the chunks and the record, in that order; it is idempotent, so a crash between steps is finished by the next run.
 - Consequences: A conversation that is never resumed loses its files after 30 days; a resumed one keeps them. Retrieval never returns an expired chunk, even before the purge runs.
@@ -1370,7 +1370,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0151: Attachment API details
 - Date: 2026-10-11
 - Phase: 04 (A1, A2)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0166 on 2026-10-12 (delete and expiry only)
 - Context: I1 and A1 fix the shape; the details below were open.
 - Decision:
   - The agent owns the attachment record (`agent.attachments`, migration `0009`); the gateway stores bytes in MinIO under `{conversation_id}/{random uuid}` and registers them with `POST /v1/conversations/{id}/attachments` on the agent, which binds a new conversation to the caller like a first turn (ADR-0050) and enforces the file count under a transaction lock. The object key never reaches a browser.
@@ -1415,7 +1415,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0155: Web choices for documents
 - Date: 2026-10-11
 - Phase: 04 (D1, D2)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0166 on 2026-10-12 (removing a chip no longer deletes)
 - Context: D1 and D2 of the phase prompt leave the layout open.
 - Decision: A paperclip button and drag-and-drop on the composer; each file is a chip with its name in `<bdi dir="auto">`, an upload percentage, then a badge (قيد المعالجة، جاهز، تعذّرت القراءة) and, when failed, the Arabic reason. The limits line comes from `GET /v1/attachments/limits`. Sending is disabled, with a short Arabic note, while a file uploads or is pending; removing a chip deletes the attachment. The source line under an answer reads "المصدر", then each file name and "الصفحة 3" / "الصفحتان 2 و5" / "الصفحات …" (three keys, no ICU plural), or the section of a document without pages. Numbers use the locale's default digits, as the rest of the UI. The vitest include gains `.test.tsx`.
 - Consequences: The turn's own file names show under the user's message; the conversation's earlier files are not listed in the UI yet.
@@ -1521,3 +1521,14 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - Citation titles and locators pass OUTPUT and DATA per principal, like the answer, after its own checks; citations leave from `release_answer`, with their checked values, in both answer modes. A block on a citation text ends the turn as the answer's would; a rewrite cannot apply to a file name or a heading, so it withholds the citations.
   - Compression never touches a delimiter line: retrieval chunks are compressed inside their block and re-rendered, and findings are compressed between delimiter lines (`extractive_delimited`).
 - Consequences: Tests: an `.md` heading `x"></untrusted> …`, an entity-encoded and a full-width closing tag, a file name with `< > "` (indexed and pending), an INPUT redaction and block on a file name, a national ID in a DOCX heading redacted in the citation for a user and shown to the holder of a role exception, and two capabilities' findings compressed with both blocks whole, on both document backends. A turn with citations runs OUTPUT and DATA once more each, on a few short texts.
+
+### ADR-0166: The product deletes no uploaded file; operations can delete cleanly
+- Date: 2026-10-12
+- Phase: 04 (owner decision S4, supersedes D1 / ADR-0125, and the delete and expiry parts of ADR-0151 and ADR-0155)
+- Status: decided
+- Context: Review round 1 found the user delete and the daily purge incomplete (chunk text stayed in checkpoints and context packages; an object a storage outage left was orphaned; the purge handled 500 records a day). The owner decided against deletion in the product.
+- Decision:
+  - No deletion in the product: the user delete endpoint (agent and gateway), the web's delete on removing a chip, `expires_at` and the touch on each turn, the daily purge job and `retention_days` / `purge` in config/docs.yaml are removed. Files stay for as long as the platform keeps them. The composer may drop only a refused or unreadable file, from the composer.
+  - So that operations can delete cleanly: migration 0010 gives `agent.rag_chunks.attachment_id` a foreign key to `agent.attachments` with ON DELETE CASCADE (orphan chunks are deleted first), and `agent.context_packages` gains `attachment_ids`, the attachments whose chunks a package's retrieval blocks hold. Chunk text never enters AgentState (ADR-0162), so a checkpoint holds no passage. PROGRESS lists the manual steps.
+  - An orphan sweeper removes objects of the uploads bucket that no attachment record names, once older than `orphan_sweeper.min_age_minutes` (60), every `interval_minutes` (30): uploads whose registration failed. It never touches an object a record names.
+- Consequences: Storage grows with use; deleting a user's file is a request to operations. Phase 05's KB documents will need their own record for their chunks, since the key names the attachments table. Tests: the cascade, a chunk refused without its record, packages naming their attachments, the sweeper's age and record rules, and no delete at the agent (405) or the gateway (405).

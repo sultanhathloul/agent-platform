@@ -8,7 +8,6 @@ import {
   POLL_INTERVAL_MS,
   type ComposerFile,
   checkBeforeUpload,
-  deleteAttachment,
   getAttachment,
   getLimits,
   isBusy,
@@ -130,17 +129,10 @@ export function Chat({ conversationId }: { conversationId: string }) {
     }
   }
 
-  async function removeFile(localId: string) {
-    const file = files.find((f) => f.localId === localId);
+  function removeFile(localId: string) {
+    // Only a refused or unreadable file is dropped, from the composer only: the product deletes
+    // no file (owner decision S4).
     setFiles((all) => all.filter((f) => f.localId !== localId));
-    if (!file?.attachment) return;
-    const token = await auth.getAccessToken();
-    if (!token) return;
-    try {
-      await deleteAttachment({ gatewayUrl: config.gatewayUrl, token, conversationId, id: file.attachment.id });
-    } catch {
-      // the file stays in the conversation and expires with it (ADR-0125)
-    }
   }
 
   function onDrop(e: DragEvent) {
@@ -267,7 +259,7 @@ export function Chat({ conversationId }: { conversationId: string }) {
         className={`border-t border-slate-200 bg-white px-4 py-3 ${dragging ? "ring-2 ring-emerald-500 ring-inset" : ""}`}
       >
         {dragging && <p className="mb-2 text-center text-sm text-emerald-700">{t("attachments.dropHere")}</p>}
-        <AttachmentTray files={files} onRemove={(localId) => void removeFile(localId)} />
+        <AttachmentTray files={files} onRemove={removeFile} />
         <label htmlFor="composer" className="sr-only">
           {t("chat.inputLabel")}
         </label>

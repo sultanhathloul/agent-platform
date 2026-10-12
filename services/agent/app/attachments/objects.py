@@ -1,9 +1,11 @@
 """Uploaded bytes in MinIO, bucket `uploads` (README §2, ADR-0129). The gateway writes an
-upload; the agent reads it for ingestion and deletes it with its attachment. MinIO is
-internal to the compose network; no browser reaches it."""
+upload; the ingest service reads it; the orphan sweeper removes an object no attachment
+record names (owner decision S4). MinIO is internal to the compose network; no browser
+reaches it."""
 
 import asyncio
 import io
+from datetime import UTC, datetime, timedelta
 
 from minio import Minio
 from minio.error import S3Error
@@ -47,6 +49,21 @@ class ObjectStore:
             if exc.code == "NoSuchKey":
                 return True
             raise StorageUnavailable(exc.code) from exc
+        except Exception as exc:
+            raise StorageUnavailable(type(exc).__name__) from exc
+
+    def _older_than(self, age: timedelta) -> list[str]:
+        cutoff = datetime.now(UTC) - age
+        return [
+            item.object_name
+            for item in self._client.list_objects(self.bucket, recursive=True)
+            if item.last_modified is not None and item.last_modified < cutoff
+        ]
+
+    async def keys_older_than(self, age: timedelta) -> list[str]:
+        """Keys of the objects stored longer ago than `age` (the orphan sweeper)."""
+        try:
+            return await asyncio.to_thread(self._older_than, age)
         except Exception as exc:
             raise StorageUnavailable(type(exc).__name__) from exc
 

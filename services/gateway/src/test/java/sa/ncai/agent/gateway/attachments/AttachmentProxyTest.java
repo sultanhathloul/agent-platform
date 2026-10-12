@@ -59,7 +59,7 @@ class AttachmentProxyTest extends GatewayTestSupport {
         return """
                 {"id":"%s","conversation_id":"%s","name":"لائحة الإجازات.pdf","mime":"application/pdf",\
                 "kind":"pdf","size":1234,"status":"%s","reason":%s,"pages":3,"chunks":null,\
-                "created_at":"2026-10-11T10:00:00Z","indexed_at":null,"expires_at":"2026-11-10T10:00:00Z",\
+                "created_at":"2026-10-11T10:00:00Z","indexed_at":null,\
                 "object_key":"%s/secret-key"}""".formatted(ATTACHMENT, CONVERSATION, status,
                 reason == null ? "null" : "\"" + reason + "\"", CONVERSATION);
     }
@@ -105,18 +105,15 @@ class AttachmentProxyTest extends GatewayTestSupport {
                 .andExpect(status().isForbidden());
         mvc.perform(get(BASE + "/" + ATTACHMENT + "/content").header(HttpHeaders.AUTHORIZATION, intruder))
                 .andExpect(status().isForbidden());
-        mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, intruder))
-                .andExpect(status().isForbidden());
         mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, intruder))
                 .andExpect(status().isForbidden());
 
         assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
         assertThat(objects().objects).isEmpty();
-        assertThat(auditLog().events()).hasSize(5)
+        assertThat(auditLog().events()).hasSize(4)
                 .allSatisfy(e -> assertThat(e.status()).isEqualTo(AuditStatus.DENIED))
                 .extracting(AuditEvent::action)
-                .containsExactly("attachment.list", "attachment.status", "attachment.download", "attachment.delete",
-                        "attachment.upload");
+                .containsExactly("attachment.list", "attachment.status", "attachment.download", "attachment.upload");
     }
 
     @Test
@@ -250,10 +247,10 @@ class AttachmentProxyTest extends GatewayTestSupport {
         assertThat(objects().objects).isEmpty();
     }
 
-    // ------------------------------------------------------------------ status, download, delete
+    // ------------------------------------------------------------------ status and download
 
     @Test
-    void statusDownloadAndDeleteServeTheOwnerAndAreAudited() throws Exception {
+    void statusAndDownloadServeTheOwnerAndAreAudited() throws Exception {
         conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
         String viewer = bearer(viewer());
         objects().objects.put(CONVERSATION + "/secret-key", "%PDF-1.7 bytes".getBytes(StandardCharsets.US_ASCII));
@@ -274,13 +271,17 @@ class AttachmentProxyTest extends GatewayTestSupport {
                 .andReturn().getResponse().getContentAsByteArray();
         assertThat(new String(downloaded, StandardCharsets.US_ASCII)).isEqualTo("%PDF-1.7 bytes");
 
-        AGENT.enqueue(new MockResponse().setResponseCode(204));
-        mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, viewer))
-                .andExpect(status().isNoContent());
-
         assertThat(auditLog().events()).extracting(AuditEvent::action)
-                .containsExactly("attachment.status", "attachment.download", "attachment.delete");
+                .containsExactly("attachment.status", "attachment.download");
         assertThat(auditLog().events()).allSatisfy(e -> assertThat(e.status()).isEqualTo(AuditStatus.OK));
+    }
+
+    @Test
+    void thereIsNoDeleteTheProductDeletesNoFile() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                .andExpect(status().isMethodNotAllowed());
+        assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
     }
 
     @Test

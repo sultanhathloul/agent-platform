@@ -2,8 +2,8 @@
 into AgentState after the ownership check, and only reads their status: ingestion runs in
 the background worker, and this node never waits for it (ADR-0130). An attachment id the
 turn names that the caller does not have in this conversation (another user's included)
-ends the turn with `attachment_not_found` (G6). A turn moves the expiry of the
-conversation's files forward (ADR-0125)."""
+ends the turn with `attachment_not_found` (G6). It runs before INPUT, so INPUT checks the
+names of the files sent with the turn (owner decision S2)."""
 
 from langgraph.runtime import Runtime
 from opentelemetry import trace
@@ -31,8 +31,6 @@ async def ingest_attachments(state: AgentState, runtime: Runtime[TurnContext]) -
         raise TurnError(
             "attachment_not_found", detail="the turn names an attachment the caller does not have"
         )
-    if records:
-        await service.touch(owner, conversation_id)
     attachments = [
         Attachment(id=r.id, name=r.name, mime=r.mime, size=r.size, collection=r.collection, status=r.status)
         for r in records

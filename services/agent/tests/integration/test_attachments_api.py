@@ -1,7 +1,7 @@
 """The agent's attachment API (phase 04, A2; ADR-0129). Isolation first (G6): another
-user, by the owner's attachment id, gets 404 on status and delete; by the owner's
-conversation id, 403; no role or header reaches another user's file. Then registration,
-the file limit and the type check."""
+user, by the owner's attachment id, gets 404 on status; by the owner's conversation id, 403;
+no role or header reaches another user's file. There is no delete (owner decision S4). Then
+registration, the file limit and the type check."""
 
 import uuid
 
@@ -30,7 +30,7 @@ async def _register(client, conversation: str, user: str, name: str = "لائح�
     )
 
 
-async def test_another_user_never_reads_lists_or_deletes_an_attachment(client):
+async def test_another_user_never_reads_or_lists_an_attachment(client):
     owner, intruder = f"u-own-{uuid.uuid4().hex[:6]}", f"u-int-{uuid.uuid4().hex[:6]}"
     conversation = str(uuid.uuid4())
     created = await _register(client, conversation, owner)
@@ -40,12 +40,8 @@ async def test_another_user_never_reads_lists_or_deletes_an_attachment(client):
     path = f"/v1/conversations/{conversation}/attachments"
 
     # By the owner's conversation id: 403 on every operation.
-    for method, url in (
-        ("GET", path),
-        ("GET", f"{path}/{attachment['id']}"),
-        ("DELETE", f"{path}/{attachment['id']}"),
-    ):
-        response = await client.request(method, url, headers=identity(intruder))
+    for url in (path, f"{path}/{attachment['id']}"):
+        response = await client.get(url, headers=identity(intruder))
         assert response.status_code == 403 and response.json()["error"]["code"] == "conversation_forbidden"
     registered = await _register(client, conversation, intruder)
     assert registered.status_code == 403
@@ -53,21 +49,20 @@ async def test_another_user_never_reads_lists_or_deletes_an_attachment(client):
     # By the owner's attachment id, in the intruder's own conversation: 404, never the file.
     own = str(uuid.uuid4())
     await _register(client, own, intruder, "ملفي.txt")
-    for method in ("GET", "DELETE"):
-        response = await client.request(
-            method, f"/v1/conversations/{own}/attachments/{attachment['id']}", headers=identity(intruder)
-        )
-        assert response.status_code == 404 and response.json()["error"]["code"] == "attachment_not_found"
+    response = await client.get(
+        f"/v1/conversations/{own}/attachments/{attachment['id']}", headers=identity(intruder)
+    )
+    assert response.status_code == 404 and response.json()["error"]["code"] == "attachment_not_found"
     listed = await client.get(f"/v1/conversations/{own}/attachments", headers=identity(intruder))
     assert [a["name"] for a in listed.json()["attachments"]] == ["ملفي.txt"]
     # Another tenant with the same user id is another user.
     response = await client.get(f"{path}/{attachment['id']}", headers=identity(owner, "t2"))
     assert response.status_code == 403
 
-    # The owner still has it, and deletes it.
+    # The owner still has it, and cannot delete it: the product deletes no file (S4).
     assert (await client.get(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 200
-    assert (await client.delete(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 204
-    assert (await client.get(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 404
+    assert (await client.delete(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 405
+    assert (await client.get(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 200
 
 
 async def test_the_internal_token_is_required(client):

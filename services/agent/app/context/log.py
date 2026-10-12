@@ -6,7 +6,9 @@ Retention (D5): a package expires DEBUG_CONTEXT_RETENTION_DAYS after it is recor
 (rows recorded before expiry existed count from their creation) and is never served
 after that; expired rows are deleted as new ones are written. Each row names the
 memory items its memory block used, so deleting a memory item deletes every
-package that holds its text (app/memory/store.py)."""
+package that holds its text (app/memory/store.py), and the attachments whose chunks its
+retrieval blocks hold, so operations deleting a file find every package that quotes it
+(owner decision S4)."""
 
 import time
 from dataclasses import dataclass
@@ -42,6 +44,12 @@ def memory_item_ids(package: ContextPackage) -> list[str]:
     return [item["id"] for b in package.blocks if b.name == "memory" for item in b.meta.get("items", [])]
 
 
+def attachment_ids(package: ContextPackage) -> list[str]:
+    """The attachments whose chunks the package's retrieval blocks hold, once each."""
+    ids = [b.meta.get("document_id") for b in package.blocks if b.name == "retrieval"]
+    return list(dict.fromkeys(i for i in ids if i))
+
+
 class ContextLog:
     def __init__(self, db: Database, *, enabled: bool, retention_days: int = 7):
         self._db = db
@@ -57,8 +65,8 @@ class ContextLog:
         async with self._db.connection() as conn:
             await conn.execute(
                 "INSERT INTO agent.context_packages "
-                "(turn_id, conversation_id, node, package, expires_at, memory_item_ids) "
-                "VALUES (%s, %s, %s, %s, now() + make_interval(days => %s), %s::uuid[])",
+                "(turn_id, conversation_id, node, package, expires_at, memory_item_ids, attachment_ids) "
+                "VALUES (%s, %s, %s, %s, now() + make_interval(days => %s), %s::uuid[], %s::uuid[])",
                 (
                     turn_id,
                     conversation_id,
@@ -66,6 +74,7 @@ class ContextLog:
                     Jsonb(document),
                     self.retention_days,
                     memory_item_ids(package),
+                    attachment_ids(package),
                 ),
             )
         if time.monotonic() - self._purged_at > _PURGE_EVERY_S:

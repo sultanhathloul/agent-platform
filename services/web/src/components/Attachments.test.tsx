@@ -5,6 +5,7 @@ import {
   checkBeforeUpload,
   extensionOf,
   isBusy,
+  isDismissible,
   reasonKey,
   turnAttachmentIds,
 } from "@/lib/attachments";
@@ -30,7 +31,6 @@ function attachment(status: string, reason: string | null = null): AttachmentVie
     status,
     reason,
     created_at: "2026-10-11T10:00:00Z",
-    expires_at: "2026-11-10T10:00:00Z",
   } as AttachmentView;
 }
 
@@ -55,6 +55,14 @@ describe("checks before upload (D2)", () => {
     expect(checkBeforeUpload({ name: "ملف.PDF", size: 10 }, LIMITS, 10)).toBe("attachment_limit");
     expect(checkBeforeUpload({ name: "ملف.PDF", size: 10 }, LIMITS, 9)).toBeNull();
     expect(extensionOf("تقرير.ربع.XLSX")).toBe("xlsx");
+  });
+
+  it("lets the composer drop only a refused or unreadable file: the product deletes none (S4)", () => {
+    expect(isDismissible(file({ error: { code: "file_too_large" } }))).toBe(true);
+    expect(isDismissible(file({ attachment: attachment("failed", "corrupt_file") }))).toBe(true);
+    expect(isDismissible(file({ attachment: attachment("indexed") }))).toBe(false);
+    expect(isDismissible(file({ attachment: attachment("pending") }))).toBe(false);
+    expect(isDismissible(file())).toBe(false); // still uploading
   });
 
   it("blocks sending while a file uploads or is pending, never for an indexed or failed one", () => {

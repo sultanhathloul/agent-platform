@@ -110,11 +110,8 @@ def with_backend(services, backend):
         db=attachments.db,
         store=attachments.store,
         objects=attachments.objects,
-        vectors=attachments.vectors,
         documents=backend,
         worker=attachments.worker,
         limits=attachments.limits,
-        retention_days=attachments.retention_days,
-        purge_interval_hours=attachments.purge_interval_hours,
     )
     return dataclasses.replace(services, documents=backend, attachments=swapped)

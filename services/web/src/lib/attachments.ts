@@ -50,6 +50,15 @@ export function isTerminal(status: string | undefined): boolean {
   return status === "indexed" || status === "failed";
 }
 
+/**
+ * Whether the composer may drop the file: only one that never became part of the conversation
+ * (refused before or at upload) or that failed to be read. The product deletes no registered file
+ * (owner decision S4), so a pending or indexed file stays in the conversation.
+ */
+export function isDismissible(file: ComposerFile): boolean {
+  return Boolean(file.error) || file.attachment?.status === "failed";
+}
+
 /** A file that still blocks sending: uploading, or registered and pending. */
 export function isBusy(file: ComposerFile): boolean {
   if (file.error) return false;
@@ -115,16 +124,6 @@ export async function getAttachment({
 }: Authorized & { conversationId: string; id: string }): Promise<AttachmentView> {
   const url = `${base(gatewayUrl, conversationId)}/${encodeURIComponent(id)}`;
   return call<AttachmentView>(url, token, { method: "GET", signal });
-}
-
-export async function deleteAttachment({
-  gatewayUrl,
-  token,
-  conversationId,
-  id,
-}: Authorized & { conversationId: string; id: string }): Promise<void> {
-  const url = `${base(gatewayUrl, conversationId)}/${encodeURIComponent(id)}`;
-  await call<void>(url, token, { method: "DELETE" });
 }
 
 /** The gateway URL that downloads the file (owner only); fetched with the bearer token. */

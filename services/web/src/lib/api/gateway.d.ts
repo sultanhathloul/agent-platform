@@ -261,8 +261,7 @@ export interface paths {
         get: operations["status"];
         put?: never;
         post?: never;
-        /** Deletes one attachment: its file, its chunks and its record */
-        delete: operations["delete"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -364,7 +363,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Deletes one of the caller's memory items */
-        delete: operations["delete_1"];
+        delete: operations["delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -482,11 +481,6 @@ export interface components {
             conversation_id: string;
             /** Format: date-time */
             created_at: string;
-            /**
-             * Format: date-time
-             * @description 30 days after the conversation's last turn (ADR-0125).
-             */
-            expires_at: string;
             id: string;
             /** Format: date-time */
             indexed_at?: string;
@@ -1625,63 +1619,6 @@ export interface operations {
             };
         };
     };
-    delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversationId: string;
-                attachmentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description conversation_forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorEnvelope"];
-                };
-            };
-            /** @description attachment_not_found, also for another user's id */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorEnvelope"];
-                };
-            };
-            /** @description agent_unavailable */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorEnvelope"];
-                };
-            };
-            /** @description audit_unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorEnvelope"];
-                };
-            };
-        };
-    };
     download: {
         parameters: {
             query?: never;
@@ -1888,7 +1825,7 @@ export interface operations {
             };
         };
     };
-    delete_1: {
+    delete: {
         parameters: {
             query?: never;
             header?: never;

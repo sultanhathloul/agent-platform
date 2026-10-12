@@ -6,10 +6,6 @@
 # RAG/OCR service) implements the same interface and is selected here.
 backend: internal
 
-# An uploaded file and everything derived from it expire this many days after the
-# conversation's last turn; a daily purge deletes them (ADR-0125, D1).
-retention_days: 30
-
 # Checked in the gateway before anything is stored, re-checked by the agent (ADR-0126, D2).
 limits:
   max_file_bytes: 20971520          # 20 MB
@@ -55,5 +51,9 @@ retrieval:
     ar: [ما, ماذا, هل, كم, متى, اين, كيف, لماذا, من, في, على, الى, عن, هو, هي, هذا, هذه, ذلك, تلك, التي, الذي, ان, او, ثم, مع, كل, بعض, قد, لا, لم, لن, ذكر, اذكر, حسب, وفق, يا, ايش, وش, شنو, وين, ليش]
     en: [what, which, who, when, where, why, how, is, are, the, a, an, of, in, "on", to, for, and, "or", does, do, say, says, document, file]
 
-purge:
-  interval_hours: 24
+# Objects in the uploads bucket that no attachment record names (an upload whose registration
+# failed) are removed once they are this old; the ingest service sweeps every `interval_minutes`
+# (owner decision S4). The product deletes no registered file.
+orphan_sweeper:
+  min_age_minutes: 60
+  interval_minutes: 30

@@ -4,7 +4,6 @@ user's chunks. A production store (Milvus, Qdrant) implements this protocol and 
 else changes."""
 
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Protocol
 
 from app.rag.types import Chunk, Owner, ScoredChunk
@@ -19,7 +18,6 @@ class VectorStore(Protocol):
         chunks: Sequence[Chunk],
         embeddings: Sequence[Sequence[float]],
         *,
-        expires_at: datetime | None,
         conn=None,
     ) -> int:
         """Replaces every chunk of `document_id` with `chunks` (idempotent by document id)."""
@@ -51,14 +49,4 @@ class VectorStore(Protocol):
 
     async def fetch(self, owner: Owner, collection: str, ids: Sequence[str]) -> dict[str, str]:
         """The text of each chunk id in the owner's collection; ids outside it are left out."""
-        ...
-
-    async def delete_document(self, owner: Owner, collection: str, document_id: str, *, conn=None) -> int: ...
-
-    async def touch(self, owner: Owner, collection: str, expires_at: datetime, *, conn=None) -> int:
-        """Moves the expiry of the owner's chunks in the collection (D1)."""
-        ...
-
-    async def purge_document(self, document_id: str, *, conn=None) -> int:
-        """Deletes a document's chunks whoever owns them: the retention purge only."""
         ...

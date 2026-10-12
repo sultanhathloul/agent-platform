@@ -2811,138 +2811,6 @@
             }
           }
         }
-      },
-      "delete": {
-        "tags": [
-          "attachments"
-        ],
-        "summary": "Delete Attachment",
-        "operationId": "delete_attachment_v1_conversations__conversation_id__attachments__attachment_id__delete",
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-              "title": "Conversation Id"
-            }
-          },
-          {
-            "name": "attachment_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-              "title": "Attachment Id"
-            }
-          },
-          {
-            "name": "x-internal-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Internal-Token"
-            }
-          },
-          {
-            "name": "x-request-id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Request-Id"
-            }
-          },
-          {
-            "name": "x-user-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "description": "The caller's user id.",
-              "title": "X-User-Id"
-            },
-            "description": "The caller's user id."
-          },
-          {
-            "name": "x-tenant-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "description": "The caller's tenant id.",
-              "title": "X-Tenant-Id"
-            },
-            "description": "The caller's tenant id."
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The file, its chunks and its record are deleted."
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "conversation_forbidden: another owner's conversation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "attachment_not_found, also for another user's id",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
       }
     }
   },
@@ -3137,12 +3005,6 @@
             ],
             "title": "Indexed At"
           },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Expires At",
-            "description": "30 days after the conversation's last turn (ADR-0125)."
-          },
           "object_key": {
             "type": "string",
             "title": "Object Key",
@@ -3159,7 +3021,6 @@
           "size",
           "status",
           "created_at",
-          "expires_at",
           "object_key"
         ],
         "title": "AttachmentView"

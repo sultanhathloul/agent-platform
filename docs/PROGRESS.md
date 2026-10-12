@@ -1126,6 +1126,13 @@ Checklist:
 - [ ] D1 PROGRESS: smoke 76 → 99 (+23 checks); `make models` before `make up`; README §9.3 amendment
 - [ ] Finish: `make test`; `make clean && make models && make up && make smoke && make smoke-airgap`; `make eval` ×3; rule 11 counts, the Q1 table and the R4 results; push
 
+Operations: deleting an uploaded file (owner decision S4, ADR-0166). The product deletes no file; an operator does, in this order:
+1. Find the attachment: `SELECT id, object_key FROM agent.attachments WHERE conversation_id = '<conversation>' AND name = '<file name>';`
+2. Delete the context packages that quote it: `DELETE FROM agent.context_packages WHERE '<attachment id>' = ANY(attachment_ids);`
+3. Delete the record; its chunks go with it (ON DELETE CASCADE): `DELETE FROM agent.attachments WHERE id = '<attachment id>';`
+4. Delete the object with the MinIO root credentials, which only `minio-init` holds: `docker compose run --rm --entrypoint sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc rm "local/uploads/<object_key>"'`. (Left alone, the orphan sweeper removes it within the hour, since no record names it any more.)
+Checkpoints hold no chunk text (ADR-0162); answers that quoted the file stay in the conversation's history like any other message.
+
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
 - Branch: `phase/05-kb`

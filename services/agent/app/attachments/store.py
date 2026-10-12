@@ -1,10 +1,12 @@
-"""Attachment records in Postgres (phase 04, A1–A4; ADR-0125, ADR-0129, ADR-0130).
+"""Attachment records in Postgres (phase 04, A1–A3; ADR-0129, ADR-0130).
 
 The gateway stores an upload's bytes in MinIO and registers it here; the agent owns the
 record. Every method a request can reach names the owner (tenant, user) and the
-conversation: no request reads, lists or deletes another user's attachment, whatever
-id it sends (G6, the memory precedent of ADR-0059). The worker and the purge use the
-by-id methods below the line, never reachable from a request."""
+conversation: no request reads or lists another user's attachment, whatever id it sends
+(G6, the memory precedent of ADR-0059). Nothing here deletes a record: the product deletes no
+file (owner decision S4); operations do, and the database's keys take the chunks with the
+record. The ingest service and the orphan sweeper use the methods below the line, never
+reachable from a request."""
 
 import uuid
 from datetime import datetime
@@ -46,7 +48,6 @@ class AttachmentRecord(BaseModel):
     created_at: datetime
     updated_at: datetime
     indexed_at: datetime | None = None
-    expires_at: datetime
 
     @property
     def owner(self) -> Owner:
@@ -60,7 +61,7 @@ class LimitReached(Exception):
 _COLUMNS = (
     "id::text AS id, conversation_id::text AS conversation_id, tenant_id, user_id, name, mime, kind, "
     "size, object_key, collection, status, reason, pages, chunks, attempts, created_at, updated_at, "
-    "indexed_at, expires_at"
+    "indexed_at"
 )
 
 
@@ -85,7 +86,6 @@ class AttachmentStore:
         size: int,
         object_key: str,
         max_files: int,
-        retention_days: int,
     ) -> AttachmentRecord:
         """Inserts a pending attachment, unless the conversation already holds `max_files`;
         the count and the insert run under the conversation's transaction lock, so two
@@ -101,8 +101,8 @@ class AttachmentStore:
                 raise LimitReached(conversation_id)
             cursor = await conn.execute(
                 "INSERT INTO agent.attachments (conversation_id, tenant_id, user_id, name, mime, kind, size, "
-                "object_key, collection, expires_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now() + make_interval(days => %s)) "
+                "object_key, collection) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 f"RETURNING {_COLUMNS}",
                 (
                     conversation_id,
@@ -114,17 +114,16 @@ class AttachmentStore:
                     size,
                     object_key,
                     collection_for(conversation_id),
-                    retention_days,
                 ),
             )
             return _record(await cursor.fetchone())
 
     async def list_for(self, owner: Owner, conversation_id: str) -> list[AttachmentRecord]:
-        """The owner's attachments of one conversation that have not expired, oldest first."""
+        """The owner's attachments of one conversation, oldest first."""
         async with self._db.connection() as conn:
             cursor = await conn.execute(
                 f"SELECT {_COLUMNS} FROM agent.attachments "
-                "WHERE tenant_id = %s AND user_id = %s AND conversation_id = %s AND expires_at > now() "
+                "WHERE tenant_id = %s AND user_id = %s AND conversation_id = %s "
                 "ORDER BY created_at, id",
                 (owner.tenant_id, owner.user_id, conversation_id),
             )
@@ -135,36 +134,13 @@ class AttachmentStore:
         async with self._db.connection() as conn:
             cursor = await conn.execute(
                 f"SELECT {_COLUMNS} FROM agent.attachments "
-                "WHERE id = %s AND tenant_id = %s AND user_id = %s AND conversation_id = %s "
-                "AND expires_at > now()",
+                "WHERE id = %s AND tenant_id = %s AND user_id = %s AND conversation_id = %s",
                 (attachment_id, owner.tenant_id, owner.user_id, conversation_id),
             )
             row = await cursor.fetchone()
         return _record(row) if row else None
 
-    async def delete(self, owner: Owner, conversation_id: str, attachment_id: str, *, conn) -> bool:
-        """Deletes the owner's record on the caller's connection (the service deletes its
-        chunks in the same transaction)."""
-        cursor = await conn.execute(
-            "DELETE FROM agent.attachments WHERE id = %s AND tenant_id = %s AND user_id = %s "
-            "AND conversation_id = %s",
-            (attachment_id, owner.tenant_id, owner.user_id, conversation_id),
-        )
-        return cursor.rowcount == 1
-
-    async def touch(self, owner: Owner, conversation_id: str, expires_at: datetime, *, conn=None) -> int:
-        """A turn of the conversation: its live attachments now expire at `expires_at` (D1)."""
-        sql = (
-            "UPDATE agent.attachments SET expires_at = %s "
-            "WHERE tenant_id = %s AND user_id = %s AND conversation_id = %s AND expires_at > now()"
-        )
-        params = (expires_at, owner.tenant_id, owner.user_id, conversation_id)
-        if conn is not None:
-            return (await conn.execute(sql, params)).rowcount
-        async with self._db.connection() as own:
-            return (await own.execute(sql, params)).rowcount
-
-    # ------------------------------------------------------------------ worker and purge only
+    # ------------------------------------------------------------------ ingest service and sweeper only
 
     async def by_id(self, attachment_id: str) -> AttachmentRecord | None:
         async with self._db.connection() as conn:
@@ -211,15 +187,12 @@ class AttachmentStore:
             )
             return [row["id"] for row in await cursor.fetchall()]
 
-    async def expired(self, limit: int = 500) -> list[AttachmentRecord]:
+    async def known_keys(self, keys: list[str]) -> set[str]:
+        """The object keys among `keys` that an attachment record names (the orphan sweeper)."""
+        if not keys:
+            return set()
         async with self._db.connection() as conn:
             cursor = await conn.execute(
-                f"SELECT {_COLUMNS} FROM agent.attachments WHERE expires_at <= now() "
-                "ORDER BY expires_at LIMIT %s",
-                (limit,),
+                "SELECT object_key FROM agent.attachments WHERE object_key = ANY(%s)", (keys,)
             )
-            return [_record(row) for row in await cursor.fetchall()]
-
-    async def delete_by_id(self, attachment_id: str, *, conn) -> bool:
-        cursor = await conn.execute("DELETE FROM agent.attachments WHERE id = %s", (attachment_id,))
-        return cursor.rowcount == 1
+            return {row["object_key"] for row in await cursor.fetchall()}

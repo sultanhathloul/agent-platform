@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-
 # The source fields a person reads: POST_TOOL sanitizes and checks them like `content` (S2).
 SOURCE_TEXT_FIELDS = ("title", "locator")
 

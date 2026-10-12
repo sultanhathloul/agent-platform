@@ -1,5 +1,5 @@
-"""config/docs.yaml: the document backend, limits, retention, chunking, ingestion and
-retrieval (phase 04; ADR-0125, ADR-0126, ADR-0133, ADR-0159). The gateway reads the same
+"""config/docs.yaml: the document backend, limits, chunking, ingestion, the orphan sweeper and
+retrieval (phase 04; ADR-0126, ADR-0133, ADR-0159). The gateway reads the same
 file for the upload limits, so the two services cannot disagree. Page attribution is
 capability-agnostic and lives in config/citations.yaml (owner decision C1)."""
 
@@ -59,20 +59,20 @@ class Retrieval(_Strict):
     stopwords: dict[str, list[str]] = {}
 
 
-class Purge(_Strict):
-    interval_hours: float = Field(gt=0)
+class OrphanSweeper(_Strict):
+    min_age_minutes: float = Field(gt=0)
+    interval_minutes: float = Field(gt=0)
 
 
 class DocsConfig(_Strict):
     # Which DocumentBackend serves documents (C6): the phase 04 pipeline, `internal`, for now.
     backend: Literal["internal"]
-    retention_days: int = Field(gt=0)
     limits: Limits
     chunking: Chunking
     extraction: Extraction
     ingest: Ingest
     retrieval: Retrieval
-    purge: Purge
+    orphan_sweeper: OrphanSweeper
 
     def kind_of(self, name: str) -> DocumentKind | None:
         suffix = Path(name).suffix.lower().lstrip(".")

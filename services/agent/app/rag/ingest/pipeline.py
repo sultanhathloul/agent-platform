@@ -121,7 +121,6 @@ class IngestPipeline:
                 record.id,
                 chunks,
                 vectors,
-                expires_at=record.expires_at,
                 conn=conn,
             )
             if not await self._attachments.mark_indexed(

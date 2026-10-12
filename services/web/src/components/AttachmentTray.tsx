@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import type { AttachmentLimits } from "@/lib/api/types";
-import { type ComposerFile, reasonKey, sizeInMb } from "@/lib/attachments";
+import { type ComposerFile, isDismissible, reasonKey, sizeInMb } from "@/lib/attachments";
 import { resolveErrorMessage } from "@/lib/errors";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 
@@ -93,7 +93,11 @@ export function AttachmentTray({ files, onRemove }: { files: ComposerFile[]; onR
   return (
     <ul aria-label={t("listLabel")} className="mb-2 flex flex-wrap gap-2">
       {files.map((file) => (
-        <AttachmentChip key={file.localId} file={file} onRemove={() => onRemove(file.localId)} />
+        <AttachmentChip
+          key={file.localId}
+          file={file}
+          onRemove={isDismissible(file) ? () => onRemove(file.localId) : undefined}
+        />
       ))}
     </ul>
   );

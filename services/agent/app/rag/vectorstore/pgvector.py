@@ -1,19 +1,17 @@
 """VectorStore on pgvector in the agent's database (README §2, ADR-0131, ADR-0132).
 
-Every statement names (collection, tenant_id, user_id). Expired chunks are never
-returned, even before the purge deletes them (ADR-0125). Similarity is computed only
+Every statement names (collection, tenant_id, user_id). A chunk goes with its attachment
+record (a foreign key, ON DELETE CASCADE; owner decision S4). Similarity is computed only
 against vectors of the query's dimension, so the embedding model can change without a
 migration (ADR-0058's reasoning)."""
 
 import re
 from collections.abc import Sequence
-from datetime import datetime
 
 from app.db import Database
 from app.rag.types import Chunk, Owner, ScoredChunk
 from app.text.arabic import normalize_for_search
 
-_LIVE = "(expires_at IS NULL OR expires_at > now())"
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _FIELDS = "id::text AS id, attachment_id::text AS attachment_id, page, section, ord, text"
 
@@ -40,19 +38,16 @@ class PgVectorStore:
         chunks: Sequence[Chunk],
         embeddings: Sequence[Sequence[float]],
         *,
-        expires_at: datetime | None,
         conn=None,
     ) -> int:
         if len(chunks) != len(embeddings):
             raise ValueError(f"{len(chunks)} chunks but {len(embeddings)} embeddings")
         if conn is None:
             async with self._db.connection() as own, own.transaction():
-                return await self._replace(
-                    own, owner, collection, document_id, chunks, embeddings, expires_at
-                )
-        return await self._replace(conn, owner, collection, document_id, chunks, embeddings, expires_at)
+                return await self._replace(own, owner, collection, document_id, chunks, embeddings)
+        return await self._replace(conn, owner, collection, document_id, chunks, embeddings)
 
-    async def _replace(self, conn, owner, collection, document_id, chunks, embeddings, expires_at) -> int:
+    async def _replace(self, conn, owner, collection, document_id, chunks, embeddings) -> int:
         await conn.execute(
             "DELETE FROM agent.rag_chunks WHERE collection = %s AND tenant_id = %s AND user_id = %s "
             "AND attachment_id = %s",
@@ -61,8 +56,8 @@ class PgVectorStore:
         for chunk, embedding in zip(chunks, embeddings, strict=True):
             await conn.execute(
                 "INSERT INTO agent.rag_chunks (collection, attachment_id, user_id, tenant_id, page, section, "
-                "ord, text, text_norm, embedding, expires_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)",
+                "ord, text, text_norm, embedding) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector)",
                 (
                     collection,
                     document_id,
@@ -74,7 +69,6 @@ class PgVectorStore:
                     chunk.text,
                     normalize_for_search(chunk.text),
                     _vector(embedding),
-                    expires_at,
                 ),
             )
         return len(chunks)
@@ -102,7 +96,7 @@ class PgVectorStore:
             cursor = await conn.execute(
                 f"SELECT {_FIELDS}, 1 - (embedding <=> %(vector)s::vector) AS score FROM agent.rag_chunks "
                 "WHERE collection = %(collection)s AND tenant_id = %(tenant_id)s AND user_id = %(user_id)s "
-                f"AND {_LIVE} AND vector_dims(embedding) = %(dimensions)s{documents} "
+                f"AND vector_dims(embedding) = %(dimensions)s{documents} "
                 "ORDER BY embedding <=> %(vector)s::vector, ord LIMIT %(limit)s",
                 params,
             )
@@ -143,7 +137,7 @@ class PgVectorStore:
                 f"SELECT {_FIELDS}, ts_rank_cd(tsv, to_tsquery('simple', %(query)s)) AS score "
                 "FROM agent.rag_chunks "
                 "WHERE collection = %(collection)s AND tenant_id = %(tenant_id)s AND user_id = %(user_id)s "
-                f"AND {_LIVE} AND tsv @@ to_tsquery('simple', %(query)s){documents} "
+                f"AND tsv @@ to_tsquery('simple', %(query)s){documents} "
                 "ORDER BY score DESC, ord LIMIT %(limit)s",
                 params,
             )
@@ -164,38 +158,8 @@ class PgVectorStore:
         async with self._db.connection() as conn:
             cursor = await conn.execute(
                 "SELECT id::text AS id, text FROM agent.rag_chunks "
-                "WHERE collection = %s AND tenant_id = %s AND user_id = %s "
-                f"AND {_LIVE} AND id = ANY(%s::uuid[])",
+                "WHERE collection = %s AND tenant_id = %s AND user_id = %s AND id = ANY(%s::uuid[])",
                 (collection, owner.tenant_id, owner.user_id, wanted),
             )
             rows = await cursor.fetchall()
         return {r["id"]: r["text"] for r in rows}
-
-    async def delete_document(self, owner: Owner, collection: str, document_id: str, *, conn=None) -> int:
-        sql = (
-            "DELETE FROM agent.rag_chunks WHERE collection = %s AND tenant_id = %s AND user_id = %s "
-            "AND attachment_id = %s"
-        )
-        params = (collection, owner.tenant_id, owner.user_id, document_id)
-        if conn is not None:
-            return (await conn.execute(sql, params)).rowcount
-        async with self._db.connection() as own:
-            return (await own.execute(sql, params)).rowcount
-
-    async def touch(self, owner: Owner, collection: str, expires_at: datetime, *, conn=None) -> int:
-        sql = (
-            "UPDATE agent.rag_chunks SET expires_at = %s WHERE collection = %s AND tenant_id = %s "
-            f"AND user_id = %s AND {_LIVE}"
-        )
-        params = (expires_at, collection, owner.tenant_id, owner.user_id)
-        if conn is not None:
-            return (await conn.execute(sql, params)).rowcount
-        async with self._db.connection() as own:
-            return (await own.execute(sql, params)).rowcount
-
-    async def purge_document(self, document_id: str, *, conn=None) -> int:
-        sql = "DELETE FROM agent.rag_chunks WHERE attachment_id = %s"
-        if conn is not None:
-            return (await conn.execute(sql, (document_id,))).rowcount
-        async with self._db.connection() as own:
-            return (await own.execute(sql, (document_id,))).rowcount

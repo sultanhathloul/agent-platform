@@ -5,7 +5,6 @@ documents are generated here (G3, G4)."""
 
 import asyncio
 import uuid
-from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -139,59 +138,3 @@ async def test_a_pending_job_resumes_when_the_worker_starts(services, litellm):
     finally:
         await worker.stop()
     assert stored.status == "indexed"
-
-
-async def test_delete_removes_the_record_its_chunks_and_its_object(services, litellm):
-    conversation = str(uuid.uuid4())
-    record, _, _ = await _ingest(services, ALICE, conversation, "لائحة.pdf", pdf_bytes(LEAVE_REGULATION))
-    assert not await services.attachments.delete(BOB, conversation, record.id)
-    assert await services.attachments.delete(ALICE, conversation, record.id)
-    assert await services.attachments.store.get(ALICE, conversation, record.id) is None
-    assert not await services.attachments.objects.exists(record.object_key)
-    assert await _search(services, ALICE, conversation, "إجازة الأمومة") == []
-
-
-async def test_the_retention_purge_deletes_expired_files_and_is_idempotent(services, litellm):
-    conversation = str(uuid.uuid4())
-    record, _, _ = await _ingest(services, ALICE, conversation, "لائحة.pdf", pdf_bytes(LEAVE_REGULATION))
-    kept, _, _ = await _ingest(services, ALICE, str(uuid.uuid4()), "أخرى.pdf", pdf_bytes(LEAVE_REGULATION))
-    async with services.db.connection() as conn:
-        await conn.execute(
-            "UPDATE agent.attachments SET expires_at = now() - interval '1 second' WHERE id = %s",
-            (record.id,),
-        )
-    first = await services.attachments.purge_expired()
-    assert first["attachments"] >= 1 and first["errors"] == 0
-    assert await services.attachments.store.by_id(record.id) is None
-    assert not await services.attachments.objects.exists(record.object_key)
-    async with services.db.connection() as conn:
-        cursor = await conn.execute(
-            "SELECT count(*) AS n FROM agent.rag_chunks WHERE attachment_id = %s", (record.id,)
-        )
-        assert (await cursor.fetchone())["n"] == 0
-    again = await services.attachments.purge_expired()
-    assert again == {"attachments": 0, "chunks": 0, "objects": 0, "errors": 0}
-    assert (await services.attachments.store.by_id(kept.id)).status == "indexed"
-
-
-async def test_a_turn_moves_the_expiry_of_the_conversations_files(services, litellm):
-    conversation = str(uuid.uuid4())
-    record, _, _ = await _ingest(services, ALICE, conversation, "لائحة.pdf", pdf_bytes(LEAVE_REGULATION))
-    async with services.db.connection() as conn:
-        await conn.execute(
-            "UPDATE agent.attachments SET expires_at = now() + interval '1 day' WHERE id = %s", (record.id,)
-        )
-        await conn.execute(
-            "UPDATE agent.rag_chunks SET expires_at = now() + interval '1 day' WHERE attachment_id = %s",
-            (record.id,),
-        )
-    await services.attachments.touch(BOB, conversation)  # another user's turn moves nothing
-    await services.attachments.touch(ALICE, conversation)
-    async with services.db.connection() as conn:
-        cursor = await conn.execute(
-            "SELECT (SELECT expires_at FROM agent.attachments WHERE id = %(id)s) > %(soon)s AS a, "
-            "(SELECT min(expires_at) FROM agent.rag_chunks WHERE attachment_id = %(id)s) > %(soon)s AS c",
-            {"id": record.id, "soon": datetime.now(UTC) + timedelta(days=29)},
-        )
-        row = await cursor.fetchone()
-    assert row["a"] and row["c"]
