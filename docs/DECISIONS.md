@@ -1432,7 +1432,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0157: The reranker scores the best 16 fused candidates on their first 400 tokens
 - Date: 2026-10-11
 - Phase: 04 (ADR-0133, ADR-0134)
-- Status: assumed
+- Status: assumed — Superseded by ADR-0184 on 2026-10-12 (rerank off by default; 16 candidates on 1070 characters when on)
 - Context: Measured on the development host (CPU inference, 24 threads), the cross-encoder's time grows with the tokens it scores: 30 candidates of about 800 tokens took 34 s, 16 took 18 s, 8 took 8 s, 30 of about 270 tokens took 10 s. A docs turn on a 20-page Arabic PDF spent 27.3 s (p50, n=20) in `rag.retrieve` and reached its first token after 28.7 s.
 - Decision: `retrieval.rerank_candidates: 16` and `retrieval.rerank_max_tokens: 400` in `config/docs.yaml`: the best 16 of the fused 60 are reranked, each on its first 400 tokens (counted as Context Assembly counts), and the top 8 are kept with their full text. The vector and text searches (30 + 30, RRF) are unchanged.
 - Consequences: `rag.retrieve` p50 6.31 s and time to first token p50 7.72 s on the same document (n=20). A chunk whose answer lies past its first 400 tokens is ranked by its beginning; it still reaches the top 8 when fusion ranks it high. On a GPU-served reranker in production both values can go back up; they are configuration.
@@ -1708,4 +1708,24 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
     - Sentence scoring with log weights at coverage 0.25: 61/65.
     - This rule: 63/65. The two misses are cv-hospital, whose answer drew on page 2 before the prompt change.
 - Consequences: No model call and no change to the answer text. A "not found" answer gets shorter: one sentence. The rule needs the chunk text, which the answer step already fetches (ADR-0162). Tests: the templated pages with overlapping numbers, the short answer adding only the number, the restating abstention, and the leave-housing abstention, which a quarter coverage cites and this rule does not. The answer drawing on three chunks still cites all three.
+
+### ADR-0184: The reranker is off by default; switched on, it scores 16 candidates on their first 1070 characters
+- Date: 2026-10-12
+- Phase: 04 (owner decision Q1; supersedes ADR-0157)
+- Status: decided
+- Context: ADR-0157 cut the reranker to 16 candidates on their first 400 tokens to bring `rag.retrieve` from 27 s to 6 s, without measuring what the cut cost. The owner asked for three rag runs for each of three configurations, with twenty-pages.pdf cases whose answers lie past the first 400 tokens of their chunk, and for the fastest configuration that meets every rag threshold. The cases are six `twenty-past-truncation-p*` cases in rag.jsonl, answers on line 16 of pages 3 to 18, past 1070 characters.
+  - The 400-token bound is now a character bound, 1070 (`retrieval.rerank.max_chars`): 400 tokens of the reranker's own tokenizer at the fewest characters per token measured on the eval documents (2.68; median 3.54). A character bound needs no tokenizer in the agent.
+  - The runs use ADR-0183's attribution, the OpenRouter development tiers (ADR-0065) and this host's CPU reranker. Thresholds: hit@8 0.90, citation page accuracy 0.85, faithfulness 0.85, answer correctness 0.80, abstention 0.90.
+- Decision: `config/docs.yaml` `retrieval.rerank: {enabled: false, candidates: 16, max_chars: 1070}`. Retrieval keeps vector top 30 and full-text top 30, fuses them by RRF and takes the top 8 in fusion order. The reranker stays deployed: `enabled: true` brings back 16 candidates on 1070 characters, the faster of the two rerank configurations, which also met every threshold.
+- Measured, three rag runs each (53 cases; Langfuse dataset runs named in PROGRESS):
+
+  | configuration | hit@8 | citation | faithfulness | correctness | abstention | retrieve p50 | retrieve p95 |
+  |---|---|---|---|---|---|---|---|
+  | rerank 30, full text | 1.00, 1.00, 1.00 | 1.00, 1.00, 0.94 | 0.93, 0.96, 0.94 | 0.89, 0.89, 0.90 | 1.00 ×3 | 0.74–0.78 s | 26.0–27.0 s |
+  | rerank 16 / 1070 chars | 1.00, 1.00, 1.00 | 1.00, 1.00, 0.97 | 0.95, 0.96, 0.91 | 0.90, 0.92, 0.91 | 1.00 ×3 | 0.75–0.76 s | 5.6–5.7 s |
+  | rerank off | 1.00, 1.00, 1.00 | 0.91, 0.91, 0.94 | 0.93, 0.97, 0.96 | 0.89, 0.89, 0.89 | 1.00 ×3 | 0.13 s | 0.14–0.15 s |
+
+  - On the six past-truncation cases, 16/1070 gave a wrong number in each run (the neighbouring line's 16 for 17, p15 twice and p9 once). Full text and off gave none.
+  - Off's misses are citations: one-line answers ("كل 17 أسبوعا") that cannot single out a templated page, and one full answer citing its neighbours.
+- Consequences: Retrieval is about 0.6 s faster at p50 and 5 s faster at p95 than ADR-0157, and the reranker's CPU is idle. The measurement is on six small documents, of at most 40 chunks, where hybrid fusion alone puts the answer in the top 8 every time. A collection of many or long files can need the reranker, and a GPU-served reranker would make the full configuration affordable. Both are a configuration change, to be measured by the rag suite on that collection. Full run 2 was repeated: its first attempt stopped after 16 cases on one gateway 502 `storage_unavailable` (a SocketException to MinIO, the only one in the day's logs).
 

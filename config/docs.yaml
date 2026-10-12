@@ -62,9 +62,11 @@ retrieval:
   # a malformed rerank answer falls back to it too. `candidates`: how many fused chunks are scored;
   # `max_chars`: how much of each (null: the whole chunk). 1070 characters is 400 tokens of the
   # reranker's own tokenizer at the lowest characters per token measured on the eval documents
-  # (2.68; median 3.54). Q1 measures each configuration; the chosen one is recorded in PROGRESS.
+  # (2.68; median 3.54). Off by default (Q1, ADR-0184): with it off every rag threshold held in
+  # three runs and rag.retrieve took p50 0.13 s, p95 0.15 s; 16/1070 took p95 5.6 s, the whole
+  # 30 p95 26.6 s on this host's CPU. Switched on, 16 and 1070 are the measured values.
   rerank:
-    enabled: true
+    enabled: false
     candidates: 16
     max_chars: 1070
   top_k: 8
