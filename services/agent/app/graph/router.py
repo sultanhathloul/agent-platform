@@ -7,9 +7,11 @@ Assembly and LiteLLM like every model call. Its answer is JSON; anything outside
 candidates is ignored, and an unusable answer or a model failure keeps the candidates
 the rules found (`router_default`).
 
-A decision is cached in Redis for `cache_ttl_s`, keyed per tenant (ADR-0116 precedent) by
-the router prompts' versions, the locale, the candidates, the conversation's file names,
-the normalized message and the window it saw. The file names and the message reach the
+A decision is cached in Redis for `cache_ttl_s`, keyed per tenant and per user (ADR-0116
+precedent; owner decision S8) by the router prompts' versions, the model alias the router role
+resolves to for this principal, the locale, the candidates, the conversation's file names, the
+normalized message and the window it saw: one user's decision is never another's, and a new
+alias or ceiling never reuses an old answer. The file names and the message reach the
 model as delimited data in the user role (`router.request`, ADR-0068)."""
 
 import contextlib
@@ -73,12 +75,15 @@ def _files(state: dict) -> list[str]:
     return [a["name"] for a in state.get("attachments") or [] if a.get("status") == "indexed"]
 
 
-def _cache_key(ctx: TurnContext, state: dict, allowed: Sequence[str], window: list[str]) -> str:
+async def _cache_key(ctx: TurnContext, state: dict, allowed: Sequence[str], window: list[str]) -> str:
     services = ctx.services
     prompts = [services.prompts.ref(p, state["locale"]) for p in ("router.system", "router.request")]
+    decision = await services.resolver.resolve("router", principal=ctx.principal)
     material = json.dumps(
         [
             ctx.principal.tenant_id,
+            ctx.principal.user_id,
+            services.models_config.tiers[decision.final].alias,
             prompts,
             state["locale"],
             list(allowed),
@@ -106,7 +111,7 @@ async def choose(
     allowed = [c.slug for c in pool]
     default = RouterDecision([c.slug for c in candidates], None, None, "router_default")
     window = _window(state, config.window_messages)
-    key = _cache_key(ctx, state, allowed, window)
+    key = await _cache_key(ctx, state, allowed, window)
     redis = services.redis
     if redis is not None:
         try:

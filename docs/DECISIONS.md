@@ -1548,3 +1548,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The owner accepted ADR-0149 (the router reads the conversation's file names as user-role data) on the condition that the names reach the router only after the INPUT check. INPUT checks the files sent with a turn (ADR-0165), but an earlier file's name is read again from its record on every later turn, and a redaction INPUT made on its own turn is not stored.
 - Decision: INPUT checks the message with the names of all the conversation's files, those sent with this turn and the earlier ones, since every one of them can reach a prompt this turn (the router reads the indexed files' names, the answer the pending and failed ones). The checked names replace the names in state before the router or a capability runs. `router.request` 1.1.0 escapes them (ADR-0165).
 - Consequences: A policy added after a file was uploaded applies to its name from the next turn on (tested). A name an INPUT policy blocks blocks every later turn of that conversation, as it would block the turn that sent it.
+
+### ADR-0169: The router's cache key names the user and the router alias
+- Date: 2026-10-12
+- Phase: 04 (owner decision S8; amends ADR-0139 and ADR-0149 on the cache key)
+- Status: decided
+- Context: The router decision was cached per tenant by the prompts, locale, candidates, file names, message and window. Two users of a tenant with the same file names and message shared a decision, and a change of the router's model or a tier ceiling reused answers the old model gave.
+- Decision: The key adds the user id and the LiteLLM alias the `router` role resolves to for the principal (ceilings included), the judge cache's precedent (ADR-0110).
+- Consequences: The cache hit rate falls to one user's repeated questions. A model change takes effect on the next turn (tested: another tenant, another user and another alias each miss the cache).

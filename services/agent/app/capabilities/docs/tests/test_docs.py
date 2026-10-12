@@ -317,7 +317,10 @@ async def test_later_turns_go_to_the_router_model_and_its_choice_is_cached(harne
 
 
 @pytest.mark.integration
-async def test_the_router_decision_is_cached_per_tenant(services, litellm):
+async def test_the_router_decision_is_cached_per_tenant_user_and_alias(services, litellm):
+    """S8: the key names the tenant, the user and the alias the router role resolves to."""
+    import dataclasses
+
     from app.graph.deps import TurnContext
     from app.graph.router import choose
 
@@ -325,16 +328,33 @@ async def test_the_router_decision_is_cached_per_tenant(services, litellm):
     docs, general = services.registry.get("docs"), services.registry.get("general")
     state = {"user_message": f"ما عاصمة فرنسا؟ {uuid.uuid4().hex[:6]}", "locale": "ar", "messages": []}
 
-    async def decide(tenant: str):
-        principal = Principal(user_id="u-router", tenant_id=tenant, permissions=PERMISSIONS)
-        ctx = TurnContext(services=routed, principal=principal, request_id="r", turn_id=uuid.uuid4().hex)
-        return await choose(ctx, state, [docs], [general], routed.router)
+    async def decide(tenant: str, user: str = "u-router", services=routed):
+        principal = Principal(user_id=user, tenant_id=tenant, permissions=PERMISSIONS)
+        ctx = TurnContext(services=services, principal=principal, request_id="r", turn_id=uuid.uuid4().hex)
+        return await choose(ctx, state, [docs], [general], services.router)
 
     first = await decide("default")
     second = await decide("default")
     other_tenant = await decide("t2")
-    assert (first.source, second.source, other_tenant.source) == ("model", "cache", "model")
-    assert second.capabilities == ["general"] and gateway.calls.count("router") == 2
+    other_user = await decide("default", "u-router-2")
+    fast = routed.models_config.tiers["fast"]
+    realiased = dataclasses.replace(
+        routed,
+        models_config=routed.models_config.model_copy(
+            update={
+                "tiers": {**routed.models_config.tiers, "fast": fast.model_copy(update={"alias": "fast-v2"})}
+            }
+        ),
+    )
+    other_alias = await decide("default", services=realiased)
+    assert (first.source, second.source, other_tenant.source, other_user.source, other_alias.source) == (
+        "model",
+        "cache",
+        "model",
+        "model",
+        "model",
+    )
+    assert second.capabilities == ["general"] and gateway.calls.count("router") == 4
 
 
 @pytest.mark.integration

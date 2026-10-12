@@ -163,7 +163,9 @@ async def test_an_earlier_files_name_reaches_the_router_only_after_input(harness
     assert await harness.ingest(document) == "indexed"
     first, _ = await _turn(harness.services, principal, conversation, "كم مدة إجازة الأمومة؟", [document])
     assert first[-1].type == "done"
-    await add(checkpoints=["INPUT"], checker="keyword_list", config={"keywords": ["مختبرسري"]}, action="redact")
+    await add(
+        checkpoints=["INPUT"], checker="keyword_list", config={"keywords": ["مختبرسري"]}, action="redact"
+    )
     routed, gateway = replacing(harness.services, {"router": '{"capabilities": ["general"]}'})
     seen: list[str] = []
 
