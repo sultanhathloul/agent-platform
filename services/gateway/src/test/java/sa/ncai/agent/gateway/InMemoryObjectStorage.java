@@ -14,6 +14,8 @@ import sa.ncai.agent.gateway.attachments.ObjectStorage;
 public class InMemoryObjectStorage implements ObjectStorage {
 
     public final Map<String, byte[]> objects = new ConcurrentHashMap<>();
+    /** Every key read, in order: a refused request must read none. */
+    public final java.util.List<String> reads = new java.util.concurrent.CopyOnWriteArrayList<>();
     public volatile boolean failing;
 
     @Override
@@ -29,6 +31,7 @@ public class InMemoryObjectStorage implements ObjectStorage {
     @Override
     public InputStream get(String key) {
         check(key);
+        reads.add(key);
         byte[] bytes = objects.get(key);
         if (bytes == null) {
             throw new StorageUnavailableException("no object " + key, null);
@@ -44,6 +47,7 @@ public class InMemoryObjectStorage implements ObjectStorage {
 
     public void clear() {
         objects.clear();
+        reads.clear();
         failing = false;
     }
 

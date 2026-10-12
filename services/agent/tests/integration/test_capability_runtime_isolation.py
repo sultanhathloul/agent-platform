@@ -113,3 +113,67 @@ async def test_a_capability_past_its_timeout_fails_the_turn_retryably_and_persis
     assert elapsed < 4, f"the turn waited {elapsed:.1f}s for a capability limited to 0.3s"
     state = (await services.graph.aget_state({"configurable": {"thread_id": conversation}})).values
     assert not state.get("messages")
+
+
+async def test_docs_and_general_in_one_turn_and_a_cross_namespace_write_stays_in_its_own_slice(
+    services, litellm
+):
+    """The real `docs` and `general` run together (the router chooses both). `docs` is wrapped so
+    that, after its real run, it tries to write `general`'s namespace twice: by returning a
+    `cap.general` key, and by writing into its RuntimeContext's copy. Neither reaches `general`."""
+    from tests.fixtures.backends import Harness
+    from tests.fixtures.documents import LEAVE_REGULATION
+    from tests.fixtures.replace import replacing
+
+    from app.rag.backend import DocumentScope
+
+    real_docs = services.registry.get("docs")
+
+    async def hijacking_docs(state, runtime):
+        result = await real_docs.graph.ainvoke({"input": state["input"]}, context=runtime.context)
+        output = result["output"]
+        runtime.context.cap_state["cap.general"] = {"hijacked": "through the runtime copy"}
+        cap_state = {**output.cap_state, "cap.general": {"hijacked": "through the output"}}
+        return {"output": output.model_copy(update={"cap_state": cap_state})}
+
+    graph = StateGraph(_State, context_schema=RuntimeContext)
+    graph.add_node("run", hijacking_docs)
+    graph.add_edge(START, "run")
+    graph.add_edge("run", END)
+    general = services.registry.get("general")
+    wrapped = dataclasses.replace(
+        services,
+        registry=CapabilityRegistry(
+            [
+                LoadedCapability(
+                    manifest=real_docs.manifest,
+                    graph=graph.compile(),
+                    path=real_docs.path,
+                    tools=real_docs.tools,
+                ),
+                general,
+            ]
+        ),
+    )
+    principal = Principal(user_id=f"u-iso-{uuid.uuid4().hex[:6]}", permissions=("cap:general", "cap:docs"))
+    conversation = str(uuid.uuid4())
+    harness = Harness("internal", wrapped)
+    scope = DocumentScope(
+        tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
+    )
+    document = await harness.upload(scope, "لائحة.pdf", ["\n".join(page) for page in LEAVE_REGULATION])
+    assert await harness.ingest(document) == "indexed"
+    first = await _turn(wrapped, principal, conversation, "كم مدة إجازة الأمومة؟")
+    assert first[-1].type == "done"
+
+    routed, _ = replacing(wrapped, {"router": '{"capabilities": ["docs", "general"]}'})
+    second = await _turn(routed, principal, conversation, f"وماذا عن الإجازة السنوية؟ {uuid.uuid4().hex[:6]}")
+    assert second[-1].type == "done" and second[-1].data.state_digest.capabilities == ["docs", "general"]
+    state = (await routed.graph.aget_state({"configurable": {"thread_id": conversation}})).values
+    assert state["cap_state"]["cap.general"] == {}  # general's own slice, untouched
+    docs = state["cap_state"]["cap.docs"]
+    assert docs["searches"] == 2  # docs' real work, both turns
+    assert docs["cap.general"] == {
+        "hijacked": "through the output"
+    }  # a key inside docs' own slice, nothing more
+    assert set(state["cap_state"]) <= {"cap.docs", "cap.general"}

@@ -1653,3 +1653,16 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - `RERANK_MODEL` and `RERANK_API_BASE` come from `.env`, like `EMBED_MODEL` and `EMBED_API_BASE` (defaults `infinity/bge-reranker-v2-m3`, `http://rerank:7997`).
   - README §21.2 and PROGRESS give the order: `make models`, then `make up`.
 - Consequences: A new revision of the reranker is an explicit change of the pin, measured like a model change. Removing the weights is `docker volume rm rerank-models`.
+
+### ADR-0180: The weak tests the review named are replaced
+- Date: 2026-10-12
+- Phase: 04 (owner decision Q3)
+- Status: decided
+- Context: Review round 1 named tests that could not fail or did not test what they claimed.
+- Decision:
+  - `test_rag_extract.py`: the presentation-form test asserted an inequality that held for any output; the PDF test checked `"2031" in text`. Both now compare whole strings and whole lines (with the fixtures of ADR-0173).
+  - `test_capability_runtime_isolation.py`: besides the test-only capabilities, the real `docs` and `general` run in one turn (the router chooses both), with `docs` wrapped to write `general`'s namespace through its output and through its RuntimeContext copy; `general`'s slice stays untouched and the write stays inside `docs`' own slice.
+  - `AttachmentProxyTest`: beyond the agent's mocked 404, the gateway asks the agent as the caller whatever identity headers the caller sends, at the caller's own conversation path; a refused download never reads storage although the object exists; list and status never carry the object key.
+  - `test_retention.py`: the comment that said the mock embeds every text alike (untrue since ADR-0143) is corrected.
+  - The tests of the removed retention paths (delete, expiry, touch, purge) are gone with them (ADR-0166).
+- Consequences: None beyond the tests.

@@ -141,6 +141,44 @@ class AttachmentProxyTest extends GatewayTestSupport {
         assertThat(singleAudit().status()).isEqualTo(AuditStatus.DENIED);
     }
 
+    /**
+     * Beyond the agent's 404 (review round 1): the gateway itself never lets a caller choose whose
+     * file it reads. The agent is asked as the caller (identity from the token, never a header the
+     * caller sends), at the caller's own conversation path; and a download the agent refuses never
+     * touches storage, even when the object exists under its key.
+     */
+    @Test
+    void theAgentIsAskedAsTheCallerAndARefusedDownloadNeverReadsStorage() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "other-2", "tenant-a");
+        objects().objects.put(CONVERSATION + "/secret-key", "%PDF-1.7 the owner's".getBytes(StandardCharsets.US_ASCII));
+        AGENT.enqueue(json(404, "{\"request_id\":\"x\",\"error\":{\"code\":\"attachment_not_found\","
+                + "\"message_ar\":\"-\",\"message_en\":\"-\"}}"));
+        mvc.perform(get(BASE + "/" + ATTACHMENT + "/content")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other()))
+                        .header("X-User-Id", "viewer-1")          // a caller's attempt to speak for another user
+                        .header("X-Tenant-Id", "tenant-b"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("attachment_not_found"));
+        RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(upstream.getPath()).isEqualTo(BASE + "/" + ATTACHMENT);
+        assertThat(upstream.getHeader("X-User-Id")).isEqualTo("other-2");
+        assertThat(upstream.getHeader("X-Tenant-Id")).isEqualTo("tenant-a");
+        assertThat(objects().reads).isEmpty();
+    }
+
+    @Test
+    void theListAndTheStatusNeverCarryTheObjectKeyToTheClient() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        AGENT.enqueue(json(200, "{\"attachments\":[" + view("indexed", null) + "]}"));
+        AGENT.enqueue(json(200, view("indexed", null)));
+        for (String path : List.of(BASE, BASE + "/" + ATTACHMENT)) {
+            String body = mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+            assertThat(body).doesNotContain("secret-key").doesNotContain("object_key");
+        }
+    }
+
     @Test
     void aConversationNobodyUsedHoldsNothingAndBindsNobody() throws Exception {
         mvc.perform(get(BASE).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
