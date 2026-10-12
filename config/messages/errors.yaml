@@ -76,6 +76,9 @@ file_type_unsupported:
 file_too_large:
   ar: "حجم الملف أكبر من الحد المسموح به."
   en: "The file is larger than the allowed size."
+upload_rate_limited:
+  ar: "رفعت ملفات كثيرة خلال دقيقة. انتظر قليلًا ثم أعد المحاولة."
+  en: "Too many files were uploaded in the last minute. Wait a little, then try again."
 too_many_pages:
   ar: "عدد صفحات الملف أكبر من الحد المسموح به."
   en: "The file has more pages than allowed."

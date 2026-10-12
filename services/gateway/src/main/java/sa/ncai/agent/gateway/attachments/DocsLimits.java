@@ -17,9 +17,19 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 /**
  * Upload limits from {@code config/docs.yaml} (ADR-0126), the file the agent reads too, so the
  * two services enforce the same values: bytes per file, files per conversation, pages per PDF,
- * and the allowed kinds by extension.
+ * the allowed kinds by extension, and uploads per user per minute (owner decision R3). The
+ * multipart caps derive from the same file: there is no other upload limit in the gateway.
  */
-public record DocsLimits(long maxFileBytes, int maxFilesPerConversation, int maxPdfPages, Map<String, String> kinds) {
+public record DocsLimits(
+        long maxFileBytes, int maxFilesPerConversation, int maxPdfPages, Map<String, String> kinds, int uploadsPerMinute) {
+
+    /** Room for the multipart envelope around one file: field headers and boundaries. */
+    static final long ENVELOPE_BYTES = 1024 * 1024;
+
+    /** The largest request body an upload may have; anything larger is refused before it is read. */
+    public long maxRequestBytes() {
+        return maxFileBytes + 2 * ENVELOPE_BYTES;
+    }
 
     public static DocsLimits load(Path path) {
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -35,7 +45,8 @@ public record DocsLimits(long maxFileBytes, int maxFilesPerConversation, int max
                     ((Number) limits.get("max_file_bytes")).longValue(),
                     ((Number) limits.get("max_files_per_conversation")).intValue(),
                     ((Number) limits.get("max_pdf_pages")).intValue(),
-                    Map.copyOf(kinds));
+                    Map.copyOf(kinds),
+                    ((Number) limits.get("uploads_per_minute")).intValue());
         } catch (IOException | RuntimeException e) {
             throw new IllegalStateException("cannot read upload limits from " + path + ": " + e.getMessage(), e);
         }

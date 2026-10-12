@@ -11,6 +11,7 @@ limits:
   max_file_bytes: 20971520          # 20 MB
   max_files_per_conversation: 10
   max_pdf_pages: 300
+  uploads_per_minute: 20            # per user, in the gateway; more is 429 upload_rate_limited (R3)
   types:
     pdf:  {extensions: [pdf],  mimes: [application/pdf]}
     docx: {extensions: [docx], mimes: [application/vnd.openxmlformats-officedocument.wordprocessingml.document]}

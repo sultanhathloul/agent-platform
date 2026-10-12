@@ -25,6 +25,7 @@ class Limits(_Strict):
     max_file_bytes: int = Field(gt=0)
     max_files_per_conversation: int = Field(gt=0)
     max_pdf_pages: int = Field(gt=0)
+    uploads_per_minute: int = Field(gt=0)  # enforced by the gateway (R3)
     types: dict[DocumentKind, FileType]
 
 

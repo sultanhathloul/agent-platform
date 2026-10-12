@@ -24,6 +24,7 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -33,6 +34,7 @@ import sa.ncai.agent.gateway.GatewayProperties;
 import sa.ncai.agent.gateway.api.ErrorCode;
 import sa.ncai.agent.gateway.api.ErrorResponses;
 import sa.ncai.agent.gateway.api.RequestIdFilter;
+import sa.ncai.agent.gateway.attachments.AttachmentGate;
 
 /** OIDC resource server: Keycloak JWTs checked for signature (JWKS), expiry, issuer and audience. */
 @Configuration(proxyBeanMethods = false)
@@ -43,7 +45,8 @@ public class SecurityConfig {
     };
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, ErrorResponses errors) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ErrorResponses errors, AttachmentGate attachmentGate)
+            throws Exception {
         AuthenticationEntryPoint unauthorized = (request, response, e) -> {
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
             errors.write(request, response, ErrorCode.UNAUTHORIZED);
@@ -64,7 +67,9 @@ public class SecurityConfig {
                         .accessDeniedHandler(forbidden))
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(unauthorized)
-                        .accessDeniedHandler(forbidden));
+                        .accessDeniedHandler(forbidden))
+                // cap:docs, the declared size and the upload rate, before any body is read (R3).
+                .addFilterAfter(attachmentGate, BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 

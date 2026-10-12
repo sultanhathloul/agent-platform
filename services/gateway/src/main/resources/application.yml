@@ -14,13 +14,8 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 10
-  # The upload limit is enforced by the controller from config/docs.yaml (ADR-0126); this cap only
-  # stops a body far beyond it before it is parsed, and is answered with file_too_large too.
-  servlet:
-    multipart:
-      max-file-size: 21MB
-      max-request-size: 22MB
-      file-size-threshold: 1MB
+  # The multipart caps come from config/docs.yaml (AttachmentsConfig, owner decision R3): no upload
+  # limit is written here.
   flyway:
     schemas: gateway
     default-schema: gateway
@@ -29,6 +24,10 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  tomcat:
+    # A refused upload's remaining body is read and discarded, so the client gets the JSON 413
+    # instead of a reset connection (owner decision R3).
+    max-swallow-size: -1
   compression:
     enabled: false
 

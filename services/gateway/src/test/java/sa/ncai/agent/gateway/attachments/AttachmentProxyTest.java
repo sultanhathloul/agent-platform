@@ -45,6 +45,17 @@ class AttachmentProxyTest extends GatewayTestSupport {
     @Autowired
     ObjectMapper mapper;
 
+    @Autowired
+    UploadRateLimiter rateLimiter;
+
+    @Autowired
+    DocsLimits limits;
+
+    @org.junit.jupiter.api.BeforeEach
+    void freshAllowance() {
+        rateLimiter.clear();
+    }
+
     private static String viewer() {
         return token(claims -> claims.subject("viewer-1").claim("realm_access",
                 Map.of("roles", List.of("user", "cap:general", "cap:docs"))));
@@ -185,6 +196,41 @@ class AttachmentProxyTest extends GatewayTestSupport {
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("forbidden"));
         assertThat(objects().objects).isEmpty();
         assertThat(singleAudit().status()).isEqualTo(AuditStatus.DENIED);
+    }
+
+    @Test
+    void listStatusAndDownloadNeedTheDocsPermissionToo() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "sql-only", "tenant-a");
+        String noDocs = bearer(token(claims -> claims.subject("sql-only")
+                .claim("realm_access", Map.of("roles", List.of("user", "cap:sql")))));
+        for (String path : List.of(BASE, BASE + "/" + ATTACHMENT, BASE + "/" + ATTACHMENT + "/content")) {
+            mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, noDocs))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("forbidden"));
+        }
+        assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull(); // refused before the agent
+        assertThat(auditLog().events()).extracting(AuditEvent::action)
+                .containsExactly("attachment.list", "attachment.status", "attachment.download");
+        assertThat(auditLog().events()).allSatisfy(e -> {
+            assertThat(e.status()).isEqualTo(AuditStatus.DENIED);
+            assertThat(e.detail()).containsEntry("error_code", "forbidden");
+        });
+    }
+
+    @Test
+    void uploadsPastTheUsersAllowanceAre429AndAudited() throws Exception {
+        rateLimiter.clear();
+        for (int i = 0; i < limits.uploadsPerMinute(); i++) {
+            assertThat(rateLimiter.allow("tenant-a/viewer-1")).isTrue();
+        }
+        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("upload_rate_limited"))
+                .andExpect(jsonPath("$.error.message_ar").value("رفعت ملفات كثيرة خلال دقيقة. انتظر قليلًا ثم أعد المحاولة."));
+        assertThat(objects().objects).isEmpty();
+        assertThat(singleAudit().status()).isEqualTo(AuditStatus.DENIED);
+        // Another user is not held back by this one.
+        assertThat(rateLimiter.allow("tenant-a/other-2")).isTrue();
+        rateLimiter.clear();
     }
 
     @Test

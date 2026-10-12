@@ -1620,3 +1620,15 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - PDF: the page limit as before; every pypdf decompression bound set to `extraction.max_pdf_stream_bytes` (50 MB) and each page's content decoded before its text is taken (pypdf's `extract_text` swallows the limit), `stream_too_large`; more than `extraction.max_chars` (1 000 000) of text, `text_too_long`, as soon as the page that passes it is read. Every kind: the same text cap and `chunking.max_chunks` (2000), `too_many_chunks`. An object over the upload limit is `file_too_large`.
   - Seven new reason codes, each with an Arabic and an English message in the web.
 - Consequences: Tests: a zip bomb, an entity-expansion DOCX, an XXE DOCX, an 80 MB-stream PDF and a 50 000-row XLSX each end failed with their reason while a chat turn completes; a child out of time or memory ends as `extraction_aborted`; the parser walls are tested directly. Spawning a child costs about half a second per file. A DOCX with an embedded spreadsheet is refused as a nested archive.
+
+### ADR-0177: One source for upload limits; cap:docs, size and rate checked before the body; the JSON 413, never a reset
+- Date: 2026-10-12
+- Phase: 04 (owner decision R3; supersedes ADR-0151's "list, status and download need ownership only" and its 21 MB multipart cap)
+- Status: decided
+- Context: The gateway's multipart caps were written in application.yml (21 MB / 22 MB) beside config/docs.yaml; only an upload checked `cap:docs`, after its body was stored to a temporary file; a body far over the cap made Tomcat drop the connection before the client read the 413; there was no rate limit.
+- Decision:
+  - config/docs.yaml is the one source: the gateway derives its multipart caps from `limits.max_file_bytes` (one file a little over it still reaches the controller, which refuses it with an audit record; a request over `max_file_bytes` + 2 MB cannot be parsed), and gains `limits.uploads_per_minute` (20).
+  - `AttachmentGate`, in the security chain after authentication and before any body is read: upload, list, status and download need `cap:docs` (403 `forbidden`); an upload whose declared length passes the request cap is 413 `file_too_large`; an upload past the caller's per-minute allowance (a sliding minute per tenant and user, in the gateway's memory) is 429 `upload_rate_limited`, a new error code with its Arabic and English messages in every catalog. Each refusal is audited fail-closed.
+  - `server.tomcat.max-swallow-size: -1`: the rest of a refused body is read and discarded, so the client gets the JSON 413; a chunked body over the cap gets it from the multipart handler. A test sends 40 MB over a real connection both ways.
+  - The ingestion of an object over the limit fails as `file_too_large` (ADR-0176).
+- Consequences: A user without `cap:docs` no longer reads the list of their own earlier uploads. Reading and discarding an oversize body costs the gateway that bandwidth; the per-user allowance and authentication bound who can make it read one. Several gateway processes would each keep their own allowance.
