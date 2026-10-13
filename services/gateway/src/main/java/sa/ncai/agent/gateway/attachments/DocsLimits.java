@@ -21,7 +21,18 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * multipart caps derive from the same file: there is no other upload limit in the gateway.
  */
 public record DocsLimits(
-        long maxFileBytes, int maxFilesPerConversation, int maxPdfPages, Map<String, String> kinds, int uploadsPerMinute) {
+        long maxFileBytes,
+        int maxFilesPerConversation,
+        int maxPdfPages,
+        Map<String, String> kinds,
+        int uploadsPerMinute,
+        int maxConcurrentUploads) {
+
+    /** This file's limits with the per-minute rate replaced (the env override, review round 2). */
+    public DocsLimits withUploadsPerMinute(int perMinute) {
+        return new DocsLimits(
+                maxFileBytes, maxFilesPerConversation, maxPdfPages, kinds, perMinute, maxConcurrentUploads);
+    }
 
     /** Room for the multipart envelope around one file: field headers and boundaries. */
     static final long ENVELOPE_BYTES = 1024 * 1024;
@@ -41,12 +52,14 @@ public record DocsLimits(
                     kinds.put(extension.toString().toLowerCase(Locale.ROOT), type.getKey().toString());
                 }
             }
+            Object concurrent = limits.get("max_concurrent_uploads");
             return new DocsLimits(
                     ((Number) limits.get("max_file_bytes")).longValue(),
                     ((Number) limits.get("max_files_per_conversation")).intValue(),
                     ((Number) limits.get("max_pdf_pages")).intValue(),
                     Map.copyOf(kinds),
-                    ((Number) limits.get("uploads_per_minute")).intValue());
+                    ((Number) limits.get("uploads_per_minute")).intValue(),
+                    concurrent == null ? 2 : ((Number) concurrent).intValue());
         } catch (IOException | RuntimeException e) {
             throw new IllegalStateException("cannot read upload limits from " + path + ": " + e.getMessage(), e);
         }

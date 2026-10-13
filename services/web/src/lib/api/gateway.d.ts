@@ -1522,7 +1522,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
-            /** @description file_too_large or too_many_pages */
+            /** @description file_too_large */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -1533,6 +1533,15 @@ export interface operations {
             };
             /** @description file_type_unsupported */
             415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description upload_rate_limited or too_many_uploads */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -25,9 +25,14 @@ server:
   port: 8080
   shutdown: graceful
   tomcat:
-    # A refused upload's remaining body is read and discarded, so the client gets the JSON 413
-    # instead of a reset connection (owner decision R3).
-    max-swallow-size: -1
+    # A refused upload's body is never drained (review round 2, finding 2): the gateway swallows
+    # none of it (0), so Tomcat closes the connection as soon as the refusal is written instead of
+    # reading a body it already refused. A trickled or huge-declared upload therefore cannot hold a
+    # connection — or its request-processing thread — open. The gate also sets Connection: close.
+    max-swallow-size: 0
+    # While a request body IS being read (an accepted upload), cut it if it stalls this long.
+    connection-upload-timeout: 30s
+    disable-upload-timeout: false
   compression:
     enabled: false
 

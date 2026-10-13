@@ -901,7 +901,7 @@
                 }
               }
             },
-            "description" : "file_too_large or too_many_pages"
+            "description" : "file_too_large"
           },
           "415" : {
             "content" : {
@@ -912,6 +912,16 @@
               }
             },
             "description" : "file_type_unsupported"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "upload_rate_limited or too_many_uploads"
           },
           "502" : {
             "content" : {

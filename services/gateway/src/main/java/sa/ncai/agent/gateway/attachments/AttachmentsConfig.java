@@ -22,7 +22,16 @@ class AttachmentsConfig {
 
     @Bean
     DocsLimits docsLimits(GatewayProperties properties) {
-        return DocsLimits.load(Path.of(properties.docs().config()));
+        DocsLimits limits = DocsLimits.load(Path.of(properties.docs().config()));
+        Integer perMinute = properties.docs().uploadsPerMinute();
+        // The environment (GATEWAY_UPLOADS_PER_MINUTE) overrides the file's baseline per deployment;
+        // development sets it high so evals never sleep on a 429 (review round 2, finding 4).
+        return perMinute == null ? limits : limits.withUploadsPerMinute(perMinute);
+    }
+
+    @Bean
+    UploadConcurrency uploadConcurrency(DocsLimits limits) {
+        return new UploadConcurrency(limits.maxConcurrentUploads());
     }
 
     @Bean
@@ -41,8 +50,12 @@ class AttachmentsConfig {
 
     @Bean
     AttachmentGate attachmentGate(
-            DocsLimits limits, UploadRateLimiter rateLimiter, AuditTrail audit, ErrorResponses errors) {
-        return new AttachmentGate(limits, rateLimiter, audit, errors);
+            DocsLimits limits,
+            UploadRateLimiter rateLimiter,
+            UploadConcurrency concurrency,
+            AuditTrail audit,
+            ErrorResponses errors) {
+        return new AttachmentGate(limits, rateLimiter, concurrency, audit, errors);
     }
 
     /** The gate runs inside the security chain, after authentication; never as a plain servlet filter too. */

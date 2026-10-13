@@ -50,6 +50,11 @@ public record GatewayProperties(
     /** MinIO, bucket {@code uploads} (ADR-0129); internal to the compose network. */
     public record Storage(@NotBlank String endpoint, String accessKey, String secretKey, @NotBlank String bucket) {}
 
-    /** @param config path of config/docs.yaml, whose {@code limits} the gateway enforces (ADR-0126) */
-    public record Docs(@NotBlank String config) {}
+    /**
+     * @param config          path of config/docs.yaml, whose {@code limits} the gateway enforces (ADR-0126)
+     * @param uploadsPerMinute per-user upload rate, from the environment per deployment (review round 2,
+     *                         finding 4; GATEWAY_UPLOADS_PER_MINUTE). When unset, config/docs.yaml's
+     *                         {@code limits.uploads_per_minute} is the baseline.
+     */
+    public record Docs(@NotBlank String config, Integer uploadsPerMinute) {}
 }

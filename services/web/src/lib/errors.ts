@@ -34,6 +34,8 @@ export const KNOWN_ERROR_CODES = [
   "attachment_limit",
   "file_too_large",
   "too_many_pages",
+  "upload_rate_limited",
+  "too_many_uploads",
   "file_type_unsupported",
   "storage_unavailable",
   "unknown",

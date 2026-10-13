@@ -137,7 +137,10 @@ public class AttachmentController {
                 @ApiResponse(responseCode = "409", description = "attachment_limit", content = @Content(
                         mediaType = MediaType.APPLICATION_JSON_VALUE,
                         schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "413", description = "file_too_large or too_many_pages",
+                @ApiResponse(responseCode = "413", description = "file_too_large",
+                        content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                                schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "429", description = "upload_rate_limited or too_many_uploads",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "415", description = "file_type_unsupported", content = @Content(
@@ -187,12 +190,11 @@ public class AttachmentController {
         Path temp = Files.createTempFile("upload-", ".bin");
         try {
             file.transferTo(temp);
-            UploadInspector.Inspection inspection = UploadInspector.inspect(kind.get(), temp, limits.maxPdfPages());
-            if (inspection.pages() != null) {
-                detail.put("pages", inspection.pages());
-            }
-            if (inspection.refusal().isPresent()) {
-                return call.refuse(inspection.refusal().get(), AuditStatus.DENIED);
+            // Magic bytes and archive header only; the page limit and content bounds are the ingest
+            // service's, in its sandboxed child process (owner decision review round 2, finding 3).
+            Optional<ErrorCode> refusal = UploadInspector.inspect(kind.get(), temp);
+            if (refusal.isPresent()) {
+                return call.refuse(refusal.get(), AuditStatus.DENIED);
             }
             String path = "/v1/conversations/" + conversation + "/attachments";
             AgentReply existing = agent.exchange(HttpMethod.GET, path, null, caller, call.requestId());

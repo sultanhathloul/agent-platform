@@ -10,16 +10,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -49,11 +45,15 @@ class AttachmentProxyTest extends GatewayTestSupport {
     UploadRateLimiter rateLimiter;
 
     @Autowired
+    UploadConcurrency concurrency;
+
+    @Autowired
     DocsLimits limits;
 
     @org.junit.jupiter.api.BeforeEach
     void freshAllowance() {
         rateLimiter.clear();
+        concurrency.clear();
     }
 
     private static String viewer() {
@@ -79,14 +79,13 @@ class AttachmentProxyTest extends GatewayTestSupport {
         return new MockResponse().setResponseCode(status).setHeader("Content-Type", "application/json").setBody(body);
     }
 
-    private static byte[] pdf(int pages) throws IOException {
-        try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            for (int i = 0; i < pages; i++) {
-                document.addPage(new PDPage());
-            }
-            document.save(out);
-            return out.toByteArray();
-        }
+    /**
+     * Bytes the gateway accepts as a PDF: the {@code %PDF} magic and nothing more. The gateway
+     * counts no pages (review round 2, finding 3), so a page count is not built here; the ingest
+     * service reads real PDFs in its sandbox.
+     */
+    private static byte[] pdf() {
+        return "%PDF-1.7\n%âãÏÓ\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF".getBytes(StandardCharsets.ISO_8859_1);
     }
 
     private static MockMultipartFile file(String name, byte[] bytes) {
@@ -116,7 +115,7 @@ class AttachmentProxyTest extends GatewayTestSupport {
                 .andExpect(status().isForbidden());
         mvc.perform(get(BASE + "/" + ATTACHMENT + "/content").header(HttpHeaders.AUTHORIZATION, intruder))
                 .andExpect(status().isForbidden());
-        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, intruder))
+        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, intruder))
                 .andExpect(status().isForbidden());
 
         assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
@@ -195,7 +194,7 @@ class AttachmentProxyTest extends GatewayTestSupport {
     void anUploadIsStoredRegisteredWithTheCallerFromTheTokenAndAudited() throws Exception {
         AGENT.enqueue(json(200, "{\"attachments\":[]}"));
         AGENT.enqueue(json(201, view("pending", null)));
-        byte[] bytes = pdf(3);
+        byte[] bytes = pdf();
 
         String body = mvc.perform(multipart(BASE.toUpperCase().replace("/V1/CONVERSATIONS", "/v1/conversations")
                                 .replace("/ATTACHMENTS", "/attachments"))
@@ -223,14 +222,14 @@ class AttachmentProxyTest extends GatewayTestSupport {
         assertThat(event.action()).isEqualTo("attachment.upload");
         assertThat(event.status()).isEqualTo(AuditStatus.OK);
         assertThat(event.conversationId()).isEqualTo(CONVERSATION);
-        assertThat(event.detail()).containsEntry("attachment_id", ATTACHMENT).containsEntry("pages", 3)
-                .containsEntry("kind", "pdf").doesNotContainKey("name");
+        assertThat(event.detail()).containsEntry("attachment_id", ATTACHMENT)
+                .containsEntry("kind", "pdf").doesNotContainKey("name").doesNotContainKey("pages");
     }
 
     @Test
     void anUploadWithoutTheDocsPermissionIsForbidden() throws Exception {
         String analyst = token(claims -> claims.claim("realm_access", Map.of("roles", List.of("user", "cap:sql"))));
-        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, bearer(analyst)))
+        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, bearer(analyst)))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("forbidden"));
         assertThat(objects().objects).isEmpty();
         assertThat(singleAudit().status()).isEqualTo(AuditStatus.DENIED);
@@ -260,7 +259,7 @@ class AttachmentProxyTest extends GatewayTestSupport {
         for (int i = 0; i < limits.uploadsPerMinute(); i++) {
             assertThat(rateLimiter.allow("tenant-a/viewer-1")).isTrue();
         }
-        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error.code").value("upload_rate_limited"))
                 .andExpect(jsonPath("$.error.message_ar").value("رفعت ملفات كثيرة خلال دقيقة. انتظر قليلًا ثم أعد المحاولة."));
@@ -269,6 +268,43 @@ class AttachmentProxyTest extends GatewayTestSupport {
         // Another user is not held back by this one.
         assertThat(rateLimiter.allow("tenant-a/other-2")).isTrue();
         rateLimiter.clear();
+    }
+
+    @Test
+    void refusedAttemptsCountTowardTheRateLimit() throws Exception {
+        String viewer = bearer(viewer());
+        // Fill the allowance to one below the limit, then spend the last slot on an upload the
+        // controller refuses (unsupported type): a refused attempt still counts (review round 2).
+        for (int i = 0; i < limits.uploadsPerMinute() - 1; i++) {
+            assertThat(rateLimiter.allow("tenant-a/viewer-1")).isTrue();
+        }
+        mvc.perform(multipart(BASE).file(file("برنامج.exe", new byte[] {1, 2})).header(HttpHeaders.AUTHORIZATION, viewer))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error.code").value("file_type_unsupported"));
+        // The allowance is now spent: the next upload, valid or not, is rate-limited.
+        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, viewer))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("upload_rate_limited"));
+    }
+
+    @Test
+    void aThirdConcurrentUploadFromOneUserIsRefused() throws Exception {
+        String viewer = bearer(viewer());
+        // Two uploads are already in flight for this user (slots held while their bodies are read).
+        assertThat(concurrency.tryAcquire("tenant-a/viewer-1")).isTrue();
+        assertThat(concurrency.tryAcquire("tenant-a/viewer-1")).isTrue();
+        mvc.perform(multipart(BASE).file(file("ثالث.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, viewer))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("too_many_uploads"))
+                .andExpect(jsonPath("$.error.message_ar")
+                        .value("عدد عمليات الرفع المتزامنة كبير. انتظر حتى تنتهي العمليات الحالية ثم أعد المحاولة."));
+        assertThat(objects().objects).isEmpty();
+        assertThat(singleAudit().status()).isEqualTo(AuditStatus.DENIED);
+        // A different user is not held back by this one's in-flight uploads.
+        assertThat(concurrency.tryAcquire("tenant-a/other-2")).isTrue();
+        concurrency.release("tenant-a/viewer-1");
+        concurrency.release("tenant-a/viewer-1");
+        concurrency.release("tenant-a/other-2");
     }
 
     @Test
@@ -286,17 +322,17 @@ class AttachmentProxyTest extends GatewayTestSupport {
         mvc.perform(multipart(BASE).file(file("مزيف.pdf", "نص عادي".getBytes(StandardCharsets.UTF_8)))
                         .header(HttpHeaders.AUTHORIZATION, viewer))
                 .andExpect(status().isUnsupportedMediaType());
-        mvc.perform(multipart(BASE).file(file("طويل.pdf", pdf(301))).header(HttpHeaders.AUTHORIZATION, viewer))
-                .andExpect(status().isPayloadTooLarge())
-                .andExpect(jsonPath("$.error.code").value("too_many_pages"));
+        // The page limit is no longer the gateway's: a 301-page PDF is accepted here (its magic is
+        // valid) and the ingest service fails it with too_many_pages. So this upload reaches the
+        // agent, which reports the conversation already holds the maximum.
         AGENT.enqueue(json(200, "{\"attachments\":[" + String.join(",", java.util.Collections.nCopies(10,
                 view("indexed", null))) + "]}"));
-        mvc.perform(multipart(BASE).file(file("الحادي عشر.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, viewer))
+        mvc.perform(multipart(BASE).file(file("الحادي عشر.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, viewer))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("attachment_limit"));
 
         assertThat(objects().objects).isEmpty();
-        assertThat(auditLog().events()).hasSize(5).allSatisfy(e -> {
+        assertThat(auditLog().events()).hasSize(4).allSatisfy(e -> {
             assertThat(e.action()).isEqualTo("attachment.upload");
             assertThat(e.status()).isEqualTo(AuditStatus.DENIED);
         });
@@ -325,7 +361,7 @@ class AttachmentProxyTest extends GatewayTestSupport {
     @Test
     void anUnreachableAuditLogRefusesTheUploadBeforeAnythingIsStored() throws Exception {
         auditLog().setMode(InMemoryAuditRepository.Mode.DOWN);
-        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf(1))).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+        mvc.perform(multipart(BASE).file(file("ملف.pdf", pdf())).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error.code").value("audit_unavailable"));
         assertThat(objects().objects).isEmpty();

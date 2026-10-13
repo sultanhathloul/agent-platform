@@ -15,6 +15,7 @@ public enum ErrorCode {
     TOO_MANY_PAGES("too_many_pages", 413),
     FILE_TYPE_UNSUPPORTED("file_type_unsupported", 415),
     UPLOAD_RATE_LIMITED("upload_rate_limited", 429),
+    TOO_MANY_UPLOADS("too_many_uploads", 429),
     STORAGE_UNAVAILABLE("storage_unavailable", 502),
     POLICY_NOT_FOUND("policy_not_found", 404),
     POLICY_EXISTS("policy_exists", 409),
