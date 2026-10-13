@@ -1149,7 +1149,9 @@ Results (2026-10-12, rule 11; `make test`, `make smoke` and `make smoke-airgap` 
 
 Q1, rerank configurations: rag ×3 each, on ADR-0183's attribution, before the final runs above. The default is the fastest configuration that met every rag threshold in all three runs: off (ADR-0184).
 
-| configuration | run (Langfuse dataset run) | passed | hit@8 | citation | faithfulness | correctness | abstention | rag.retrieve p50 | p95 (n) |
+The `passed` column is out of 53 cases (each run recorded all 53); the bracketed number in the p95 column is the count of `rag.retrieve` spans the run's traces carried, not a case count (relabelled per review round 2, finding 4).
+
+| configuration | run (Langfuse dataset run) | passed/53 | hit@8 | citation | faithfulness | correctness | abstention | rag.retrieve p50 | p95 (retrieval spans) |
 |---|---|---|---|---|---|---|---|---|---|
 | rerank 30, full text | make-eval-20261012T130958Z | 52/53 | 1.00 | 1.00 | 0.93 | 0.89 | 1.00 | 0.74 s | 26.01 s (49) |
 | rerank 30, full text | make-eval-20261012T155206Z | 52/53 | 1.00 | 1.00 | 0.96 | 0.89 | 1.00 | 0.74 s | 26.63 s (51) |
@@ -1203,11 +1205,55 @@ Human review (owner's list):
 - `evals/golden/rag.jsonl`;
 - `evals/thresholds.yaml` (from phase 04's 12e29b1; unchanged in this fix session).
 
+### Fix session: PR #4 review round 2 (2026-10-13)
+
+Scope: the five narrow fixes of review round 2, nothing else; `docs/HANDOFF.md` untouched. Threat model ADR-0054. Findings 2 and 3 are the review's: the gateway drained refused upload bodies and parsed every PDF in its own process; both are a denial of chat for other users.
+
+Checklist:
+- [x] 1. Refused uploads never hold a connection: `server.tomcat.max-swallow-size: 0` (a refused body is read not at all) and `Connection: close` on every refusal of the upload path (401, 403, 413, 429), so Tomcat closes the socket at once instead of draining; the gate's order is cap:docs, then the per-user rate limit (every attempt counts), then the declared size, then a per-user concurrent-upload cap (`limits.max_concurrent_uploads`, default 2, 429 `too_many_uploads`); `connection-upload-timeout` 30 s on an accepted body. Tests (raw sockets, since the gateway closes mid-send): declared-oversize → 413; Content-Length 10^12 trickled → 413 and socket closed within 5 s; refused attempts count toward the rate limit; a third concurrent upload → `too_many_uploads`; a chat turn completes while 200 refused upload connections are attempted. (ADR-0185. Chose `max-swallow-size: 0` over the suggested 2 MB because 2 MB still blocks reading a trickled body up to the timeout, so the socket would not close within 5 s; 0 both never drains and closes at once.)
+- [x] 2. The gateway parses no document: PDFBox removed from build.gradle.kts; `UploadInspector` checks size, type by magic bytes, and the archive marker by a bounded raw byte scan, decompressing nothing. The page limit (D2) and all content bounds stay in the ingest child process (`too_many_pages` etc., ADR-0176); the gateway no longer returns `too_many_pages` or records `pages`. Tests: a classpath check that no PDF/POI/Tika/iText parser is present; the page-limit refusal moved from the gateway test to ingest. (ADR-0186.)
+- [x] 3. Rerank per environment (ADR-0187, supersedes the ADR-0184 default/location): `RERANK_ENABLED/CANDIDATES/MAX_CHARS` from `.env` via `Settings`, applied in `build_documents`; removed from config/docs.yaml; development default off; `.env.example` documents the production setting (on, 16, 1070, GPU host); the eval harness reads the same env. Citation accuracy behind each: off 0.91–0.94, 16/1070 0.97–1.00 (ADR-0184 table).
+- [x] 4. Eval records survive `make clean`: `run_evals.py` writes each run's per-case results and suite scores to `build/evals/<run id>.json` (gitignored) and prints the path; the rag `(n)` column relabelled "retrieval spans" and the recorded case count stated; `UPLOADS_PER_MINUTE` from `.env` (default 60, above what evals upload per minute) so evals never sleep on a 429. (ADR-0188.)
+- [x] 5. Recorded finding 1 as phase 05 scope (not implemented): see the Phase 05 heading below — `DocumentScope` generalised beyond the conversation to collections (kb collections allowed by `kb:{slug}:read`, injected by the broker from the principal), evidence fetched per source's collection and backend, more than one backend through `RuntimeContext`.
+- [x] Finish: `make test` green; `make smoke`, `make smoke-airgap`, `make eval` pending below.
+
+Results (2026-10-13, rule 11):
+
+- `make test`: agent 689 passed / 0 failed / 0 skipped; gateway 115 / 0 / 0 (was 111; +4 net: `NoDocumentParserTest`, two new `AttachmentProxyTest` cases, and `UploadOverHttpTest` 2→3 raw-socket cases); gateway-db 5 / 0 / 0; web 139 passed (10 files); evals harness 6 / 0 / 0.
+- `make up` rebuilt gateway, agent, ingest and web; all containers healthy. `make smoke`: 111/111 checks, 0 failed ("all phase 01 to 04 checks passed"), including the 30 MB clean JSON 413 (no reset), 429 `upload_rate_limited` at upload 61 (allowance 60), and the five hostile-file reasons. `make smoke-airgap`: 116/116 (5 airgap checks + 111). The over-limit upload checks use `curl --expect100-timeout` so curl reads the gateway's 413 before sending the body, matching the new close-without-draining behaviour (ADR-0185).
+- `make eval`, one run (OpenRouter development tiers, ADR-0065; rerank off, ADR-0187). All four suites PASS. Langfuse dataset run `make-eval-20261013T140203Z`; eval records `build/evals/make-eval-20261013T140203Z.json` (gitignored, survives `make clean`, ADR-0188).
+
+  | suite | passed | rag hit@8 | citation | faithfulness | correctness | abstention | rag.retrieve p50 / p95 |
+  |---|---|---|---|---|---|---|---|
+  | general | 28/28 (1.00 ≥ 0.85) | | | | | | |
+  | guardrails | 142/142 (det. 1.00, judge 1.00, FPR 0.00) | | | | | | |
+  | routing | 34/34 (1.00 ≥ 0.90) | | | | | | |
+  | rag | 50/53 | 1.00 | 0.91 | 0.96 | 0.88 | 1.00 | 0.13 / 0.14 s (50 retrieval spans, 53 cases recorded) |
+
+  rag thresholds per metric: hit@8 0.90, citation 0.85, faithfulness 0.85, correctness 0.80, abstention 0.90 — all met. The three rag cases that did not pass are the known twenty-pages citations (an abstention/one-line answer that cannot single out one of twenty templated pages, or a citation of a neighbouring page), never a wrong answer; identical in kind to round 1.
+
+How to verify:
+```
+make up             # UPLOADS_PER_MINUTE defaults to 60, RERANK_ENABLED to false
+make test           # agent 689, gateway 115, gateway-db 5, web 139, evals 6
+make smoke          # 111/111
+make smoke-airgap   # 116/116
+make eval           # general, guardrails, rag, routing; all PASS; writes build/evals/<run>.json
+```
+
+Human review (owner's list) for this session:
+- the new ADRs ADR-0185 to ADR-0188 in `docs/DECISIONS.md`, and the Status-line note on ADR-0184;
+- `.env.example` (`RERANK_ENABLED/CANDIDATES/MAX_CHARS`, `UPLOADS_PER_MINUTE`) and `docker-compose.yml` (the same passed to the agent and gateway) — the production reranker and upload-rate settings;
+- `config/docs.yaml` (`limits.max_concurrent_uploads`; `retrieval.rerank` removed, now from `.env`);
+- `services/gateway/src/main/resources/application.yml` (`server.tomcat.max-swallow-size: 0`, `connection-upload-timeout`);
+- `docs/openapi/gateway.json` (upload 413/429 responses; regenerated within the unmerged 2.0.0, ADR-0046).
+
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
 - Branch: `phase/05-kb`
 - Status: not started
 - Done when: KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent.
+- Carried from PR #4 review round 2 (finding 1): the evidence path reaches only the conversation's own files, so `kb` as specified would need core changes. Generalise `DocumentScope` beyond `(tenant, user, conversation)` to name a collection, including the `kb_{slug}` collections the principal's `kb:{slug}:read` roles allow, injected by the broker from the verified principal (never a tool argument, S1/ADR-0160); `graph/evidence.py` fetches each source's text through the backend and scope that found it, not one fixed conversation scope; and `RuntimeContext` can carry more than one backend (the internal pipeline plus the owner's KB/RAG service) so a capability's tool reaches the right one. This keeps S4 (no chunk text in state) and C6 (one backend interface) intact.
 
 ## Phase 06: UC2 web (`web` capability)
 
