@@ -418,12 +418,15 @@ def rag_threshold_ok(scores: dict, threshold: dict) -> bool:
 
 
 def rerank_config() -> str:
-    """The rerank configuration the stack runs with (config/docs.yaml), for the rag summary (Q1)."""
-    rerank = (yaml.safe_load((REPO / "config" / "docs.yaml").read_text()) or {})["retrieval"]["rerank"]
-    if not rerank.get("enabled"):
+    """The rerank configuration the stack runs with, for the rag summary (Q1). It comes from the
+    environment now, not config/docs.yaml (review round 2, finding 3): the same RERANK_* the agent
+    reads, so the summary names what actually ran."""
+    values = env()
+    if (values.get("RERANK_ENABLED") or "").strip().lower() not in {"1", "true", "yes", "on"}:
         return "rerank off"
-    bound = rerank.get("max_chars")
-    return f"rerank {rerank['candidates']} candidates, {f'{bound} chars' if bound else 'full text'}"
+    candidates = (values.get("RERANK_CANDIDATES") or "16").strip()
+    bound = (values.get("RERANK_MAX_CHARS") or "").strip()
+    return f"rerank {candidates} candidates, {f'{bound} chars' if bound else 'full text'}"
 
 
 def guard_trace(http: httpx.Client, cfg: dict, auth: tuple[str, str], case: dict, result: dict | None) -> str:
@@ -509,6 +512,9 @@ def main() -> int:
     auth = (cfg["LANGFUSE_PUBLIC_KEY"], cfg["LANGFUSE_SECRET_KEY"])
     run_name = f"make-eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
     rows, failed = [], False
+    # Per-case results and suite scores, written to build/evals/<run>.json at the end so a run
+    # survives `make clean` even though its Langfuse dataset does not (review round 2, finding 4).
+    records: dict[str, dict] = {}
     judge: Judge | None = None
     sections = json.loads((DOCS / "sections.json").read_text(encoding="utf-8")) if (DOCS / "sections.json").exists() else {}
     only = set(sys.argv[1:])  # `make eval s=rag` runs one suite; empty runs them all
@@ -525,6 +531,7 @@ def main() -> int:
             guard_results: list[tuple[dict, bool, str]] = []
             checkers: dict[str, str] = {}
             document_outcomes: list[tuple[dict, dict]] = []
+            case_records: list[dict] = []
             for case in cases:
                 item_id = f"{name}:{case['id']}"
                 if "document" in case:
@@ -549,6 +556,12 @@ def main() -> int:
                     shown = outcome.get("answer", "")[:70]
                     print(f"  {mark}  {name}/{case['id']}  {outcome.get('capabilities')}{extra}  {shown!r}  "
                           f"{'; '.join(problems)}")
+                    case_records.append({
+                        "id": case["id"], "passed": not problems, "problems": problems,
+                        **{k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
+                                                       "correctness", "cited_pages", "capabilities",
+                                                       "retrieve_ms", "answer")},
+                    })
                     trace_id = outcome.get("trace_id")
                     if trace_id:
                         metadata = {k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
@@ -583,6 +596,10 @@ def main() -> int:
                     mark = "pass" if not problems else "FAIL"
                     shown = result["action"] if result else "-"
                     print(f"  {mark}  {name}/{case['id']}  [{checker}] {shown}  {'; '.join(problems)}")
+                    case_records.append({
+                        "id": case["id"], "passed": not problems, "problems": problems,
+                        "checker": checker, "action": result["action"] if result else None,
+                    })
                     trace_id = guard_trace(http, cfg, auth, case, result)
                     langfuse(
                         http, cfg, auth, "dataset-run-items",
@@ -613,6 +630,9 @@ def main() -> int:
                 passed += not problems
                 mark = "pass" if not problems else "FAIL"
                 print(f"  {mark}  {name}/{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
+                case_records.append({
+                    "id": case["id"], "passed": not problems, "problems": problems, "answer": answer,
+                })
                 if trace_id:
                     langfuse(
                         http, cfg, auth, "dataset-run-items",
@@ -626,6 +646,7 @@ def main() -> int:
                     )
             rate = passed / len(cases)
             threshold = thresholds.get(name)
+            scores = None
             if document_outcomes and isinstance(threshold, dict):
                 scores = rag_scores(document_outcomes)
                 ok = rag_threshold_ok(scores, threshold)
@@ -637,7 +658,7 @@ def main() -> int:
                     f"({counts['ragas']}, judge alias {judge.alias if judge else '-'}), abstention "
                     f"{scores['abstention']:.2f} ({counts['abstain']}); {rerank_config()}: rag.retrieve p50 "
                     f"{scores['retrieve_ms_p50'] / 1000:.2f} s, p95 {scores['retrieve_ms_p95'] / 1000:.2f} s "
-                    f"({counts['retrieve']})"
+                    f"({counts['retrieve']} retrieval spans, {len(case_records)} cases recorded)"
                 )
             elif guard_results:
                 scores = guard_scores(guard_results)
@@ -653,12 +674,26 @@ def main() -> int:
                 ok = isinstance(threshold, int | float) and rate >= threshold
             failed |= not ok
             rows.append((name, passed, len(cases), rate, threshold, ok))
+            records[name] = {
+                "passed": passed, "total": len(cases), "cases_recorded": len(case_records),
+                "rate": rate, "threshold": threshold, "ok": ok, "scores": scores,
+                "rerank": rerank_config(), "cases": case_records,
+            }
+
+    run_dir = REPO / "build" / "evals"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    record_path = run_dir / f"{run_name}.json"
+    record_path.write_text(
+        json.dumps({"run": run_name, "rerank": rerank_config(), "suites": records}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     print(f"\n{'suite':<14}{'passed':>9}{'rate':>8}{'threshold':>11}  result")
     for name, passed, total, rate, threshold, ok in rows:
         shown = "missing" if threshold is None else ("per metric" if isinstance(threshold, dict) else f"{threshold:.2f}")
         print(f"{name:<14}{passed:>4}/{total:<4}{rate:>8.2f}{shown:>11}  {'PASS' if ok else 'FAIL'}")
     print(f"\nLangfuse dataset run: {run_name}")
+    print(f"Eval records: {record_path.relative_to(REPO)}")
     return 1 if failed else 0
 
 

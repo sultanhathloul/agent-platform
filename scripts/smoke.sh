@@ -436,8 +436,11 @@ VIEWER=$(token_for viewer viewer) || fail "viewer login"
 DOCS=evals/docs   # generated, fictional documents (G3)
 
 upload() {  # $1 token, $2 conversation, $3 file; prints the HTTP status, the body goes to $TMP/upload.json
-  curl -s -o "$TMP/upload.json" -w '%{http_code}' -H "Authorization: Bearer $1" -F "file=@$3" \
-    "$GW/v1/conversations/$2/attachments"
+  # --expect100-timeout: wait for the server's 100-continue (or its refusal) before sending the
+  # body, so an over-limit upload the gateway refuses before the body gets the JSON 413 rather than
+  # a reset when the gateway closes the connection without draining (review round 2, finding 2).
+  curl -s --expect100-timeout 10 -o "$TMP/upload.json" -w '%{http_code}' -H "Authorization: Bearer $1" \
+    -F "file=@$3" "$GW/v1/conversations/$2/attachments"
 }
 wait_terminal() {  # $1 token, $2 conversation, $3 attachment; polls like the web (2 s, ADR-0138), the record goes to $TMP/status.json
   for _ in $(seq 1 60); do
@@ -560,8 +563,9 @@ code=$(curl -s -o "$TMP/gate.json" -w '%{http_code}' -H "Authorization: Bearer $
 
 step "phase 04 fix: uploads past the per-minute allowance are 429 upload_rate_limited (R3)"
 EVALUATOR=$(token_for evaluator evaluator) || fail "evaluator login"
-ALLOWANCE=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open("config/docs.yaml"))["limits"]["uploads_per_minute"])' 2>/dev/null \
-  || awk '/uploads_per_minute:/ {print $2}' config/docs.yaml)
+# The gateway's effective per-user rate is GATEWAY_DOCS_UPLOADS_PER_MINUTE, from UPLOADS_PER_MINUTE
+# in .env, overriding config/docs.yaml (review round 2, finding 4); default matches compose's.
+ALLOWANCE=${UPLOADS_PER_MINUTE:-60}
 printf 'MZ' > "$TMP/refused.exe"
 RATE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
 for _ in $(seq 1 "$ALLOWANCE"); do upload "$EVALUATOR" "$RATE_CONV" "$TMP/refused.exe" >/dev/null; done

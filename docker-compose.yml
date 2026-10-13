@@ -45,6 +45,11 @@ x-agent-env: &agent-env
   PRESIDIO_URL: http://presidio-analyzer:3000
   # Connections reserved for per-conversation turn locks (D6).
   LOCK_POOL_SIZE: ${LOCK_POOL_SIZE:-20}
+  # The reranker, configured per environment (review round 2, finding 3): development off; a GPU
+  # deployment on, with 16 candidates on 1070 characters. These override config/docs.yaml.
+  RERANK_ENABLED: ${RERANK_ENABLED:-false}
+  RERANK_CANDIDATES: ${RERANK_CANDIDATES:-16}
+  RERANK_MAX_CHARS: ${RERANK_MAX_CHARS:-1070}
   # No MinIO credentials: the agent reads no upload; the ingest service does (S7, R4).
 
 services:
@@ -423,6 +428,10 @@ services:
       GATEWAY_MODELS_CONFIG: /srv/config/models.yaml
       # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
       GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
+      # The per-user upload rate, per environment (review round 2, finding 4): development sets it
+      # well above what the eval suite uploads per minute, so evals never sleep on a 429; it
+      # overrides config/docs.yaml's baseline.
+      GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-60}
       GATEWAY_STORAGE_ENDPOINT: http://minio:9000
       # Its own MinIO user (owner decision S7): write, read and discard uploads.
       GATEWAY_STORAGE_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY}

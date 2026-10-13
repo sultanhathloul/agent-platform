@@ -10,8 +10,11 @@ backend: internal
 limits:
   max_file_bytes: 20971520          # 20 MB
   max_files_per_conversation: 10
-  max_pdf_pages: 300
-  uploads_per_minute: 20            # per user, in the gateway; more is 429 upload_rate_limited (R3)
+  max_pdf_pages: 300                # enforced in the ingest child process, not the gateway (finding 3)
+  uploads_per_minute: 20            # per user, in the gateway; more is 429 upload_rate_limited (R3).
+                                    # GATEWAY_UPLOADS_PER_MINUTE (from .env) overrides this per
+                                    # environment (review round 2, finding 4); this is the baseline.
+  max_concurrent_uploads: 2         # per user, in flight at once; more is 429 too_many_uploads (finding 2)
   types:
     pdf:  {extensions: [pdf],  mimes: [application/pdf]}
     docx: {extensions: [docx], mimes: [application/vnd.openxmlformats-officedocument.wordprocessingml.document]}
@@ -54,21 +57,16 @@ ingest:
 # Hybrid retrieval (ADR-0133): top 30 by vector, top 30 by full text, reciprocal rank
 # fusion, rerank of the fused candidates, top 8 kept. Evidence over its budget is compressed
 # by Context Assembly, chunk by chunk (config/context.yaml `blocks.retrieval`).
+#
+# The cross-encoder (owner decisions R2, Q1) is configured per environment, from .env, not here
+# (review round 2, finding 3, superseding the ADR-0184 default): RERANK_ENABLED, RERANK_CANDIDATES
+# and RERANK_MAX_CHARS. Development leaves it off (fusion order kept, p95 ~0.15 s); a GPU deployment
+# turns it on with 16 candidates on the first 1070 characters of each (400 reranker tokens at the
+# fewest characters per token measured on the eval documents, 2.68). See .env.example.
 retrieval:
   vector_top_k: 30
   text_top_k: 30
   rrf_k: 60
-  # The cross-encoder (owner decisions R2, Q1). `enabled: false` keeps the top_k in fusion order;
-  # a malformed rerank answer falls back to it too. `candidates`: how many fused chunks are scored;
-  # `max_chars`: how much of each (null: the whole chunk). 1070 characters is 400 tokens of the
-  # reranker's own tokenizer at the lowest characters per token measured on the eval documents
-  # (2.68; median 3.54). Off by default (Q1, ADR-0184): with it off every rag threshold held in
-  # three runs and rag.retrieve took p50 0.13 s, p95 0.15 s; 16/1070 took p95 5.6 s, the whole
-  # 30 p95 26.6 s on this host's CPU. Switched on, 16 and 1070 are the measured values.
-  rerank:
-    enabled: false
-    candidates: 16
-    max_chars: 1070
   top_k: 8
   # Words left out of the full-text query (compared after normalization); questions are
   # matched OR-wise, so function words would match every chunk.

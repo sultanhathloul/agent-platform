@@ -25,7 +25,8 @@ class Limits(_Strict):
     max_file_bytes: int = Field(gt=0)
     max_files_per_conversation: int = Field(gt=0)
     max_pdf_pages: int = Field(gt=0)
-    uploads_per_minute: int = Field(gt=0)  # enforced by the gateway (R3)
+    uploads_per_minute: int = Field(gt=0)  # baseline for the gateway's per-user rate limit (R3)
+    max_concurrent_uploads: int = Field(default=2, gt=0)  # per-user in-flight cap, gateway only (finding 2)
     types: dict[DocumentKind, FileType]
 
 
@@ -71,19 +72,22 @@ class Ingest(_Strict):
 
 
 class Rerank(_Strict):
-    """The cross-encoder step (owner decisions R2, Q1): on or off; how many fused candidates it
-    scores; and how much of each, in characters (None: the whole chunk)."""
+    """The cross-encoder step (owner decisions R2, Q1, review round 2): on or off; how many fused
+    candidates it scores; and how much of each, in characters (None: the whole chunk). These come
+    from the environment, not config/docs.yaml, so each deployment sets them (ADR superseding the
+    ADR-0184 default); `build_documents` fills this from Settings."""
 
-    enabled: bool
-    candidates: int = Field(gt=0)
-    max_chars: int | None = Field(default=None, gt=0)
+    enabled: bool = False
+    candidates: int = Field(default=16, gt=0)
+    max_chars: int | None = Field(default=1070, gt=0)
 
 
 class Retrieval(_Strict):
     vector_top_k: int = Field(gt=0)
     text_top_k: int = Field(gt=0)
     rrf_k: int = Field(gt=0)
-    rerank: Rerank
+    # Not in config/docs.yaml: the reranker is configured per environment through .env (finding 3).
+    rerank: Rerank = Rerank()
     top_k: int = Field(gt=0)
     stopwords: dict[str, list[str]] = {}
 

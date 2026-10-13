@@ -12,7 +12,7 @@ from app.db import Database
 from app.models.config import ModelsConfig
 from app.models.embeddings import EmbeddingGateway
 from app.rag.backend import DocumentBackend
-from app.rag.config import DocsConfig, load_docs_config
+from app.rag.config import DocsConfig, Rerank, load_docs_config
 from app.rag.ingest.pipeline import IngestPipeline
 from app.rag.ingest.queue import IngestQueue
 from app.rag.ingest.worker import IngestWorker
@@ -47,6 +47,16 @@ def build_documents(
     config = load_docs_config(settings.config_dir)
     if config.backend != "internal":
         raise ValueError(f"unknown document backend {config.backend!r}")
+    # The reranker is configured per environment, from .env, not config/docs.yaml (finding 3): the
+    # development default is off, and a GPU deployment turns it on with 16 candidates on 1070 chars.
+    rerank = Rerank(
+        enabled=settings.rerank_enabled,
+        candidates=settings.rerank_candidates,
+        max_chars=settings.rerank_max_chars,
+    )
+    config = config.model_copy(
+        update={"retrieval": config.retrieval.model_copy(update={"rerank": rerank})}
+    )
     vectors = PgVectorStore(db)
     queue = IngestQueue(redis, namespace=settings.redis_namespace)
     retriever = HybridRetriever(

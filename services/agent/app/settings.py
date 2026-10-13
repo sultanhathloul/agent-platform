@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     uploads_bucket: str = "uploads"
     # The ingest service's health port (compose healthcheck).
     ingest_health_port: int = 8001
+    # The reranker, per environment (review round 2, finding 3): development leaves it off; a GPU
+    # deployment turns it on with 16 candidates on 1070 characters. These override config/docs.yaml's
+    # retrieval.rerank, so a redeploy changes the configuration without a code change (see .env.example).
+    rerank_enabled: bool = False
+    rerank_candidates: int = Field(default=16, gt=0)
+    rerank_max_chars: int | None = Field(default=1070, gt=0)
 
 
 @lru_cache
