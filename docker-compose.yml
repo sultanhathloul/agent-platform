@@ -428,10 +428,10 @@ services:
       GATEWAY_MODELS_CONFIG: /srv/config/models.yaml
       # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
       GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
-      # The per-user upload rate, per environment (review round 2, finding 4): development sets it
-      # well above what the eval suite uploads per minute, so evals never sleep on a 429; it
-      # overrides config/docs.yaml's baseline.
-      GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-60}
+      # The per-user upload rate, per environment (review round 2, finding 4): .env.example sets the
+      # development value. No fallback value here: absent from .env, the variable is empty and the
+      # gateway uses config/docs.yaml's baseline (20), the strict one (the verification of round 2).
+      GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}
       GATEWAY_STORAGE_ENDPOINT: http://minio:9000
       # Its own MinIO user (owner decision S7): write, read and discard uploads.
       GATEWAY_STORAGE_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY}

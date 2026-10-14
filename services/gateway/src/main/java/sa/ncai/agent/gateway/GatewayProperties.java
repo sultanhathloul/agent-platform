@@ -53,8 +53,8 @@ public record GatewayProperties(
     /**
      * @param config          path of config/docs.yaml, whose {@code limits} the gateway enforces (ADR-0126)
      * @param uploadsPerMinute per-user upload rate, from the environment per deployment (review round 2,
-     *                         finding 4; GATEWAY_UPLOADS_PER_MINUTE). When unset, config/docs.yaml's
-     *                         {@code limits.uploads_per_minute} is the baseline.
+     *                         finding 4; GATEWAY_DOCS_UPLOADS_PER_MINUTE). When unset or empty,
+     *                         config/docs.yaml's {@code limits.uploads_per_minute} applies.
      */
     public record Docs(@NotBlank String config, Integer uploadsPerMinute) {}
 }

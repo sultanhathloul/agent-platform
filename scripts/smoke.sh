@@ -564,8 +564,9 @@ code=$(curl -s -o "$TMP/gate.json" -w '%{http_code}' -H "Authorization: Bearer $
 step "phase 04 fix: uploads past the per-minute allowance are 429 upload_rate_limited (R3)"
 EVALUATOR=$(token_for evaluator evaluator) || fail "evaluator login"
 # The gateway's effective per-user rate is GATEWAY_DOCS_UPLOADS_PER_MINUTE, from UPLOADS_PER_MINUTE
-# in .env, overriding config/docs.yaml (review round 2, finding 4); default matches compose's.
-ALLOWANCE=${UPLOADS_PER_MINUTE:-60}
+# in .env, overriding config/docs.yaml (review round 2, finding 4); absent or empty, the gateway
+# uses config/docs.yaml's baseline, 20 (compose supplies no fallback).
+ALLOWANCE=${UPLOADS_PER_MINUTE:-20}
 printf 'MZ' > "$TMP/refused.exe"
 RATE_CONV=$(uuidgen | tr 'A-Z' 'a-z')
 for _ in $(seq 1 "$ALLOWANCE"); do upload "$EVALUATOR" "$RATE_CONV" "$TMP/refused.exe" >/dev/null; done
