@@ -15,6 +15,8 @@ limits:
                                     # GATEWAY_UPLOADS_PER_MINUTE (from .env) overrides this per
                                     # environment (review round 2, finding 4); this is the baseline.
   max_concurrent_uploads: 2         # per user, in flight at once; more is 429 too_many_uploads (finding 2)
+  max_concurrent_uploads_total: 50  # the whole gateway, in flight at once; more is 429 too_many_uploads
+  upload_deadline_seconds: 120      # to receive one upload's body; past it, 408 upload_timeout
   types:
     pdf:  {extensions: [pdf],  mimes: [application/pdf]}
     docx: {extensions: [docx], mimes: [application/vnd.openxmlformats-officedocument.wordprocessingml.document]}

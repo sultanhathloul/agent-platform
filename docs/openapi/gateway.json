@@ -883,6 +883,16 @@
             },
             "description" : "forbidden (no cap:docs) or conversation_forbidden"
           },
+          "408" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "upload_timeout (the body did not arrive within the deadline)"
+          },
           "409" : {
             "content" : {
               "application/json" : {

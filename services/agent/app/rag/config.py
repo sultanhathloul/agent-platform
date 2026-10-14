@@ -27,6 +27,8 @@ class Limits(_Strict):
     max_pdf_pages: int = Field(gt=0)
     uploads_per_minute: int = Field(gt=0)  # baseline for the gateway's per-user rate limit (R3)
     max_concurrent_uploads: int = Field(default=2, gt=0)  # per-user in-flight cap, gateway only (finding 2)
+    max_concurrent_uploads_total: int = Field(default=50, gt=0)  # gateway-wide in-flight cap, gateway only
+    upload_deadline_seconds: int = Field(default=120, gt=0)  # to receive one upload's body, gateway only
     types: dict[DocumentKind, FileType]
 
 

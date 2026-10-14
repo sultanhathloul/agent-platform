@@ -31,7 +31,7 @@ class AttachmentsConfig {
 
     @Bean
     UploadConcurrency uploadConcurrency(DocsLimits limits) {
-        return new UploadConcurrency(limits.maxConcurrentUploads());
+        return new UploadConcurrency(limits.maxConcurrentUploads(), limits.maxConcurrentUploadsTotal());
     }
 
     @Bean
@@ -51,11 +51,13 @@ class AttachmentsConfig {
     @Bean
     AttachmentGate attachmentGate(
             DocsLimits limits,
+            MultipartConfigElement multipart,
             UploadRateLimiter rateLimiter,
             UploadConcurrency concurrency,
             AuditTrail audit,
             ErrorResponses errors) {
-        return new AttachmentGate(limits, rateLimiter, concurrency, audit, errors);
+        return new AttachmentGate(
+                limits, multipart, java.time.Clock.systemUTC(), rateLimiter, concurrency, audit, errors);
     }
 
     /** The gate runs inside the security chain, after authentication; never as a plain servlet filter too. */

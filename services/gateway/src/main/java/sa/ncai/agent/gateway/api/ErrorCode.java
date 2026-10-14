@@ -16,6 +16,7 @@ public enum ErrorCode {
     FILE_TYPE_UNSUPPORTED("file_type_unsupported", 415),
     UPLOAD_RATE_LIMITED("upload_rate_limited", 429),
     TOO_MANY_UPLOADS("too_many_uploads", 429),
+    UPLOAD_TIMEOUT("upload_timeout", 408),
     STORAGE_UNAVAILABLE("storage_unavailable", 502),
     POLICY_NOT_FOUND("policy_not_found", 404),
     POLICY_EXISTS("policy_exists", 409),

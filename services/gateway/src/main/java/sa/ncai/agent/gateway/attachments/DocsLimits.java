@@ -5,6 +5,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -18,7 +19,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * Upload limits from {@code config/docs.yaml} (ADR-0126), the file the agent reads too, so the
  * two services enforce the same values: bytes per file, files per conversation, pages per PDF,
  * the allowed kinds by extension, and uploads per user per minute (owner decision R3). The
- * multipart caps derive from the same file: there is no other upload limit in the gateway.
+ * multipart caps derive from the same file: there is no other upload limit in the gateway. Behind
+ * the per-user limits, a gateway-wide cap on uploads in flight and a deadline for receiving one
+ * upload's body (the verification of review round 2); absent from the file, each takes its strict
+ * default.
  */
 public record DocsLimits(
         long maxFileBytes,
@@ -26,12 +30,19 @@ public record DocsLimits(
         int maxPdfPages,
         Map<String, String> kinds,
         int uploadsPerMinute,
-        int maxConcurrentUploads) {
+        int maxConcurrentUploads,
+        int maxConcurrentUploadsTotal,
+        Duration uploadDeadline) {
+
+    static final int DEFAULT_MAX_CONCURRENT_UPLOADS = 2;
+    static final int DEFAULT_MAX_CONCURRENT_UPLOADS_TOTAL = 50;
+    static final Duration DEFAULT_UPLOAD_DEADLINE = Duration.ofSeconds(120);
 
     /** This file's limits with the per-minute rate replaced (the env override, review round 2). */
     public DocsLimits withUploadsPerMinute(int perMinute) {
         return new DocsLimits(
-                maxFileBytes, maxFilesPerConversation, maxPdfPages, kinds, perMinute, maxConcurrentUploads);
+                maxFileBytes, maxFilesPerConversation, maxPdfPages, kinds, perMinute, maxConcurrentUploads,
+                maxConcurrentUploadsTotal, uploadDeadline);
     }
 
     /** Room for the multipart envelope around one file: field headers and boundaries. */
@@ -53,13 +64,17 @@ public record DocsLimits(
                 }
             }
             Object concurrent = limits.get("max_concurrent_uploads");
+            Object total = limits.get("max_concurrent_uploads_total");
+            Object deadline = limits.get("upload_deadline_seconds");
             return new DocsLimits(
                     ((Number) limits.get("max_file_bytes")).longValue(),
                     ((Number) limits.get("max_files_per_conversation")).intValue(),
                     ((Number) limits.get("max_pdf_pages")).intValue(),
                     Map.copyOf(kinds),
                     ((Number) limits.get("uploads_per_minute")).intValue(),
-                    concurrent == null ? 2 : ((Number) concurrent).intValue());
+                    concurrent == null ? DEFAULT_MAX_CONCURRENT_UPLOADS : ((Number) concurrent).intValue(),
+                    total == null ? DEFAULT_MAX_CONCURRENT_UPLOADS_TOTAL : ((Number) total).intValue(),
+                    deadline == null ? DEFAULT_UPLOAD_DEADLINE : Duration.ofSeconds(((Number) deadline).longValue()));
         } catch (IOException | RuntimeException e) {
             throw new IllegalStateException("cannot read upload limits from " + path + ": " + e.getMessage(), e);
         }

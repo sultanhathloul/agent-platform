@@ -36,6 +36,7 @@ export const KNOWN_ERROR_CODES = [
   "too_many_pages",
   "upload_rate_limited",
   "too_many_uploads",
+  "upload_timeout",
   "file_type_unsupported",
   "storage_unavailable",
   "unknown",

@@ -27,6 +27,8 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.firewall.RequestRejectedHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -71,6 +73,24 @@ public class SecurityConfig {
                 // cap:docs, the declared size and the upload rate, before any body is read (R3).
                 .addFilterAfter(attachmentGate, BearerTokenAuthenticationFilter.class);
         return http.build();
+    }
+
+    /** Paths must be written plainly (the verification of review round 2); Spring Security picks this bean up. */
+    @Bean
+    HttpFirewall httpFirewall() {
+        return new PathFirewall();
+    }
+
+    /**
+     * A path the firewall rejects is 400 {@code invalid_request} in the JSON envelope, and the
+     * connection closes, so a rejected upload's body is never read.
+     */
+    @Bean
+    RequestRejectedHandler requestRejectedHandler(ErrorResponses errors) {
+        return (request, response, rejected) -> {
+            response.setHeader(HttpHeaders.CONNECTION, "close");
+            errors.write(request, response, ErrorCode.INVALID_REQUEST);
+        };
     }
 
     /**

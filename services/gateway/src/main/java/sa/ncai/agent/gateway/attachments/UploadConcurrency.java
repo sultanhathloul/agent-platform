@@ -5,23 +5,36 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * At most {@code maxPerUser} uploads in flight per user at once (owner decision review round 2,
- * finding 2), in this gateway's memory: one gateway process in v1, as for the rate limiter and the
+ * finding 2), and at most {@code maxTotal} across the whole gateway behind it (the verification of
+ * round 2), in this gateway's memory: one gateway process in v1, as for the rate limiter and the
  * turn lock's pool (ADR-0109). A slot is held for the whole request — while its body is read — and
- * released when the request completes, so a user cannot pin many connections open with slow bodies.
+ * released when the request completes, so neither one user nor all uploads together can pin more
+ * than these many connections open with slow bodies.
  */
 public final class UploadConcurrency {
 
     private final int maxPerUser;
+    private final int maxTotal;
     private final ConcurrentHashMap<String, AtomicInteger> inFlight = new ConcurrentHashMap<>();
+    private final AtomicInteger total = new AtomicInteger();
 
-    public UploadConcurrency(int maxPerUser) {
+    public UploadConcurrency(int maxPerUser, int maxTotal) {
         this.maxPerUser = maxPerUser;
+        this.maxTotal = maxTotal;
     }
 
-    /** Takes a slot for the user and says whether one was free; release it with {@link #release}. */
+    /**
+     * Takes a slot for the user, and one of the gateway's, and says whether both were free; release
+     * them with {@link #release}.
+     */
     public boolean tryAcquire(String user) {
         AtomicInteger count = inFlight.computeIfAbsent(user, key -> new AtomicInteger());
         if (count.incrementAndGet() > maxPerUser) {
+            count.decrementAndGet();
+            return false;
+        }
+        if (total.incrementAndGet() > maxTotal) {
+            total.decrementAndGet();
             count.decrementAndGet();
             return false;
         }
@@ -32,11 +45,13 @@ public final class UploadConcurrency {
         AtomicInteger count = inFlight.get(user);
         if (count != null) {
             count.decrementAndGet();
+            total.decrementAndGet();
         }
     }
 
     /** Tests only: forget every user's in-flight count. */
     public void clear() {
         inFlight.clear();
+        total.set(0);
     }
 }

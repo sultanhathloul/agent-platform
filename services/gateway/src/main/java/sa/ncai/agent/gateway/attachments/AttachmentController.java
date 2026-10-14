@@ -134,6 +134,9 @@ public class AttachmentController {
                 @ApiResponse(responseCode = "403", description = "forbidden (no cap:docs) or conversation_forbidden",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "408", description = "upload_timeout (the body did not arrive within the deadline)",
+                        content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                                schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "409", description = "attachment_limit", content = @Content(
                         mediaType = MediaType.APPLICATION_JSON_VALUE,
                         schema = @Schema(implementation = ApiErrorEnvelope.class))),
