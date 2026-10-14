@@ -1248,6 +1248,52 @@ Human review (owner's list) for this session:
 - `services/gateway/src/main/resources/application.yml` (`server.tomcat.max-swallow-size: 0`, `connection-upload-timeout`);
 - `docs/openapi/gateway.json` (upload 413/429 responses; regenerated within the unmerged 2.0.0, ADR-0046).
 
+### Narrow fix for the verification of review round 2: upload gate bypass (2026-10-14)
+
+Scope: the verification finding only — `POST /v1/conversations/{id}/%61ttachments` reached the upload handler without the gate (no cap:docs, rate, size or concurrency check), and compose defaulted the upload rate to 60; nothing else. `docs/HANDOFF.md` untouched. Threat model ADR-0054.
+
+Checklist:
+- [x] 1. The gate matches the decoded, normalised lookup path Spring MVC routes on, never the raw URI; the firewall (`PathFirewall`) rejects with 400 `invalid_request` and a close any path holding a percent-encoded character (so a double-encoded one too), a matrix parameter (`;`), a dot segment, a backslash or a doubled slash, on every path. Tests (`UploadPathTest`): `%61ttachments`, `%2561ttachments`, `attachme%6Ets`, `attachme%6ets`, `//attachments`, `/./attachments`, `;x=1`, a trailing slash and the plain path — each 400 at the firewall or through the full gate (403 without cap:docs; 429 `too_many_uploads` with the caller's slots held); none reaches the handler. (ADR-0189.)
+- [x] 2. A gateway-wide cap on concurrent uploads (`limits.max_concurrent_uploads_total`, 50, 429 `too_many_uploads`) and a wall-clock deadline per upload body (`limits.upload_deadline_seconds`, 120, new 408 `upload_timeout` with Arabic and English messages), both with `Connection: close`; the gate parses the multipart body itself through a deadline-checked stream (`DeadlineUploadRequest`), since Tomcat's own parser cannot be bounded; `server.tomcat.max-connections: 8192` and `accept-count: 100` explicit. Tests (`UploadCeilingTest`, cap 2 and deadline 4 s): while one user holds the global cap with two trickling uploads, another user's upload is 429 and a third user's chat turn completes; a trickled body is cut with 408 within 4–8 s and frees its slots. (ADR-0190.)
+- [x] 3. Strict defaults: compose passes `${UPLOADS_PER_MINUTE:-}` (no fallback value; empty form only to avoid compose's unset-variable warning); absent or empty, the gateway uses config/docs.yaml's 20; `.env.example` sets 60 for development; smoke expects 20 when .env does not set it; the GatewayProperties javadoc names `GATEWAY_DOCS_UPLOADS_PER_MINUTE`. Test (`UploadRateDefaultTest`, bound from environment variables): unset 20, empty 20, `60` 60, shipped baseline 20. (ADR-0191.)
+- [x] Finish: `make test`, `make smoke`, `make smoke-airgap`, `make eval` once; recorded below; pushed.
+
+Results (2026-10-14, rule 11):
+
+- `make test` (exit 0): agent 689 passed / 0 failed / 0 skipped; gateway 125 / 0 / 0 (was 115; +10: `UploadPathTest` 3, `UploadCeilingTest` 3, `UploadRateDefaultTest` 4); gateway-db 5 / 0 / 0; web 139 passed / 0 failed / 0 skipped (10 files); evals harness 6 / 0 / 0.
+- `make up` rebuilt the stack; all containers healthy. This `.env` has no `UPLOADS_PER_MINUTE`, so the gateway runs with `GATEWAY_DOCS_UPLOADS_PER_MINUTE=` (empty) and the baseline 20 — the strict default exercised live. The verification reproduction, rerun on the live stack: with the caller's two slots held, the plain path is 429 and `%61ttachments` ×5 are 400 (were admitted); `%61ttachments`, `attachme%6Ets`, `attachments%3Bx=1`, `//attachments`, `/./attachments` with a full body are each 400.
+- `make smoke`: 111/111 checks, 0 failed, including "upload 21 within a minute → 429 upload_rate_limited" (allowance 20, the baseline). `make smoke-airgap`: 116/116 (5 airgap checks + 111), 0 failed.
+- `make eval`, one run (OpenRouter development tiers, ADR-0065; rerank off, ADR-0187; upload rate 20). All four suites PASS. Langfuse dataset run `make-eval-20261014T122845Z`; eval records `build/evals/make-eval-20261014T122845Z.json`.
+
+  | suite | passed | rag hit@8 | citation | faithfulness | correctness | abstention | rag.retrieve p50 / p95 |
+  |---|---|---|---|---|---|---|---|
+  | general | 28/28 (1.00 ≥ 0.85) | | | | | | |
+  | guardrails | 142/142 (det. 1.00 on 89, judge 1.00 and FPR 0.00 on 53) | | | | | | |
+  | routing | 33/34 (0.97 ≥ 0.90) | | | | | | |
+  | rag | 51/53 | 1.00 (44) | 0.94 (35) | 0.95 (41) | 0.87 (41) | 1.00 (6) | 0.13 / 0.15 s (50 retrieval spans, 53 cases recorded) |
+
+  All rag thresholds met (hit@8 0.90, citation 0.85, faithfulness 0.85, correctness 0.80, abstention 0.90). The two rag cases that did not pass are the known twenty-pages citations (`twenty-past-truncation-p3` cited [2, 3, 4], `-p18` cited six pages; both answers correct in substance). The routing case that did not pass, `docs-summary`, ended `agent_stream_interrupted`: OpenRouter returned 429 mid-stream at 12:51:24 and LiteLLM's fallback failed too (litellm log `MidStreamFallbackError: RateLimitError`), and the gateway's agent read timeout (60 s, unchanged) ended the relay at 12:52:05 — a provider rate limit in development, not this change (the relay, the agent client and their timeouts are untouched).
+
+How to verify:
+```
+make up             # absent from .env, UPLOADS_PER_MINUTE is config/docs.yaml's 20
+make test           # agent 689, gateway 125, gateway-db 5, web 139, evals 6
+make smoke          # 111/111 (429 at upload allowance + 1)
+make smoke-airgap   # 116/116
+make eval           # general, guardrails, rag, routing; all PASS
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $T" -F file=@a.txt \
+  "http://localhost:8080/v1/conversations/$(uuidgen | tr A-Z a-z)/%61ttachments"   # 400
+```
+
+Note for development: a `.env` created before ADR-0188 has no `UPLOADS_PER_MINUTE` and now runs at 20 per minute; copy `UPLOADS_PER_MINUTE=60` from `.env.example` so `make eval` does not wait out 429s.
+
+Human review (owner's list) for this session:
+- ADR-0189 to ADR-0191 in `docs/DECISIONS.md` (ADR-0191 refines ADR-0188's compose fallback; ADR-0188's Status line is left unchanged since its eval-records decision stands);
+- `config/docs.yaml` (`limits.max_concurrent_uploads_total: 50`, `limits.upload_deadline_seconds: 120`);
+- `services/gateway/src/main/resources/application.yml` (`server.tomcat.max-connections: 8192`, `accept-count: 100`);
+- `docker-compose.yml` (`GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}`) and `.env.example`;
+- `docs/openapi/gateway.json` (upload 408 `upload_timeout`; regenerated within the unmerged 2.0.0, ADR-0046).
+
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
 - Branch: `phase/05-kb`
