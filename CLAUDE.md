@@ -48,11 +48,12 @@ At the end of the session:
 | 02 State, Context Assembly, Memory | `phase/02-context-state-memory` | `AgentState` checkpointed; assembler pipeline with budget logging and `NeedsMore`; summarizer kicks in past 8k tokens; memory write/retrieve; `/settings/memory`; `/v1/debug/context` |
 | 03 Guardrails engine | `phase/03-guardrails` | policy model in DB + Redis reload; 7 checkpoints; `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge`; admin policy UI with test panel; `guardrails.jsonl` ≥ threshold |
 | 04 docs capability | `phase/04-docs` | upload → indexed badge; hybrid retrieval + rerank; page citations; `rag.jsonl` ≥ threshold |
-| 05 kb capability | `phase/05-kb` | KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent |
-| 06 web capability | `phase/06-web` | SearXNG + fetch loop within limits; untrusted sanitization; citation validation fails on fabricated URL (test) |
-| 07 sql capability | `phase/07-sql` | semantic layer indexed; sqlglot validation; EXPLAIN gate; `agent_ro` execution; self-correction ≤2; results table + CSV; `sql.jsonl` ≥ threshold |
-| 08 Reflection, tiers, HITL | `phase/08-tiers-reflection-hitl` | tier resolver with logged decisions; reflection rules; validation escalation; interrupt/resume path exercised by `smoke.sh`; `routing.jsonl` with `expected_tier` |
-| 09 Evaluation & hardening | `phase/09-hardening` | CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check |
+| 05 MCP integration | `phase/05-mcp` | MCP client as a broker tool provider with the `config/mcp.yaml` allowlist; declarative MCP capability (manifest, prompts and evals, no Python); reference MCP servers in compose; a `routing` capability on the reference routing server with zero core change; `MCPDocumentBackend` passes the `DocumentBackend` contract suite against the reference RAG MCP server and `rag.jsonl` runs on both backends; every MCP call guarded and audited through the broker; internal servers work under `smoke-airgap`; external servers disabled |
+| 06 kb capability | `phase/06-kb` | KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent |
+| 07 web capability | `phase/07-web` | SearXNG + fetch loop within limits; untrusted sanitization; citation validation fails on fabricated URL (test) |
+| 08 sql capability | `phase/08-sql` | semantic layer indexed; sqlglot validation; EXPLAIN gate; `agent_ro` execution; self-correction ≤2; results table + CSV; `sql.jsonl` ≥ threshold |
+| 09 Reflection, tiers, HITL | `phase/09-tiers-reflection-hitl` | tier resolver with logged decisions; reflection rules; validation escalation; interrupt/resume path exercised by `smoke.sh`; `routing.jsonl` with `expected_tier` |
+| 10 Evaluation & hardening | `phase/10-hardening` | CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check |
 
 ## How to verify a phase (commands you must be able to run)
 
