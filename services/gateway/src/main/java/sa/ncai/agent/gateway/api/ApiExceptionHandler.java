@@ -15,8 +15,12 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import sa.ncai.agent.gateway.attachments.UploadDeadlineExceededException;
 
 /** Maps every MVC failure to the error envelope; nothing leaves the gateway as HTML or ProblemDetail. */
 @RestControllerAdvice
@@ -38,6 +42,26 @@ public class ApiExceptionHandler {
         MissingServletRequestParameterException.class
     })
     void invalidRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        errors.write(request, response, ErrorCode.INVALID_REQUEST);
+    }
+
+    /** Over the multipart limit, before the controller runs: the upload limit's own message (ADR-0126). */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    void tooLarge(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        errors.write(request, response, ErrorCode.FILE_TOO_LARGE);
+    }
+
+    /**
+     * A malformed multipart body is 400; one that did not arrive within the upload deadline is 408
+     * {@code upload_timeout}, and the connection closes rather than read the rest of the body.
+     */
+    @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
+    void badMultipart(Exception error, HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (UploadDeadlineExceededException.in(error)) {
+            response.setHeader(org.springframework.http.HttpHeaders.CONNECTION, "close");
+            errors.write(request, response, ErrorCode.UPLOAD_TIMEOUT);
+            return;
+        }
         errors.write(request, response, ErrorCode.INVALID_REQUEST);
     }
 

@@ -1,14 +1,18 @@
 ---
 id: context.findings
-version: 1.0.0
+version: 1.1.0
 role: context
 locale: ar
 changelog:
   - "1.0.0: first version (phase 01)"
+  - "1.1.0: no capability label beside each finding, which answers copied as \"[docs]\" (owner decision C1)"
 ---
-الأدلة:
+ما وجدته القدرات لهذا السؤال (لا تنقل في إجابتك أي وسم أو اسم ملف بين أقواس؛ تُعرض المصادر تحت الإجابة):
 {% for f in findings %}
 
-[{{ f.capability }}]
+{% if f.findings %}
 {{ f.findings }}
+{% else %}
+- {{ f.capability }}: نتيجتها غير معروضة هنا.
+{% endif %}
 {% endfor %}

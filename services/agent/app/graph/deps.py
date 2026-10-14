@@ -8,10 +8,12 @@ from typing import Any
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
+from app.attachments.service import AttachmentService
 from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
 from app.context.log import ContextLog
 from app.db import Database
+from app.graph.router_config import RouterConfig
 from app.guardrails.config import GuardrailsConfig
 from app.guardrails.engine import GuardEngine
 from app.guardrails.schema import GuardEventRecord
@@ -23,6 +25,8 @@ from app.models.embeddings import EmbeddingGateway
 from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
+from app.rag.backend import DocumentBackend
+from app.rag.citations import AttributionRule
 from app.settings import Settings
 from app.text.script import ValidationConfig
 from app.tools.broker import ToolBroker
@@ -51,6 +55,10 @@ class Services:
     policies: PolicyStore
     guard_config: GuardrailsConfig
     locks: TurnLocks
+    attachments: AttachmentService
+    documents: DocumentBackend
+    citations: AttributionRule
+    router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
     # The compiled main graph, set by app.main.start_services once the database is open:
@@ -88,6 +96,9 @@ class TurnContext:
     writer: Callable[[dict], None] | None = None
     # policy_id@version of a fail-closed tool policy that could not run (D8).
     guard_unavailable: str | None = None
+    # This turn's chunk texts by reference, fetched for the answer and checked at POST_TOOL;
+    # page attribution reads them. Never written to state (owner decision S4).
+    evidence: dict[str, str] = field(default_factory=dict)
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

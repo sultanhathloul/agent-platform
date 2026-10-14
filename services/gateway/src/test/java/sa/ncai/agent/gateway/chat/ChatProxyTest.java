@@ -76,7 +76,7 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(sent.path("message").asText()).isEqualTo("ما عاصمة المملكة؟");
         assertThat(sent.path("locale").asText()).isEqualTo("ar");
         assertThat(sent.path("selected_kbs").toString()).isEqualTo("[\"moe\"]");
-        assertThat(sent.path("attachments").isArray()).isTrue();
+        assertThat(sent.path("attachment_ids").isArray()).isTrue();
         JsonNode principal = sent.path("principal");
         assertThat(principal.path("user_id").asText()).isEqualTo("user-123");
         assertThat(principal.path("tenant_id").asText()).isEqualTo("tenant-a");
@@ -279,7 +279,7 @@ class ChatProxyTest extends GatewayTestSupport {
                 "{" + valid + ",\"message\":\"" + "x".repeat(ChatTurnRequest.MAX_MESSAGE_CHARS + 1) + "\"}",
                 "{" + valid + ",\"message\":\"hi\",\"locale\":\"fr\"}",
                 "{" + valid + ",\"message\":\"hi\",\"selected_kbs\":[\"../etc\"]}",
-                "{" + valid + ",\"message\":\"hi\",\"attachments\":[{\"id\":\"\"}]}",
+                "{" + valid + ",\"message\":\"hi\",\"attachment_ids\":[\"not-a-uuid\"]}",
                 "{not json");
     }
 

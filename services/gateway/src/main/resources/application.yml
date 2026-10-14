@@ -14,6 +14,8 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 10
+  # The multipart caps come from config/docs.yaml (AttachmentsConfig, owner decision R3): no upload
+  # limit is written here.
   flyway:
     schemas: gateway
     default-schema: gateway
@@ -22,6 +24,23 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  tomcat:
+    # Connections the gateway holds at once, written here so the value is reviewed rather than
+    # inherited (Tomcat's own default, 8192). With virtual threads a connection, not a thread, is
+    # the shared resource; uploads can hold at most limits.max_concurrent_uploads_total of them
+    # (config/docs.yaml, 50), so chat and every other request keep the rest (the verification of
+    # review round 2). Past this, new connections wait in the accept queue.
+    max-connections: 8192
+    accept-count: 100
+    # A refused upload's body is never drained (review round 2, finding 2): the gateway swallows
+    # none of it (0), so Tomcat closes the connection as soon as the refusal is written instead of
+    # reading a body it already refused. A trickled or huge-declared upload therefore cannot hold a
+    # connection — or its request-processing thread — open. The gate also sets Connection: close.
+    max-swallow-size: 0
+    # While a request body IS being read (an accepted upload), cut it if it stalls this long. The
+    # whole body must also arrive within limits.upload_deadline_seconds (config/docs.yaml).
+    connection-upload-timeout: 30s
+    disable-upload-timeout: false
   compression:
     enabled: false
 
@@ -48,6 +67,15 @@ gateway:
   models:
     # Role tier caps (ADR-0046); compose mounts the file and sets GATEWAY_MODELS_CONFIG.
     config: ../../config/models.yaml
+  docs:
+    # Upload limits (ADR-0126); compose mounts config/docs.yaml and sets GATEWAY_DOCS_CONFIG.
+    config: ../../config/docs.yaml
+  storage:
+    # MinIO on the compose network (ADR-0129); GATEWAY_STORAGE_* in compose.
+    endpoint: http://localhost:9000
+    access-key: ""
+    secret-key: ""
+    bucket: uploads
 
 management:
   endpoints:

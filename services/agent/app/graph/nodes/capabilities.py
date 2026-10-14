@@ -94,19 +94,20 @@ def _state_for(needs: Sequence[BlockName], state: AgentState) -> dict[str, Any]:
 def _request_for(cap: LoadedCapability, state: AgentState, ctx: TurnContext) -> AssemblyRequest:
     manifest = cap.manifest
     locale = state["locale"]
+    needs = manifest.context.needs or []  # None: the answer defaults, but nothing for its own calls
     return AssemblyRequest(
         node=f"capability.{cap.slug}",
-        needs=manifest.context.needs,
+        needs=needs,
         # A capability that does not need the system block ships no system prompt (ADR-0020).
-        system_prompt=f"{cap.slug}.system" if "system" in manifest.context.needs else None,
+        system_prompt=f"{cap.slug}.system" if "system" in needs else None,
         locale=locale,
-        state=_state_for(manifest.context.needs, state),
+        state=_state_for(needs, state),
         tools=[
             spec.description_ar if locale == "ar" else spec.description_en
             for spec in cap.tools
             if ctx.principal.has(spec.required_permission)
         ],
-        memory_scope=MemoryScope.of(ctx.principal) if "memory" in manifest.context.needs else None,
+        memory_scope=MemoryScope.of(ctx.principal) if "memory" in needs else None,
     )
 
 
@@ -131,6 +132,20 @@ def _detached(package: ContextPackage) -> ContextPackage:
     return ContextPackage.model_validate(package.model_dump())
 
 
+def _context_reader(cap: LoadedCapability, request: AssemblyRequest, ctx: TurnContext):
+    """The capability's package, assembled through the resolver at its floor (no step) on the
+    first read only, then a fresh detached copy on every read (owner decision C3)."""
+    assembled: list[ContextPackage] = []
+
+    async def context() -> ContextPackage:
+        if not assembled:
+            prepared = await _prepare(cap, request, ctx, role="reasoning")
+            assembled.append(_detached(prepared.package))
+        return _detached(assembled[0])
+
+    return context
+
+
 def _findings(cap: LoadedCapability, extra_blocks: Sequence[Block]) -> list[dict[str, str]]:
     for block in extra_blocks:
         if not isinstance(block, Block) or block.name != "findings":
@@ -138,7 +153,7 @@ def _findings(cap: LoadedCapability, extra_blocks: Sequence[Block]) -> list[dict
             raise CapabilityContractError(
                 f"capability {cap.slug}: extra_blocks carry findings only, got {name!r}"
             )
-    if extra_blocks and "findings" not in cap.manifest.context.needs:
+    if extra_blocks and "findings" not in (cap.manifest.context.needs or ()):
         raise CapabilityContractError(f"capability {cap.slug}: extra_blocks need 'findings' in context.needs")
     return [{"capability": cap.slug, "findings": block.content} for block in extra_blocks]
 
@@ -179,14 +194,19 @@ def _event_writer(runtime: Runtime[TurnContext], cap: LoadedCapability):
 
 
 class _Broker:
-    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState):
-        self._ctx, self._runtime, self._state = ctx, runtime, state
+    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState, slug: str):
+        self._ctx, self._runtime, self._state, self._slug = ctx, runtime, state, slug
 
     async def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
+        # The scope comes from the verified principal and this conversation, never from the
+        # capability or a model (S1); the backend is the one the RuntimeContext carries (C6).
         return await self._ctx.services.broker.execute(
             name,
             args,
+            caller=self._slug,
             principal=self._ctx.principal,
+            conversation_id=self._state["conversation_id"],
+            documents=self._ctx.services.documents,
             emit=lambda type_, data: emit(self._runtime, type_, data),
             context=guard_context(self._state, self._ctx, tools=()),
             on_guard=self._on_guard,
@@ -314,13 +334,9 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
         manifest = cap.manifest
         with tracer.start_as_current_span(f"capability.{slug}") as span:
             request = _request_for(cap, state, ctx)
-            # The input package goes through the resolver at the capability's floor
-            # (no step) and gets that tier's real budget.
-            prepared = await _prepare(cap, request, ctx, role="reasoning")
             own_state = cap_state.get(manifest.state_namespace) or {}
             cap_input = CapabilityInput(
                 message=state["user_message"],
-                context=_detached(prepared.package),
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 attachments=copy.deepcopy(list(state.get("attachments") or [])),
@@ -331,8 +347,11 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 call_model=_model_caller(cap, ctx, request, runtime),
-                broker=_Broker(ctx, runtime, state),
+                broker=_Broker(ctx, runtime, state, slug),
                 stream_writer=_event_writer(runtime, cap),
+                documents=services.documents,
+                context=_context_reader(cap, request, ctx),
+                config=copy.deepcopy(cap.config),
             )
             try:
                 payload = await _invoke_isolated(cap, cap_input, runtime_context)

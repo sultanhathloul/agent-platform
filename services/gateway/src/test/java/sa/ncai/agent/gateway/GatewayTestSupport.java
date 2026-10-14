@@ -32,6 +32,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MockMvc;
+import sa.ncai.agent.gateway.attachments.ObjectStorage;
 import sa.ncai.agent.gateway.audit.AuditRepository;
 import sa.ncai.agent.gateway.chat.ConversationRepository;
 
@@ -89,8 +90,15 @@ public abstract class GatewayTestSupport {
     @TestBean(methodName = "inMemoryConversations")
     protected ConversationRepository conversations;
 
+    @TestBean(methodName = "inMemoryStorage")
+    protected ObjectStorage storage;
+
     @Autowired
     protected MockMvc mvc;
+
+    static ObjectStorage inMemoryStorage() {
+        return new InMemoryObjectStorage();
+    }
 
     static AuditRepository inMemoryAudit() {
         return new InMemoryAuditRepository();
@@ -104,6 +112,7 @@ public abstract class GatewayTestSupport {
     void resetSharedState() throws InterruptedException {
         auditLog().clear();
         ((InMemoryConversationRepository) conversations).clear();
+        ((InMemoryObjectStorage) storage).clear();
         while (AGENT.takeRequest(0, TimeUnit.MILLISECONDS) != null) {
             // drop requests left over from earlier tests
         }

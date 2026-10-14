@@ -1,0 +1,84 @@
+# Documents (UC3, README §9.3) and the shared retrieval library (app/rag/). Read by the
+# agent and, for `limits`, by the gateway, so both enforce the same values.
+
+# The DocumentBackend the docs capability talks to (C6): `internal` is this phase's pipeline
+# (extraction, chunking, pgvector, hybrid retrieval with rerank). A future backend (the owner's
+# RAG/OCR service) implements the same interface and is selected here.
+backend: internal
+
+# Checked in the gateway before anything is stored, re-checked by the agent (ADR-0126, D2).
+limits:
+  max_file_bytes: 20971520          # 20 MB
+  max_files_per_conversation: 10
+  max_pdf_pages: 300                # enforced in the ingest child process, not the gateway (finding 3)
+  uploads_per_minute: 20            # per user, in the gateway; more is 429 upload_rate_limited (R3).
+                                    # GATEWAY_UPLOADS_PER_MINUTE (from .env) overrides this per
+                                    # environment (review round 2, finding 4); this is the baseline.
+  max_concurrent_uploads: 2         # per user, in flight at once; more is 429 too_many_uploads (finding 2)
+  max_concurrent_uploads_total: 50  # the whole gateway, in flight at once; more is 429 too_many_uploads
+  upload_deadline_seconds: 120      # to receive one upload's body; past it, 408 upload_timeout
+  types:
+    pdf:  {extensions: [pdf],  mimes: [application/pdf]}
+    docx: {extensions: [docx], mimes: [application/vnd.openxmlformats-officedocument.wordprocessingml.document]}
+    xlsx: {extensions: [xlsx], mimes: [application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]}
+    txt:  {extensions: [txt],  mimes: [text/plain]}
+    md:   {extensions: [md, markdown], mimes: [text/markdown, text/x-markdown, text/plain]}
+
+# Recursive chunking (README §9.3): tokens counted like Context Assembly (o200k_base).
+chunking:
+  max_tokens: 800
+  overlap_tokens: 120
+  max_chunks: 2000          # per file; more ends failed with too_many_chunks (R4)
+
+# A PDF whose pages average fewer characters than this has no text layer: scanned (ADR-0128).
+# The bounds of a hostile or oversized file (owner decision R4): extracted text per file (a
+# 300-page text PDF holds about 900 000 characters), and one PDF stream decompressed.
+extraction:
+  min_text_chars_per_page: 20
+  max_chars: 1000000           # text_too_long past this
+  max_pdf_stream_bytes: 52428800   # 50 MB; stream_too_large past this
+
+# Checked before a DOCX or XLSX is parsed (R4): archive_unsafe past any of these, or when the
+# file holds an archive; xml_unsafe when its XML declares a DTD or entities.
+archive:
+  max_entries: 1000
+  max_uncompressed_bytes: 104857600   # 100 MB
+  max_ratio: 200                      # uncompressed / compressed, for an entry over 1 MB
+
+ingest:
+  workers: 2          # concurrent ingestion jobs in the ingest service (R4)
+  embed_batch: 16     # chunks per embedding request
+  max_attempts: 3     # a job that keeps failing for a transient reason ends as failed
+  # Each file is parsed in a child process with these limits; a child stopped by one of them
+  # ends the file as failed (extraction_aborted) and the service goes on (R4).
+  sandbox:
+    cpu_seconds: 60
+    memory_mb: 1024
+    timeout_seconds: 120
+
+# Hybrid retrieval (ADR-0133): top 30 by vector, top 30 by full text, reciprocal rank
+# fusion, rerank of the fused candidates, top 8 kept. Evidence over its budget is compressed
+# by Context Assembly, chunk by chunk (config/context.yaml `blocks.retrieval`).
+#
+# The cross-encoder (owner decisions R2, Q1) is configured per environment, from .env, not here
+# (review round 2, finding 3, superseding the ADR-0184 default): RERANK_ENABLED, RERANK_CANDIDATES
+# and RERANK_MAX_CHARS. Development leaves it off (fusion order kept, p95 ~0.15 s); a GPU deployment
+# turns it on with 16 candidates on the first 1070 characters of each (400 reranker tokens at the
+# fewest characters per token measured on the eval documents, 2.68). See .env.example.
+retrieval:
+  vector_top_k: 30
+  text_top_k: 30
+  rrf_k: 60
+  top_k: 8
+  # Words left out of the full-text query (compared after normalization); questions are
+  # matched OR-wise, so function words would match every chunk.
+  stopwords:
+    ar: [ما, ماذا, هل, كم, متى, اين, كيف, لماذا, من, في, على, الى, عن, هو, هي, هذا, هذه, ذلك, تلك, التي, الذي, ان, او, ثم, مع, كل, بعض, قد, لا, لم, لن, ذكر, اذكر, حسب, وفق, يا, ايش, وش, شنو, وين, ليش]
+    en: [what, which, who, when, where, why, how, is, are, the, a, an, of, in, "on", to, for, and, "or", does, do, say, says, document, file]
+
+# Objects in the uploads bucket that no attachment record names (an upload whose registration
+# failed) are removed once they are this old; the ingest service sweeps every `interval_minutes`
+# (owner decision S4). The product deletes no registered file.
+orphan_sweeper:
+  min_age_minutes: 60
+  interval_minutes: 30

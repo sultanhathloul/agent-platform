@@ -1153,3 +1153,646 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - The action chip reads "منع الحفظ" ("Prevent saving") instead of "حظر" when the action is block, every checkpoint is DATA and the only target is `memory_candidate`: in the list, the detail header, each version line (each version by its own content) and the test panel's result. Assumed: a policy that also has another checkpoint keeps "حظر", because it blocks there.
   - The checkpoints chip has a tooltip: the descriptions of its checkpoints from the locale's catalog (رسالة المستخدم، القدرات المتاحة، قبل الأداة، بعد الأداة، الإجابة، البيانات الخارجة، سقف النموذج), joined with the locale's comma. Assumed: the chip stays one chip for all checkpoints (ADR-0119), so its tooltip lists each one's description.
 - Consequences: The meta line is longer for DATA policies by one to three chips. The guard events, the chat chips and the API are unchanged: the action is still `block`, and only its label changes.
+
+### ADR-0125: Uploaded files expire 30 days after the conversation's last turn; a daily purge deletes them
+- Date: 2026-10-11
+- Phase: 04 (owner decision D1)
+- Status: decided — Superseded by ADR-0166 on 2026-10-12
+- Context: README §9.3 stores uploads in a session-scoped collection with `expires_at` but names no lifetime.
+- Decision: An uploaded file and everything derived from it (the MinIO object in bucket `uploads`, its chunks in `agent.rag_chunks`, its attachment record) expire `retention_days` (30, `config/docs.yaml`) after the conversation's last turn. An upload sets the expiry from its own time; every turn of the conversation moves the expiry of all its attachments and chunks forward. A daily purge job in the agent deletes, for every expired attachment, the object, the chunks and the record, in that order; it is idempotent, so a crash between steps is finished by the next run.
+- Consequences: A conversation that is never resumed loses its files after 30 days; a resumed one keeps them. Retrieval never returns an expired chunk, even before the purge runs.
+
+### ADR-0126: Upload limits: 20 MB per file, 10 files per conversation, 300 pages per PDF, five types; checked in the gateway
+- Date: 2026-10-11
+- Phase: 04 (owner decision D2)
+- Status: decided
+- Context: README §6.1.3 puts upload size and type limits in the gateway.
+- Decision: `config/docs.yaml` holds `limits`: `max_file_bytes` 20 MB, `max_files_per_conversation` 10, `max_pdf_pages` 300, types PDF, DOCX, XLSX, TXT, MD (by extension and content signature). The gateway refuses before anything is stored: 413 `file_too_large`, 415 `file_type_unsupported`, 413 `too_many_pages`, 409 `attachment_limit`, each with an Arabic and an English message. The agent re-checks the file count atomically when it registers the attachment, and the ingestion worker re-checks pages and type on the bytes it reads (defense in depth).
+- Consequences: The gateway counts PDF pages itself (Apache PDFBox) and reads the same file as the agent, so the two limits cannot drift.
+
+### ADR-0127: PII in a user's own uploads is redacted in answers like any other text
+- Date: 2026-10-11
+- Phase: 04 (owner decision D3)
+- Status: decided
+- Context: An uploaded CV or circular can hold national IDs, mobile numbers and IBANs.
+- Decision: No docs-specific exception: the DATA policies apply unchanged. The model may read the document's PII (it is in the evidence it receives); the answer never shows it, because DATA redacts the answer before any sentence leaves the agent (ADR-0079, ADR-0111).
+- Consequences: A user who asks "what is the national ID in my CV?" gets `[REDACTED:SA_NATIONAL_ID]`. A policy role exception (ADR-0107) still applies to its holder, as for any answer.
+
+### ADR-0128: A scanned PDF fails with `scanned_unsupported`; OCR is v2 behind an Extractor hook
+- Date: 2026-10-11
+- Phase: 04 (owner decision D4)
+- Status: decided
+- Context: README §17 keeps OCR out of v1.
+- Decision: A PDF whose pages carry no text layer ends as `failed` with reason `scanned_unsupported` and an Arabic message in the UI. Extraction is behind an `Extractor` protocol keyed by type, so an OCR extractor can be registered in v2 without touching the pipeline.
+- Consequences: Image-only documents cannot be asked about in v1; the user is told why.
+
+### ADR-0129: Uploads go through the gateway into MinIO; every attachment operation is audited fail-closed
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I1)
+- Status: decided
+- Context: README §6.1.5 mentions pre-signed uploads; limits, ownership and audit must be enforced server-side and MinIO stays internal.
+- Decision: The browser posts a multipart file to the gateway, which checks limits and ownership, stores the bytes in bucket `uploads` and registers the attachment with the agent, which owns the record (the ADR-0086 pattern). Upload, list, status read, download and delete are audited fail-closed (ADR-0042): refused with 503 `audit_unavailable` when the log is unreachable, answered only after the record is written. No browser ever talks to MinIO. This supersedes the "pre-signed" wording of README §6.1.5.
+- Consequences: Upload bytes pass through the gateway's JVM; 20 MB per file keeps that bounded. A status poll every 2 s writes one audit row each time.
+
+### ADR-0130: Ingestion runs in a background worker inside the agent, on a Redis queue
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I2)
+- Status: decided
+- Context: README §9.3 describes an ingestion job; extraction, embedding and indexing take seconds to minutes.
+- Decision: The capability-agnostic pipeline lives in `app/rag/ingest/`. Registering an attachment enqueues its id on a Redis list; worker tasks in the agent process take jobs, extract, normalize, chunk, embed and write the chunks. A job is idempotent by attachment id (it replaces that attachment's chunks in one transaction and then sets the status) and resumes after a crash: at startup every `pending` attachment is enqueued again. A failure sets `failed` with a reason code.
+- Consequences: Ingestion competes with turns for the agent's CPU; the worker count is configuration. Phase 05 reuses the pipeline for KB documents.
+
+### ADR-0131: One chunk table, `agent.rag_chunks`, behind the VectorStore interface
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I3)
+- Status: decided
+- Context: README §2 puts vectors in pgvector behind a `VectorStore` interface with per-collection isolation.
+- Decision: `agent.rag_chunks (collection, attachment_id, user_id, tenant_id, page, section, ord, text, text_norm, tsv, embedding, expires_at)`; `collection` is `sess_{conversation_id}` now and `kb_{slug}` in phase 05. Every query names the collection and the owner. `VectorStore` (`app/rag/vectorstore/`) is the only reader and writer.
+- Consequences: Swapping to another vector database is one new `VectorStore` implementation.
+
+### ADR-0132: Full text is a `simple` tsvector over Arabic-normalized text
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I4)
+- Status: decided
+- Context: Postgres has no Arabic text search configuration.
+- Decision: `text_norm` is the chunk normalized by `app/text/arabic.py` (alef, yaa and taa marbuta folding, tatweel and tashkeel removed, light prefix stripping); `tsv` is `to_tsvector('simple', text_norm)`. Queries are normalized by the same function, so Arabic matching is deterministic.
+- Consequences: Suffixes and roots are not stemmed (ADR-0098's limit); the vector half of the hybrid search covers morphology.
+
+### ADR-0133: Hybrid retrieval: vector top 30 and text top 30, reciprocal rank fusion, rerank, top 8
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I5)
+- Status: decided
+- Context: README §7 step 6 and §9.3.
+- Decision: Values in `config/docs.yaml`: 30 by vector similarity, 30 by full-text rank, fused by reciprocal rank fusion, reranked, the top 8 kept; when the evidence exceeds its budget, each chunk is compressed extractively (sentences sharing the most words with the question, README §7 step 6).
+- Consequences: One retrieval costs one query embedding, two SQL queries and one rerank call.
+
+### ADR-0134: The reranker is `bge-reranker-v2-m3` on Infinity behind the LiteLLM `rerank` alias
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I6)
+- Status: decided
+- Context: ADR-0008 left serving the reranker to phase 04: Ollama has no rerank API. I6 asks for Infinity or Hugging Face TEI, whichever the pinned LiteLLM supports, with weights fetched by `make models`, never at container start.
+- Decision: LiteLLM v1.100.0 supports both (`infinity/` and `huggingface/` rerank providers). TEI publishes CPU images for amd64 only, so on an arm64 host it runs emulated; Infinity `michaelf34/infinity:0.0.75` is the newest tag published for both amd64 and arm64. The `rerank` service runs that image with the model loaded from the volume `rerank-models` (`HF_HUB_OFFLINE=1`); `make models` downloads `BAAI/bge-reranker-v2-m3` into the volume. The LiteLLM alias `rerank` points at it with the `infinity/` provider. A rerank call, like an embedding, is not a chat call and takes no ContextPackage (ADR-0058 precedent). Its latency on the development host is recorded in PROGRESS.
+- Consequences: About 2.3 GB of weights in a volume and one more container (CPU inference). A newer Infinity tag that is amd64-only would need emulation on arm64 hosts.
+
+### ADR-0135: Extraction per type; Arabic presentation forms and visual order restored; recursive chunking 800/120
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I7)
+- Status: decided — Superseded by ADR-0173 on 2026-10-12 (visual-order detection), ADR-0174 (chunk budget, XLSX header)
+- Context: README §9.3; Arabic PDFs often extract as presentation forms in visual (reversed) order.
+- Decision: PDF per page with `pypdf` (BSD); NFKC folds presentation forms; a line detected as visual-order Arabic is reversed back to logical order (digit and Latin runs keep their direction). DOCX split by headings (`python-docx`, MIT); XLSX per sheet with the header row repeated in every chunk (`openpyxl`, MIT); TXT and MD heading-aware. Chunking per README §9.3: recursive, 800 tokens, 120 overlap, never across a page (PDF) or section (DOCX, MD) boundary, so every chunk has one page or section for its citation.
+- Consequences: Visual-order detection is a heuristic with Arabic tests; a mis-detected line stays searchable by its words through the vector half.
+
+### ADR-0136: Retrieval is a tool of the docs capability; chunks are untrusted data
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I8)
+- Status: decided
+- Context: README §10.3: everything a tool returns is data.
+- Decision: The docs capability retrieves through its tool `docs_search`, executed by the broker, so chunks pass POST_TOOL with `sanitize_untrusted` first. The capability renders them for the answer inside `<untrusted>` delimiters from its own versioned prompt files. A document that says "ignore your instructions" is data.
+- Consequences: An instruction-like sentence in a document is replaced by the sanitize marker before the model sees it, so a document cannot instruct the answer.
+
+### ADR-0137: Retrieval spans carry ids, pages, scores and token counts, never chunk text
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I9; D5 precedent, ADR-0081)
+- Status: decided
+- Context: Uploaded content must not be copied into traces.
+- Decision: The `rag.retrieve` span records attachment ids, chunk ids, pages, scores and token counts; ingestion spans record counts and reason codes. No span attribute holds document text.
+- Consequences: Debugging retrieval quality uses ids and pages against the owner's own file, not the trace.
+
+### ADR-0138: Attachment status is pending, indexed or failed; the web polls it every 2 s
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I10)
+- Status: decided
+- Context: README §9.3: status streamed to the UI.
+- Decision: The attachment record holds `pending | indexed | failed` and, when failed, a reason code. The web polls the status through the gateway every 2 s until it is terminal, and keeps the send button disabled while an attached file is pending.
+- Consequences: No server push for ingestion progress; a poll is one audited request.
+
+### ADR-0139: Routing for documents: the attachments rule, then the router model on later turns
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I11; ADR-0015)
+- Status: decided
+- Context: ADR-0015 brought the router model with the second capability.
+- Decision: The `attachments` rule selects `docs` on the turn a file is attached. On later turns of a conversation with indexed files, the router model (role `router`, fast tier) chooses between `docs` and `general`; its decision is cached by hash for 1 hour. `evals/golden/routing.jsonl` starts with at least 30 docs/general cases, Arabic and Gulf included; threshold 0.90.
+- Consequences: A later turn in a document conversation costs one fast call, or none on a cache hit.
+
+### ADR-0140: Citations are file name and pages, attributed after the answer by shared word n-grams
+- Date: 2026-10-11
+- Phase: 04 (owner decision on the G5 stop; replaces I12 and the preview panel of D2)
+- Status: decided — Superseded by ADR-0163 on 2026-10-12 (where attribution runs, its input and validate's check)
+- Context: I12 asked for citations naming chunk ids, a check that fails an answer citing a chunk not retrieved, and a preview panel. Each needed markers in the answer and a change to `answer.system`; the owner chose a simpler design when the session stopped under G5.
+- Decision:
+  - Under the answer the UI shows the file name and the page or pages only: no markers in the answer text, no change to `answer.system`, no preview panel.
+  - Pages are attributed after the answer is complete, deterministically: a retrieved chunk is cited when it shares at least `citations.min_shared_ngrams` normalized word n-grams (`citations.ngram` words long) with the answer (`config/docs.yaml`); its page joins the list. When no chunk passes, nothing is shown, so general-knowledge answers and "not found in the document" answers show no source.
+  - Core change outside Part A: `Source` gains optional `page`, `document_id` and `excerpt`. `excerpt` is the sanitized chunk text the attribution compares against; it is never streamed and never part of a citation (assumed: the attribution needs the retrieved chunk's text, which the core sees only through the capability's output). The `citation` event and `done.citations` carry, per document, the attachment id, the file name and the pages: `Citation` gains `document_id` and `pages`, an additive change to `docs/events.schema.json` (id stays `events.v1`).
+  - `validate` computes the citations and keeps its check that every citation names a source of this turn.
+  - `rag.jsonl` measures citation page accuracy against these pages, and has cases where a docs conversation gets a general-knowledge question or one the document cannot answer, expecting no source line.
+- Consequences: A citation says which pages the answer drew on, not which sentence came from where. A paraphrase that shares no n-gram with any chunk shows no source. Supersedes I12 and the preview panel of D2 as stated in the phase prompt.
+
+### ADR-0141: rag.jsonl: 40 cases over four generated Arabic documents; Ragas scores through LiteLLM's judge alias
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I13)
+- Status: decided
+- Context: README §12 names Ragas for RAG metrics; rule 6 sends every model call through Context Assembly and LiteLLM.
+- Decision: `evals/golden/rag.jsonl` has at least 40 cases over at least four generated Arabic documents (a DOCX with headings, an XLSX, a multi-page PDF, a PDF with fake PII). Thresholds in `evals/thresholds.yaml`: retrieval hit@8 ≥ 0.90, citation page accuracy ≥ 0.85, Ragas faithfulness ≥ 0.85, answer correctness ≥ 0.80, correct abstention on not-in-document questions ≥ 0.90. Accepted interpretation of rule 6: Ragas scoring calls LiteLLM's alias for the `judge` role directly; the eval harness is a client of the platform, like a user's browser, not an agent model call, so it does not go through Context Assembly. The agent's own calls are unchanged.
+- Consequences: Eval scores depend on the judge alias's model; a judge change is re-measured like any model change.
+
+### ADR-0142: Agent and gateway API versions move to 1.4.0
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I14)
+- Status: decided — Superseded by ADR-0167 on 2026-10-12
+- Context: Phase 04 adds attachment endpoints and changes the turn request.
+- Decision: One bump for the whole phase: agent and gateway OpenAPI 1.4.0. `docs/events.schema.json` changes additively (id stays `events.v1`).
+- Consequences: The drift tests (ADR-0044) pin both documents at 1.4.0 until the PR merges.
+
+### ADR-0143: A deterministic test service answers the embed and rerank aliases in `make test`
+- Date: 2026-10-11
+- Phase: 04 (implementation choice I15)
+- Status: decided
+- Context: `config.mock.yaml` returned one fixed vector for every text and had no rerank alias, so retrieval ranking could not be tested.
+- Decision: A small test-only service (`embed-mock`, compose profile `test`) sits behind the mock LiteLLM config for the `embed` and `rerank` aliases: an embedding is a hashed bag of the words normalized by `app/text/arabic.py`; a rerank score is the word overlap with the query. Texts sharing more words rank higher, identically on every run. `make test` uses it; the real stack never does. Retrieval tests assert ranking (the expected chunk first or in the top 3). The fixed vector stays only where a test needs identical similarity (memory isolation), under the alias `embed-fixed`, named as such.
+- Consequences: Memory tests that relied on every text matching every other choose the fixed alias explicitly.
+
+### ADR-0144: Retrieval and evidence blocks are placeholders in captured model input
+- Date: 2026-10-11
+- Phase: 04 (owner decision on the G5 stop; core change outside Part A)
+- Status: decided
+- Context: With `OBSERVABILITY_CAPTURE_CONTENT` on, generation spans carry their input messages, which now include document chunks (I9).
+- Decision: The `findings`, `retrieval` and `tool_results` blocks of a captured package become a placeholder naming the block, its token count and an HMAC of its text, the mechanism ADR-0081 uses for memory and summary.
+- Consequences: Langfuse shows that evidence was present and how large it was, never its text. The answer itself is still captured (ADR-0021).
+
+### ADR-0145: The `conversation_attachments` routing rule makes a capability a router-model candidate
+- Date: 2026-10-11
+- Phase: 04 (owner decision on the G5 stop; I11)
+- Status: decided
+- Context: Manifest rules were `toggled`, `keyword`, `attachments` and `fallback` (ADR-0015); none could make a capability eligible on a later turn without deciding for it.
+- Decision: A generic rule `conversation_attachments`: when the conversation holds indexed attachments, the capability is a candidate. When no deterministic rule selected anything and there are candidates, the router model chooses among the candidates and the fallback capabilities; when there are none, the fallback applies as before. The core names no capability.
+- Consequences: Adding `conversation_attachments` to any manifest makes it routable this way.
+
+### ADR-0146: kb: and tool: exceptions at OUTPUT and DATA stay refused
+- Date: 2026-10-11
+- Phase: 04 (tech debt F5; ADR-0108)
+- Status: decided
+- Context: ADR-0108 refused `kb:` and `tool:` policies that weaken a wider policy at OUTPUT or DATA until phase 04 attributes each part of an answer to its source.
+- Decision: The refusal stays. A generated answer cannot be attributed reliably to its sources: the page attribution of ADR-0140 says which pages an answer drew on, not which sentence came from which source, so an exception scoped to one KB or tool cannot be applied to the part of the answer that came from it. Revisit with the kb capability in phase 05.
+- Consequences: Exceptions for a KB or a tool remain possible at INPUT, TOOL_LIST, PRE_TOOL and POST_TOOL only.
+
+### ADR-0147: `make smoke-airgap`: an internal network for every container but litellm, and a fixed ingress relay
+- Date: 2026-10-11
+- Phase: 04 (tech debt F2)
+- Status: assumed
+- Context: F2 asks for smoke on a stack where only `litellm` can reach out. Measured on the development host (Docker Desktop): a container on an `internal: true` network has no route out, but its published ports do not answer either; a bridge network without IP masquerade still reaches the internet through Docker Desktop's own NAT. Smoke and a browser need the gateway, Keycloak, the web app and Langfuse on the host's ports.
+- Decision: `docker-compose.airgap.yml` puts every service on `airgap` (internal) only; `litellm` also joins `egress` for the model endpoints. `edge`, an `nginx:1.27.5-alpine` stream relay with a fixed configuration (`infra/airgap/nginx.conf`: four TCP forwards to `web`, `gateway`, `keycloak`, `langfuse-web`), joins `airgap` and `ingress` and publishes the four host ports; it runs no application code. `scripts/airgap_check.sh` fails unless every container's networks are internal except `litellm:egress` and `edge:ingress`, a probe container on `airgap` cannot reach the internet, the agent cannot, and litellm still answers an embedding call. `make smoke-airgap` brings the overlay up, runs the check and `scripts/smoke.sh` with `COMPOSE_FILE` set (so smoke's own restart keeps the layout), and restores the normal stack, pass or fail. It replaces the owner's manual offline-profile run (HANDOFF).
+- Consequences: Two containers can reach out instead of one: litellm by design and the relay by necessity. The relay forwards inbound connections only and names no outside destination; a compromise of the relay image is the residual risk. Switching to and from the overlay recreates every container (about two minutes).
+
+### ADR-0148: The seed users `analyst` and `evaluator` hold `cap:docs`
+- Date: 2026-10-11
+- Phase: 04
+- Status: assumed
+- Context: E2 has the viewer probe the analyst's attachment, so the analyst must be able to upload; the rag and routing suites run as `evaluator` (ADR-0074). Neither held `cap:docs`; the gateway requires it to upload.
+- Decision: `infra/keycloak/realm-export.json` gives both users `cap:docs`. README §11 gains a note. The development realm was re-imported by recreating only the Keycloak database (`DROP DATABASE keycloak`, then `make up`), which is what a fresh import does; the owner's `make clean && make up` gives the same realm.
+- Consequences: The analyst can use documents; `cap:docs` is still not part of the base `user` role.
+
+### ADR-0149: The router model reads the conversation's file names as user-role data
+- Date: 2026-10-11
+- Phase: 04 (I11)
+- Status: assumed — Accepted on 2026-10-12
+- Context: The first routing run scored 31/34: three questions about the file's topic that did not say "the file" ("متى تبدأ ساعات العمل الصيفية؟") went to `general`, because the router saw only the message and the candidates.
+- Decision: The router's request (`router.request@1.0.0`) carries the names of the conversation's indexed files inside `<conversation_files>` and the message inside `<user_message>`, in the user role (ADR-0068: file names are user data); `router.system@1.1.0` routes a question on a topic the files may cover to `docs`. The names are part of the router cache key.
+- Consequences: The second run scored 34/34. A file name is visible to the fast tier's model, as the message is. Routing still never sees file content.
+
+### ADR-0150: LiteLLM is published on the loopback interface for `make eval`
+- Date: 2026-10-11
+- Phase: 04 (I13)
+- Status: assumed — Superseded by ADR-0172 on 2026-10-12 (the development overlay's mapping)
+- Context: Ragas scores call LiteLLM's judge alias from the host (ADR-0141); LiteLLM had no published port.
+- Decision: `docker-compose.yml` publishes `litellm` on `127.0.0.1:${LITELLM_PORT:-4000}` only, behind its master key. The development overlay keeps its own mapping.
+- Consequences: Any local process with the master key from `.env` can call the model aliases, as `make eval` does; nothing outside the host can.
+
+### ADR-0151: Attachment API details
+- Date: 2026-10-11
+- Phase: 04 (A1, A2)
+- Status: assumed — Superseded by ADR-0166 on 2026-10-12 (delete and expiry only)
+- Context: I1 and A1 fix the shape; the details below were open.
+- Decision:
+  - The agent owns the attachment record (`agent.attachments`, migration `0009`); the gateway stores bytes in MinIO under `{conversation_id}/{random uuid}` and registers them with `POST /v1/conversations/{id}/attachments` on the agent, which binds a new conversation to the caller like a first turn (ADR-0050) and enforces the file count under a transaction lock. The object key never reaches a browser.
+  - Uploading needs `cap:docs` (403 `forbidden`); list, status, download and delete need ownership only, so a user can always see and remove what they uploaded. Another owner's conversation is 403 `conversation_forbidden`; an attachment id the caller does not have in that conversation, another user's included, is 404 `attachment_not_found`, at the gateway and at the agent. A conversation nobody has used lists nothing and binds nobody.
+  - The turn request names `attachment_ids` (lower-case UUIDs, at most 10); `ingest_attachments`, after `guard_input`, loads every live attachment of the conversation into `AgentState.attachments` with its status and ends the turn with `attachment_not_found` when the turn names one the caller does not have. `turn_attachment_ids` (AgentState addition) feeds the `attachments` rule. Every turn moves the conversation's expiry (ADR-0125).
+  - The gateway answers `GET /v1/attachments/limits` from `config/docs.yaml`, so the composer shows the limits before upload. A body over the multipart cap (21 MB) is 413 `file_too_large` before the controller runs and is not audited (ADR-0013); 20 MB to 21 MB is refused by the controller and audited.
+  - MinIO is reached with the root credentials from `.env`, as Langfuse already is (ADR-0022); a scoped key is phase 09.
+- Consequences: The file count is checked twice (gateway pre-check, agent under a lock). A turn that names a stranger's attachment id fails the turn rather than ignoring the id.
+
+### ADR-0152: Retrieval details
+- Date: 2026-10-11
+- Phase: 04 (I5, I8, I9)
+- Status: assumed
+- Context: The ADRs of I5 and I8 leave the query, the full-text query form and failures open.
+- Decision:
+  - The query is the turn's message alone; no rewriting model call. Full text matches any of the message's search stems (an OR `tsquery`) less the stopwords of `config/docs.yaml`, ranked by `ts_rank_cd`.
+  - The tool returns chunk texts in its `content`, each after a `⟦chunk {id}⟧` line, so `sanitize_untrusted` runs on them at POST_TOOL; the capability splits the sanitized text back by id. Chunk metadata travels in `sources`.
+  - The `rag.retrieve` span records, per returned chunk, its id, attachment id, page, a SHA-256 prefix of its section path (never the heading), score and ranks; the rag suite matches expected sections by that hash.
+  - When the search fails, the evidence says the files could not be searched, so the answer never presents general knowledge as the files' content; files still pending or failed are named in the evidence, and the capability never waits for them.
+- Consequences: A follow-up such as "وماذا عن المادة الخامسة؟" retrieves on its own words only. The first end-to-end run, before this rule, answered a maternity question from general knowledge while the reranker alias was missing.
+
+### ADR-0153: Tool handlers reach the retrieval library through a binding the services push and pop
+- Date: 2026-10-11
+- Phase: 04 (A3)
+- Status: assumed — Superseded by ADR-0159 on 2026-10-12
+- Context: A `ToolSpec` handler receives only its arguments (README §9), and capabilities register tools before the services exist; the docs tool needs the retriever (database pool, embedding and rerank clients).
+- Decision: `app.rag.runtime` holds the retrievers of the started services: `start_services` binds, `stop_services` unbinds, and `retriever()` returns the most recent. The owner comes from the tool's arguments, which the capability fills from its RuntimeContext principal (trusted first-party code, ADR-0054); every VectorStore query names it. No broker or contract change.
+- Consequences: One process runs one service set, so the binding is unambiguous in production; tests that start several sets keep working because a stopped set leaves the stack.
+
+### ADR-0154: How the rag and routing suites measure
+- Date: 2026-10-11
+- Phase: 04 (I11, I13)
+- Status: assumed — Superseded by ADR-0181 on 2026-10-12 (abstention, number matching, the Ragas reference)
+- Context: I13 names the metrics and thresholds; the method was open.
+- Decision:
+  - Every case runs in a new conversation: its generated document is uploaded through the gateway and indexed first. Rag cases send the file with the question (the `attachments` rule); routing cases send their message without it, so the router decides, except two cases marked `attach`.
+  - hit@8: an expected page, or the hash of an expected section, among the chunks the turn's `rag.retrieve` span reports (answerable and PII cases). Citation page accuracy: answerable PDF cases whose cited pages are non-empty and within the expected pages, plus general-knowledge and not-in-document cases that cite nothing. Abstention: the answer says the document lacks the answer (a list of Arabic and English phrases); that it shows no source is scored once, under citation page accuracy. Faithfulness and answer correctness: Ragas 0.2.15 on answerable cases, with the judge alias; the contexts are the text of the retrieved pages and sections from `evals/docs/sections.json`, each under the source label the answer model saw ("file، صفحة 3"), and the reference is the case's reference answer naming its source, because `answer.system` asks every answer to name the source of each fact and the judge otherwise counts that naming as an unsupported claim (first run: one-sentence correct answers scored 0.50).
+  - General-knowledge cases of the rag suite send their message without the file, so the router decides, as on a later turn of a document conversation; sent with the file, the turn is a docs turn by the `attachments` rule.
+  - `make eval s=<suite>` runs one suite; `make eval` runs them all.
+- Consequences: A run of the rag suite uploads 47 files and makes 47 turns and about 35 Ragas scorings; it takes about 20 minutes on the OpenRouter profile.
+
+### ADR-0155: Web choices for documents
+- Date: 2026-10-11
+- Phase: 04 (D1, D2)
+- Status: assumed — Superseded by ADR-0166 on 2026-10-12 (removing a chip no longer deletes)
+- Context: D1 and D2 of the phase prompt leave the layout open.
+- Decision: A paperclip button and drag-and-drop on the composer; each file is a chip with its name in `<bdi dir="auto">`, an upload percentage, then a badge (قيد المعالجة، جاهز، تعذّرت القراءة) and, when failed, the Arabic reason. The limits line comes from `GET /v1/attachments/limits`. Sending is disabled, with a short Arabic note, while a file uploads or is pending; removing a chip deletes the attachment. The source line under an answer reads "المصدر", then each file name and "الصفحة 3" / "الصفحتان 2 و5" / "الصفحات …" (three keys, no ICU plural), or the section of a document without pages. Numbers use the locale's default digits, as the rest of the UI. The vitest include gains `.test.tsx`.
+- Consequences: The turn's own file names show under the user's message; the conversation's earlier files are not listed in the UI yet.
+
+### ADR-0156: Page attribution counts word bigrams, with a floor relative to the best chunk
+- Date: 2026-10-11
+- Phase: 04 (ADR-0140)
+- Status: assumed — Superseded by ADR-0182 on 2026-10-12 (the attribution rule)
+- Context: ADR-0140 leaves the n-gram size and threshold to `config/docs.yaml`. The first rag run used trigrams with at least two shared: a paraphrased answer ("الحد الأقصى للإجازة الاضطرارية ... خمسة أيام، وذلك بموافقة المدير") shared no trigram with its page and showed no source, while the annual-leave answer also cited the sick-leave page, which shares only "ثلاثون يوما براتب كامل". Measured offline on that run's 29 answers with a citation expectation: trigrams, two shared: 22/29; bigrams, three shared: 23/29; bigrams, three shared and at least half of the best chunk's count: 25/29, with the remaining misses general-knowledge answers given on a docs turn and two abstentions that name the document.
+- Decision: `citations: {ngram: 2, min_shared_ngrams: 3, relative_to_best: 0.5}`: a chunk is cited when it shares at least three word bigrams with the answer and at least half as many as the best-matching chunk. Still deterministic, no model call, no change to the answer.
+- Consequences: An answer that names the document's title can still cite the page that holds the title. A page that repeats a common phrase beside the page the answer used is no longer cited.
+
+
+### ADR-0157: The reranker scores the best 16 fused candidates on their first 400 tokens
+- Date: 2026-10-11
+- Phase: 04 (ADR-0133, ADR-0134)
+- Status: assumed — Superseded by ADR-0184 on 2026-10-12 (rerank off by default; 16 candidates on 1070 characters when on)
+- Context: Measured on the development host (CPU inference, 24 threads), the cross-encoder's time grows with the tokens it scores: 30 candidates of about 800 tokens took 34 s, 16 took 18 s, 8 took 8 s, 30 of about 270 tokens took 10 s. A docs turn on a 20-page Arabic PDF spent 27.3 s (p50, n=20) in `rag.retrieve` and reached its first token after 28.7 s.
+- Decision: `retrieval.rerank_candidates: 16` and `retrieval.rerank_max_tokens: 400` in `config/docs.yaml`: the best 16 of the fused 60 are reranked, each on its first 400 tokens (counted as Context Assembly counts), and the top 8 are kept with their full text. The vector and text searches (30 + 30, RRF) are unchanged.
+- Consequences: `rag.retrieve` p50 6.31 s and time to first token p50 7.72 s on the same document (n=20). A chunk whose answer lies past its first 400 tokens is ranked by its beginning; it still reaches the top 8 when fusion ranks it high. On a GPU-served reranker in production both values can go back up; they are configuration.
+
+### ADR-0158: No policy at ingestion; delimiters are neutralized at runtime, for everyone
+- Date: 2026-10-12
+- Phase: 04 (owner principle, review round 1)
+- Status: decided
+- Context: Review round 1 found PII and instruction-like text handled in several places, and asked where a policy may act on uploaded content.
+- Decision: No guard policy is applied when a file is ingested: chunks, headings, sheet titles and file names are stored as extracted. Every guard policy runs at runtime, per principal (POST_TOOL on what a backend returns, OUTPUT and DATA on what leaves), so role exceptions (ADR-0107) keep working for their holders. Neutralizing delimiter tokens is not a policy: it applies to everyone, also at runtime, wherever untrusted text reaches a prompt.
+- Consequences: A document backend applies no policy (the contract suite asserts it, ADR-0159). Redacting a national ID in a section heading happens on the way out, for the user who asks, and not for a holder of an exception.
+
+### ADR-0159: The docs capability talks to one DocumentBackend; the phase 04 pipeline is InternalDocumentBackend
+- Date: 2026-10-12
+- Phase: 04 (owner decision C6; supersedes ADR-0153)
+- Status: decided
+- Context: The owner plans a RAG/OCR service of their own. The docs capability reached the vector store and the retriever through a module-global binding (ADR-0153), and its tool took the owner from its arguments.
+- Decision:
+  - `app/rag/backend.py` defines `DocumentBackend`: `register(stored file)`, `status(document id, scope)` (pending, indexed, failed with a reason), `search(query, scope, k)` (sources: chunk reference, text, page, section, file name, score) and `fetch(chunk references, scope)` (texts). `DocumentScope` names the tenant, the user and the conversation; every backend enforces it and returns nothing outside it, whatever reference a call names. A backend applies no policy (ADR-0158).
+  - `InternalDocumentBackend` (`app/rag/internal.py`) is this phase's pipeline: registering enqueues the ingestion job, status is the attachment record's, search is the hybrid retrieval of ADR-0133 over the conversation's indexed files, fetch reads chunk texts from the VectorStore. `config/docs.yaml` `backend: internal` selects it; a future MCP backend implements the same protocol and is named there. Not built now.
+  - The capability imports no VectorStore, extractor, chunker or retriever. Its tool receives a `ToolContext` from the broker: the scope (built from the verified principal and the conversation in state, never from arguments, ADR-0160) and the backend the capability's `RuntimeContext` carries. `app/rag/runtime.py` and its binding are removed.
+  - The core reads an attachment's status through the backend: the attachment record says what was uploaded, the backend how far indexing went (the turn's attachments, the status endpoint).
+  - A contract suite (`tests/integration/test_document_backend_contract.py`) runs against the internal backend and a test-only in-memory fake (`tests/fixtures/fake_backend.py`): scope isolation across users, tenants and conversations, page and section metadata, status transitions, and untrusted text returned unchanged as data. The docs capability's turn tests run on both backends with no change to capability code.
+- Consequences: Whatever a backend returns passes the same runtime POST_TOOL, OUTPUT and DATA path. A backend's own spans (the internal one's `rag.retrieve`) are its own; the capability's span and the broker's are the same for every backend.
+
+### ADR-0160: A tool's scope comes from the principal; a capability calls only the tools its manifest declares
+- Date: 2026-10-12
+- Phase: 04 (owner decision S1; supersedes the owner-from-arguments part of ADR-0153)
+- Status: decided
+- Context: `docs_search` took `tenant_id`, `user_id` and `collection` from its arguments, which the capability filled from its principal; the broker never checked them, and any capability could call any registered tool.
+- Decision:
+  - `docs_search` takes the query (and `k`) only; its schema forbids any other field, so a call naming another owner or a collection fails validation before anything runs. The broker builds a `ToolScope` from the verified principal and the turn's conversation id in state and passes it to the handler in its `ToolContext`; the backend enforces it (ADR-0159).
+  - The manifest gains `tools`: the tools a capability may call. At startup every declared tool must be registered by some capability. The broker refuses a call to a tool the caller's manifest does not declare, registered or not: nothing runs and nothing streams, the call returns `denied` / `undeclared_tool`, and an audit-only guard record (PRE_TOOL, `block`, reason `undeclared_tool`, naming the caller and the tool) reaches the turn's audit delta. Calls through the broker name their caller.
+- Consequences: Adding a tool to a capability is a manifest line as well as a `tools.py` entry. A capability that wants another capability's tool must declare it, which a reviewer sees.
+
+### ADR-0161: The manifest's context.needs drives the answer package; config/context.yaml supplies defaults only
+- Date: 2026-10-12
+- Phase: 04 (owner decision C2)
+- Status: decided
+- Context: README §18.4 says Context Assembly builds a capability's package from `context.needs`, but the answer package of every turn used `nodes.answer.needs` of config/context.yaml whatever ran, so a general turn in a conversation with files had the same blocks as a docs turn, and `needs: []` meant nothing for the answer.
+- Decision: The answer package's optional blocks are the union of the turn's capabilities' `context.needs`, in pipeline order; the system instructions and the user message are always there. A manifest that leaves `needs` out takes `nodes.answer.needs`; `needs: []` yields no optional block. `general` declares `[state_digest, summary, window, memory]`, `docs` adds its evidence. A capability's own model calls use its `needs` as before (none when it leaves them out).
+- Consequences: A capability that wants history in the answer says so in its manifest. A general turn in a conversation with indexed files carries no evidence block (tested), and adding an evidence-producing capability adds its blocks only to its own turns.
+
+### ADR-0162: Chunk text never enters AgentState; the answer step fetches it through the DocumentBackend
+- Date: 2026-10-12
+- Phase: 04 (owner decision S4, the state part)
+- Status: decided
+- Context: The docs capability's findings held every retrieved chunk inside its evidence, and each Source carried its chunk as `excerpt`; both were checkpointed with the turn, so document text lived in every checkpoint of the conversation.
+- Decision:
+  - A capability returns source references: `Source` loses `excerpt` and gains `ref` (the chunk's DocumentBackend reference) and `score`. `docs_search` returns references with file name, page, section and score, and no text; the docs findings are notes only (passages may not answer; pending and failed files; a failed search).
+  - The answer step, when its blocks include `retrieval` (ADR-0161), fetches the referenced chunks through `DocumentBackend.fetch`, scoped to the verified principal and the conversation, and checks the texts at POST_TOOL (sanitize_untrusted first, then the policies) under the scope of the capability that found them, as any tool output. Context Assembly renders each chunk in its own `context.retrieval` block (2.0.0: the file and page or section in the delimiter only, escaped) and compresses a chunk's text, never its delimiters. A POST_TOOL block withholds that capability's evidence.
+  - The texts stay on the turn context for page attribution (ADR-0163) and are gone when the turn ends.
+- Consequences: A checkpoint holds the answer and the references, not the passages (tested). The evidence of an answer is fetched once per answer call (twice on a rewrite). The evidence budget is Context Assembly's `blocks.retrieval`; `retrieval.evidence_max_tokens` leaves config/docs.yaml.
+
+### ADR-0163: Capabilities may supply citations; page attribution is a separate generic step before validate, without the question's words
+- Date: 2026-10-12
+- Phase: 04 (owner decision C1; supersedes ADR-0140 on where attribution runs and what validate checks)
+- Status: decided — Superseded by ADR-0182 on 2026-10-12 (the attribution rule only; the separate step, validate and the prompts stand)
+- Context: validate computed the citations itself, so its "citations ⊆ sources" check could never fail; attribution read docs-named configuration; "not found" answers restating the question cited a page (the known gap of the first run); answers carried "[docs]" labels copied from the findings block, and `answer.system` asked every answer to name its sources.
+- Decision:
+  - `CapabilityOutput` gains `citations`. A new node `attribute_citations`, after `answer` and before `validate`, keeps the capabilities' citations and adds page attribution's, capability-agnostically, from sources with a document and page or section metadata, comparing the answer with the chunk texts the answer step fetched. `validate` checks every citation against this turn's sources and fails with `citation_not_in_sources` otherwise (tested); attribution never bypasses it.
+  - Attribution drops the question's words from the answer before taking its n-grams (owner decision). The rule moves to the generic `config/citations.yaml` (`attribution: ngram 2, min_shared_ngrams 3, relative_to_best 0.5`, values unchanged from ADR-0156).
+  - `context.findings` 1.1.0 no longer labels each finding with its capability, and says not to copy tags or bracketed file names; `answer.system` (ar 1.4.0, en 1.2.0) no longer asks the answer to name its sources and forbids bracketed tags and file names. Unit tests reject a label in either prompt.
+- Consequences: An abstention that only restates the question shows no source. An answer quoting a heading or a phrase the question did not contain still cites its page. Answers no longer name their sources in text; the source line under the answer does.
+
+### ADR-0164: The core holds no docs-named configuration or type; a capability reads its package and its configuration through its runtime context
+- Date: 2026-10-12
+- Phase: 04 (owner decision C3)
+- Status: decided
+- Context: `Services` held `docs_config` and the retriever; `validate` read `docs_config.citations`; the docs capability loaded config/docs.yaml through the core's settings; every capability got a context package assembled whether it read it or not.
+- Decision:
+  - `Services` holds the generic `DocumentBackend` and `citations` (config/citations.yaml, ADR-0163); `docs_config` and the retriever are gone. `app/rag/setup.py` builds the backend `config/docs.yaml` names (and, for the internal backend, its pipeline and worker); the core calls it. The attachment service takes a generic `UploadLimits` (the `limits` of config/docs.yaml, the file the gateway reads too).
+  - `RuntimeContext` gains `context()` and `config`. `context()` assembles the capability's package per its `context.needs` on the first call only and returns a fresh detached copy on each; `CapabilityInput.context` is removed, so no package is assembled, resolved or recorded for a capability that never reads it (tested). `config` is a copy of `config/<slug>.yaml` when that file exists; the docs capability reads its `retrieval.top_k` there and passes it to its tool.
+- Consequences: A turn of `general` or `docs` assembles and records one package fewer. A capability that needs its package awaits `rt.context()`; README §18.3's `CapabilityInput.context` is amended by this entry.
+
+### ADR-0165: Untrusted content stays data: user role, decode before strip, escaped attributes, every readable field checked
+- Date: 2026-10-12
+- Phase: 04 (owner decision S2)
+- Status: decided
+- Context: Review round 1 found two ways out of the untrusted block: a section heading reached the evidence's `source` attribute unsanitized, and `sanitize_untrusted` decoded entities after stripping tags, so `&lt;/untrusted&gt;` became a live closing tag; the evidence then sat in the system role. File names reached prompts unescaped, and a citation's section reached the client without OUTPUT or DATA.
+- Decision:
+  - The `findings`, `retrieval` and `tool_results` blocks are in the user role and merge with the question into the current user message (ADR-0076, ADR-0068); no untrusted text reaches the system message.
+  - `sanitize_untrusted` decodes first (HTML entities until stable, at most three rounds; full-width bracket look-alikes folded), then strips scripts, comments and tags, then neutralizes any angle bracket left (`‹ ›`), so no delimiter can be formed. It runs on a tool's content and on every readable source field (`title`, `locator`: file names, section headings, sheet titles). Neutralization is not a policy and applies to everyone (ADR-0158).
+  - Delimiter attribute values are escaped in every evidence template (`context.retrieval` 2.0.0, `context.tool_result` 1.1.0, `docs.evidence` 2.0.0, `router.request` 1.1.0); the names of pending and failed files render inside a delimited block.
+  - POST_TOOL, INPUT and the citation checks evaluate several texts as one: the texts are joined with marker lines whose tag is derived from the texts (no digits, so no PII pattern matches it; a document cannot forge it), checked once, and split back; a field whose marker did not survive comes back empty. POST_TOOL checks a tool's content with its sources' titles and locators; INPUT checks the message with the names of the files sent with the turn, and the checked names replace the names in state, so the router and the answer see only checked names. Attachments are therefore loaded before INPUT.
+  - Citation titles and locators pass OUTPUT and DATA per principal, like the answer, after its own checks; citations leave from `release_answer`, with their checked values, in both answer modes. A block on a citation text ends the turn as the answer's would; a rewrite cannot apply to a file name or a heading, so it withholds the citations.
+  - Compression never touches a delimiter line: retrieval chunks are compressed inside their block and re-rendered, and findings are compressed between delimiter lines (`extractive_delimited`).
+- Consequences: Tests: an `.md` heading `x"></untrusted> …`, an entity-encoded and a full-width closing tag, a file name with `< > "` (indexed and pending), an INPUT redaction and block on a file name, a national ID in a DOCX heading redacted in the citation for a user and shown to the holder of a role exception, and two capabilities' findings compressed with both blocks whole, on both document backends. A turn with citations runs OUTPUT and DATA once more each, on a few short texts.
+
+### ADR-0166: The product deletes no uploaded file; operations can delete cleanly
+- Date: 2026-10-12
+- Phase: 04 (owner decision S4, supersedes D1 / ADR-0125, and the delete and expiry parts of ADR-0151 and ADR-0155)
+- Status: decided
+- Context: Review round 1 found the user delete and the daily purge incomplete (chunk text stayed in checkpoints and context packages; an object a storage outage left was orphaned; the purge handled 500 records a day). The owner decided against deletion in the product.
+- Decision:
+  - No deletion in the product: the user delete endpoint (agent and gateway), the web's delete on removing a chip, `expires_at` and the touch on each turn, the daily purge job and `retention_days` / `purge` in config/docs.yaml are removed. Files stay for as long as the platform keeps them. The composer may drop only a refused or unreadable file, from the composer.
+  - So that operations can delete cleanly: migration 0010 gives `agent.rag_chunks.attachment_id` a foreign key to `agent.attachments` with ON DELETE CASCADE (orphan chunks are deleted first), and `agent.context_packages` gains `attachment_ids`, the attachments whose chunks a package's retrieval blocks hold. Chunk text never enters AgentState (ADR-0162), so a checkpoint holds no passage. PROGRESS lists the manual steps.
+  - An orphan sweeper removes objects of the uploads bucket that no attachment record names, once older than `orphan_sweeper.min_age_minutes` (60), every `interval_minutes` (30): uploads whose registration failed. It never touches an object a record names.
+- Consequences: Storage grows with use; deleting a user's file is a request to operations. Phase 05's KB documents will need their own record for their chunks, since the key names the attachments table. Tests: the cascade, a chunk refused without its record, packages naming their attachments, the sweeper's age and record rules, and no delete at the agent (405) or the gateway (405).
+
+### ADR-0167: Agent and gateway API versions move to 2.0.0
+- Date: 2026-10-12
+- Phase: 04 (owner decision C4; supersedes ADR-0142)
+- Status: decided
+- Context: Phase 04 replaced the turn request's `attachments` (objects) with `attachment_ids` (strings) in both APIs, and removed the attachment delete and `expires_at` (ADR-0166): a client of 1.3.0 breaks, so a minor version was wrong. The gateway document also gave the items of `attachment_ids` and `selected_kbs` a string default `"[]"`.
+- Decision: Agent and gateway OpenAPI move to 2.0.0. The array default moves to the array (`@ArraySchema(arraySchema = @Schema(defaultValue = "[]"))`), so no item carries a default; `selected_kbs` had the same defect since phase 01 and is fixed with it. Changes until this PR merges stay within 2.0.0 (ADR-0046).
+- Consequences: The drift tests pin both documents at 2.0.0; the web's generated types are regenerated.
+
+### ADR-0168: File names reach the router only after INPUT, on every turn
+- Date: 2026-10-12
+- Phase: 04 (owner decision C5, with ADR-0149 accepted by the owner)
+- Status: decided
+- Context: The owner accepted ADR-0149 (the router reads the conversation's file names as user-role data) on the condition that the names reach the router only after the INPUT check. INPUT checks the files sent with a turn (ADR-0165), but an earlier file's name is read again from its record on every later turn, and a redaction INPUT made on its own turn is not stored.
+- Decision: INPUT checks the message with the names of all the conversation's files, those sent with this turn and the earlier ones, since every one of them can reach a prompt this turn (the router reads the indexed files' names, the answer the pending and failed ones). The checked names replace the names in state before the router or a capability runs. `router.request` 1.1.0 escapes them (ADR-0165).
+- Consequences: A policy added after a file was uploaded applies to its name from the next turn on (tested). A name an INPUT policy blocks blocks every later turn of that conversation, as it would block the turn that sent it.
+
+### ADR-0169: The router's cache key names the user and the router alias
+- Date: 2026-10-12
+- Phase: 04 (owner decision S8; amends ADR-0139 and ADR-0149 on the cache key)
+- Status: decided
+- Context: The router decision was cached per tenant by the prompts, locale, candidates, file names, message and window. Two users of a tenant with the same file names and message shared a decision, and a change of the router's model or a tier ceiling reused answers the old model gave.
+- Decision: The key adds the user id and the LiteLLM alias the `router` role resolves to for the principal (ceilings included), the judge cache's precedent (ADR-0110).
+- Consequences: The cache hit rate falls to one user's repeated questions. A model change takes effect on the next turn (tested: another tenant, another user and another alias each miss the cache).
+
+### ADR-0170: Ragas' usage tracking is off; the eval harness calls nothing outside the platform
+- Date: 2026-10-12
+- Phase: 04 (owner decision S3)
+- Status: decided
+- Context: Ragas 0.2.15 posts usage events to https://t.explodinggradients.com unless `RAGAS_DO_NOT_TRACK` is `true`, and it caches the value the first time it reads it. The harness never set it, so every `make eval` reached an outside service (CLAUDE.md: no external SaaS).
+- Decision: `evals/run_evals.py` sets `RAGAS_DO_NOT_TRACK=true` at import, before anything imports Ragas (it is imported lazily, in the judge), and the Makefile's `eval` target sets it too. A test target, `make test-evals` (part of `make test`), proves it: the variable is set before Ragas is imported, a tracked event sends nothing, and the judge's model and embeddings point at the stack's LiteLLM only. The harness's other calls are the stack's own gateway, Keycloak and Langfuse.
+- Consequences: Rule 11 reports a fifth test layer, `evals` (the harness's tests).
+
+### ADR-0171: A judge call at POST_TOOL is content-free; extraction errors carry their type and reason code only
+- Date: 2026-10-12
+- Phase: 04 (owner decision S5)
+- Status: decided
+- Context: An llm_judge policy at POST_TOOL sent document chunks and their metadata to the judge, and the call's messages and output went to Langfuse with a recorded context package. The ingestion worker logged an unexpected failure with `log.exception`, and its span recorded the exception event: both carry the library's message, which can quote the document.
+- Decision: `CheckContext` names the checkpoint; a judge call at POST_TOOL is content-free like one on a memory candidate or a summary (ADR-0110): no messages or output in its trace, hashes only, no recorded package. The `rag.ingest` span records no exception event; it carries `ingest.error_type` (the type's name) and `ingest.reason` (the code); the worker logs the type and `ingest_error`, never the message.
+- Consequences: Debugging a parser failure uses the type, the code and the owner's own file, not the log.
+
+### ADR-0172: LiteLLM and its test double listen on the loopback interface only; the test embedding service sits on a network of its own
+- Date: 2026-10-12
+- Phase: 04 (owner decision S6; supersedes ADR-0150's "the development overlay keeps its own mapping")
+- Status: decided
+- Context: The development overlay published the real LiteLLM on `0.0.0.0:4000` (`!override`), so anyone who could reach the host could use the model keys with the master key; `litellm-mock` was published on `0.0.0.0:4001`; `embed-mock` shared the default network with every service.
+- Decision: The development overlay no longer maps LiteLLM: it keeps the base file's `127.0.0.1:${LITELLM_PORT}`. `litellm-mock` publishes `127.0.0.1:4001`. `embed-mock` joins only `test`, an internal network it shares with `litellm-mock`, its one client. A smoke check fails when LiteLLM or its double is published on any other address.
+- Consequences: A tool on another machine cannot reach LiteLLM through the development stack; local pytest runs still reach the mock on 127.0.0.1:4001.
+
+### ADR-0173: Arabic PDF lines: pypdf's logical order is trusted; runs are reordered only on presentation forms
+- Date: 2026-10-12
+- Phase: 04 (owner decisions A1 and A2; supersedes the visual-order part of ADR-0135)
+- Status: decided
+- Context: Review round 1 found every eval PDF line with digits or Latin scrambled («2031 الإصدار الثالث لعام», the ID after its label's colon), because pypdf already returns each right-to-left run's letters in logical order and `app/rag/bidi.py` reversed lines again on word heuristics, one of which («ends in لا») also reversed «قليلا جدا». The tests built their visual input as the inverse of the code under test.
+- Decision:
+  - pypdf's letter order is trusted. The one strong signal acted on is presentation forms together with a digit or Latin run in the same line: the producer shaped and laid the line out itself, and pypdf left its runs in visual order. The line's pieces (each left-to-right run, and the text between two of them, which pypdf turned already) are then put back in logical order, no piece's own text touched. The «لا» and reversed-particle heuristics are removed; no line is reversed on a guess from its words.
+  - Every line then gets its Arabic/digit and Arabic/Latin boundaries spaced (LibreOffice-style PDFs come back «عام2027  إلى»), spaces collapsed, no space before a mark that ends a clause, and a stranded leading colon put back between the label and its value (any other leading mark at the line's end); NFKC folds presentation forms.
+  - Fixtures (`services/agent/tests/fixtures/pdf/`, built by `make_fixtures.py`): a PDF LibreOffice exported from an Arabic DOCX (digits, Latin, a table, a label before a national ID and an IBAN, «قليلا جدا», «فعلا قليلا مثلا») and a visual-order PDF laid out by python-bidi (an implementation of the bidirectional algorithm this repository does not contain; a dev dependency). The test helper `visual_line` uses python-bidi too, so generated PDFs are laid out as real producers lay them out. Tests compare whole lines in order. DOCX, XLSX, TXT and MD each get a presentation-form test.
+- Consequences: Every line of the eval PDFs (leave-regulation, cv-fake-pii, twenty-pages) comes back exactly as written; the regenerated eval PDFs are byte-identical, since the old helper agreed with python-bidi on their lines. A PDF that draws presentation forms in logical order would be misread; none is known among the producers tested.
+
+### ADR-0174: No chunk passes its budget; an XLSX header is the first row followed by a row of its width
+- Date: 2026-10-12
+- Phase: 04 (owner decision A3; supersedes the chunking and header details of ADR-0135)
+- Status: decided
+- Context: After a cut, the chunker carried the overlap into the next chunk and added the next unit without checking the budget (a 207-token chunk at 200); a header longer than the budget left one token for rows; an XLSX title row above the table became the header repeated in every chunk.
+- Decision: After a cut, the carried overlap gives way, oldest unit first, until the next unit fits. A repeated header is truncated to half the budget. An XLSX sheet's header is its first row (two cells or more) followed by a row of the same width; rows above it stay in the sheet's text; a sheet without such a pair takes its first row. Unit tests cover the overlap, the header, title rows, reciprocal rank fusion and the full-text stopwords on Arabic questions.
+- Consequences: Overlap is shorter where a long unit follows a cut. A one-column table is read without a header.
+
+### ADR-0175: A rerank switch; a malformed rerank answer is a span error and the fusion order stands
+- Date: 2026-10-12
+- Phase: 04 (owner decision R2)
+- Status: decided
+- Context: A rerank answer without results, or with a missing index, was read as zeros for the missing documents, which then ranked last on a score they never had; there was no way to run retrieval without the reranker.
+- Decision: `config/docs.yaml` `retrieval.rerank` holds `enabled`, `candidates` and `max_chars` (how much of each candidate the reranker reads, in characters; null for the whole chunk). Switched off, the top `top_k` are taken in fusion order. A rerank answer that does not score every document exactly once with a finite number raises `RerankMalformed`; `rag.retrieve` then carries an error status and `rag.rerank.error`, and the fusion order stands. An unreachable reranker is still a failed search (ADR-0152). Unit tests cover each malformed shape, the switch, the fallback and the character bound.
+- Consequences: Q1 measures `enabled` and `candidates`/`max_chars` against the rag thresholds (ADR-0157 is superseded there). Rerank cannot zero a chunk silently.
+
+### ADR-0176: Hostile files: ingestion in its own service, each file parsed in a limited child process, archives and XML checked first
+- Date: 2026-10-12
+- Phase: 04 (owner decision R4, "no gaps"; supersedes ADR-0130's "worker tasks in the agent process")
+- Status: decided
+- Context: Parsing ran in the agent's process, on its event loop's threads, with no bound on archive inflation, XML entities, PDF streams, extracted text or chunks: one file could take a chat turn's CPU and memory, or the process.
+- Decision:
+  - Ingestion moves out of the agent into `ingest`, a container of the agent's image (`python -m app.rag.ingest.service`) with `mem_limit: 2g`: it takes jobs from the Redis queue the agent fills, re-queues pending attachments at start, runs the orphan sweeper (ADR-0166) and answers a health port. The agent never parses a file.
+  - Each file is extracted and chunked in a child process (spawn) with `RLIMIT_CPU`, `RLIMIT_AS` and a wall-clock timeout (`ingest.sandbox`: 60 s, 1024 MB, 120 s). A child stopped by a limit, or one that dies, ends the file `failed` with `extraction_aborted`; the service goes on. The child sends data only: chunks, a page count, a reason code, or a defect's type name. Chunking runs there, off any event loop.
+  - Before a DOCX or XLSX is parsed, its archive is checked (`archive`: 1000 entries, 100 MB uncompressed, ratio 200 for entries over 1 MB, inflated sizes counted as streamed); a nested archive is refused (`archive_unsafe`), and an XML part declaring a DTD or an entity is refused (`xml_unsafe`). Behind it: `defusedxml` is installed and openpyxl must report it in use at import (the extractor fails otherwise); python-docx parses with entity resolution, DTD loading and network access off.
+  - PDF: the page limit as before; every pypdf decompression bound set to `extraction.max_pdf_stream_bytes` (50 MB) and each page's content decoded before its text is taken (pypdf's `extract_text` swallows the limit), `stream_too_large`; more than `extraction.max_chars` (1 000 000) of text, `text_too_long`, as soon as the page that passes it is read. Every kind: the same text cap and `chunking.max_chunks` (2000), `too_many_chunks`. An object over the upload limit is `file_too_large`.
+  - Seven new reason codes, each with an Arabic and an English message in the web.
+- Consequences: Tests: a zip bomb, an entity-expansion DOCX, an XXE DOCX, an 80 MB-stream PDF and a 50 000-row XLSX each end failed with their reason while a chat turn completes; a child out of time or memory ends as `extraction_aborted`; the parser walls are tested directly. Spawning a child costs about half a second per file. A DOCX with an embedded spreadsheet is refused as a nested archive.
+
+### ADR-0177: One source for upload limits; cap:docs, size and rate checked before the body; the JSON 413, never a reset
+- Date: 2026-10-12
+- Phase: 04 (owner decision R3; supersedes ADR-0151's "list, status and download need ownership only" and its 21 MB multipart cap)
+- Status: decided
+- Context: The gateway's multipart caps were written in application.yml (21 MB / 22 MB) beside config/docs.yaml; only an upload checked `cap:docs`, after its body was stored to a temporary file; a body far over the cap made Tomcat drop the connection before the client read the 413; there was no rate limit.
+- Decision:
+  - config/docs.yaml is the one source: the gateway derives its multipart caps from `limits.max_file_bytes` (one file a little over it still reaches the controller, which refuses it with an audit record; a request over `max_file_bytes` + 2 MB cannot be parsed), and gains `limits.uploads_per_minute` (20).
+  - `AttachmentGate`, in the security chain after authentication and before any body is read: upload, list, status and download need `cap:docs` (403 `forbidden`); an upload whose declared length passes the request cap is 413 `file_too_large`; an upload past the caller's per-minute allowance (a sliding minute per tenant and user, in the gateway's memory) is 429 `upload_rate_limited`, a new error code with its Arabic and English messages in every catalog. Each refusal is audited fail-closed.
+  - `server.tomcat.max-swallow-size: -1`: the rest of a refused body is read and discarded, so the client gets the JSON 413; a chunked body over the cap gets it from the multipart handler. A test sends 40 MB over a real connection both ways.
+  - The ingestion of an object over the limit fails as `file_too_large` (ADR-0176).
+- Consequences: A user without `cap:docs` no longer reads the list of their own earlier uploads. Reading and discarding an oversize body costs the gateway that bandwidth; the per-user allowance and authentication bound who can make it read one. Several gateway processes would each keep their own allowance.
+
+### ADR-0178: One MinIO user per service; the root credentials stay in minio-init
+- Date: 2026-10-12
+- Phase: 04 (owner decision S7; supersedes ADR-0151's "MinIO is reached with the root credentials" and ADR-0022's for Langfuse)
+- Status: decided
+- Context: The agent, the gateway and Langfuse all used MinIO's root credentials.
+- Decision: `minio-init`, the only holder of the root credentials besides MinIO itself, makes the buckets, four policies and four users from `.env`: `gateway-uploads` (put, get and delete in `uploads`: it stores, downloads and discards an unregistered upload), `ingest-uploads` (get in `uploads`), `sweeper-uploads` (list `uploads`, delete in it; it never reads a document), `langfuse-events` (its own `langfuse` bucket). Each policy also allows the bucket's location, which the clients ask first. The agent gets no MinIO credentials: since ingestion moved to the ingest service (ADR-0176) it reads no upload. A test proves each user can do its part and nothing else, and a smoke check fails when any container but MinIO holds the root password. `scripts/init_env.sh` generates the new secrets; an existing `.env` needs the eight `MINIO_*_ACCESS_KEY` / `_SECRET_KEY` lines of `.env.example` (generated into the development `.env` in this session).
+- Consequences: The owner decision said "agent and ingest: read uploads"; the agent's read access is left out because it has no use for it. A leaked gateway key can write uploads but not list them; a leaked sweeper key cannot read one.
+
+### ADR-0179: `make up` never depends on `make models`; the reranker's weights are pinned and kept in an external volume
+- Date: 2026-10-12
+- Phase: 04 (owner decision R1; amends ADR-0134)
+- Status: decided
+- Context: LiteLLM waited for the `rerank` service to be healthy, which it never was without weights, so `make up` failed until `make models` had run, while README §21.2 said to skip `make models` for a remote endpoint. The download took the repository's latest revision; `make clean` deleted the 2.3 GB volume; the reranker's model and endpoint were written in infra/litellm/config.yaml.
+- Decision:
+  - LiteLLM no longer depends on `rerank`. Without weights, `rerank` idles, logs what to run (`make models`, or `retrieval.rerank.enabled: false`) and reports healthy; a docs search then fails visibly until the weights exist (ADR-0175). `scripts/preflight.sh` creates the volume and warns when the weights are missing or not the pinned revision.
+  - `make models` downloads `BAAI/bge-reranker-v2-m3` at revision `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` (the one measured in phase 04) and checks it arrived; it skips the reranker when `RERANK_API_BASE` is not the stack's `rerank` service.
+  - `rerank-models` is an external volume: `make clean` keeps it.
+  - `RERANK_MODEL` and `RERANK_API_BASE` come from `.env`, like `EMBED_MODEL` and `EMBED_API_BASE` (defaults `infinity/bge-reranker-v2-m3`, `http://rerank:7997`).
+  - README §21.2 and PROGRESS give the order: `make models`, then `make up`.
+- Consequences: A new revision of the reranker is an explicit change of the pin, measured like a model change. Removing the weights is `docker volume rm rerank-models`.
+
+### ADR-0180: The weak tests the review named are replaced
+- Date: 2026-10-12
+- Phase: 04 (owner decision Q3)
+- Status: decided
+- Context: Review round 1 named tests that could not fail or did not test what they claimed.
+- Decision:
+  - `test_rag_extract.py`: the presentation-form test asserted an inequality that held for any output; the PDF test checked `"2031" in text`. Both now compare whole strings and whole lines (with the fixtures of ADR-0173).
+  - `test_capability_runtime_isolation.py`: besides the test-only capabilities, the real `docs` and `general` run in one turn (the router chooses both), with `docs` wrapped to write `general`'s namespace through its output and through its RuntimeContext copy; `general`'s slice stays untouched and the write stays inside `docs`' own slice.
+  - `AttachmentProxyTest`: beyond the agent's mocked 404, the gateway asks the agent as the caller whatever identity headers the caller sends, at the caller's own conversation path; a refused download never reads storage although the object exists; list and status never carry the object key.
+  - `test_retention.py`: the comment that said the mock embeds every text alike (untrue since ADR-0143) is corrected.
+  - The tests of the removed retention paths (delete, expiry, touch, purge) are gone with them (ADR-0166).
+- Consequences: None beyond the tests.
+
+### ADR-0181: Abstention needs a whole phrase and no source line; numbers match whole; the Ragas reference names no source
+- Date: 2026-10-12
+- Phase: 04 (owner decision Q2; supersedes those parts of ADR-0154)
+- Status: decided
+- Context: Abstention scored 1.00 while two or three of its six cases showed a source line in every run, because the scorer matched phrases anywhere and scored the source line elsewhere; `contains_any` let "40" match 140 or 2040; f5fc687 widened three labels.
+- Decision:
+  - An abstention counts only when the answer says so in a whole phrase (word boundaries, after `fold()`) and shows no source line.
+  - `contains_any` matches a number only as a whole number. Writing this test found `fold()` deleting Arabic-Indic digits: its tashkeel range U+064B–U+0670 covered U+0660–U+0669. The range now stops at U+065F (plus U+0670), so «٤٠» folds to "40" as intended.
+  - The labels of f5fc687 are kept, each justified: «أربعين» and «اربعين» are the accusative and genitive of «أربعون», the same number (policy-training); «لا توجد اي معلومات» is the listed «لا توجد معلومات» with «أي»; «لا يمكن تحديد» says the document does not settle the question, an abstention.
+  - An answer carrying a capability label (`[docs]`) or a bracketed file name fails its case (owner decision C1).
+  - Answers no longer name their sources (ADR-0163), so the Ragas reference is the case's reference answer alone, without the source label ADR-0154 appended; contexts keep the label the answer model saw in its delimiter.
+  - `make test-evals` covers each rule.
+- Consequences: Abstention now fails on a source line, so the C1 fix (question words dropped before attribution) is what keeps it above its threshold.
+
+### ADR-0182: Attribution in two steps: the question's words decide whether a chunk may be cited, rarity decides which
+- Date: 2026-10-12
+- Phase: 04 (owner decision C1; supersedes the attribution rule of ADR-0156 and ADR-0163)
+- Status: decided — Superseded by ADR-0183 on 2026-10-12 (the scoring and the coverage measured on live turns)
+- Context: The first Q1 run (make-eval-20261012T105801Z, rerank 16/1070) scored citation page accuracy 0.69, below its 0.85 threshold. Dropping the question's words before forming n-grams (ADR-0163) left a short answer with too few bigrams to reach three ("مدة الإجازة المرضية براتب كامل هي ثلاثون يوماً" keeps only "ثلاثون يوما" once the question's words go), so it cited nothing. Dropping only the n-grams made of question words cited all twenty pages of twenty-pages.pdf, whose lines differ only in the department and article numbers the question itself gives. An abstention naming the document ("لا توجد معلومات في السيرة الذاتية ...") cited the CV's title page.
+- Decision: `config/citations.yaml` `attribution: {ngram: 2, min_shared_ngrams: 1, min_new_word_coverage: 0.25, relative_to_best: 0.6}`, applied in two steps:
+  - Eligible (the owner's rule): the question's words are dropped from the answer first. A chunk may be cited only when it shares at least one answer bigram not made only of question words, and holds at least a quarter of the answer's words that are not in the question. An answer that restates the question, or adds only its own phrasing around the document's name, cites nothing.
+  - Cited: each eligible chunk is scored by all the answer's bigrams it shares, each weighted by one over the number of retrieved chunks that hold it. It is cited at 0.6 of the best score or more. Boilerplate every page repeats counts for little; the bigram naming the page's own article and department counts most. 0.6, not 0.5, so a page that ties at exactly half the best (two pages sharing "ثلاثون يوما براتب كامل") is not cited.
+  - Still deterministic and capability-agnostic, with no model call and no change to the answer.
+- Measured offline, before the rerun, with `attribute` on the eval's six documents (every page a candidate, which is harsher than the retrieved top 8): 56 answers, made of the reference answers with a page expectation and the run's answers as the log prints them (first 70 characters). ADR-0163's rule: 38/56. Dropping question-only n-grams: 42/56. This rule: 55/56. The one miss is a log answer cut before its fact. relative_to_best 0.5–0.8 give the same 55/56.
+- Consequences: The question's words still decide whether a source line shows, so "not found" answers show none. Among the chunks that pass, the question's words help pick the page, which is what tells templated pages apart. `app/capabilities/docs/tests/test_docs.py` covers the templated pages, the short answer and the abstention that names the document.
+
+### ADR-0183: Attribution scores a chunk by its best sentence with rarity weights; coverage is per answer sentence; "not found" is said in one sentence
+- Date: 2026-10-12
+- Phase: 04 (owner decision C1; supersedes ADR-0182's scoring and coverage)
+- Status: decided
+- Context: ADR-0182 was measured offline with whole pages as chunks and answers as the log prints them. The live run on it (make-eval-20261012T113452Z, rerank 16/1070) scored citation page accuracy 0.76 and abstention 0.67. The real twenty-pages.pdf chunks hold about fifteen lines each, two per page, and article numbers repeat on neighbouring pages (page 3 holds articles 31 to 51, page 4 holds 41 to 61). So an answer's numbers matched page 4 too, on other lines, and 1/n weights left the neighbours above 0.6 of the best: "المادة 46 ... رقم 3 ... كل 17" cited pages 2, 3 and 4. A quarter coverage let one loose bigram ("اللائحة على") cite page 1 under "لا توجد معلومات في الملف ... حيث يقتصر محتوى اللائحة على ...". The cv-hospital answer abstained and then described the CV's other experience, which page 2 holds.
+- Decision: `config/citations.yaml` `attribution: {ngram: 2, min_shared_ngrams: 1, min_new_word_coverage: 0.35, relative_to_best: 0.6}`:
+  - Eligibility keeps ADR-0182's owner rule: the question's words are dropped first, and a chunk shares at least one remaining bigram. Coverage is now per answer sentence: the chunk holds at least 0.35 of the non-question words of one sentence of the answer. An answer drawing one fact from each of several chunks still cites each chunk.
+  - Score: a chunk scores by its best sentence (split at line ends and . ! ? ؟). A sentence scores the sum, over the answer bigrams it holds, of log((N + 1) / n), where N is the number of retrieved chunks and n the number holding that bigram. A bigram every retrieved chunk holds weighs almost nothing. The page whose one line holds the department, the article and the weeks together outscores a neighbour that holds them on separate lines.
+  - `docs.evidence` 2.1.0 (ar, en): when the passages do not contain the answer, the model says so in one sentence and does not describe what else the file covers. A "not found" answer then holds nothing a page could be cited for.
+  - Measured with `attribute` on the 65 live turns of today's two runs (answers, retrieved chunks and their texts read from the checkpoints and agent.rag_chunks), against the case expectations:
+    - ADR-0182: 52/65.
+    - Sentence scoring with 1/n weights: 52/65.
+    - Sentence scoring with log weights at coverage 0.25: 61/65.
+    - This rule: 63/65. The two misses are cv-hospital, whose answer drew on page 2 before the prompt change.
+- Consequences: No model call and no change to the answer text. A "not found" answer gets shorter: one sentence. The rule needs the chunk text, which the answer step already fetches (ADR-0162). Tests: the templated pages with overlapping numbers, the short answer adding only the number, the restating abstention, and the leave-housing abstention, which a quarter coverage cites and this rule does not. The answer drawing on three chunks still cites all three.
+
+### ADR-0184: The reranker is off by default; switched on, it scores 16 candidates on their first 1070 characters
+- Date: 2026-10-12
+- Phase: 04 (owner decision Q1; supersedes ADR-0157)
+- Status: decided — Superseded by ADR-0187 on 2026-10-13 (where the setting lives: `.env`, per environment, not config/docs.yaml; the values and the measurement stand)
+- Context: ADR-0157 cut the reranker to 16 candidates on their first 400 tokens to bring `rag.retrieve` from 27 s to 6 s, without measuring what the cut cost. The owner asked for three rag runs for each of three configurations, with twenty-pages.pdf cases whose answers lie past the first 400 tokens of their chunk, and for the fastest configuration that meets every rag threshold. The cases are six `twenty-past-truncation-p*` cases in rag.jsonl, answers on line 16 of pages 3 to 18, past 1070 characters.
+  - The 400-token bound is now a character bound, 1070 (`retrieval.rerank.max_chars`): 400 tokens of the reranker's own tokenizer at the fewest characters per token measured on the eval documents (2.68; median 3.54). A character bound needs no tokenizer in the agent.
+  - The runs use ADR-0183's attribution, the OpenRouter development tiers (ADR-0065) and this host's CPU reranker. Thresholds: hit@8 0.90, citation page accuracy 0.85, faithfulness 0.85, answer correctness 0.80, abstention 0.90.
+- Decision: `config/docs.yaml` `retrieval.rerank: {enabled: false, candidates: 16, max_chars: 1070}`. Retrieval keeps vector top 30 and full-text top 30, fuses them by RRF and takes the top 8 in fusion order. The reranker stays deployed: `enabled: true` brings back 16 candidates on 1070 characters, the faster of the two rerank configurations, which also met every threshold.
+- Measured, three rag runs each (53 cases; Langfuse dataset runs named in PROGRESS):
+
+  | configuration | hit@8 | citation | faithfulness | correctness | abstention | retrieve p50 | retrieve p95 |
+  |---|---|---|---|---|---|---|---|
+  | rerank 30, full text | 1.00, 1.00, 1.00 | 1.00, 1.00, 0.94 | 0.93, 0.96, 0.94 | 0.89, 0.89, 0.90 | 1.00 ×3 | 0.74–0.78 s | 26.0–27.0 s |
+  | rerank 16 / 1070 chars | 1.00, 1.00, 1.00 | 1.00, 1.00, 0.97 | 0.95, 0.96, 0.91 | 0.90, 0.92, 0.91 | 1.00 ×3 | 0.75–0.76 s | 5.6–5.7 s |
+  | rerank off | 1.00, 1.00, 1.00 | 0.91, 0.91, 0.94 | 0.93, 0.97, 0.96 | 0.89, 0.89, 0.89 | 1.00 ×3 | 0.13 s | 0.14–0.15 s |
+
+  - On the six past-truncation cases, 16/1070 gave a wrong number in each run (the neighbouring line's 16 for 17, p15 twice and p9 once). Full text and off gave none.
+  - Off's misses are citations: one-line answers ("كل 17 أسبوعا") that cannot single out a templated page, and one full answer citing its neighbours.
+- Consequences: Retrieval is about 0.6 s faster at p50 and 5 s faster at p95 than ADR-0157, and the reranker's CPU is idle. The measurement is on six small documents, of at most 40 chunks, where hybrid fusion alone puts the answer in the top 8 every time. A collection of many or long files can need the reranker, and a GPU-served reranker would make the full configuration affordable. Both are a configuration change, to be measured by the rag suite on that collection. Full run 2 was repeated: its first attempt stopped after 16 cases on one gateway 502 `storage_unavailable` (a SocketException to MinIO, the only one in the day's logs).
+
+
+### ADR-0185: A refused upload never holds a connection; the upload gate's order is cap:docs, rate, size, concurrency
+- Date: 2026-10-13
+- Phase: 04 (owner decision review round 2, finding 2)
+- Status: decided
+- Context: Review round 2 found two ways one user could stop chat for everyone. The first: `server.tomcat.max-swallow-size: -1` made the gateway drain the whole declared body of a refused upload, so a client declaring `Content-Length: 10^12` and trickling bytes held a connection (and its request-processing thread) open indefinitely; enough of them exhausted Tomcat's connections. The size check also ran before the rate limit, so a flood of oversize uploads was never rate-limited, and there was no cap on concurrent uploads per user.
+- Decision:
+  - `server.tomcat.max-swallow-size` is set to `0` — the gateway reads none of a refused request's body — and `AttachmentGate` sets `Connection: close` on every refusal of the upload path (401, 403, 413, 429) and on an unauthenticated upload, so Tomcat closes the socket as soon as the refusal is written rather than reading a body the gateway already refused. (A positive bound such as 2 MB was tried first; Tomcat still issues a blocking read for up to that many bytes before closing, so a trickled body held the socket until the upload timeout. `0` both never drains and closes at once, which is what the review asked for.) `connection-upload-timeout` (30 s) cuts a stalled body on an *accepted* upload.
+  - The gate's order for an upload is: authentication and `cap:docs`; then the per-user rate limit, which counts every attempt that reaches it, refused or not; then the declared `Content-Length` against the limit; then a per-user concurrent-upload cap (`limits.max_concurrent_uploads`, default 2), 429 `too_many_uploads`. The concurrency slot is held for the whole request — while the body is read — and released when it completes, so one user can tie up at most that many body-reading threads.
+  - A new error code `too_many_uploads` (429) with an Arabic and an English message.
+- Consequences: A refused upload's connection closes at once rather than being held; a user's uploads cannot starve the connection pool. A client that streams a body larger than the limit without honouring `Expect: 100-continue` sees the connection closed mid-send rather than a readable 413 — the anti-starvation trade the review chose; the web composer caps file size client-side (20 MB) and so never sends a body the gateway would refuse by size, and a compliant client (curl, and the browser's preflighted size check) gets the JSON 413. Tests: a client declaring 10^12 bytes and trickling gets the JSON 413 and its socket closed within 5 s; a refused attempt counts toward the rate limit; a third concurrent upload is refused `too_many_uploads`; a chat turn completes while 200 refused upload connections are attempted; smoke's over-limit uploads use `--expect100-timeout` so the 413 is read before any body is sent. The per-user limits are in this gateway's memory (one process in v1, ADR-0109).
+
+### ADR-0186: The gateway parses no document; type is magic bytes and archive header only
+- Date: 2026-10-13
+- Phase: 04 (owner decision review round 2, finding 3)
+- Status: decided
+- Context: The gateway opened every uploaded PDF with Apache PDFBox (to count pages for the limit) and walked DOCX/XLSX ZIP entries, both in its own JVM, which also serves every chat turn, with no memory or time bound. A PDF whose cross-reference stream expands beyond the heap could exhaust the gateway's memory and stop chat for everyone — the same class of risk ADR-0176 moved out of the agent, left in the gateway.
+- Decision:
+  - The gateway parses and decompresses nothing. `UploadInspector` checks the type by magic bytes — `%PDF` for a PDF; the ZIP local-file-header magic plus a `word/` or `xl/` marker found by a bounded raw byte scan (never an inflate) for DOCX/XLSX; no NUL byte for text — mirroring the agent's `detect_kind`. PDFBox and every document-parser dependency are removed from `build.gradle.kts`.
+  - The page limit (D2) and every content bound are enforced only in the ingest service's sandboxed child process (ADR-0176), which already fails an over-limit PDF with `too_many_pages` and its Arabic message. The gateway no longer returns `too_many_pages`, counts no pages, and records no `pages` in the upload audit; `/v1/attachments/limits` still reports `max_pdf_pages` so the composer can warn before an upload.
+- Consequences: An uploaded document is read in exactly one place, the sandbox, so no file can exhaust the gateway. A malformed or bomb PDF is accepted by the gateway (valid magic) and fails in ingest with its reason while chat is unaffected. Tests: a build check that no PDF/POI/Tika/iText class is on the gateway classpath; the page-limit refusal moves from the gateway test to the ingest tests. OpenAPI: the upload 413 description drops `too_many_pages` and a 429 is documented (regenerated; within the unmerged 2.0.0, ADR-0046).
+
+### ADR-0187: The reranker is configured per environment, from .env, not config/docs.yaml
+- Date: 2026-10-13
+- Phase: 04 (owner decision review round 2, finding 3; supersedes the default and the location of ADR-0184)
+- Status: decided
+- Context: ADR-0184 put `retrieval.rerank` (enabled, candidates, max_chars) in config/docs.yaml with `enabled: false`. The reranker's cost is a property of the host (seconds per query on CPU, affordable on a GPU), not of the code, so where it runs should choose it, as the reranker's model and api_base already do (ADR-0179, R1).
+- Decision: `RERANK_ENABLED`, `RERANK_CANDIDATES` and `RERANK_MAX_CHARS` come from the environment (`Settings`, passed to the agent by compose). `build_documents` overrides `DocsConfig.retrieval.rerank` with them, so config/docs.yaml carries no `rerank` block. The development default is off (hybrid fusion alone met every rag threshold, ADR-0184); `.env.example` documents the production setting — on, 16 candidates, 1070 characters, a GPU host. The eval harness reads the same env for its rag summary, so the summary names what actually ran. The measured numbers of ADR-0184 stand (citation accuracy off 0.91–0.94, 16/1070 0.97–1.00).
+- Consequences: Turning the reranker on in production is an `.env` change and a restart, not a code or config-file edit, and development never pays its latency. The values are no longer in a file under review; `.env.example` is the reference. No interface change: `Retrieval.rerank` keeps its shape, now filled from settings.
+
+### ADR-0188: Eval records are written to build/evals and survive make clean
+- Date: 2026-10-13
+- Phase: 04 (owner decision review round 2, finding 4)
+- Status: decided
+- Context: `make eval`'s only durable record was its Langfuse dataset run. `make clean` deletes the Langfuse volumes, and the round-1 session's `make clean` destroyed the nine Q1 dataset runs named in PROGRESS, so their per-case results and case counts can no longer be verified. The printed rag summary's `(n)` was the count of retrieval spans, not cases, which read as a case count.
+- Decision: `run_evals.py` writes each run's per-case results and suite scores to `build/evals/<run id>.json` (gitignored) and prints the path; the file holds, per suite, the pass/fail and problems of every case, the rag or guard metrics, the recorded case count and the rerank configuration. The rag summary now prints "N retrieval spans, M cases recorded" so the two counts are not confused, and PROGRESS's rag tables relabel the `(n)` column to "retrieval spans" and state each run's recorded case count. The per-minute upload limit is read from `.env` (`UPLOADS_PER_MINUTE`, dev value high) so `make eval`, which uploads a document per rag/routing case, never sleeps on a 429.
+- Consequences: A run's results outlive its Langfuse dataset and `make clean`, so a claim in PROGRESS can be checked against `build/evals/<run>.json`. The file is local only (gitignored, like the rest of `build/`); it is not a substitute for Langfuse traces, which still carry the per-case `eval_pass` score.
+
+### ADR-0189: The upload gate matches the path the router routes on; the firewall rejects any path not written plainly
+- Date: 2026-10-14
+- Phase: 04 (owner decision, verification of review round 2)
+- Status: decided
+- Context: The verification of round 2 found that `POST /v1/conversations/{id}/%61ttachments` reached the upload handler without the gate: `AttachmentGate` matched its pattern against the raw `getRequestURI()`, while Spring MVC matches handlers on decoded path segments, and Spring Security's strict firewall does not reject an encoded letter. Reproduced on the running stack: with two uploads holding the caller's slots, encoded uploads were admitted (no `too_many_uploads`), and 20 of them in the minute after the allowance was spent got no `upload_rate_limited`. Every per-user upload bound — cap:docs at the gate, rate, declared size, concurrency — was off on that spelling, so one user could hold any number of trickling uploads (ADR-0054's threat: one user denying chat to others).
+- Decision:
+  - `AttachmentGate` decides which endpoint a request is on from the lookup path Spring MVC routes on: the path within the application, each segment decoded and stripped of matrix parameters (`PathContainer.PathSegment#valueToMatch`), never the raw URI.
+  - A gateway firewall (`PathFirewall`, an `HttpFirewall` bean in front of Spring Security's `StrictHttpFirewall`) rejects with 400 `invalid_request` (JSON envelope, `Connection: close`) any request whose raw path holds `%` (so every percent-encoded and double-encoded sequence, upper- or lower-case hex), `;`, a backslash, `//`, or a `.` or `..` segment. No platform path needs encoding. It applies to every path, not only `/v1/**`, because deciding whether a raw path is under `/v1` could itself be fooled by an encoded spelling; the query string is not checked.
+- Consequences: Both layers would each close the bypass alone. A client that percent-encodes a path character the platform never uses now gets 400 instead of routing. Tests (`UploadPathTest`, raw sockets): `%61ttachments`, `%2561ttachments`, `attachme%6Ets`, `attachme%6ets`, `//attachments`, `/./attachments`, `attachments;x=1`, a trailing slash and the plain path — without cap:docs each is 400 or 403; with cap:docs and the caller's slots held each is 400 or 429 `too_many_uploads`, never the handler; the gate's lookup path decodes `%61` and drops `;x=1`.
+
+### ADR-0190: A gateway-wide cap on uploads in flight and a deadline for receiving an upload's body
+- Date: 2026-10-14
+- Phase: 04 (owner decision, verification of review round 2)
+- Status: decided
+- Context: ADR-0185's per-user cap bounds one user, not all uploads together, and Tomcat's `connection-upload-timeout` is per read, so a body trickled a byte at a time held its slot for as long as it kept trickling. With virtual threads the shared resource is connections (Tomcat's `max-connections`, which the gateway inherited unset).
+- Decision:
+  - `limits.max_concurrent_uploads_total` (config/docs.yaml, 50; 50 when absent) caps uploads in flight across the gateway, checked after the per-user cap; past it, 429 `too_many_uploads` (the same code and message as the per-user cap: "too many uploads at once") with `Connection: close`. In this process's memory, like the per-user cap (ADR-0109).
+  - `limits.upload_deadline_seconds` (120; 120 when absent): an admitted upload's body must arrive within that long of admission at the gate; past it, 408 `upload_timeout` (new code, Arabic and English messages, web i18n, OpenAPI) with `Connection: close`, and its slots are released. Tomcat's own multipart parsing reads its internal stream, which no request wrapper can bound, so the gate's `DeadlineUploadRequest` parses the parts itself with Tomcat's parser and the same limits (the multipart config; 512-byte part headers and 10 parts, Tomcat's defaults) from a stream that refuses every read past the deadline, and removes the parts' temporary files when the request ends. A read already blocked when the deadline passes ends at the latest after `connection-upload-timeout` (30 s), so a body is held at most deadline + 30 s.
+  - `server.tomcat.max-connections: 8192` and `accept-count: 100` are written in application.yml: Tomcat's defaults, made explicit so they are reviewed; uploads can hold at most 50 of the connections.
+  - The agent's `Limits` model accepts the two new keys (gateway only, as `max_concurrent_uploads`).
+- Consequences: All uploads together hold at most 50 connections for at most 150 s each, whatever their number of users. On one gateway, 50 legitimate uploads at once is the most the gateway serves; the 51st waits for a 429 retry. The 408 is not audited, like the multipart 413 (both are written by the exception handler before the controller). Tests (`UploadCeilingTest`, config copied with a cap of 2 and a 4 s deadline): one user holding the whole cap with two trickling uploads, another user's upload is 429 `too_many_uploads` with a close and a third user's chat turn completes while both are still in flight; a trickled upload gets 408 `upload_timeout` with a close between 4 and 8 s and both its slots are free again.
+
+### ADR-0191: The upload rate's default is the strict one: absent from .env, the gateway uses config/docs.yaml
+- Date: 2026-10-14
+- Phase: 04 (owner decision, verification of review round 2; refines ADR-0188's `UPLOADS_PER_MINUTE` fallback)
+- Status: decided
+- Context: Compose passed `GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-60}`, so a deployment whose .env lacked the variable ran at 60 uploads per minute per user, three times the baseline of 20 in config/docs.yaml.
+- Decision: Compose passes `${UPLOADS_PER_MINUTE:-}`: no fallback value, so an absent variable reaches the gateway empty, and an empty or absent `GATEWAY_DOCS_UPLOADS_PER_MINUTE` binds to no value, so the gateway uses config/docs.yaml's `uploads_per_minute` (20). The empty `:-` form rather than a bare `${UPLOADS_PER_MINUTE}` only avoids compose's "variable is not set" warning on every command; the value passed is the same, empty (assumed). `.env.example` sets the development value, 60. `scripts/smoke.sh` expects 20 when .env does not set it. The `GatewayProperties` javadoc names the variable correctly, `GATEWAY_DOCS_UPLOADS_PER_MINUTE`.
+- Consequences: A .env created before ADR-0188 (without the variable) now runs at 20 uploads per minute; `make eval` then waits out a 429 when it uploads faster (it already retries after 61 s), so development .env files should copy `UPLOADS_PER_MINUTE=60` from `.env.example`. `max_concurrent_uploads`, `max_concurrent_uploads_total`, `upload_deadline_seconds` and the size limit have no environment override; their defaults when absent from config/docs.yaml are 2, 50 and 120 s, and a missing `max_file_bytes` or `uploads_per_minute` stops the gateway at start. Test (`UploadRateDefaultTest`, bound from environment variables): unset → 20, empty → 20, `60` → 60, the shipped baseline is 20.

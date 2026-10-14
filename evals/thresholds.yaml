@@ -8,3 +8,12 @@ guardrails:
   llm_judge:
     accuracy: 0.85
     false_positive_rate: 0.10
+# Documents (phase 04, ADR-0141): every metric must reach its value.
+rag:
+  hit_at_8: 0.90               # an expected page or section among the 8 retrieved chunks
+  citation_page_accuracy: 0.85  # cited pages are expected pages; no source line where none belongs (ADR-0140)
+  faithfulness: 0.85           # Ragas, judge alias
+  answer_correctness: 0.80     # Ragas, judge alias and embed
+  abstention: 0.90             # "not in the document" answered as such, without a source
+# Routing between docs and general (ADR-0139).
+routing: 0.90

@@ -1,0 +1,15 @@
+# Citations (owner decision C1, ADR-0140, ADR-0182). Capability-agnostic, after the answer, in
+# two steps. Eligible: the question's own words are dropped from the answer, and a chunk the
+# turn retrieved may be cited only when it shares at least `min_shared_ngrams` of the remaining
+# normalized word n-grams of `ngram` words and holds at least `min_new_word_coverage` of the
+# answer's words that are not in the question, so an answer that restates the question or says
+# "not in the document" cites nothing. Cited: each eligible chunk is scored by the answer's
+# n-grams it shares, each weighted by one over the number of retrieved chunks that hold it, and
+# is cited at `relative_to_best` of the best score or more, so a page that only repeats a
+# phrase other pages share ("ثلاثون يوما براتب كامل") is not cited beside the page that
+# answers.
+attribution:
+  ngram: 2
+  min_shared_ngrams: 1
+  min_new_word_coverage: 0.35
+  relative_to_best: 0.6

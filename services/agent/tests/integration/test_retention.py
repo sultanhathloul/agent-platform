@@ -42,7 +42,9 @@ def _calls(spans, role: str):
 
 
 async def _seed_memory(services, principal) -> str:
-    vector = await services.embeddings.embed(SECRET_PROJECT)  # the mock embeds every text alike
+    # The test embedder hashes a bag of normalized words (ADR-0143): the item shares the project's
+    # words with the turn's message, so memory retrieval finds it.
+    vector = await services.embeddings.embed(SECRET_PROJECT)
     return await services.memory.store.add(
         MemoryScope.of(principal),
         kind="project_context",

@@ -47,7 +47,8 @@ class AgentState(TypedDict, total=False):
     turn_id: str  # addition: debug/context lookups and event envelopes
     locale: str  # addition: selects prompt locale
     user_message: str
-    attachments: list[Attachment]
+    attachments: list[Attachment]  # the conversation's files and their status, read each turn (A1)
+    turn_attachment_ids: list[str]  # addition: files sent with this turn; the `attachments` rule reads it
     selected_kbs: list[str]
     intent: dict  # {capabilities, complexity, risk, decided_by}
     plan: list[str] | None

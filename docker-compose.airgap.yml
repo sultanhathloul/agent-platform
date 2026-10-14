@@ -1,0 +1,74 @@
+# `make smoke-airgap` (phase 04, F2): the stack with egress blocked for every container but
+# `litellm`, which keeps the model endpoints. Every other service joins only `airgap`, an
+# internal network with no route out. Containers on an internal network cannot publish ports,
+# so `edge`, a fixed TCP relay (infra/airgap/nginx.conf), carries the host's ports in; it joins
+# `airgap` and `ingress` and runs no application code (ADR-0147). scripts/airgap_check.sh
+# proves the network layout and the blocked egress before smoke runs.
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.airgap.yml docker compose up -d --wait
+networks:
+  airgap:
+    internal: true
+  egress: {}
+  ingress: {}
+
+services:
+  postgres:
+    networks: !override [airgap]
+  redis:
+    networks: !override [airgap]
+  minio:
+    networks: !override [airgap]
+  minio-init:
+    networks: !override [airgap]
+  presidio-analyzer:
+    networks: !override [airgap]
+  keycloak:
+    networks: !override [airgap]
+    ports: !reset []
+  rerank:
+    networks: !override [airgap]
+  clickhouse:
+    networks: !override [airgap]
+  langfuse-worker:
+    networks: !override [airgap]
+  langfuse-web:
+    networks: !override [airgap]
+    ports: !reset []
+  otel-collector:
+    networks: !override [airgap]
+  agent:
+    networks: !override [airgap]
+  ingest:
+    networks: !override [airgap]
+  gateway:
+    networks: !override [airgap]
+    ports: !reset []
+  web:
+    networks: !override [airgap]
+    ports: !reset []
+  litellm:
+    networks: !override [airgap, egress]
+  edge:
+    image: nginx:1.27.5-alpine
+    networks: [airgap, ingress]
+    volumes:
+      - ./infra/airgap/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${WEB_PORT}:3000"
+      - "${GATEWAY_PORT}:8080"
+      - "${KEYCLOAK_PORT}:8081"
+      - "${LANGFUSE_PORT}:3001"
+    depends_on:
+      web:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      langfuse-web:
+        condition: service_healthy
+    healthcheck:
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8080 && nc -z 127.0.0.1 8081"]

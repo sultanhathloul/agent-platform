@@ -3,7 +3,6 @@ from pathlib import Path
 from app.capabilities.contract import CapabilityInput, CapabilityOutput, RuntimeContext
 from app.capabilities.general.graph import build
 from app.capabilities.registry import load_manifest
-from app.context.package import ContextPackage
 from app.identity import Principal
 
 MANIFEST = Path(__file__).resolve().parents[1] / "manifest.yaml"
@@ -29,10 +28,8 @@ def test_manifest_is_valid(models_config):
 async def test_subgraph_returns_empty_finding_and_keeps_its_state():
     graph = build().compile()  # build() returns a StateGraph; the core compiles it (ADR-0053)
     principal = Principal(user_id="u1", permissions=("cap:general",))
-    package = ContextPackage(node="capability.general", tier="standard", locale="ar", budget_limit=1000)
     cap_input = CapabilityInput(
         message="ما عاصمة المملكة؟",
-        context=package,
         principal=principal,
         cap_state={"seen": 1},
         locale="ar",

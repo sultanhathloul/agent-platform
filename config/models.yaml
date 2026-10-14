@@ -44,3 +44,8 @@ caps:                        # ceilings; also expressible as MODEL_TIER guard po
 
 embedding:
   alias: embed
+
+# Cross-encoder reranking of retrieved chunks (README §9.3, ADR-0134); served by the
+# `rerank` alias in infra/litellm/config.yaml.
+rerank:
+  alias: rerank

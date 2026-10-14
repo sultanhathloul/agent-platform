@@ -245,7 +245,7 @@ async def test_tool_results_are_truncated_and_marked_untrusted(config, prompts):
     block = next(b for b in package.blocks if b.name == "tool_results")
     assert '<untrusted source="web_fetch">' in block.content
     assert block.content.count("س") == 100
-    assert package.prompt_refs[-1] == "context.tool_result@1.0.0"
+    assert package.prompt_refs[-1] == "context.tool_result@1.1.0"
 
 
 async def test_the_reference_form_names_the_capability_without_its_findings(config, prompts):
@@ -259,7 +259,8 @@ async def test_the_reference_form_names_the_capability_without_its_findings(conf
     block = next(
         b for b in (await assembler.assemble(request, _budget(10**6))).blocks if b.name == "findings"
     )
-    assert "[kb]" in block.content and "نص الدليل" not in block.content
+    # Named in a sentence, never as a bracketed label an answer could copy (C1).
+    assert "- kb:" in block.content and "[kb]" not in block.content and "نص الدليل" not in block.content
 
 
 async def test_the_compress_pass_shortens_the_window_and_the_memory(config, prompts):

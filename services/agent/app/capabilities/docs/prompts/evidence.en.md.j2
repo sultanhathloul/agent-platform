@@ -1,0 +1,26 @@
+---
+id: docs.evidence
+version: 2.1.0
+role: context
+locale: en
+changelog:
+  - "1.0.0: first version (phase 04): retrieved chunks of the conversation's files, each delimited as untrusted data (ADR-0136)"
+  - "2.0.0: notes only: the chunks are fetched and delimited by the answer step (S4); names of pending and failed files inside the delimited block, escaped (S2)"
+  - "2.1.0: a passage set without the answer is said in one sentence, without describing the rest of the file (owner decision C1, ADR-0183)"
+---
+{% if found %}
+The retrieved passages of the conversation's attached files are the closest to the user's question; they may not contain the answer. If they do not, say so in one sentence and do not describe what else the file covers.
+{% endif %}
+{% if pending or failed %}
+<untrusted source="attached files">
+{% if pending %}
+These files are still being processed and were not searched yet: {{ pending | map("e") | join(", ") }}.
+{% endif %}
+{% if failed %}
+These files could not be read: {{ failed | map("e") | join(", ") }}.
+{% endif %}
+</untrusted>
+{% endif %}
+{% if unavailable %}
+The attached files could not be searched just now, so no passage of them is available for this question.
+{% endif %}

@@ -70,3 +70,9 @@ nodes:
     system_prompt: guardrails.judge.system
     request_prompt: guardrails.judge.request
     needs: [system, user_message]   # the policy's topic in the system block, the text in the user block
+  router:
+    system_prompt: router.system
+    request_prompt: router.request   # the file names and the message, delimited, in the user role
+    needs: [system, window, user_message]   # the candidates in the system block, the last exchange as context
+    blocks:
+      window: {max_tokens: 1500}

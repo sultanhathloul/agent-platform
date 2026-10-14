@@ -23,8 +23,11 @@ BLOCK_NAMES: tuple[str, ...] = get_args(BlockName)
 PROTECTED_BLOCKS: frozenset[str] = frozenset({"system", "user_message"})
 
 
-# The blocks that form the current user message; only these merge (ADR-0076).
-CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset({"summary", "memory", "user_message"})
+# The blocks that form the current user message; only these merge (ADR-0076). The evidence
+# blocks are data in the user role and travel with the question (owner decision S2).
+CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset(
+    {"summary", "memory", "retrieval", "tool_results", "findings", "user_message"}
+)
 
 
 class HistoryEndsWithUserMessage(RuntimeError):
@@ -67,7 +70,9 @@ class AssemblyRequest(BaseModel):
     tools: list[str] = Field(default=[], description="Descriptions of permitted tools this node may use.")
     findings: list[dict[str, str]] = Field(default=[], description="[{capability, findings}] from this turn.")
     retrieved: list[dict[str, Any]] = Field(
-        default=[], description="Chunks {id, source, score, text, kb?, locator?} for docs, kb and sql nodes."
+        default=[],
+        description="Chunks {id, document_id?, source, page?, locator?, kb?, score, text} for the answer, "
+        "fetched at prepare time and checked at POST_TOOL (S4).",
     )
     tool_results: list[dict[str, Any]] = Field(
         default=[], description="This turn's tool results {tool, content, sources?}, already sanitized."

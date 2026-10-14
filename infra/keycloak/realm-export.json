@@ -140,7 +140,7 @@
       "lastName": "المحللة",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "analyst", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "policy:pii-exempt"],
+      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs"],
       "groups": ["/moe-analysts"]
     },
     {
@@ -163,7 +163,7 @@
       "lastName": "الاختبارات",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "evaluator", "temporary": false }],
-      "realmRoles": ["default-roles-agent"]
+      "realmRoles": ["default-roles-agent", "cap:docs"]
     }
   ],
   "components": {

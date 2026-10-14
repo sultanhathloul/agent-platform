@@ -42,6 +42,24 @@ class Settings(BaseSettings):
     presidio_url: str = "http://localhost:5002"
     # Dedicated connections holding per-conversation turn locks (D6).
     lock_pool_size: int = Field(default=20, ge=1)
+    # Object storage of uploads (phase 04, ADR-0129): MinIO on the compose network. The ingest
+    # service reads uploads with this key; its orphan sweeper lists and removes unregistered
+    # objects with the sweeper key (owner decisions R4, S4, S7).
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_sweeper_access_key: str = ""
+    minio_sweeper_secret_key: str = ""
+    minio_secure: bool = False
+    uploads_bucket: str = "uploads"
+    # The ingest service's health port (compose healthcheck).
+    ingest_health_port: int = 8001
+    # The reranker, per environment (review round 2, finding 3): development leaves it off; a GPU
+    # deployment turns it on with 16 candidates on 1070 characters. These override config/docs.yaml's
+    # retrieval.rerank, so a redeploy changes the configuration without a code change (see .env.example).
+    rerank_enabled: bool = False
+    rerank_candidates: int = Field(default=16, gt=0)
+    rerank_max_chars: int | None = Field(default=1070, gt=0)
 
 
 @lru_cache

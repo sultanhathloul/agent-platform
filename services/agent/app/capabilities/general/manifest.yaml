@@ -23,7 +23,7 @@ model:
   steps: {}
   on_overflow: compress
 context:
-  needs: []                        # no evidence and no model call; the answer node answers
+  needs: [state_digest, summary, window, memory]   # the answer's blocks (C2); no evidence: general finds nothing
   max_input_tokens: 6000           # UC5 keeps the answer context small
 limits:
   max_iterations: 1

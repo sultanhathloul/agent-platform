@@ -3,7 +3,7 @@ step keeps its block within the block's budget in config/context.yaml and
 records what it cut; the budget guard enforces the tier budget afterwards."""
 
 from app.context.budget import Budget
-from app.context.compress import extractive, truncate
+from app.context.compress import extractive, extractive_delimited, truncate
 from app.context.messages import visible
 from app.context.package import ContextPackage
 from app.context.selectors.base import Step
@@ -187,21 +187,27 @@ class SemanticRetrieval(Step):
             if kept != text:
                 reason = "block_budget" if form == "full" else f"form_{form}"
                 self.drop(package, "retrieval", counter.count(text) - counter.count(kept), reason)
+            # Compression works on the chunk's text alone; the delimiters are rendered around
+            # what is kept, so they are never cut (owner decision S2).
             prompt = self.deps.prompts.render(
                 "context.retrieval",
                 req.locale,
                 source=chunk.get("source") or "",
                 kb=chunk.get("kb"),
+                page=chunk.get("page"),
                 locator=chunk.get("locator"),
                 text=kept,
             )
+            # Untrusted data travels in the user role, with the question, never as system
+            # instructions (ADR-0068, ADR-0076; owner decision S2).
             package.blocks.append(
                 self.make_block(
                     "retrieval",
-                    "system",
+                    "user",
                     prompt.text,
                     prompt=prompt.ref,
                     id=chunk.get("id"),
+                    document_id=chunk.get("document_id"),
                     score=chunk.get("score"),
                 )
             )
@@ -241,7 +247,7 @@ class ToolResults(Step):
             prompt = self.deps.prompts.render(
                 "context.tool_result", req.locale, tool=result.get("tool") or "", content=kept
             )
-            package.blocks.append(self.make_block("tool_results", "system", prompt.text, prompt=prompt.ref))
+            package.blocks.append(self.make_block("tool_results", "user", prompt.text, prompt=prompt.ref))
         package.prompt_refs.append(prompt.ref)
         return package
 
@@ -267,14 +273,17 @@ class CapabilityFindings(Step):
             if form == "reference":
                 finding["findings"] = ""
             elif form == "summary" or total > limit:
-                finding["findings"] = extractive(text, req.state.get("user_message") or "", share, counter)
+                # Inside each delimited block only: a delimiter line is never cut (S2).
+                question = req.state.get("user_message") or ""
+                finding["findings"] = extractive_delimited(text, question, share, counter)
             if finding["findings"] != text:
                 reason = "block_budget" if form == "full" else f"form_{form}"
                 self.drop(
                     package, "findings", counter.count(text) - counter.count(finding["findings"]), reason
                 )
         prompt = self.deps.prompts.render("context.findings", req.locale, findings=findings)
-        package.blocks.append(self.make_block("findings", "system", prompt.text, prompt=prompt.ref))
+        # Evidence is data in the user role, never system (ADR-0076 principle; owner decision S2).
+        package.blocks.append(self.make_block("findings", "user", prompt.text, prompt=prompt.ref))
         package.prompt_refs.append(prompt.ref)
         return package
 

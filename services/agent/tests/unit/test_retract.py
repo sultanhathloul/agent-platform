@@ -23,6 +23,7 @@ VALIDATION = ValidationConfig(
     scripts={"ar": ScriptPolicy(letters=["ARABIC", "LATIN"])},
     retry=RetryPolicy(issues=[], attempts=0, temperature=0.0),
 )
+# Page attribution's rule (ADR-0140); these tests carry no sources, so nothing is cited.
 STREAMING = SimpleNamespace(streaming=StreamingConfig(terminators=[".", "؟"], flush_chars=240))
 
 

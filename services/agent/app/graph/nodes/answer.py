@@ -20,10 +20,11 @@ from collections.abc import Sequence
 from langgraph.runtime import Runtime
 from opentelemetry import trace
 
-from app.context.package import AssemblyRequest
+from app.context.package import BLOCK_NAMES, AssemblyRequest, BlockName
 from app.errors import TurnError
 from app.graph.calls import call_model, prepare_call, tier_event
 from app.graph.deps import TurnContext
+from app.graph.evidence import load_evidence
 from app.graph.guarding import guard_context
 from app.graph.nodes import emit, traced
 from app.graph.state import AgentState
@@ -34,13 +35,29 @@ from app.text.script import script_issues
 RETRY_REASON = "answer_retry"
 
 
+def answer_needs(state: AgentState, ctx: TurnContext) -> list[BlockName]:
+    """The blocks of the answer package: what the turn's capabilities declare in
+    `context.needs`, together, in pipeline order (owner decision C2). A capability that
+    declares nothing takes the answer node's defaults from config/context.yaml; the system
+    instructions and the user message are always there."""
+    default = ctx.services.assembler.node("answer").needs
+    wanted: set[str] = set()
+    for slug in state["intent"]["capabilities"]:
+        wanted.update(ctx.services.registry.get(slug).manifest.context.needs_or(default))
+    return [block for block in BLOCK_NAMES if block in wanted]
+
+
 def answer_request(
-    state: AgentState, ctx: TurnContext, *, policy_hints: Sequence[str] = ()
+    state: AgentState,
+    ctx: TurnContext,
+    *,
+    policy_hints: Sequence[str] = (),
+    retrieved: Sequence[dict] = (),
 ) -> AssemblyRequest:
     node = ctx.services.assembler.node("answer")
     return AssemblyRequest(
         node="answer",
-        needs=node.needs,
+        needs=answer_needs(state, ctx),
         system_prompt=node.system_prompt,
         locale=state["locale"],
         state=dict(state),
@@ -48,19 +65,23 @@ def answer_request(
         findings=[
             {"capability": o["capability"], "findings": o["findings"]} for o in state["capability_outputs"]
         ],
+        retrieved=list(retrieved),
         policy_hints=list(policy_hints),
         memory_scope=MemoryScope.of(ctx.principal),
     )
 
 
 async def prepare_answer(state: AgentState, ctx: TurnContext, *, policy_hints: Sequence[str] = ()):
+    # Chunk text is fetched now, never earlier, and only for a turn whose capabilities need
+    # the retrieval block (S4, C2).
+    retrieved = await load_evidence(state, ctx) if "retrieval" in answer_needs(state, ctx) else []
     selected = [ctx.services.registry.get(slug) for slug in state["intent"]["capabilities"]]
     max_inputs = [
         c.manifest.context.max_input_tokens for c in selected if c.manifest.context.max_input_tokens
     ]
     return await prepare_call(
         ctx,
-        answer_request(state, ctx, policy_hints=policy_hints),
+        answer_request(state, ctx, policy_hints=policy_hints, retrieved=retrieved),
         role="reasoning",
         step="answer",
         capabilities=selected,

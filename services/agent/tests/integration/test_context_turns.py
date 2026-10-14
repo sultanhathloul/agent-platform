@@ -172,8 +172,9 @@ async def test_the_debug_endpoint_returns_a_turns_packages_to_its_owner_only(deb
     assert response.status_code == 200
     body = response.json()
     assert body["conversation_id"] == conversation
-    assert [p["node"] for p in body["packages"]] == ["capability.general", "answer", "memory_writer"]
-    answer = body["packages"][1]["package"]
+    # general reads no package of its own, so none is assembled or recorded for it (C3).
+    assert [p["node"] for p in body["packages"]] == ["answer", "memory_writer"]
+    answer = body["packages"][0]["package"]
     assert answer["tier"] == "standard" and answer["accounting"]["total_tokens"] > 0
     assert (
         answer["blocks"][-1]["name"] == "user_message"

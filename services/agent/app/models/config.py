@@ -39,6 +39,8 @@ class ModelsConfig(_Strict):
     escalation: Escalation
     caps: dict[str, str]
     embedding: dict[str, str]
+    # The rerank alias (phase 04, ADR-0134); like an embedding, a rerank is not a chat call.
+    rerank: dict[str, str] = {"alias": "rerank"}
 
     @model_validator(mode="after")
     def _references_resolve(self) -> "ModelsConfig":

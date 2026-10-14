@@ -16,7 +16,9 @@ public record GatewayProperties(
         @Valid @NotNull Keycloak keycloak,
         @Valid @NotNull Agent agent,
         @Valid @NotNull Cors cors,
-        @Valid @NotNull Models models) {
+        @Valid @NotNull Models models,
+        @Valid @NotNull Storage storage,
+        @Valid @NotNull Docs docs) {
 
     /**
      * @param issuer   browser-facing issuer the tokens carry (validated, never fetched)
@@ -44,4 +46,15 @@ public record GatewayProperties(
 
     /** @param config path of config/models.yaml, whose {@code caps.role:*} entries become {@code max_tier} */
     public record Models(@NotBlank String config) {}
+
+    /** MinIO, bucket {@code uploads} (ADR-0129); internal to the compose network. */
+    public record Storage(@NotBlank String endpoint, String accessKey, String secretKey, @NotBlank String bucket) {}
+
+    /**
+     * @param config          path of config/docs.yaml, whose {@code limits} the gateway enforces (ADR-0126)
+     * @param uploadsPerMinute per-user upload rate, from the environment per deployment (review round 2,
+     *                         finding 4; GATEWAY_DOCS_UPLOADS_PER_MINUTE). When unset or empty,
+     *                         config/docs.yaml's {@code limits.uploads_per_minute} applies.
+     */
+    public record Docs(@NotBlank String config, Integer uploadsPerMinute) {}
 }

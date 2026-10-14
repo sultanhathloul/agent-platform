@@ -17,13 +17,18 @@ from fastapi.responses import JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.api.admin import router as admin_router
+from app.api.attachments import router as attachments_router
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
 from app.api.routes import router
 from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
-from app.capabilities.registry import CapabilityRegistry, ManifestError
+from app.attachments.limits import load_upload_limits
+from app.attachments.objects import ObjectStore
+from app.attachments.service import AttachmentService
+from app.attachments.store import AttachmentStore
+from app.capabilities.registry import CapabilityRegistry, ManifestError, load_capability_config
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.log import ContextLog
 from app.context.tokens import default_counter
@@ -31,6 +36,7 @@ from app.db import Database
 from app.graph.build import build_graph
 from app.graph.deps import Services
 from app.graph.judge import GraphJudge
+from app.graph.router_config import load_router_config
 from app.guardrails.cache import RedisVerdictCache
 from app.guardrails.checkers import (
     KeywordListChecker,
@@ -54,6 +60,8 @@ from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.otel import setup_tracing, shutdown_tracing
+from app.rag.citations import load_attribution_rule
+from app.rag.setup import build_documents
 from app.settings import Settings, get_settings
 from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
@@ -69,7 +77,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "1.3.0"
+API_VERSION = "2.0.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -82,6 +90,8 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         for root, package in extra_capabilities:
             loaded += CapabilityRegistry.discover(models_config, root=root, package=package).all()
         registry = CapabilityRegistry(loaded)
+    for cap in registry.all():
+        cap.config = load_capability_config(settings.config_dir, cap.slug)
     prompts = PromptLibrary.load(settings.config_dir / "prompts", *registry.prompt_dirs())
     context_config = load_context_config(settings.config_dir)
     memory_config = load_memory_config(settings.config_dir)
@@ -92,7 +102,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     for prompt_id in (*CORE_PROMPTS, *node_prompts):
         prompts.require(prompt_id)
     for cap in registry.all():
-        if "system" in cap.manifest.context.needs:
+        if "system" in (cap.manifest.context.needs or ()):
             try:
                 prompts.require(f"{cap.slug}.system")
             except ValueError as exc:
@@ -120,8 +130,39 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     for cap in registry.all():
         for spec in cap.tools:
             tools.register(spec, cap.slug)
+    for cap in registry.all():
+        unknown = [name for name in cap.manifest.tools if not tools.has(name)]
+        if unknown:
+            raise ManifestError(
+                f"{cap.path}/manifest.yaml: tools {unknown} are not registered by any capability"
+            )
 
     embeddings = EmbeddingGateway(settings, models_config)
+    attachment_store = AttachmentStore(db)
+    objects = ObjectStore(
+        settings.minio_endpoint,
+        settings.minio_access_key,
+        settings.minio_secret_key,
+        settings.uploads_bucket,
+        secure=settings.minio_secure,
+    )
+    documents = build_documents(
+        settings,
+        db=db,
+        redis=redis,
+        embeddings=embeddings,
+        models_config=models_config,
+        counter=counter,
+        attachments=attachment_store,
+        objects=objects,
+    )
+    attachments = AttachmentService(
+        db=db,
+        store=attachment_store,
+        objects=objects,
+        documents=documents.backend,
+        limits=load_upload_limits(settings.config_dir),
+    )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
         config=memory_config,
@@ -140,7 +181,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         guard=guard,
         registry=registry,
         tools=tools,
-        broker=ToolBroker(tools, guard),
+        broker=ToolBroker(tools, guard, {cap.slug: cap.manifest.tools for cap in registry.all()}),
         messages=ErrorMessages.load(settings.config_dir),
         validation=load_validation_config(settings.config_dir),
         db=db,
@@ -152,6 +193,10 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         policies=policies,
         guard_config=guard_config,
         locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
+        attachments=attachments,
+        documents=documents.backend,
+        citations=load_attribution_rule(settings.config_dir),
+        router=load_router_config(settings.config_dir),
         redis=redis,
         closers=(presidio.close,),
     )
@@ -212,6 +257,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
         started = await start_services(app.state.services)
         app.state.services = started
         app.state.runner = TurnRunner(started)
+        # Ingestion runs in the ingest service, never in the agent's process (owner decision R4).
         yield
         if owned:
             await stop_services(started)
@@ -228,6 +274,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.state.runner = TurnRunner(services)
     app.include_router(router)
     app.include_router(admin_router)
+    app.include_router(attachments_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:

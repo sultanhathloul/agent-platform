@@ -1,7 +1,7 @@
 """Request and response bodies of the internal agent API (README §6.2)."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,13 +23,8 @@ class RetractRequest(BaseModel):
     reason: str = Field(pattern=r"^[a-z_]{1,64}$", description="Error code that withdrew the reply.")
 
 
-class AttachmentRef(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    name: str
-    mime: str
-    size: int = Field(ge=0)
+# An attachment id is a lower-case UUID, as Postgres returns it.
+ATTACHMENT_ID_PATTERN = CONVERSATION_ID_PATTERN
 
 
 class TurnRequest(BaseModel):
@@ -40,7 +35,11 @@ class TurnRequest(BaseModel):
     )
     principal: Principal
     message: str = Field(min_length=1, max_length=8000)
-    attachments: list[AttachmentRef] = []
+    attachment_ids: list[Annotated[str, Field(pattern=ATTACHMENT_ID_PATTERN)]] = Field(
+        default=[],
+        max_length=10,
+        description="Attachments sent with this turn; the agent loads them after the ownership check (A1).",
+    )
     selected_kbs: list[str] = []
     locale: Locale = "ar"
 
@@ -326,3 +325,38 @@ class PolicyMetrics(BaseModel):
     rows: list[PolicyMatchRow] = Field(
         description="Matched evaluations of real turns per UTC day, policy and action."
     )
+
+
+# ------------------------------------------------------------------ attachments (phase 04)
+
+
+class AttachmentRegistration(BaseModel):
+    """The gateway registers an upload it stored in MinIO (ADR-0129)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    principal: Principal
+    name: str = Field(min_length=1, max_length=255)
+    mime: str = Field(min_length=1, max_length=255)
+    size: int = Field(ge=0)
+    object_key: str = Field(min_length=1, max_length=512)
+
+
+class AttachmentView(BaseModel):
+    id: str
+    conversation_id: str
+    name: str
+    mime: str
+    kind: Literal["pdf", "docx", "xlsx", "txt", "md"]
+    size: int
+    status: Literal["pending", "indexed", "failed"]
+    reason: str | None = Field(default=None, description="Why ingestion failed (failed only).")
+    pages: int | None = None
+    chunks: int | None = None
+    created_at: datetime
+    indexed_at: datetime | None = None
+    object_key: str = Field(description="Where the gateway reads the bytes; never sent to a browser.")
+
+
+class AttachmentList(BaseModel):
+    attachments: list[AttachmentView] = Field(description="Oldest first.")

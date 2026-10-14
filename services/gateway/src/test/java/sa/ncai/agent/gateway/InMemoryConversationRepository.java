@@ -15,6 +15,11 @@ public class InMemoryConversationRepository implements ConversationRepository {
                 conversationId.toLowerCase(Locale.ROOT), id -> new ConversationOwner(userId, tenantId));
     }
 
+    @Override
+    public java.util.Optional<ConversationOwner> ownerOf(String conversationId) {
+        return java.util.Optional.ofNullable(owners.get(conversationId.toLowerCase(Locale.ROOT)));
+    }
+
     public void clear() {
         owners.clear();
     }

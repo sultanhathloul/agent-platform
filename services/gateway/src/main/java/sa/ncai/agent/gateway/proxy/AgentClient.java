@@ -181,6 +181,26 @@ public class AgentClient {
                         new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
     }
 
+    /**
+     * Calls an attachment endpoint (phase 04) and returns the status and body whatever they are; the
+     * caller maps them. With {@code caller}, the caller is named in headers from the verified token
+     * (ADR-0059); a registration names it in the body instead.
+     *
+     * @throws AgentUnavailableException if the agent is unreachable
+     */
+    public AgentReply exchange(HttpMethod method, String uri, Object body, GatewayPrincipal caller, String requestId) {
+        RestClient.RequestBodySpec spec = client.method(method).uri(uri);
+        if (body != null) {
+            spec = spec.contentType(MediaType.APPLICATION_JSON).body(body);
+        }
+        RestClient.RequestBodySpec request = spec;
+        RestClient.RequestHeadersSpec<?> named = caller != null
+                ? identified(request, caller, requestId)
+                : request.header(INTERNAL_TOKEN_HEADER, internalToken).header(RequestIdFilter.HEADER, requestId);
+        return reach(() -> named.exchange((clientRequest, response) ->
+                new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
+    }
+
     private RestClient.RequestHeadersSpec<?> identified(
             RestClient.RequestHeadersSpec<?> spec, GatewayPrincipal caller, String requestId) {
         return spec.header(INTERNAL_TOKEN_HEADER, internalToken)

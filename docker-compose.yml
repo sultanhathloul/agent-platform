@@ -22,8 +22,9 @@ x-langfuse-env: &langfuse-env
   CLICKHOUSE_CLUSTER_ENABLED: "false"
   LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
   LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  # Its own MinIO user, limited to the langfuse bucket (owner decision S7).
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_LANGFUSE_ACCESS_KEY:?run scripts/init_env.sh or see .env.example}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_LANGFUSE_SECRET_KEY:?see .env.example}
   LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
   LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
@@ -44,6 +45,12 @@ x-agent-env: &agent-env
   PRESIDIO_URL: http://presidio-analyzer:3000
   # Connections reserved for per-conversation turn locks (D6).
   LOCK_POOL_SIZE: ${LOCK_POOL_SIZE:-20}
+  # The reranker, configured per environment (review round 2, finding 3): development off; a GPU
+  # deployment on, with 16 candidates on 1070 characters. These override config/docs.yaml.
+  RERANK_ENABLED: ${RERANK_ENABLED:-false}
+  RERANK_CANDIDATES: ${RERANK_CANDIDATES:-16}
+  RERANK_MAX_CHARS: ${RERANK_MAX_CHARS:-1070}
+  # No MinIO credentials: the agent reads no upload; the ingest service does (S7, R4).
 
 services:
   # ------------------------------------------------------------------ data
@@ -85,6 +92,12 @@ services:
       <<: *healthcheck
       test: ["CMD", "mc", "ready", "local"]
 
+  # The only holder of MinIO's root credentials (owner decision S7): it makes the buckets, and one
+  # user per service with a policy of its own; every service then uses its own user.
+  #   gateway-uploads  writes, reads and discards uploads   (uploads-write)
+  #   ingest-uploads   reads uploads                        (uploads-read)
+  #   sweeper-uploads  lists uploads, removes an object     (uploads-sweep)
+  #   langfuse-events  Langfuse's own bucket                (langfuse-bucket)
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
@@ -93,11 +106,36 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_GATEWAY_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY:?see .env.example}
+      MINIO_GATEWAY_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY:?see .env.example}
+      MINIO_INGEST_ACCESS_KEY: ${MINIO_INGEST_ACCESS_KEY:?see .env.example}
+      MINIO_INGEST_SECRET_KEY: ${MINIO_INGEST_SECRET_KEY:?see .env.example}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY:?see .env.example}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY:?see .env.example}
+      MINIO_LANGFUSE_ACCESS_KEY: ${MINIO_LANGFUSE_ACCESS_KEY:?see .env.example}
+      MINIO_LANGFUSE_SECRET_KEY: ${MINIO_LANGFUSE_SECRET_KEY:?see .env.example}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
-        mc mb --ignore-existing local/uploads local/kb-docs local/langfuse
+        set -e;
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD";
+        mc mb --ignore-existing local/uploads local/kb-docs local/langfuse;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-write.json;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-read.json;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:DeleteObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-sweep.json;
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::langfuse","arn:aws:s3:::langfuse/*"]}]}' > /tmp/langfuse-bucket.json;
+        for policy in uploads-write uploads-read uploads-sweep langfuse-bucket; do
+        mc admin policy create local "$$policy" "/tmp/$$policy.json"; done;
+        mc admin user add local "$$MINIO_GATEWAY_ACCESS_KEY" "$$MINIO_GATEWAY_SECRET_KEY";
+        mc admin user add local "$$MINIO_INGEST_ACCESS_KEY" "$$MINIO_INGEST_SECRET_KEY";
+        mc admin user add local "$$MINIO_SWEEPER_ACCESS_KEY" "$$MINIO_SWEEPER_SECRET_KEY";
+        mc admin user add local "$$MINIO_LANGFUSE_ACCESS_KEY" "$$MINIO_LANGFUSE_SECRET_KEY";
+        attach() { mc admin policy attach local "$$1" --user "$$2" >/dev/null 2>&1 || mc admin user info local "$$2" | grep -q "$$1"; };
+        attach uploads-write "$$MINIO_GATEWAY_ACCESS_KEY";
+        attach uploads-read "$$MINIO_INGEST_ACCESS_KEY";
+        attach uploads-sweep "$$MINIO_SWEEPER_ACCESS_KEY";
+        attach langfuse-bucket "$$MINIO_LANGFUSE_ACCESS_KEY";
+        echo "minio: buckets, users and policies ready"
     restart: "no"
 
   # Pattern recognizers only (infra/presidio/recognizers.yaml); its NLP model is never asked for
@@ -165,16 +203,52 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY:-}
       EMBED_MODEL: ${EMBED_MODEL:?set EMBED_MODEL in .env, see .env.example}
       EMBED_API_BASE: ${EMBED_API_BASE:?set EMBED_API_BASE in .env, see .env.example}
+      # The reranker, like the embedder, named in .env (owner decision R1).
+      RERANK_MODEL: ${RERANK_MODEL:?set RERANK_MODEL in .env, see .env.example}
+      RERANK_API_BASE: ${RERANK_API_BASE:?set RERANK_API_BASE in .env, see .env.example}
       MODEL_REASONING_ENABLED: ${MODEL_REASONING_ENABLED:-false}
       MODEL_PROVIDER_ALLOW_FALLBACKS: ${MODEL_PROVIDER_ALLOW_FALLBACKS:-false}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
+    # Loopback only, behind the master key: `make eval` scores Ragas metrics through the judge
+    # role's alias from the host (ADR-0141).
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # No dependency on `rerank`: the stack starts without the reranker's weights (owner decision R1).
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
+
+  # Cross-encoder reranker bge-reranker-v2-m3 behind the LiteLLM `rerank` alias (ADR-0134). The
+  # weights come from the external volume `make models` fills (pinned revision, ADR-0179); nothing
+  # is downloaded at start. Without weights it idles and says what to run, so `make up` never
+  # depends on `make models` (owner decision R1); retrieval then cannot rerank until they exist.
+  rerank:
+    image: michaelf34/infinity:0.0.75
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        if [ -s /models/bge-reranker-v2-m3/model.safetensors ]; then
+        exec infinity_emb v2 --model-id /models/bge-reranker-v2-m3 --served-model-name bge-reranker-v2-m3
+        --engine torch --device cpu --batch-size 16 --port 7997 --no-bettertransformer; fi;
+        echo "reranker weights not found in volume rerank-models: run 'make models'
+        (or set retrieval.rerank.enabled: false in config/docs.yaml)";
+        exec sleep infinity
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
+      INFINITY_ANONYMOUS_USAGE_STATS: "0"
+    volumes:
+      - rerank-models:/models:ro
+    healthcheck:
+      <<: *healthcheck
+      start_period: 120s
+      # Healthy when serving, or when idle for want of weights (the message above is in its log).
+      test: ["CMD-SHELL", "test ! -s /models/bge-reranker-v2-m3/model.safetensors || python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:7997/health')\""]
 
   # ------------------------------------------------------------------ observability
   clickhouse:
@@ -285,11 +359,51 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health')"]
+
+  # Ingestion out of the agent's process (owner decision R4): the agent's image in a container of
+  # its own with a hard memory limit; each file is parsed in a child process with CPU, memory and
+  # time limits (config/docs.yaml ingest.sandbox). It also runs the orphan sweeper (S4).
+  ingest:
+    build:
+      context: ./services/agent
+      target: runtime
+    command: ["python", "-m", "app.rag.ingest.service"]
+    mem_limit: 2g
+    environment:
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      CONFIG_DIR: /srv/config
+      DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/app
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # Its own MinIO users (owner decision S7): read uploads; list and remove orphans.
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_INGEST_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_INGEST_SECRET_KEY}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: ingest
+    volumes:
+      - ./config:/srv/config:ro
+    depends_on:
+      agent:
+        condition: service_healthy   # the agent applies the database migrations
+      redis:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8001), 3)"]
 
   gateway:
     build:
@@ -312,9 +426,21 @@ services:
       GATEWAY_AGENT_INTERNAL_TOKEN: ${AGENT_INTERNAL_TOKEN}
       GATEWAY_CORS_ALLOWED_ORIGINS: ${WEB_PUBLIC_URL}
       GATEWAY_MODELS_CONFIG: /srv/config/models.yaml
+      # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
+      GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
+      # The per-user upload rate, per environment (review round 2, finding 4): .env.example sets the
+      # development value. No fallback value here: absent from .env, the variable is empty and the
+      # gateway uses config/docs.yaml's baseline (20), the strict one (the verification of round 2).
+      GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}
+      GATEWAY_STORAGE_ENDPOINT: http://minio:9000
+      # Its own MinIO user (owner decision S7): write, read and discard uploads.
+      GATEWAY_STORAGE_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY}
+      GATEWAY_STORAGE_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY}
+      GATEWAY_STORAGE_BUCKET: uploads
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     volumes:
       - ./config/models.yaml:/srv/config/models.yaml:ro   # role tier caps (ADR-0046)
+      - ./config/docs.yaml:/srv/config/docs.yaml:ro       # upload limits (ADR-0126)
     ports:
       - "${GATEWAY_PORT}:8080"
     depends_on:
@@ -324,6 +450,8 @@ services:
         condition: service_healthy
       agent:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
     healthcheck:
@@ -350,6 +478,19 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
 
   # ------------------------------------------------------------------ test profile (make test)
+  # Deterministic embeddings and rerank scores for `make test` (ADR-0143); never in the real stack.
+  embed-mock:
+    profiles: [test]
+    build:
+      context: ./services/agent
+      target: test
+    command: ["uvicorn", "tests.fixtures.embed_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Only litellm-mock reaches it: a test network of its own, with no route out (owner decision S6).
+    networks: [test]
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+
   litellm-mock:
     profiles: [test]
     image: ghcr.io/berriai/litellm:v1.100.0
@@ -359,8 +500,13 @@ services:
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
     volumes:
       - ./infra/litellm/config.mock.yaml:/app/config.yaml:ro
+    # Loopback only (owner decision S6): local pytest runs reach it on 127.0.0.1:4001.
     ports:
-      - "4001:4000"
+      - "127.0.0.1:4001:4000"
+    networks: [default, test]
+    depends_on:
+      embed-mock:
+        condition: service_healthy
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
@@ -378,6 +524,12 @@ services:
       AGENT_TEST_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/agent_test
       # Redis database 15 and a namespace of its own: tests never meet the stack's keys or channels.
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/15
+      # Tests store uploads as the gateway does, and sweep as the ingest service does (S7).
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_GATEWAY_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY}
+      MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY}
+      MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY}
     volumes:
       - ./config:/srv/config:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
@@ -390,6 +542,8 @@ services:
       presidio-analyzer:
         condition: service_healthy
       litellm-mock:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   # JDBC tests of the gateway against this Postgres; an image build cannot reach it (ADR-0051).
@@ -408,6 +562,12 @@ services:
       postgres:
         condition: service_healthy
 
+networks:
+  default: {}
+  # The deterministic embed and rerank service of `make test` (ADR-0143) and its one client.
+  test:
+    internal: true
+
 volumes:
   pgdata:
   redisdata:
@@ -416,3 +576,6 @@ volumes:
   clickhouse-logs:
   gateway-gradle-cache:
     name: gateway-gradle-cache   # shared with `make openapi`
+  rerank-models:
+    name: rerank-models          # filled by `make models` (ADR-0134); external, so `make clean` keeps it (R1)
+    external: true

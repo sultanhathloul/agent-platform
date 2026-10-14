@@ -106,6 +106,14 @@ export type Kb = string | null;
  * Page, section or row range inside the source.
  */
 export type Locator = string | null;
+/**
+ * The attachment (or KB document) the answer drew on (ADR-0140).
+ */
+export type DocumentId = string | null;
+/**
+ * Pages of that document the answer drew on, ascending (ADR-0140).
+ */
+export type Pages = number[];
 export type RequestId6 = string;
 export type TurnId6 = string | null;
 /**
@@ -298,6 +306,8 @@ export interface Citation {
   url?: Url;
   kb?: Kb;
   locator?: Locator;
+  document_id?: DocumentId;
+  pages?: Pages;
 }
 /**
  * A capability reports how far it got (ADR-0047).

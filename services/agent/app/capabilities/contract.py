@@ -3,8 +3,8 @@ included, is a package under app/capabilities/<slug>/ with a manifest.yaml and
 a graph.py whose build() returns a compiled LangGraph subgraph. The subgraph's
 state holds `input: CapabilityInput` and returns `output: CapabilityOutput`."""
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -36,8 +36,10 @@ class LocalizedList(_Strict):
 class RoutingRule(_Strict):
     # toggled: the user toggled the capability in the UI. keyword: a routing
     # keyword appears in the message. attachments: the turn carries new files.
+    # conversation_attachments: the conversation holds indexed files, so the router model
+    # may choose this capability when no other rule decided (ADR-0145).
     # fallback: chosen when no other capability's rule matched.
-    when: Literal["toggled", "keyword", "attachments", "fallback"]
+    when: Literal["toggled", "keyword", "attachments", "conversation_attachments", "fallback"]
 
 
 class RoutingHints(_Strict):
@@ -58,8 +60,15 @@ class ModelSpec(_Strict):
 
 
 class ContextSpec(_Strict):
-    needs: list[BlockName] = []
+    # The Context Assembly blocks this capability's model calls receive: its own calls and the
+    # answer the core synthesizes from its output (README §18.4, owner decision C2). [] means no
+    # optional block at all, only the system instructions and the user message. None gives the
+    # answer the node's defaults from config/context.yaml and the capability's own calls nothing.
+    needs: list[BlockName] | None = None
     max_input_tokens: int | None = None
+
+    def needs_or(self, default: Sequence[BlockName]) -> list[BlockName]:
+        return list(default) if self.needs is None else list(self.needs)
 
 
 class Limits(_Strict):
@@ -82,6 +91,8 @@ class Manifest(_Strict):
     context: ContextSpec = ContextSpec()
     limits: Limits = Limits()
     state_namespace: str
+    # The tools this capability may call; the broker refuses any other (S1, ADR-0160).
+    tools: list[str] = []
 
     @model_validator(mode="after")
     def _derived_names(self) -> "Manifest":
@@ -111,6 +122,28 @@ class Source(_Strict):
     url: str | None = None
     kb: str | None = None
     locator: str | None = None
+    # A document chunk: the document it came from and its page (ADR-0140), and its reference
+    # in the DocumentBackend. A source carries no text: the answer step fetches the chunk's
+    # text through the backend, scoped to the principal and the conversation, so chunk text
+    # never enters AgentState or a checkpoint (owner decision S4).
+    page: int | None = Field(default=None, ge=1)
+    document_id: str | None = None
+    ref: str | None = None
+    score: float | None = Field(default=None, description="Relevance as the backend ranked it, best first.")
+
+
+class Citation(_Strict):
+    """A citation a capability supplies (owner decision C1). It must name one of this turn's
+    sources, by its id or its document id; validate fails the answer otherwise."""
+
+    id: str
+    title: str
+    kind: str = "doc"
+    url: str | None = None
+    kb: str | None = None
+    locator: str | None = None
+    document_id: str | None = None
+    pages: list[int] = []
 
 
 class Artifact(_Strict):
@@ -144,8 +177,10 @@ class Usage(_Strict):
 
 
 class CapabilityInput(_Strict):
+    """What a capability is invoked with. Its context package is not here: it is assembled
+    only when the capability reads it, through `RuntimeContext.context()` (owner decision C3)."""
+
     message: str
-    context: ContextPackage  # detached: blocks only, no reference to AgentState (ADR-0047)
     principal: Principal
     cap_state: dict[str, Any]  # a copy of this capability's own namespace
     attachments: list[dict[str, Any]] = []
@@ -155,6 +190,7 @@ class CapabilityInput(_Strict):
 class CapabilityOutput(_Strict):
     findings: str
     sources: list[Source] = []
+    citations: list[Citation] = []
     artifacts: list[Artifact] = []
     events: list[CapabilityEvent] = []
     cap_state: dict[str, Any]  # required: persisted back into the namespace as returned
@@ -196,12 +232,28 @@ class EventWriter(Protocol):
     def __call__(self, event: CapabilityEvent) -> None: ...
 
 
+ContextReader = Callable[[], Awaitable[ContextPackage]]
+
+
+async def _no_context() -> ContextPackage:
+    raise CapabilityContractError("no context package is available outside a turn")
+
+
 @dataclass(frozen=True)
 class RuntimeContext:
     """The LangGraph runtime context of a capability subgraph (`Runtime[RuntimeContext]`).
     This is the whole surface a capability has into the core: its slug, the
-    principal, a copy of its own state slice, `call_model`, the broker and the
-    event writer. No resolver, guard engine, model config or AgentState (ADR-0047)."""
+    principal, a copy of its own state slice, `call_model`, the broker, the
+    event writer, the document backend, its context package and its configuration. No
+    resolver, guard engine, model config or AgentState (ADR-0047).
+
+    - `documents`: the DocumentBackend; it reaches the capability's tool handlers through the
+      broker, which scopes every call to the principal and the conversation (C6, S1).
+    - `context()`: the package assembled per `context.needs`, detached from AgentState; it
+      is assembled on the first call only, so a capability that never reads it costs no
+      assembly (owner decision C3).
+    - `config`: a copy of the capability's own configuration, `config/<slug>.yaml` when that
+      file exists; never the core's settings (C3)."""
 
     slug: str
     principal: Principal
@@ -209,3 +261,6 @@ class RuntimeContext:
     call_model: ModelCaller
     broker: CapabilityBroker
     stream_writer: EventWriter
+    documents: Any = None
+    context: ContextReader = _no_context
+    config: Mapping[str, Any] = field(default_factory=dict)

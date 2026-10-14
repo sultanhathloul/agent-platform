@@ -20,14 +20,33 @@ model_list:
       model: openai/mock-heavy
       api_key: mock
       mock_response: "هذه إجابة تجريبية من النموذج الوهمي. This is a mock answer."
-  # One fixed vector for every text: every item is maximally similar to every query.
+  # A deterministic test service (ADR-0143): a hashed bag of normalized words, so texts
+  # sharing more words are more similar, identically on every run.
   - model_name: embed
+    litellm_params:
+      model: openai/hashed-words
+      api_base: http://embed-mock:8000/v1
+      api_key: mock
+    model_info:
+      mode: embedding
+  # One fixed vector for every text: every item is maximally similar to every query. Only for
+  # tests that need identical similarity (memory isolation), which name this alias (ADR-0143).
+  - model_name: embed-fixed
     litellm_params:
       model: openai/mock-embed
       api_key: mock
       mock_response: [0.12, 0.34, 0.56, 0.78]
     model_info:
       mode: embedding
+  # Rerank by word overlap with the query, through the same Infinity provider as the real
+  # stack (ADR-0134, ADR-0143).
+  - model_name: rerank
+    litellm_params:
+      model: infinity/word-overlap
+      api_base: http://embed-mock:8000
+      api_key: mock
+    model_info:
+      mode: rerank
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

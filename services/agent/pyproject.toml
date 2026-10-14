@@ -20,12 +20,20 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.1.2",
     "psycopg[binary,pool]>=3.3.5",
     "redis>=5.2",
+    "pypdf>=5.4",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "minio>=7.2",
+    "defusedxml>=0.7.1",
 ]
 
 [dependency-groups]
 dev = [
+    "arabic-reshaper>=3.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "python-bidi==0.6.6",
+    "reportlab>=4.2",
     "ruff>=0.6",
 ]
 

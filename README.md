@@ -245,6 +245,10 @@ Loop behaviour (`reason → tool_decision → guard(PRE_TOOL) → execute → gu
 5. Conversation CRUD, upload to MinIO (pre-signed), KB management, policy management (§10.4), permission management (Keycloak Admin REST API).
 6. Streaming proxy: forwards agent SSE events to the browser unchanged (token, tool_start, tool_end, guard, citation, done, error).
 
+> **Amendment 2026-10-11 (ADR-0042, ADR-0116, ADR-0118).** The relay forwards every event unchanged except the terminal one: it rebuilds the terminal `done` or `error` event without `guard_audit` (the checker detail meant for the audit record only), and it drops an event that is incomplete when the upstream ends or breaks, sending `agent_stream_interrupted` instead.
+
+> **Amendment 2026-10-11 (ADR-0129).** Uploads go through the gateway, not pre-signed URLs: the browser posts the file to the gateway, which checks the limits of `config/docs.yaml` and the conversation's ownership, stores the bytes in MinIO bucket `uploads` and registers the attachment with the agent. Upload, list, status, download and delete are audited fail-closed. MinIO stays internal.
+
 ### 6.2 Gateway ⇄ Agent contract (internal network only; no auth beyond mTLS/network policy in v1, shared secret header acceptable in compose)
 
 ```
@@ -333,6 +337,10 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 - Retrieval: hybrid + rerank; page/section metadata for citations.
 - Status streamed to the UI (`pending → indexed`) so the user can see when the file is ready.
 
+> **Amendment 2026-10-11 (phase 04: ADR-0125 to ADR-0145).** The web polls each file's status through the gateway every 2 s (`pending | indexed | failed` with a reason code); sending waits until no file is pending. Ingestion is a background worker in the agent (Redis queue, idempotent by attachment id, resumed at start). Retrieval is the docs capability's tool `docs_search`, executed by the broker: vector top 30 and full-text top 30 (a `simple` tsvector over Arabic-normalized text), reciprocal rank fusion, rerank by `bge-reranker-v2-m3` on Infinity behind the LiteLLM `rerank` alias, top 8. Citations are attributed after the answer: a chunk sharing enough word n-grams with the answer cites its file and page; the UI shows the file name and pages only (ADR-0140). Files expire 30 days after the conversation's last turn. Scanned PDFs fail with `scanned_unsupported` (OCR is v2). On later turns of a conversation with indexed files the router model chooses between `docs` and `general` (manifest rule `conversation_attachments`).
+
+> **Amendment 2026-10-12 (phase 04 fix session: ADR-0158 to ADR-0184).** The docs capability talks to one `DocumentBackend` (`app/rag/backend.py`: register, status, search, fetch, each within a `DocumentScope` of tenant, user and conversation that the broker builds from the principal and every backend enforces). This phase's pipeline is `InternalDocumentBackend`, selected by `config/docs.yaml` `backend: internal`. A future RAG or OCR service implements the same protocol. Ingestion runs in its own `ingest` service (the agent's image, `mem_limit 2g`). Each file is parsed and chunked in a child process with CPU, memory and time limits, after archive, XML, PDF-stream, text and chunk-count checks. Chunks are stored as extracted: no policy runs at ingestion, and every guard policy runs at runtime, per principal. Chunk text never enters `AgentState`; the answer step fetches it through the backend. The product deletes no file and nothing expires; `docs/PROGRESS.md` gives the operator's deletion steps. Retrieval is vector top 30 and full-text top 30 with reciprocal rank fusion, then the top 8 in fusion order. The cross-encoder is off by default (`retrieval.rerank.enabled: false`, ADR-0184): it was the slowest step and every rag threshold held without it. Switched on, it scores the best 16 fused candidates on their first 1070 characters. Citations are attributed after the answer by a generic step before validate (`config/citations.yaml`, ADR-0183). The question's words decide whether a chunk may be cited, and rarity-weighted bigrams of its best sentence decide which.
+
 ### 9.4 Knowledge-base plugins (UC4) — `capabilities/kb/`
 
 - Admin creates a KB: `{slug, name_ar, name_en, icon, description, embedding_model, visibility: role-based}`; each KB has its own collection `kb_{slug}` and a Keycloak role `kb:{slug}:read` (created via Admin API when the KB is created).
@@ -407,6 +415,8 @@ Seed policies in `config/policies/`:
 - Admin console (in the web app, `admin` role): users & groups (delegated to Keycloak Admin API through the gateway), KB management + role assignment, policies, evaluation dashboards (links to Langfuse), context debug panel, audit log search.
 - Seed users: `admin/admin`, `analyst/analyst` (sql + moe KB), `viewer/viewer` (general + docs only).
 
+> **Amendment 2026-10-11 (phase 04).** The seed users `analyst` and `evaluator` also hold `cap:docs`: smoke uploads a file as the analyst to check the viewer cannot reach it, and the rag and routing suites run as the evaluator.
+
 > **Amendment 2026-10-06 (ADR-0107).** Realm roles prefixed `policy:` (e.g. `policy:pii-exempt`, held by the seed user `analyst`) are policy-scope roles: they grant nothing, select the guard policies scoped `role:{name}`, and are the only roles the gateway forwards to the agent, as `principal.policy_roles`. The admin policy form lists them through the gateway's Keycloak Admin API client.
 
 ---
@@ -456,6 +466,8 @@ Seed policies in `config/policies/`:
 - `.env.example` documents every variable; no secrets in compose. Model endpoints default to Ollama on the host.
 - `make up` must bring a working stack with seeded users, one KB (`moe`, with 3 sample Arabic PDFs), UC1 sample schema (`sales`, `customers` with **fake** PII to prove redaction), and pass `scripts/smoke.sh` (login → 5 turns covering the 5 use cases → guard redaction → HITL interrupt/resume → eval run).
 - Provide `docker-compose.prod.md` notes for Kubernetes migration (Helm later, not v1).
+
+> **Amendment 2026-10-11 (ADR-0134, ADR-0141).** `rerank` runs `michaelf34/infinity:0.0.75` (amd64 and arm64) on CPU with `bge-reranker-v2-m3` from the volume `rerank-models`, which `make models` fills; nothing is downloaded at start. `litellm` is published on `127.0.0.1` only, behind its master key, so `make eval` can score Ragas metrics through the judge alias. MinIO credentials reach the agent and the gateway from `.env`. `make smoke-airgap` runs smoke with every container but `litellm` on a network without egress.
 
 > **Amendment 2026-10-06 (ADR-0097, ADR-0087).** `presidio-analyzer` is pinned to `2.2.362` with one worker and loads only `infra/presidio/recognizers.yaml`; it takes about 740 MiB. The agent now uses Redis (policy cache, change notifications, judge verdicts) and waits for `redis` and `presidio-analyzer` to be healthy.
 
@@ -709,6 +721,22 @@ Rules:
 | `infra/presidio/recognizers.yaml` | the recognizer registry | Saudi mobile, national ID / iqama, SA IBAN, email, Arabic-name heuristic (ADR-0097) |
 | `.env` | `DEBUG_CONTEXT_RETENTION_DAYS`, `LOCK_POOL_SIZE` | Context package expiry (ADR-0081); connections for per-conversation turn locks (ADR-0082) |
 
+### 20.3 Configuration keys added in phase 04
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/docs.yaml` | `retention_days` | Files and their chunks expire this many days after the conversation's last turn (ADR-0125) |
+| | `limits.*` | Bytes per file, files per conversation, pages per PDF, allowed types; read by the gateway and the agent (ADR-0126) |
+| | `chunking.*`, `extraction.*`, `ingest.*` | 800/120 chunking, the scanned-PDF threshold, worker count, embedding batch, attempts |
+| | `retrieval.*` | Vector and text top-k, RRF constant, rerank candidates, top 8, evidence budget, query stopwords (ADR-0133) |
+| | `citations.ngram`, `citations.min_shared_ngrams` | Page attribution after the answer (ADR-0140) |
+| | `purge.interval_hours` | How often expired files are deleted |
+| `config/routing.yaml` | `router.window_messages`, `router.cache_ttl_s` | The router model's context and its 1-hour cache (ADR-0139) |
+| `config/models.yaml` | `rerank.alias` | The LiteLLM alias of the reranker (ADR-0134) |
+| `config/prompts/router/` | `router.system`, `router.request` | The router model's prompts |
+| `capabilities/docs/prompts/` | `docs.evidence` | Retrieved chunks inside untrusted delimiters (ADR-0136) |
+| `.env` | `LITELLM_PORT` | Loopback port of LiteLLM for `make eval` (default 4000) |
+
 ## 21. Getting started on a new machine
 
 > **Amendment 2026-10-05 (ADR-0066).** Models are no longer named in `infra/litellm/config.yaml` but in `.env`: `make models` and `scripts/preflight.sh` read `FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE` and `EMBED_API_BASE` from `.env` (no shell variables). The defaults in `.env.example` are the offline profile. §21.4 below is superseded by the amendment at its top.
@@ -727,12 +755,14 @@ No JDK and no Node.js are needed: the gateway and web tests build inside Docker 
 
 ### 21.2 First run
 
+> **Amendment 2026-10-12 (ADR-0179).** `make models` also fetches the reranker's weights, at a pinned revision, into the external volume `rerank-models`, which `make clean` keeps; run it before `make up`, with a remote model endpoint too (it skips what is served elsewhere, and the reranker when `RERANK_API_BASE` points at another server). `make up` never depends on it: without the weights the `rerank` service idles and says what to run, and `scripts/preflight.sh` warns.
+
 ```bash
 git clone https://github.com/<org>/agent-platform.git
 cd agent-platform
 
 scripts/init_env.sh     # writes .env with fresh random secrets; never overwrites an existing one
-make models             # pulls the models named in infra/litellm/config.yaml (skip for a remote endpoint, §21.4)
+make models             # pulls the Ollama models named in .env and fetches the reranker's pinned weights (run it before make up)
 make up                 # builds, starts and waits for every health check (first run: ~10 minutes)
 make smoke              # end-to-end: login, permissions, a streamed Arabic answer, a Langfuse trace, one audit row
 ```

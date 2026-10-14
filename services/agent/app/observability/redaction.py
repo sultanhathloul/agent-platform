@@ -4,7 +4,9 @@ With OBSERVABILITY_CAPTURE_CONTENT on, generation spans carry their messages and
 output, except that no memory, summary or extractor content goes to Langfuse:
 - the `memory` and `summary` blocks of any package are replaced by a placeholder
   naming the block, its token count, a content hash of its text and, for memory, the
-  item ids;
+  item ids; so are the evidence blocks, `findings`, `retrieval` and `tool_results`,
+  which hold document chunks and tool output (phase 04, ADR-0144): uploaded content
+  never reaches Langfuse through a model call's input;
 - the calls of the `summarizer` and `extractor` roles, and judge calls on a memory
   candidate or a summary, carry no messages and no output at all, only token counts
   and content hashes.
@@ -19,7 +21,7 @@ import json
 
 from app.context.package import ContextPackage
 
-CONTENT_FREE_BLOCKS = frozenset({"memory", "summary"})
+CONTENT_FREE_BLOCKS = frozenset({"memory", "summary", "findings", "retrieval", "tool_results"})
 CONTENT_FREE_ROLES = frozenset({"summarizer", "extractor"})
 
 
@@ -33,7 +35,7 @@ def is_content_free(package: ContextPackage, role: str) -> bool:
 
 
 def observable_messages(package: ContextPackage, key: str) -> list[dict[str, str]]:
-    """The package's messages with memory and summary blocks reduced to placeholders."""
+    """The package's messages with memory, summary and evidence blocks reduced to placeholders."""
     blocks = []
     for block in package.blocks:
         if block.name in CONTENT_FREE_BLOCKS:

@@ -30,6 +30,8 @@ class LoadedCapability:
     graph: CompiledStateGraph  # compiled by the core from the capability's StateGraph (ADR-0053)
     path: Path
     tools: list[ToolSpec] = field(default_factory=list)
+    # config/<slug>.yaml when it exists, handed to the capability in its RuntimeContext (C3).
+    config: dict = field(default_factory=dict)
 
     @property
     def slug(self) -> str:
@@ -51,6 +53,17 @@ def _compile_capability(built: object, directory: Path) -> CompiledStateGraph:
             f"got {type(built).__name__}"
         )
     return built.compile()
+
+
+def load_capability_config(config_dir: Path, slug: str) -> dict:
+    """A capability's own configuration file, config/<slug>.yaml, or nothing (C3)."""
+    path = config_dir / f"{slug}.yaml"
+    if not path.is_file():
+        return {}
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ManifestError(f"{path}: a capability's configuration must be a mapping")
+    return loaded
 
 
 def load_manifest(path: Path, models: ModelsConfig) -> Manifest:

@@ -223,7 +223,7 @@ class TurnRunner:
             "conversation_id": req.conversation_id,
             "user_message": req.message,
             "locale": req.locale,
-            "attachments": [a.model_dump() for a in req.attachments],
+            "turn_attachment_ids": list(req.attachment_ids),
             # Defense in depth (README §9.4): the gateway filtered already; filter again.
             "selected_kbs": [kb for kb in req.selected_kbs if principal.can_read_kb(kb)],
         }

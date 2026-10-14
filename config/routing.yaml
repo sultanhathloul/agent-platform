@@ -1,0 +1,5 @@
+# The router model (README §5.3, ADR-0139, ADR-0145): chosen only when the manifest rules
+# leave candidates open, on the `router` role (fast tier, temperature 0).
+router:
+  window_messages: 2     # the last exchange, so a follow-up question routes like its first
+  cache_ttl_s: 3600      # a decision is cached by hash for 1 hour, per tenant

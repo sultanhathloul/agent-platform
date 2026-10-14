@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web eval smoke logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web test-evals eval smoke smoke-airgap logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -14,7 +14,7 @@ env: .env ## Create .env with generated secrets (never overwrites)
 .env:
 	@scripts/init_env.sh
 
-models: ## Pull the models named in infra/litellm/config.yaml into Ollama
+models: ## Pull the Ollama models named in .env and fetch the reranker weights (ADR-0134)
 	@scripts/pull_models.sh
 
 up: .env ## Build and start the full stack, seeded, and wait until healthy
@@ -30,10 +30,11 @@ clean: ## Stop the stack and delete every volume
 seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot)
 	$(COMPOSE) run --rm minio-init
 
-test: test-agent test-gateway test-gateway-db test-web ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
+test: test-agent test-gateway test-gateway-db test-web test-evals ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
-	$(COMPOSE) up -d --wait postgres redis presidio-analyzer
+	$(COMPOSE) up -d --wait postgres redis presidio-analyzer minio
+	$(COMPOSE) run --rm minio-init
 	@# The test database and its owner come from infra/postgres/init; idempotent on an existing volume (ADR-0070).
 	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/10-agent-test.sh
 	$(COMPOSE) --profile test up -d --wait litellm-mock
@@ -54,11 +55,30 @@ test-gateway-db: .env
 test-web:
 	docker build --target test --no-cache-filter test --build-context config=config services/web
 
+# RAGAS_DO_NOT_TRACK: no usage event leaves for Ragas' own service (S3); run_evals.py sets it too.
+# The eval harness's own tests (S3): no call leaves the platform. Offline; the harness's script
+# dependencies plus pytest.
+test-evals:
+	uv run --no-project --with pytest --with httpx --with pyyaml --with ragas==0.2.15 \
+		--with 'langchain-openai>=0.2,<0.4' pytest -q evals/tests
+
 eval: .env ## Golden suites against the live stack (real models)
-	uv run evals/run_evals.py
+	RAGAS_DO_NOT_TRACK=true uv run evals/run_evals.py $(s)
 
 smoke: .env ## End-to-end smoke test against the live stack
 	scripts/smoke.sh
+
+# The stack on an internal network: no container but litellm reaches out (phase 04, F2, ADR-0147).
+# Images and models must be present; the normal stack is restored afterwards, pass or fail.
+AIRGAP_FILES := docker-compose.yml:docker-compose.airgap.yml
+smoke-airgap: .env ## Smoke with egress blocked for every container except litellm
+	@# Test-profile containers are not part of the stack under test; `make test` starts them again.
+	$(COMPOSE) --profile test rm -sf litellm-mock embed-mock >/dev/null
+	COMPOSE_FILE=$(AIRGAP_FILES) $(COMPOSE) up -d --wait --wait-timeout 900 --remove-orphans
+	@status=0; \
+	COMPOSE_FILE=$(AIRGAP_FILES) scripts/airgap_check.sh && COMPOSE_FILE=$(AIRGAP_FILES) scripts/smoke.sh || status=$$?; \
+	$(COMPOSE) up -d --wait --wait-timeout 900 --remove-orphans >/dev/null; \
+	exit $$status
 
 purge-pre-guard: ## One-time purge of memory and summaries stored before the DATA guard (D4); DRY_RUN=1 only counts
 	$(COMPOSE) exec -T agent python -m app.guardrails.purge $(if $(DRY_RUN),--dry-run,)
@@ -73,6 +93,7 @@ openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web'
 	cd services/agent && uv run python -m app.api.export
 	docker run --rm -v "$(CURDIR)/services/gateway":/w -v gateway-gradle-cache:/home/gradle/.gradle -w /w \
 		-v "$(CURDIR)/config/models.yaml":/config/models.yaml:ro -e GATEWAY_MODELS_CONFIG=/config/models.yaml \
+		-v "$(CURDIR)/config/docs.yaml":/config/docs.yaml:ro -e GATEWAY_DOCS_CONFIG=/config/docs.yaml \
 		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api

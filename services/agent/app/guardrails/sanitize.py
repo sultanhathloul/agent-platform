@@ -1,8 +1,12 @@
 """sanitize_untrusted (README §10.3): everything a tool returns is data. Before any
-POST_TOOL policy and before Context Assembly sees it: scripts, styles and HTML tags
-are stripped, entities decoded, strings that look like instructions to the assistant
-removed (matched on Arabic-folded text, in English and Arabic), whitespace collapsed
-and the size capped. Deterministic and model-free."""
+POST_TOOL policy and before Context Assembly sees it: entities are decoded first (HTML
+entities, repeatedly, and full-width bracket look-alikes), then scripts, styles and HTML tags
+are stripped, so an encoded tag is stripped like a plain one (owner decision S2); any angle
+bracket left can no longer open or close a prompt's delimiter (`neutralize_delimiters`); strings
+that look like instructions to the assistant are removed (matched on Arabic-folded text, in
+English and Arabic), whitespace collapsed and the size capped. Deterministic and model-free.
+
+Neutralizing delimiters is not a policy: it applies to every principal (ADR-0158)."""
 
 import html
 import re
@@ -16,6 +20,27 @@ _COMMENTS = re.compile(r"<!--.*?-->", re.S)
 _TAGS = re.compile(r"<[^>]{0,2000}>")
 _SPACES = re.compile(r"[ \t\f\v ​‌‍⁠﻿]+")
 _LINES = re.compile(r"\n\s*\n\s*(\n\s*)+")
+# Characters that render as angle brackets; folded before tags are stripped.
+_BRACKETS = str.maketrans({"＜": "<", "﹤": "<", "＞": ">", "﹥": ">"})
+# What is left of an angle bracket after stripping cannot form `<untrusted ...>`, `</untrusted>`
+# or any other delimiter of a prompt.
+_DELIMITERS = str.maketrans({"<": "‹", ">": "›"})
+_DECODE_ROUNDS = 3
+
+
+def decode(text: str) -> str:
+    """HTML entities decoded until nothing changes (at most a few rounds, so `&amp;lt;` is `<`),
+    and bracket look-alikes folded to the brackets they render as."""
+    for _ in range(_DECODE_ROUNDS):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text.translate(_BRACKETS)
+
+
+def neutralize_delimiters(text: str) -> str:
+    return text.translate(_DELIMITERS)
 
 
 @dataclass(frozen=True)
@@ -36,8 +61,8 @@ class Sanitizer:
         return self._markers.get(locale) or next(iter(self._markers.values()))
 
     def sanitize(self, text: str, locale: str = "ar") -> Sanitized:
-        text = _COMMENTS.sub(" ", _BLOCKS.sub(" ", text))
-        text = html.unescape(_TAGS.sub(" ", text))
+        text = _COMMENTS.sub(" ", _BLOCKS.sub(" ", decode(text)))
+        text = neutralize_delimiters(_TAGS.sub(" ", text))
         text, removed = self._strip_instructions(text, self.marker(locale))
         text = _LINES.sub("\n\n", _SPACES.sub(" ", text)).strip()
         truncated = len(text) > self._max

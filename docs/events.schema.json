@@ -56,6 +56,28 @@
           "default": null,
           "description": "Page, section or row range inside the source.",
           "title": "Locator"
+        },
+        "document_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The attachment (or KB document) the answer drew on (ADR-0140).",
+          "title": "Document Id"
+        },
+        "pages": {
+          "default": [],
+          "description": "Pages of that document the answer drew on, ascending (ADR-0140).",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Pages",
+          "type": "array"
         }
       },
       "required": [

@@ -29,6 +29,9 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.17")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+    // Uploads (phase 04, ADR-0129): MinIO client (Apache-2.0). The gateway parses no document
+    // (review round 2, finding 3): no PDF or archive library here; type is checked by magic bytes.
+    implementation("io.minio:minio:8.5.17")
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")

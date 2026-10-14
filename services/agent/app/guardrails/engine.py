@@ -40,6 +40,7 @@ from typing import Any, Protocol
 
 from app.guardrails.checkers.base import CheckContext, Checker
 from app.guardrails.checkpoints import Checkpoint
+from app.guardrails.fields import join_fields, split_fields
 from app.guardrails.sanitize import Sanitizer
 from app.guardrails.schema import (
     ACTION_RANK,
@@ -202,11 +203,16 @@ class GuardEngine:
         return self._combine(checkpoint, payload, list(evaluated), notes, target, context.actions)
 
     def _sanitize(self, payload: Any, locale: str) -> tuple[Any, GuardEventRecord | None]:
+        """The content and every readable source field (title, locator) of a tool's output (S2)."""
         result = self.sanitizer.sanitize(payload.content, locale)
-        payload = payload.model_copy(update={"content": result.text})
-        if not (result.removed_instructions or result.truncated):
+        fields = [self.sanitizer.sanitize(text, locale) for text in payload.field_texts()]
+        payload = payload.model_copy(update={"content": result.text}).with_field_texts(
+            [f.text for f in fields]
+        )
+        removed = result.removed_instructions + sum(f.removed_instructions for f in fields)
+        if not (removed or result.truncated):
             return payload, None
-        detail = f"sanitize_untrusted: {result.removed_instructions} instruction-like string(s) removed" + (
+        detail = f"sanitize_untrusted: {removed} instruction-like string(s) removed" + (
             ", truncated" if result.truncated else ""
         )
         return payload, GuardEventRecord(checkpoint=Checkpoint.POST_TOOL, action="log_only", detail=detail)
@@ -234,6 +240,7 @@ class GuardEngine:
                 locale=context.locale,
                 turn=context.turn,
                 target=target,
+                checkpoint=checkpoint,
                 panel=context.only is not None,
                 draft=context.draft,
             )
@@ -454,13 +461,15 @@ def _subject(checkpoint: Checkpoint, payload: Any) -> Any:
     if isinstance(payload, str):
         return payload
     if checkpoint == Checkpoint.INPUT:
-        return payload["message"]
+        # The message and the names of the files sent with it, checked as one (S2).
+        return join_fields(payload["message"], payload.get("files") or [])
     if checkpoint == Checkpoint.OUTPUT:
         return payload["answer"] or ""
     if checkpoint == Checkpoint.PRE_TOOL:
         return f"{payload['tool']} {json.dumps(payload['args'], ensure_ascii=False, sort_keys=True)}"
     if checkpoint == Checkpoint.POST_TOOL:
-        return payload.content
+        # The content and the sources' titles and locators, checked as one (S2).
+        return join_fields(payload.content, payload.field_texts())
     raise TypeError(f"no text for {checkpoint} payload {type(payload).__name__}")
 
 
@@ -470,9 +479,11 @@ def _with_text(checkpoint: Checkpoint, payload: Any, text: str) -> Any:
     if isinstance(payload, str):
         return text
     if checkpoint == Checkpoint.INPUT:
-        return {**payload, "message": text}
+        message, files = split_fields(text, payload["message"], payload.get("files") or [])
+        return {**payload, "message": message, **({"files": files} if payload.get("files") else {})}
     if checkpoint == Checkpoint.OUTPUT:
         return {**payload, "answer": text}
     if checkpoint == Checkpoint.POST_TOOL:
-        return payload.model_copy(update={"content": text})
+        content, fields = split_fields(text, payload.content, payload.field_texts())
+        return payload.model_copy(update={"content": content}).with_field_texts(fields)
     raise TypeError(f"cannot redact a {checkpoint} payload")

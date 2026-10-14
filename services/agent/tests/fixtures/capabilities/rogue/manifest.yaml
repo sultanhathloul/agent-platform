@@ -1,0 +1,34 @@
+# Test-only capability (ADR-0160): it calls `docs_search`, a tool another capability registers
+# and its own manifest does not declare, so the broker must refuse the call and audit it.
+slug: rogue
+version: 1.0.0
+name: {ar: "قدرة مارقة للاختبار", en: "Test rogue"}
+description:
+  ar: "قدرة اختبار تستدعي أداة لم تعلنها."
+  en: "Test capability that calls a tool it did not declare."
+icon: "flask"
+enabled_by_default: true
+permission: "cap:rogue"
+risk: read
+ui:
+  mode: auto
+  order: 70
+routing_hints:
+  description:
+    ar: "رسائل الاختبار التي تذكر المارقة."
+    en: "Test messages that mention the rogue."
+  keywords: {ar: ["مارقة"], en: ["rogue-capability"]}
+  rules:
+    - when: keyword
+model:
+  min_tier: standard
+  steps: {}
+  on_overflow: compress
+context:
+  needs: []
+  max_input_tokens: 4000
+tools: []                            # declares nothing, so every tool call is refused
+limits:
+  max_iterations: 1
+  timeout_s: 10
+state_namespace: "cap.rogue"

@@ -1,5 +1,6 @@
-"""validate (README §5.2): deterministic checks on the draft answer. Citations
-must be a subset of this turn's capability sources, and an answer must keep to
+"""validate (README §5.2): deterministic checks on the draft answer. Every citation, the
+ones a capability supplied and the ones page attribution added before this node (owner
+decision C1), must name one of this turn's capability sources, and an answer must keep to
 the writing scripts its locale allows (config/validation.yaml, ADR-0060). The
 answer node has already retried a script failure once (ADR-0061); a failure
 here ends the turn, retracting any text already streamed (ADR-0039). In phase 08
@@ -29,7 +30,7 @@ def validation_issues(
             issues.append("answer_too_long")
         if scripts is not None:
             issues.extend(script_issues(text, scripts))
-    source_ids = {s["id"] for s in sources}
+    source_ids = {s["id"] for s in sources} | {s["document_id"] for s in sources if s.get("document_id")}
     if any(c.get("id") not in source_ids for c in citations):
         issues.append("citation_not_in_sources")
     return issues
@@ -38,9 +39,10 @@ def validation_issues(
 @traced("validate")
 async def validate(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     sources = [s for output in state.get("capability_outputs") or [] for s in output.get("sources", [])]
+    citations = state.get("citations") or []
     issues = validation_issues(
         state.get("draft_answer"),
-        state.get("citations") or [],
+        citations,
         sources,
         scripts=runtime.context.services.validation.scripts_for(state.get("locale") or "en"),
     )
@@ -50,4 +52,7 @@ async def validate(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         span.set_attribute("validate.issues", ",".join(issues))
         retract_streamed(state, runtime, "validation_failed")
         raise TurnError("validation_failed", detail=",".join(issues))
+    span.set_attribute("validate.citations", len(citations))
+    span.set_attribute("validate.cited_pages", sum(len(c["pages"]) for c in citations))
+    # The citations leave from release_answer, after OUTPUT and DATA checked them (S2).
     return {}

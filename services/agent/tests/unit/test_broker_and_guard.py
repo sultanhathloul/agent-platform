@@ -28,14 +28,14 @@ def _spec(handler, *, name="echo", timeout_s=1.0, max_retries=0, permission="cap
     )
 
 
-async def _echo(args: EchoArgs) -> ToolOutput:
+async def _echo(args: EchoArgs, ctx) -> ToolOutput:
     return ToolOutput(content=args.text, sources=[{"id": "s1"}])
 
 
 def _broker(spec) -> ToolBroker:
     registry = ToolRegistry()
     registry.register(spec, capability="demo")
-    return ToolBroker(registry, GuardEngine())
+    return ToolBroker(registry, GuardEngine(), {"demo": [spec.name], "other": []})
 
 
 ALLOWED = Principal(user_id="u", permissions=("cap:demo",))
@@ -65,7 +65,7 @@ async def test_engine_allows_unchanged_without_policies():
 async def test_ok_result_is_normalized_and_events_emitted():
     events = []
     result = await _broker(_spec(_echo)).execute(
-        "echo", {"text": "مرحبا"}, principal=ALLOWED, emit=lambda t, d: events.append((t, d))
+        "echo", {"text": "مرحبا"}, caller="demo", principal=ALLOWED, emit=lambda t, d: events.append((t, d))
     )
     assert (result.status, result.content, result.sources) == ("ok", "مرحبا", [{"id": "s1"}])
     assert [t for t, _ in events] == ["tool_start", "tool_end"]
@@ -75,32 +75,79 @@ async def test_ok_result_is_normalized_and_events_emitted():
 async def test_missing_permission_is_denied_without_running():
     ran = []
 
-    async def handler(args):
+    async def handler(args, ctx):
         ran.append(args)
         return ToolOutput(content="x")
 
-    result = await _broker(_spec(handler)).execute("echo", {"text": "x"}, principal=Principal(user_id="u"))
+    result = await _broker(_spec(handler)).execute(
+        "echo", {"text": "x"}, caller="demo", principal=Principal(user_id="u")
+    )
     assert result.status == "denied" and ran == []
 
 
 async def test_invalid_arguments_are_an_error():
-    result = await _broker(_spec(_echo)).execute("echo", {"wrong": 1}, principal=ALLOWED)
+    result = await _broker(_spec(_echo)).execute("echo", {"wrong": 1}, caller="demo", principal=ALLOWED)
     assert result.status == "error" and "invalid arguments" in result.error
 
 
 async def test_timeout_retries_then_errors():
     calls = []
 
-    async def slow(args):
+    async def slow(args, ctx):
         calls.append(1)
         await asyncio.sleep(1)
         return ToolOutput(content="late")
 
     result = await _broker(_spec(slow, timeout_s=0.05, max_retries=1)).execute(
-        "echo", {"text": "x"}, principal=ALLOWED
+        "echo", {"text": "x"}, caller="demo", principal=ALLOWED
     )
     assert result.status == "error" and "timeout" in result.error
     assert len(calls) == 2 and result.retries == 1
+
+
+async def test_the_scope_comes_from_the_principal_and_the_conversation_never_the_arguments():
+    seen = []
+
+    async def handler(args, ctx):
+        seen.append(ctx.scope)
+        return ToolOutput(content="x")
+
+    principal = Principal(user_id="u-scope", tenant_id="t-scope", permissions=("cap:demo",))
+    result = await _broker(_spec(handler)).execute(
+        "echo", {"text": "x"}, caller="demo", principal=principal, conversation_id="c-1"
+    )
+    assert result.status == "ok"
+    assert [(s.tenant_id, s.user_id, s.conversation_id) for s in seen] == [("t-scope", "u-scope", "c-1")]
+
+
+async def test_a_tool_the_callers_manifest_does_not_declare_is_refused_and_audited():
+    ran, outcomes, events = [], [], []
+
+    async def handler(args, ctx):
+        ran.append(args)
+        return ToolOutput(content="x")
+
+    result = await _broker(_spec(handler)).execute(
+        "echo",
+        {"text": "x"},
+        caller="other",
+        principal=ALLOWED,
+        emit=lambda t, d: events.append(t),
+        on_guard=outcomes.append,
+    )
+    assert (result.status, result.error) == ("denied", "undeclared_tool")
+    assert ran == [] and events == []  # nothing ran, nothing streamed
+    [record] = [e for o in outcomes for e in o.events]
+    assert (record.checkpoint, record.action, record.reason, record.audit_only) == (
+        Checkpoint.PRE_TOOL,
+        "block",
+        "undeclared_tool",
+        True,
+    )
+    assert "other" in record.detail and "echo" in record.detail
+    # A tool that is not registered at all is refused the same way, never a KeyError.
+    missing = await _broker(_spec(handler)).execute("nowhere", {}, caller="demo", principal=ALLOWED)
+    assert (missing.status, missing.error) == ("denied", "undeclared_tool")
 
 
 async def test_duplicate_tool_registration_fails():

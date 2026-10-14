@@ -24,8 +24,11 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.firewall.RequestRejectedHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -33,6 +36,7 @@ import sa.ncai.agent.gateway.GatewayProperties;
 import sa.ncai.agent.gateway.api.ErrorCode;
 import sa.ncai.agent.gateway.api.ErrorResponses;
 import sa.ncai.agent.gateway.api.RequestIdFilter;
+import sa.ncai.agent.gateway.attachments.AttachmentGate;
 
 /** OIDC resource server: Keycloak JWTs checked for signature (JWKS), expiry, issuer and audience. */
 @Configuration(proxyBeanMethods = false)
@@ -43,7 +47,8 @@ public class SecurityConfig {
     };
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, ErrorResponses errors) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ErrorResponses errors, AttachmentGate attachmentGate)
+            throws Exception {
         AuthenticationEntryPoint unauthorized = (request, response, e) -> {
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
             errors.write(request, response, ErrorCode.UNAUTHORIZED);
@@ -64,8 +69,28 @@ public class SecurityConfig {
                         .accessDeniedHandler(forbidden))
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(unauthorized)
-                        .accessDeniedHandler(forbidden));
+                        .accessDeniedHandler(forbidden))
+                // cap:docs, the declared size and the upload rate, before any body is read (R3).
+                .addFilterAfter(attachmentGate, BearerTokenAuthenticationFilter.class);
         return http.build();
+    }
+
+    /** Paths must be written plainly (the verification of review round 2); Spring Security picks this bean up. */
+    @Bean
+    HttpFirewall httpFirewall() {
+        return new PathFirewall();
+    }
+
+    /**
+     * A path the firewall rejects is 400 {@code invalid_request} in the JSON envelope, and the
+     * connection closes, so a rejected upload's body is never read.
+     */
+    @Bean
+    RequestRejectedHandler requestRejectedHandler(ErrorResponses errors) {
+        return (request, response, rejected) -> {
+            response.setHeader(HttpHeaders.CONNECTION, "close");
+            errors.write(request, response, ErrorCode.INVALID_REQUEST);
+        };
     }
 
     /**
