@@ -6,7 +6,7 @@ Purpose: items the owner decided to do later, with enough context that a future 
 
 ## MCP integration → phase 05 (owner decision, 2026-10-12)
 
-Status: first proposed as phase 10; the owner moved it to run right after phase 04. Later phases shift by one (kb 06, web 07, sql 08, tiers/reflection/HITL 09, evaluation and hardening 10), via a README §15 amendment note. Phase 05 scope is trimmed: artifact outputs and long-running tool calls (items 7 and 8 below) wait until after the interrupt/resume phase (now phase 09). No real MCP server is ready yet (owner, 2026-10-12): phase 05 builds the standard against reference MCP servers in the repo; the owner's servers are wired later by configuration and a contract test run. Not started.
+Status: first proposed as phase 10; the owner moved it to run right after phase 04. Phase order since the owner decision of 2026-10-14: Skills 06, Planner 07, kb 08, web 09, sql 10, reflection, tiers, HITL and artifact outputs 11, evaluation and hardening 12 (README §15 amendment note; done-checks in `CLAUDE.md`). Phase 05 scope is trimmed: artifact outputs and long-running tool calls (items 7 and 8 below) move to phase 11, with the interrupt/resume path. No real MCP server is ready yet (owner, 2026-10-12): phase 05 builds the standard against reference MCP servers in the repo; the owner's servers are wired later by configuration and a contract test run. Not started.
 
 ### Why
 The platform has no MCP support. Every tool today is first-party Python inside a capability, executed by `tools/broker.py`. Two needs require MCP:
@@ -25,7 +25,7 @@ The platform has no MCP support. Every tool today is first-party Python inside a
 - **Capabilities stay zero-core-change**: a capability declares the MCP tools it uses in its manifest, like any tool.
 - **One capability per integration, not one generic "all MCP tools" capability.** Each integration gets its own manifest: routing description for the router, its own Keycloak permission (`cap:{slug}`), tier, policies (`tool:{server}.{tool}`), prompts and evals. A single capability exposing every MCP tool to the model would lose per-integration permissions, routing clarity and evaluation.
 - **Secrets** for MCP servers live in `.env` / secret store, never in config files or code.
-- **Process isolation**: the hardening phase (now phase 10) decides process isolation before any third-party code (ADR-0054). MCP servers run as separate processes/services by nature; the platform-side client still runs behind the broker with timeouts and size limits.
+- **Process isolation**: the hardening phase (phase 12) decides process isolation before any third-party code (ADR-0054). MCP servers run as separate processes/services by nature; the platform-side client still runs behind the broker with timeouts and size limits.
 
 ### Scope sketch (to refine into a build prompt)
 1. Platform MCP client as a tool provider of the broker: connect to configured servers, map their tools to broker tools (`tool:{server}.{tool}` policy scope), timeouts, result size caps, audit.
@@ -36,10 +36,10 @@ The platform has no MCP support. Every tool today is first-party Python inside a
 4. Evaluation: the same `rag.jsonl` runs against both backends; the switch is decided on the numbers (retrieval hit@8, citation page accuracy, faithfulness, abstention, latency). OCR cases (scanned PDFs) added for the MCP backend.
 5. **Declarative MCP capability**: a capability made of a manifest, prompts and evals only, no Python. The manifest names the MCP tools, how the model fills their arguments (structured output against the tool's input schema) and how results become findings. Python stays possible when a flow needs custom logic. Adding a simple integration = one `config/mcp.yaml` entry + one capability folder + one Keycloak role.
 6. Reference capability: `routing` (geocode origin and destination, then route) on a reference routing MCP server in the repo with a small fixed Riyadh fixture graph, proving zero core change; the owner's GraphHopper MCP server replaces it by configuration when ready.
-7. **Artifact outputs** (needed by a page-builder agent): a capability may return a file (HTML, later others) instead of, or beside, text. Stored in MinIO, shown in a sandboxed preview (iframe sandbox, strict CSP, never rendered inline in the app), downloadable, passed through runtime DATA policies on its text.
-8. **Long-running tool calls**: an MCP call that takes minutes runs as a background job with progress shown to the user and resumable state (reuses the phase 04 ingestion worker pattern and the interrupt/resume path, now phase 09).
+7. **Artifact outputs** (→ phase 11; needed by a page-builder agent): a capability may return a file (HTML, later others) instead of, or beside, text. Stored in MinIO, shown in a sandboxed preview (iframe sandbox, strict CSP, never rendered inline in the app), downloadable, passed through runtime DATA policies on its text.
+8. **Long-running tool calls** (→ phase 11): an MCP call that takes minutes runs as a background job with progress shown to the user and resumable state (reuses the phase 04 ingestion worker pattern and the interrupt/resume path, phase 11).
 9. Smoke and airgap: internal MCP servers work with egress blocked; external ones are absent from the airgap profile.
-10. **Generalise DocumentScope first** (PR #4 review round 2, finding 1): today evidence is fetched only from the conversation's own files (scope = user + conversation, one backend for every capability). Before kb (phase 06) and the MCP backend: a scope names collections (the session's, and kb collections allowed by the principal's kb:{slug}:read), injected by the broker; evidence is fetched per source's collection and backend; more than one backend is reachable through RuntimeContext. Without this, kb needs a core change.
+10. **Generalise DocumentScope first** (PR #4 review round 2, finding 1): today evidence is fetched only from the conversation's own files (scope = user + conversation, one backend for every capability). Before kb (phase 08) and the MCP backend: a scope names collections (the session's, and kb collections allowed by the principal's kb:{slug}:read), injected by the broker; evidence is fetched per source's collection and backend; more than one backend is reachable through RuntimeContext. Without this, kb needs a core change.
 
 ### Integration contract (ICD) to settle with each MCP server before wiring it
 | Item | Question to answer |
@@ -58,7 +58,58 @@ The platform has no MCP support. Every tool today is first-party Python inside a
 
 ---
 
-## kb phase (phase 06) — carried from phase 04
+## Skills → phase 06 (owner decision, 2026-10-14)
+
+Status: not started. Done-check in `CLAUDE.md` (phase 06).
+
+### What a skill is
+- A skill describes **how** to produce an output or carry out a task: the form, the template, worked examples. It never says **where** information comes from; that stays in capabilities. Example: the docs capability finds the facts in an uploaded file; the "official memo" skill says how the memo is laid out (heading, reference, body, closing, signature block).
+- Skills compose with any capability: the same memo skill works over docs, routing, kb, web or sql findings.
+- A skill is a folder `skills/<slug>/SKILL.md`: name and description in Arabic and English, when to use it, the capabilities or MCP tools it needs, the Keycloak role that may use it. The router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block.
+
+### Principles
+- Written by the development team as files in the repo, through a PR with evals (README §20: prompts are code). No admin editing.
+- No scripts until a sandbox exists (hardening, phase 12). A skill is text only.
+- Text outputs first; file outputs (for example HTML pages) when artifact outputs arrive in phase 11.
+- Adding a skill needs no core change.
+
+### Candidate skills from government work
+- Official memo (reference skill in phase 06).
+- Official letter between entities (reference skill in phase 06).
+- Meeting minutes.
+- Monthly report in the department template.
+- Reply to a citizen enquiry.
+
+---
+
+## Planner → phase 07 (owner decision, 2026-10-14)
+
+Status: not started. Done-check in `CLAUDE.md` (phase 07).
+
+### Why before kb
+The planner fixes the structured-output contract every later capability is built on: a step's inputs may reference an earlier step's outputs, so capabilities declare structured output schemas in their manifests. Building kb, web and sql first would mean retrofitting each of them to that contract.
+
+### Principles
+- Simple requests bypass the planner: single-step routing as today, with no added latency.
+- A plan is a list of steps (capability, MCP tool or skill). Dependent steps run in order, independent ones in parallel. Every step runs through the broker, with the same scope injection and guards as a single-step turn.
+- Step and time budgets. When a step fails, the answer is partial and states what is missing.
+- Plan progress is shown to the user.
+- No human approval until phase 11, which adds approval as a step that can pause a plan.
+- **Privacy**: personal locations or personal data in a plan must never reach an external tool. A PRE_TOOL policy on web and external MCP tools enforces it.
+- **Open owner question**: may home addresses be stored in memory? Today the PII policy covers mobile, ID, IBAN and email, not addresses.
+
+### Reference compound request (owner's example)
+The user uploads a file of companies and their locations, then asks in one message to:
+1. search the file;
+2. search the web for the sources it lists;
+3. find the fastest route from the user's home to company X;
+4. build an HTML page with the result.
+
+Phases it needs: 04 docs (search the file), 05 MCP (routing), 06 skills (the page's form), 07 planner (one plan over the steps), 09 web (the listed sources), 11 artifact outputs (the HTML page). Phase 07's own reference case is the part available by then: docs → routing (reference MCP server) → official memo skill.
+
+---
+
+## kb phase (phase 08) — carried from phase 04
 
 - **DocumentScope generalisation** must land first: see MCP item 10 above (it is scheduled in phase 05). (Source: PROGRESS phase 04, fix session round 2, item 5.)
 - **KB documents need their own record for their chunks**: `agent.rag_chunks.attachment_id` is a foreign key to `agent.attachments` with ON DELETE CASCADE (migration 0010), so a chunk cannot exist without an attachment record. (Source: ADR-0166.)
@@ -67,7 +118,7 @@ The platform has no MCP support. Every tool today is first-party Python inside a
 
 ---
 
-## Hardening phase tech debt (was phase 09, now phase 10 after the MCP shift; notes rather than risks unless stated)
+## Hardening phase tech debt (was phase 09, then phase 10 after the MCP shift, now phase 12 after the 2026-10-14 order; notes rather than risks unless stated)
 
 From phase 03:
 - OUTPUT `rewrite` prompt must carry the policy topic only, never checker detail or the cache marker.
@@ -78,9 +129,9 @@ From phase 03:
 - Actor display names in the policy change log come from the user-editable Keycloak profile; lock name edits or always show the username beside them.
 
 From the phase 03/04 discussions:
-- **Checkpoint history pruning**: about 16 checkpoint rows per turn; keep the latest checkpoint per conversation and any checkpoint awaiting approval (interrupt/resume, now phase 09), prune older ones after a set period. Audit history lives in `gateway.audit_events`, not in checkpoints.
+- **Checkpoint history pruning**: about 16 checkpoint rows per turn; keep the latest checkpoint per conversation and any checkpoint awaiting approval (interrupt/resume, phase 11), prune older ones after a set period. Audit history lives in `gateway.audit_events`, not in checkpoints.
 - **MinIO licensing and distribution** before production: MinIO under a suitable licence, or the entity's existing S3-compatible storage (the code speaks S3, so it is configuration only).
-- **Reranker on GPU in production** (management resource decision). Phase 04 measured (ADR-0184): with rerank off, citation page accuracy 0.91–0.94; with rerank on (16 candidates, 1070 characters) 0.97–1.00, other metrics equal. Rerank is off in development (CPU) and on in production on a GPU (owner decision pending confirmation). Re-measure on large KB documents in phase 06.
+- **Reranker on GPU in production** (management resource decision). Phase 04 measured (ADR-0184): with rerank off, citation page accuracy 0.91–0.94; with rerank on (16 candidates, 1070 characters) 0.97–1.00, other metrics equal. Rerank is off in development (CPU) and on in production on a GPU (owner decision pending confirmation). Re-measure on large KB documents in phase 08.
 - Citation pages on long documents: the two twenty-pages cases miss their page in every run (phase 04 final evals).
 - Some rag cases end in agent_stream_interrupted when rerank is slow (phase 04 Q1 runs); check stream timeouts against retrieval latency.
 - Refused upload attempts (400 invalid path, 408, 413, 429) are not audited (ADR-0189 to ADR-0191 era); add rate-limited audit entries or metrics so abuse attempts are visible.

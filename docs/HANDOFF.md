@@ -30,12 +30,12 @@ Purpose: everything about our working method that is not in `README.md`, `CLAUDE
 
 From phase 01:
 - **Two review rounds per phase, maximum.** Findings after round 2 become tech debt for the next phase, unless they reproduce a cross-user data leak under the threat model.
-- **Threat model first (ADR-0054).** Capabilities are trusted first-party code; isolation defends against bugs and accidental coupling, not deliberate attack. Every review prompt states this. Process-level isolation is the phase-10 option before any third-party capability.
+- **Threat model first (ADR-0054).** Capabilities are trusted first-party code; isolation defends against bugs and accidental coupling, not deliberate attack. Every review prompt states this. Process-level isolation is the phase-12 option before any third-party capability.
 - **Merge when the remaining findings need a different layer**, not when the reviewer runs out of ideas.
 - **Contracts get the attention:** state schema, ContextPackage, capability contract, policy engine, tier resolver. Everything else is ordinary code.
 
 From phase 03:
-- **What reopens a PR after round 2:** only a working path that exposes one user's text or data to another user or tenant. A same-tenant yes/no signal about a text the user must guess word for word (timing, cache hits) is recorded as a note in phase 10 tech debt (`docs/BACKLOG.md`) and never reopens the PR.
+- **What reopens a PR after round 2:** only a working path that exposes one user's text or data to another user or tenant. A same-tenant yes/no signal about a text the user must guess word for word (timing, cache hits) is recorded as a note in phase 12 tech debt (`docs/BACKLOG.md`) and never reopens the PR.
 - **Owner adds scope → decisions session before review**, so the new contract gets a full review, not a restricted round 2.
 - **Ground rules live in the repo**, never only in the prompt: permanent ones in `CLAUDE.md` (rule 11: test counts per layer), phase-specific ones in that phase's section of `PROGRESS.md`. A reviewer cannot check what it cannot read.
 - **Every prompt states the implementation choices already made** (as "decided, do not reopen"), so the build session does not fill gaps with its own assumptions on contracts.
@@ -68,7 +68,7 @@ OUT OF SCOPE: <items>
 END OF SESSION: update PROGRESS per CLAUDE.md rule 11; list files for human review. Do not touch docs/HANDOFF.md.
 Do not touch anything outside this phase's scope. Stop when the done-check passes.
 ```
-Section map: 05 → `docs/BACKLOG.md` (MCP integration), §10.3, §18 · 06 → §9.4, §11, §18 · 07 → §9.2, §10.3 · 08 → §9.1, §20 · 09 → §5.2, §19 · 10 → §12, §18.5.
+Section map: 05 → `docs/BACKLOG.md` (MCP integration), §10.3, §18 · 06 → `docs/BACKLOG.md` (Skills), §18, §20 · 07 → `docs/BACKLOG.md` (Planner), §5.2, §18 · 08 → §9.4, §11, §18 · 09 → §9.2, §10.3 · 10 → §9.1, §20 · 11 → §5.2, §19 · 12 → §12, §18.5.
 
 **Owner decisions (after build, before review):**
 ```
@@ -140,6 +140,12 @@ Phase 04:
 - **Rerank switch (ADR-0184, ADR-0187).** Measured: off, citation page accuracy 0.91–0.94 and `rag.retrieve` p50 0.13 s; on with 16 candidates on their first 1070 characters, 0.97–1.00 and p95 about 5.6 s on CPU; other metrics equal. Chosen: off in development; on (16, 1070) in production on a GPU, set in `.env`.
 - **MCP moved to phase 05** (owner, 2026-10-12), built against reference MCP servers in the repo because no real server is ready; later phases shift by one (README §15 amendment, `docs/BACKLOG.md`).
 
+Phase order (owner, 2026-10-14):
+- **New order:** 05 MCP · 06 Skills · 07 Planner · 08 kb · 09 web · 10 sql · 11 reflection, tiers, HITL and artifact outputs · 12 evaluation and hardening (README §15 amendment, `CLAUDE.md` phase table, `docs/BACKLOG.md`).
+- **Skills are a layer over capabilities.** A skill says how to shape an output (form, template, examples), never where information comes from. Developer-written files in the repo, through a PR with evals; no admin editing; no scripts until a sandbox exists; text outputs first.
+- **The planner comes before kb** because it sets the structured-output contract every later capability is built on; simple requests bypass it.
+- **Reflection, tiers, approvals and artifact outputs move to phase 11**, with long-running tool calls (MCP items 7 and 8); approval becomes a step that can pause a plan.
+
 ## Owner checklist each phase
 
 - Read: `config/prompts/**`, `config/policies/**`, `config/models.yaml`, `config/semantic-layer/**`, `infra/keycloak/realm-export.json`, `infra/litellm/config.yaml`, `evals/thresholds.yaml`, new migrations.
@@ -171,8 +177,8 @@ Phase 04:
 - Dev model tiers on OpenRouter via `.env` (ADR-0065). No real or ministry data in dev. Rerank off in dev; production setting in `.env.example` (on, 16, 1070, GPU host).
 - Tech debt, all in `docs/BACKLOG.md`:
   - into phase 05: `DocumentScope` generalised to collections and several backends (MCP item 10); partly scanned PDFs for the OCR cases;
-  - into phase 06: KB chunk records, `kb:`/`tool:` exceptions at OUTPUT/DATA, reranker re-measured on large KB documents;
-  - into phase 10: the hardening list (phase 03 notes, checkpoint pruning, MinIO licensing, reranker on GPU, long-document citations, stream timeouts, unaudited refused uploads, slow requests on non-upload paths, provider 429 mid-stream, upload limits in one gateway's memory, docs latency re-measurement).
+  - into phase 08: KB chunk records, `kb:`/`tool:` exceptions at OUTPUT/DATA, reranker re-measured on large KB documents;
+  - into phase 12: the hardening list (phase 03 notes, checkpoint pruning, MinIO licensing, reranker on GPU, long-document citations, stream timeouts, unaudited refused uploads, slow requests on non-upload paths, provider 429 mid-stream, upload limits in one gateway's memory, docs latency re-measurement).
 - Management decisions pending: in `docs/PHASE-04-SUMMARY.md` and `docs/BACKLOG.md`.
 - **Next: phase 05 build prompt** (MCP integration; branch `phase/05-mcp`).
 
