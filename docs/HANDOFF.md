@@ -1,6 +1,6 @@
 # HANDOFF.md — how Sultan and Claude (chat) run this project
 
-Purpose: everything about our working method that is not in `README.md`, `CLAUDE.md`, `docs/DECISIONS.md` or `docs/PROGRESS.md`. A new chat session with Claude starts by reading those four files plus this one and the latest phase summaries (`docs/PHASE-02-SUMMARY.md`, `docs/PHASE-03-SUMMARY.md`). Nothing from earlier chat transcripts is needed.
+Purpose: everything about our working method that is not in `README.md`, `CLAUDE.md`, `docs/DECISIONS.md` or `docs/PROGRESS.md`. A new chat session with Claude starts by reading `README.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md`, this file, `docs/BACKLOG.md` (decided future work not yet in a phase prompt) and the latest two phase summaries (`docs/PHASE-03-SUMMARY.md`, `docs/PHASE-04-SUMMARY.md`). Nothing from earlier chat transcripts is needed.
 
 ## Roles
 
@@ -30,17 +30,28 @@ Purpose: everything about our working method that is not in `README.md`, `CLAUDE
 
 From phase 01:
 - **Two review rounds per phase, maximum.** Findings after round 2 become tech debt for the next phase, unless they reproduce a cross-user data leak under the threat model.
-- **Threat model first (ADR-0054).** Capabilities are trusted first-party code; isolation defends against bugs and accidental coupling, not deliberate attack. Every review prompt states this. Process-level isolation is the phase-09 option before any third-party capability.
+- **Threat model first (ADR-0054).** Capabilities are trusted first-party code; isolation defends against bugs and accidental coupling, not deliberate attack. Every review prompt states this. Process-level isolation is the phase-12 option before any third-party capability.
 - **Merge when the remaining findings need a different layer**, not when the reviewer runs out of ideas.
 - **Contracts get the attention:** state schema, ContextPackage, capability contract, policy engine, tier resolver. Everything else is ordinary code.
 
 From phase 03:
-- **What reopens a PR after round 2:** only a working path that exposes one user's text or data to another user or tenant. A same-tenant yes/no signal about a text the user must guess word for word (timing, cache hits) is recorded as a note in phase 09 tech debt and never reopens the PR.
+- **What reopens a PR after round 2:** only a working path that exposes one user's text or data to another user or tenant. A same-tenant yes/no signal about a text the user must guess word for word (timing, cache hits) is recorded as a note in phase 12 tech debt (`docs/BACKLOG.md`) and never reopens the PR.
 - **Owner adds scope → decisions session before review**, so the new contract gets a full review, not a restricted round 2.
 - **Ground rules live in the repo**, never only in the prompt: permanent ones in `CLAUDE.md` (rule 11: test counts per layer), phase-specific ones in that phase's section of `PROGRESS.md`. A reviewer cannot check what it cannot read.
 - **Every prompt states the implementation choices already made** (as "decided, do not reopen"), so the build session does not fill gaps with its own assumptions on contracts.
 - **The tool, not the content.** A phase delivers a manageable tool; which policies, prompts or topics are enabled, and their wording, are management decisions taken at activation and edited from the admin UI. Eval cases are not content: they measure the tool, so their labels are checked.
 - **Visual check before merge.** Tests do not catch mixed-direction text, untranslated labels or admin forms that need code. Screenshots of every touched page go to Claude chat before merge.
+
+From phase 04:
+- **Commit the phase build prompt** as `docs/PHASE-NN-BUILD-PROMPT.md` on `main` before branching; the reviewer checks the branch against it.
+- **One consolidated review report.** Review sessions may report in parts when subagents finish late; ask the review session for one consolidated report before writing the fix prompt.
+- **Owner product principles:**
+  - Guard policies run at runtime, per principal, never at ingestion (ADR-0158).
+  - Capabilities stay independent: context only from their manifest (`context.needs`, ADR-0161), tools only those they declare (ADR-0160).
+  - No deletion in the product; operations handle legal requests (ADR-0166).
+  - Integrations are standardised behind interfaces: `DocumentBackend` (ADR-0159); MCP only through the broker (`docs/BACKLOG.md`).
+- **Verification starts from `make clean && make models && make up`**, with nothing started by hand.
+- **Eval cadence:** build sessions and intermediate fix sessions run `make eval` once; the last session before merge runs it three times. Each run's results are kept in `build/evals/` (ADR-0188), because `make clean` wipes Langfuse.
 
 ## Prompt templates
 
@@ -57,7 +68,7 @@ OUT OF SCOPE: <items>
 END OF SESSION: update PROGRESS per CLAUDE.md rule 11; list files for human review. Do not touch docs/HANDOFF.md.
 Do not touch anything outside this phase's scope. Stop when the done-check passes.
 ```
-Section map: 04 → §9.3, §18 · 05 → §9.4, §11, §18 · 06 → §9.2, §10.3 · 07 → §9.1, §20 · 08 → §5.2, §19 · 09 → §12, §18.5.
+Section map: 05 → `docs/BACKLOG.md` (MCP integration), §10.3, §18 · 06 → `docs/BACKLOG.md` (Skills), §18, §20 · 07 → `docs/BACKLOG.md` (Planner), §5.2, §18 · 08 → §9.4, §11, §18 · 09 → §9.2, §10.3 · 10 → §9.1, §20 · 11 → §5.2, §19 · 12 → §12, §18.5.
 
 **Owner decisions (after build, before review):**
 ```
@@ -121,6 +132,20 @@ Phase 03:
 - **Seed topics are examples in the Saudi government context**, disabled: political opinions (assessing government decisions or officials, foreign policy, favouring states or parties; neutral explanation allowed) and sectarian/tribal comparisons. Wording is management's at activation.
 - **Policy admin is code-free.** Structured editors per checker; JSON only behind "إعدادات متقدمة". Arabic names and descriptions with no Latin tokens inside sentences; technical ids appear only in chips.
 
+Phase 04:
+- **Simple page citations (ADR-0140, ADR-0163, ADR-0183).** Under the answer: file name and pages, nothing inline, no markers, no preview panel. The question's words are dropped before attribution, so an answer that only restates the question cites nothing.
+- **No deletion and no expiry of uploads (ADR-0166).** Files stay; an operator deletes on request with the steps in PROGRESS (phase 04, fix session round 1).
+- **`DocumentBackend` (ADR-0159).** The docs capability talks to one interface (register, status, search, fetch, within a scope the broker builds from the principal); the internal pipeline is one implementation, so the owner's RAG/OCR service can replace it by configuration.
+- **Ingestion in its own service (ADR-0176), a child process per file** with CPU, memory and time limits; the gateway parses no document (ADR-0186).
+- **Rerank switch (ADR-0184, ADR-0187).** Measured: off, citation page accuracy 0.91–0.94 and `rag.retrieve` p50 0.13 s; on with 16 candidates on their first 1070 characters, 0.97–1.00 and p95 about 5.6 s on CPU; other metrics equal. Chosen: off in development; on (16, 1070) in production on a GPU, set in `.env`.
+- **MCP moved to phase 05** (owner, 2026-10-12), built against reference MCP servers in the repo because no real server is ready; later phases shift by one (README §15 amendment, `docs/BACKLOG.md`).
+
+Phase order (owner, 2026-10-14):
+- **New order:** 05 MCP · 06 Skills · 07 Planner · 08 kb · 09 web · 10 sql · 11 reflection, tiers, HITL and artifact outputs · 12 evaluation and hardening (README §15 amendment, `CLAUDE.md` phase table, `docs/BACKLOG.md`).
+- **Skills are a layer over capabilities.** A skill says how to shape an output (form, template, examples), never where information comes from. Developer-written files in the repo, through a PR with evals; no admin editing; no scripts until a sandbox exists; text outputs first.
+- **The planner comes before kb** because it sets the structured-output contract every later capability is built on; simple requests bypass it.
+- **Reflection, tiers, approvals and artifact outputs move to phase 11**, with long-running tool calls (MCP items 7 and 8); approval becomes a step that can pause a plan.
+
 ## Owner checklist each phase
 
 - Read: `config/prompts/**`, `config/policies/**`, `config/models.yaml`, `config/semantic-layer/**`, `infra/keycloak/realm-export.json`, `infra/litellm/config.yaml`, `evals/thresholds.yaml`, new migrations.
@@ -130,7 +155,11 @@ Phase 03:
 - `.env` must hold `CONTENT_HASH_KEY` (`openssl rand -hex 32`); the agent does not start without it.
 - After any model swap: `make eval` three times, record the scores.
 - After a change to seed policies, the smoke policy-row reference may need a reset once: `rm build/smoke/policy-rows` (tech debt, phase 04).
-- Once per phase before merge: `make smoke` on the offline profile, with the internet disconnected after images and models are pulled (ADR-0065, ADR-0066). Replaced by `make smoke-airgap` from phase 04.
+- `make models` before `make up`: the reranker's weights live on the external volume `rerank-models`, which `make clean` keeps (ADR-0179).
+- After editing a LiteLLM config file (`infra/litellm/config.yaml`, `config.mock.yaml`): `docker compose up -d --force-recreate litellm`; a plain `up` keeps the stale config.
+- Once per phase before merge: `make smoke-airgap` (egress blocked for every container but `litellm`, ADR-0147) is the isolation check; it replaces the manual offline-profile run.
+- Stop any helper container started by hand (for example a `socat` port-forward) before a build or review session.
+- Model profiles (ADR-0065, ADR-0066):
   - Offline: the `.env.example` model values (`FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `EMBED_API_BASE`, `MODEL_API_KEY=`), `make models`, `make up`; then disconnect, `docker compose restart`, `make smoke`.
   - OpenRouter (development only): the block in README §21.4, then `make up`.
 - Evals run as the seed user `evaluator`, with memory switched off by `run_evals.py` (ADR-0074); the guardrails suite runs as `admin` through the policy test endpoint.
@@ -139,33 +168,27 @@ Phase 03:
 
 ## Current status (update by hand)
 
-- **Phase 03: merged to `main` (PR #3) on 11 Oct 2026.** Build; owner-decisions session (role scope through `policy:*` roles); review round 1; fix; narrow fix; review round 2 (one cross-tenant finding: judge cache); two narrow fixes with restricted verifications; final verification: no findings. Then seed/eval session and two UI sessions from the owner's visual check.
-- Results at merge: agent 509, gateway 91, gateway-db 5, web 125 (0 failed, 0 skipped); smoke 76/76; eval guardrails 142/142, general 28/28.
-- TTFT p50 (n=20): the sentence buffer adds 0.27 s (one sentence) and 0.69 s (five sentences) against phase 02; buffered mode 4.86 s against 2.23 s streaming on five sentences.
-- Dev model tiers on OpenRouter via `.env` (ADR-0065). No real or ministry data in dev.
-- Tech debt into phase 04:
-  - README §6.1 amendment: the relay rebuilds the terminal event (strips `guard_audit`) and drops incomplete events.
-  - `make smoke-airgap`: egress blocked for every container except `litellm`; replaces the offline-profile run.
-  - kb:/tool: exceptions at OUTPUT/DATA stay refused until per-source attribution; revisit with the docs capability.
-  - Smoke policy-row check: compare counts before and after within one run, not across runs.
-- Tech debt into phase 09 (notes, not risks):
-  - OUTPUT `rewrite` prompt must carry the policy topic only, never checker detail or the cache marker.
-  - Same-tenant timing of cached judge verdicts (ADR-0118).
-  - Asynchronous memory write (7.9 s before `done`, measured in phase 02).
-  - Production realm export without seed users or passwords.
-  - Role removal takes effect only when the 300 s access token expires.
-  - Actor display names in the policy change log come from the user-editable Keycloak profile; lock name edits or always show the username beside them.
-- Known residual: PII split across lines by the model is caught by the final whole-answer pass and retracted, so it can be visible briefly before the retract.
-- Management decisions pending (in `docs/PHASE-03-SUMMARY.md`): which topic policies to enable at go-live, at which checkpoints; memory retention; production model hosting.
-- **Next: phase 04 build prompt** (UC3 documents; README §9.3, §18; branch `phase/04-docs`).
+- **Phase 04: merged to `main` (PR #4) on 14 Oct 2026.** Build (stopped once under G5; owner approved three core changes: page citations, trace placeholders, the `conversation_attachments` routing rule); review round 1 (main report and three addenda); fix session (ADR-0158 to ADR-0184); review round 2; fix session (ADR-0185 to ADR-0188); verification of round 2 found an upload gate bypass; narrow fix (ADR-0189 to ADR-0191).
+- Results at merge (`docs/PROGRESS.md`, narrow fix of 2026-10-14, rule 11):
+  - `make test`: agent 689 / 0 / 0, gateway 125 / 0 / 0, gateway-db 5 / 0 / 0, web 139 / 0 / 0, evals harness 6 / 0 / 0 (passed / failed / skipped).
+  - `make smoke` 111/111; `make smoke-airgap` 116/116.
+  - `make eval`, run `make-eval-20261014T122845Z` (`build/evals/make-eval-20261014T122845Z.json`): general 28/28, guardrails 142/142 (deterministic 1.00 on 89, judge 1.00 and FPR 0.00 on 53), routing 33/34 (0.97; the miss was an OpenRouter 429 mid-stream), rag 51/53 (hit@8 1.00, citation page accuracy 0.94, faithfulness 0.95, answer correctness 0.87, abstention 1.00; `rag.retrieve` p50 0.13 s, p95 0.15 s, rerank off). The last three-run set (2026-10-12, round 1 fix) passed all four suites each time.
+  - Build measurements (E3, rerank on at the time): time to indexed p50 2.42 s; docs answer TTFT p50 7.72 s, p95 8.13 s. Not re-measured with rerank off.
+- Dev model tiers on OpenRouter via `.env` (ADR-0065). No real or ministry data in dev. Rerank off in dev; production setting in `.env.example` (on, 16, 1070, GPU host).
+- Tech debt, all in `docs/BACKLOG.md`:
+  - into phase 05: `DocumentScope` generalised to collections and several backends (MCP item 10); partly scanned PDFs for the OCR cases;
+  - into phase 08: KB chunk records, `kb:`/`tool:` exceptions at OUTPUT/DATA, reranker re-measured on large KB documents;
+  - into phase 12: the hardening list (phase 03 notes, checkpoint pruning, MinIO licensing, reranker on GPU, long-document citations, stream timeouts, unaudited refused uploads, slow requests on non-upload paths, provider 429 mid-stream, upload limits in one gateway's memory, docs latency re-measurement).
+- Management decisions pending: in `docs/PHASE-04-SUMMARY.md` and `docs/BACKLOG.md`.
+- **Next: phase 05 build prompt** (MCP integration; branch `phase/05-mcp`).
 
 ## How to resume with Claude (chat)
 
-Open a new chat and attach `docs/HANDOFF.md`, `docs/PHASE-02-SUMMARY.md`, `docs/PHASE-03-SUMMARY.md`, `docs/PROGRESS.md`, `docs/DECISIONS.md`, `README.md` and `CLAUDE.md`. Opening message:
+Open a new chat and attach `README.md`, `CLAUDE.md`, `docs/HANDOFF.md`, `docs/BACKLOG.md`, `docs/PHASE-03-SUMMARY.md`, `docs/PHASE-04-SUMMARY.md`, `docs/PROGRESS.md` and `docs/DECISIONS.md`. Opening message:
 
 ```
 نكمل مشروع agent-platform من ملف التسليم.
-اقرأ HANDOFF.md أولًا (الأدوار، دورة العمل، القواعد المتعلمة، قوالب الأوامر، الحالة الحالية)، ثم ملخصي المرحلتين الثانية والثالثة، ثم PROGRESS.md وDECISIONS.md، ثم README.md وCLAUDE.md لمعايير المرحلة القادمة.
+اقرأ HANDOFF.md أولًا (الأدوار، دورة العمل، القواعد المتعلمة، قوالب الأوامر، الحالة الحالية)، ثم BACKLOG.md، ثم ملخصي المرحلتين الثالثة والرابعة، ثم PROGRESS.md وDECISIONS.md، ثم README.md وCLAUDE.md لمعايير المرحلة القادمة.
 التزم بتفضيلاتي: المصطلحات الإنجليزية في سطر مستقل أو داخل backticks، مثال مبسط مع كل شرح، ولا تعرض عليّ إلا قرارات النطاق أو المنتج.
 المطلوب: <الخطوة التالية من قسم Current status>.
 ```

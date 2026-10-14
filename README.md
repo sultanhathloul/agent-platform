@@ -477,6 +477,8 @@ Seed policies in `config/policies/`:
 
 ## 15. Delivery plan (build in this order; each phase ends green)
 
+> **Amendment 2026-10-12, revised 2026-10-14 (owner decisions, phase order).** MCP integration is inserted as phase 5, right after UC3 documents, followed by two new phases, Skills and Planner; the later phases shift. The build order is now: 1 Skeleton & platform, 2 State, Context Assembly, Memory, 3 Guardrails engine, 4 UC3 documents, **5 MCP integration**, **6 Skills**, **7 Planner**, 8 UC4 KB plugins, 9 UC2 web, 10 UC1 Text-to-SQL, 11 Reflection, model routing, HITL and artifact outputs, 12 Evaluation & hardening. The scope of phases 5, 6 and 7 is in `docs/BACKLOG.md` ("MCP integration", "Skills", "Planner"); every done-check is in `CLAUDE.md`. The list below keeps its original numbering.
+
 1. **Skeleton & platform** — repo layout, compose with postgres/redis/keycloak/litellm/minio/langfuse, health checks, `make up`, seed users. Gateway validates JWT; web logs in; **capability registry + `run_capabilities` node** with the `general` capability only, full tracing. *Done when: a logged-in user gets a streamed answer with a Langfuse trace showing context blocks.*
 2. **State, Context Assembly, Memory** — full `AgentState`, checkpointer, assembler pipeline with budget logging, summarizer, memory write/retrieve + settings page, context debug endpoint.
 3. **Guardrails engine** — policy model, 7 checkpoints, `regex`, `presidio` (Saudi recognizers), `keyword_list`, `llm_judge` checkers, admin policy UI, `guardrails.jsonl` evals.
