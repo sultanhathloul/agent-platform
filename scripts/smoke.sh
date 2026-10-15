@@ -733,7 +733,8 @@ RESTORE_ROUTING=1
 docker compose stop mcp-routing-ref >/dev/null
 chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "كم المسافة من برج المملكة إلى بوليفارد رياض سيتي بالسيارة؟" "$TMP/routing-down.jsonl"
 check "the directions turn completes with done" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["directions"]' "$TMP/routing-down.jsonl"
-check "its tool call ended in error, not a crash" jq -se '[.[] | select(.type == "tool_end")][0].status == "error"' "$TMP/routing-down.jsonl"
+mkdir -p build/smoke && cp "$TMP/routing-down.jsonl" build/smoke/routing-down.jsonl   # kept for diagnosis
+check "its tool call ended in error, not a crash" jq -se '[.[] | select(.type == "tool_end")] | length > 0 and all(.data.status == "error")' "$TMP/routing-down.jsonl"
 check "the answer says the service is unavailable, in Arabic" jq -se 'last.data.answer | test("غير متاح")' "$TMP/routing-down.jsonl"
 printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/routing-down.jsonl" | head -2 | tr '\n' ' ')"
 started=$SECONDS
