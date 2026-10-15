@@ -1341,7 +1341,7 @@ Files for human review: `services/agent/app/db/migrations/0011_conversation_list
 ## Phase 05: MCP integration
 
 - Branch: `phase/05-mcp`
-- Status: in progress (session 2026-10-15)
+- Status: done-check passed on 2026-10-15; awaiting owner review (PR)
 - Done when (CLAUDE.md, phase 05 row): MCP client as a broker tool provider with the `config/mcp.yaml` allowlist; declarative MCP capability (manifest, prompts and evals, no Python); reference MCP servers in compose; a routing capability (slug `directions`, I14) on the reference routing server with zero core change; `MCPDocumentBackend` passes the `DocumentBackend` contract suite against the reference RAG MCP server and `rag.jsonl` runs on both backends; every MCP call guarded and audited through the broker; internal servers work under `smoke-airgap`; external servers disabled. Plus: `DocumentScope` generalised (BACKLOG MCP item 10) before any MCP code; D7 (partly scanned PDFs indexed with a warning); A2 (smoke flake); `make test`, `make eval` (general, guardrails, rag on both backends, routing, directions), `make smoke` and `make smoke-airgap` green.
 - Baseline on `main` at the start (2026-10-15, rule 11): agent 700, gateway 136, gateway-db 5, web 145, evals harness 6 (passed; 0 failed, 0 skipped); `make smoke` 119/119. No layer may end with fewer passing tests unless an ADR names each removed test and why.
 - Carried from phase 04 (PR #4 review round 2, finding 1): the evidence path reaches only the conversation's own files, so `kb` as specified would need core changes. Generalise `DocumentScope` beyond `(tenant, user, conversation)` to name a collection, including the `kb_{slug}` collections the principal's `kb:{slug}:read` roles allow, injected by the broker from the verified principal (never a tool argument, S1/ADR-0160); `graph/evidence.py` fetches each source's text through the backend and scope that found it, not one fixed conversation scope; and `RuntimeContext` can carry more than one backend (the internal pipeline plus the owner's KB/RAG service) so a capability's tool reaches the right one. This keeps S4 (no chunk text in state) and C6 (one backend interface) intact. Scheduled here as Part B1 (I1).
@@ -1381,11 +1381,42 @@ Checklist:
 - [x] E3 `keyword_candidate` routing rule.
 - [x] F1 web: tool labels from `tool_start`, D7 badge, new error messages; ar.json and en.json.
 - [x] API 2.1.0 → 2.2.0 (agent, gateway, events schema); `make openapi`.
-- [ ] G1 evals: routing.jsonl +20 cases; directions suite and thresholds; rag on both backends side by side; 429 backoff with retry counts.
-- [ ] G2 smoke checks (directions, history, viewer, undeclared tool, server down and recovery, injection, MCP backend upload, partly scanned warning, airgap networks).
-- [ ] G3 measurements (n=20, p50/p95, rerank off).
-- [ ] H1 README amendments (§20.4, §6.2/§6.3, §18.2, §5.3), BACKLOG marks, CLAUDE.md phase 05 row names `directions`.
-- [ ] `make test`, `make eval`, `make smoke`, `make smoke-airgap`; results per rule 11 and G1.
+- [x] G1 evals: routing.jsonl +20 cases; directions suite and thresholds; rag on both backends side by side; 429 backoff with retry counts.
+- [x] G2 smoke checks (directions, history, viewer, undeclared tool, server down and recovery, injection, MCP backend upload, partly scanned warning, airgap networks).
+- [x] G3 measurements (n=20, p50/p95, rerank off).
+- [x] H1 README amendments (§20.4, §6.2/§6.3, §18.2, §5.3), BACKLOG marks, CLAUDE.md phase 05 row names `directions`.
+- [x] `make test`, `make eval`, `make smoke`, `make smoke-airgap`; results per rule 11 and G1.
+
+What was built:
+- Core, capability-agnostic: `DocumentScope`/`ToolScope` name collections, built by the broker from the principal, the turn's selected KBs and the manifest's `documents.collections` (app/rag/collections.py); `Source.backend`/`collection`; evidence fetched per source; backends by name; D7 warnings (migrations 0012, 0013). MCP client `app/mcp/` (config, capped transport, pooled sessions, pinning, breaker, broker provider, `make mcp-hashes`); content-free `tool_audit` in the audit record; `tool:{server}.*` scopes; external-server gate. Declarative runner `app/capabilities/declarative.py`; `keyword_candidate` rule. `MCPDocumentBackend` (app/rag/mcp.py).
+- Reference servers `infra/mcp-ref` (mcp-routing-ref, mcp-rag-ref), compose services, `postgres-roles`, internal network `mcp`, airgap overlay.
+- `capabilities/directions/` (manifest, prompts ar/en, 27 evals), no Python; the commit that adds it (1109b7b) touches only the allowed paths (checked with `git diff --name-only`).
+- Gateway: `tool_audit` stripped and audited as `tool_calls`; attachment `warnings`; error codes; API 2.2.0. Web: tool labels, D7 badge. Smoke +39 checks; airgap check names the servers. Harness: rag@mcp, directions metrics, 429 backoff.
+
+Results (rule 11, G1):
+- `make test` (final, after the last change): agent 770 / 0 / 0, gateway 138 / 0 / 0, gateway-db 5 / 0 / 0, web 148 / 0 / 0, evals harness 10 / 0 / 0 (passed / failed / skipped). Every layer is above the baseline (700, 136, 5, 145, 6); no test was removed.
+- `make smoke`: 158/158 (119 earlier, 39 new). Two earlier runs this session failed: one on a smoke check of my own (a regex took the byte count 1207 for the distance 12.7; fixed to fixed strings), and one on "its tool call ended in error" in the server-down step, whose events were deleted with smoke's temp folder; reproduced by hand it behaved correctly (tool_end error, the Arabic unavailable answer). The check now accepts every tool_end of that turn being an error and keeps the events in build/smoke/. Also one run failed "the answer gives the fixture's duration": the answer model gave only the distance asked for; directions.findings 1.1.0 asks for both (5/5 samples then gave both).
+- `make smoke-airgap`: 165/165 (7 airgap layout checks, including both reference servers on internal networks only and the agent on the airgap MCP profile, plus the 158 smoke checks).
+- `make eval`, run `make-eval-20261015T122036Z` (build/evals/make-eval-20261015T122036Z.json), rerank off, 0 provider retries in every suite:
+  - general 28/28; guardrails 142/142 (deterministic 1.00 on 89, judge accuracy 1.00 and FPR 0.00 on 53); routing 57/57.
+  - rag (internal) 53/53: hit@8 1.00, citation page accuracy 1.00, faithfulness 0.93, answer correctness 0.90, abstention 1.00; `rag.retrieve` p50 0.13 s, p95 0.15 s.
+  - rag@mcp 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.95, answer correctness 0.89, abstention 1.00; search p50 0.14 s, p95 0.15 s (the MCP backend's `rag.retrieve` span, server round trip). The two misses are twenty-pages citation pages (`twenty-past-truncation-p3`, `-p18`), the known long-document item.
+  - directions FAILED in that run: places resolved 0.88, distance and duration 0.88, unknown or ambiguous 0.57, injection 0.67. Four questions held none of I15's keywords and went to general; «الجامعة»/«الحديقة» were read as unknown, not ambiguous. Fixed in the capability folder (walking and travel-time keywords) and the reference geocoder (stem matching), then the two suites were rerun:
+- Rerun `make-eval-20261015T130421Z` (build/evals/make-eval-20261015T130421Z.json), directions and routing only: directions 26/27, places resolved 0.94, distance and duration 0.94, unknown or ambiguous 1.00, injection no effect 1.00, all ≥ threshold; routing 55/57 (0.96 ≥ 0.90; two turns ended `validation_failed`, the answer's script check, not routing). The one directions miss was `capability_failed` (the 45 s capability limit, on a slow extract call); the limit is now 60 s, as docs, and was not re-evaluated after that change.
+
+Measurements (G3, n=20, rerank off, OpenRouter development tiers):
+- directions answer: TTFT p50 2.86 s, p95 4.01 s; terminal event p50 3.59 s, p95 4.98 s.
+- MCP calls through the broker (tool_end latency, PRE_TOOL + Streamable HTTP + POST_TOOL; the reference server's own work is a graph lookup): routing.geocode p50 11 ms, p95 18 ms (n=40); routing.route p50 11 ms, p95 12 ms.
+- docs, internal backend: time to indexed (20-page PDF) p50 3.78 s, p95 3.83 s; retrieve p50 0.13 s, p95 0.15 s; answer TTFT p50 1.81 s, p95 3.38 s. This closes the BACKLOG item "docs latency not re-measured with rerank off".
+- docs, MCP backend: time to indexed p50 3.07 s, p95 3.16 s; search p50 0.14 s, p95 0.15 s; answer TTFT p50 1.53 s, p95 3.68 s.
+
+Left / for the owner:
+- ADR-0220 (directions declares `[window, findings]`, I14 said `[window]`) needs confirmation.
+- The I15 keyword list was extended in the manifest (walking, travel time, "how do I get", "get to"); the owner may prefer another list.
+- A full `make eval` after the last two directions changes was not run (eval cadence: once per session; three runs before merge).
+- The running Keycloak got `cap:directions` through kcadm; the realm export has it for a fresh volume (`make clean && make up`).
+
+Files for human review: config/mcp.yaml, config/docs.yaml, capabilities/directions/manifest.yaml and prompts/**, infra/mcp-ref/** (servers, fixture.yaml), docker-compose.yml, docker-compose.airgap.yml, infra/postgres/roles/rag-ref.sh, minio-init's new user, infra/keycloak/realm-export.json, evals/golden/routing.jsonl, capabilities/directions/evals/**, evals/thresholds.yaml, config/messages/errors.yaml, migrations 0012 and 0013, docs/openapi/*.json, docs/events.schema.json, .env.example.
 
 ## Phase 06: Skills
 
