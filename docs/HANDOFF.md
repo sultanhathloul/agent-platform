@@ -117,7 +117,7 @@ Phases 01–02:
 - **ADR-0025, `tool:{name}` is a policy scope; `cap:{slug}` is a permission.**
 - **§20, prompts are code.** Versioned files; a prompt change is a PR showing the eval delta. No admin UI for prompts.
 - **ADR-0047–0054, capability isolation** = one exception/return firewall in the core + data-only (JSON) boundary + graph compiled by the core + lint. Never a list of banned APIs; never capability discipline.
-- **API version** stays put while changes have not left an unmerged PR (now written into CLAUDE.md). Current: agent and gateway 1.3.0.
+- **API version** stays put while changes have not left an unmerged PR (now written into CLAUDE.md). Current: agent and gateway 2.1.0 (2026-10-15).
 
 Phase 03:
 - **Streaming vs guards (ADR-0039 full fix).** DATA and OUTPUT redact run on a sentence buffer; a final whole-answer pass re-sends redacted text if the buffer missed a span. Only an enabled OUTPUT `block`/`rewrite` policy buffers the whole answer.
@@ -180,7 +180,8 @@ Phase order (owner, 2026-10-14):
   - into phase 08: KB chunk records, `kb:`/`tool:` exceptions at OUTPUT/DATA, reranker re-measured on large KB documents;
   - into phase 12: the hardening list (phase 03 notes, checkpoint pruning, MinIO licensing, reranker on GPU, long-document citations, stream timeouts, unaudited refused uploads, slow requests on non-upload paths, provider 429 mid-stream, upload limits in one gateway's memory, docs latency re-measurement).
 - Management decisions pending: in `docs/PHASE-04-SUMMARY.md` and `docs/BACKLOG.md`.
-- **Next: phase 05 build prompt** (MCP integration; branch `phase/05-mcp`).
+- **After phase 04, two standalone PRs on 15 Oct 2026 (not phases):** `fix/web-attachment-picker` (the picker read an emptied FileList; web 142 tests) and `feat/conversation-history` (conversation list and history, read-only, owner only, audited; ADR-0192 to ADR-0194; API 2.1.0). Results: agent 700 / 0 / 0, gateway 136 / 0 / 0, gateway-db 5 / 0 / 0, web 145 / 0 / 0, evals harness 6 / 0 / 0; `make smoke` 119/119; `make eval` run `make-eval-20261015T100011Z`: general 28/28, guardrails 142/142, routing 34/34, rag 50/53 (the three twenty-page citation cases).
+- **Next: phase 05 build** (MCP integration; branch `phase/05-mcp`), prompt in `docs/PHASE-05-BUILD-PROMPT.md`.
 
 ## How to resume with Claude (chat)
 
