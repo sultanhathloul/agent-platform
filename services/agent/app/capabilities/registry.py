@@ -13,6 +13,7 @@ from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import ValidationError
 
 from app.capabilities.contract import Manifest
+from app.capabilities.declarative import build_declarative
 from app.identity import Principal
 from app.models.config import ModelsConfig
 from app.models.routing import CapabilityModelSpec
@@ -99,14 +100,24 @@ class CapabilityRegistry:
         loaded = []
         for directory in sorted(p for p in root.iterdir() if (p / "manifest.yaml").is_file()):
             manifest = load_manifest(directory / "manifest.yaml", models)
-            module = importlib.import_module(f"{package}.{directory.name}.graph")
-            build = getattr(module, "build", None)
-            if not callable(build):
-                raise ManifestError(f"{directory}/graph.py: missing build()")
             tools: list[ToolSpec] = []
-            if (directory / "tools.py").is_file():
-                tools = list(importlib.import_module(f"{package}.{directory.name}.tools").tools())
-            graph = _compile_capability(build(), directory)
+            if manifest.declarative is not None:
+                # A declarative capability is a manifest, prompts and evals: no Python (I12).
+                python = sorted(p.name for p in directory.glob("*.py") if p.name != "__init__.py")
+                if python:
+                    raise ManifestError(
+                        f"{directory}: a declarative capability has no Python file, found {python}"
+                    )
+                built = build_declarative(manifest, directory)
+            else:
+                module = importlib.import_module(f"{package}.{directory.name}.graph")
+                build = getattr(module, "build", None)
+                if not callable(build):
+                    raise ManifestError(f"{directory}/graph.py: missing build()")
+                if (directory / "tools.py").is_file():
+                    tools = list(importlib.import_module(f"{package}.{directory.name}.tools").tools())
+                built = build()
+            graph = _compile_capability(built, directory)
             loaded.append(LoadedCapability(manifest=manifest, graph=graph, path=directory, tools=tools))
         return cls(loaded)
 

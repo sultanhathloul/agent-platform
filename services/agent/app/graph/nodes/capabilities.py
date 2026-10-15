@@ -23,7 +23,7 @@ import contextvars
 import copy
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from langchain_core.runnables.config import var_child_runnable_config
@@ -162,9 +162,23 @@ def _model_caller(
     cap: LoadedCapability, ctx: TurnContext, base: AssemblyRequest, runtime: Runtime[TurnContext]
 ):
     async def call_model(
-        role: str, *, step: str | None = None, extra_blocks: Sequence[Block] = ()
+        role: str,
+        *,
+        step: str | None = None,
+        extra_blocks: Sequence[Block] = (),
+        prompt: str | None = None,
+        prompt_vars: Mapping[str, Any] | None = None,
     ) -> ModelResult:
         request = base.model_copy(update={"findings": _findings(cap, extra_blocks)})
+        if prompt is not None:
+            # Only the capability's own prompts, as the call's system block (I12).
+            if not prompt.startswith(f"{cap.slug}."):
+                raise CapabilityContractError(f"capability {cap.slug}: prompt {prompt!r} is not its own")
+            ctx.services.prompts.require(prompt)
+            needs = ["system", *(n for n in request.needs if n != "system")]
+            request = request.model_copy(
+                update={"system_prompt": prompt, "needs": needs, "prompt_vars": dict(prompt_vars or {})}
+            )
         # Assembled for the tier this (role, step) resolved to, so a step override
         # gets a package that fits it and passes the gateway's tier check.
         prepared = await _prepare(cap, request, ctx, role=role, step=step)

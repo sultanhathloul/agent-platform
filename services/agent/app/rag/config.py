@@ -102,8 +102,8 @@ class OrphanSweeper(_Strict):
 class DocsConfig(_Strict):
     # Which DocumentBackend serves documents (C6): the phase 04 pipeline, `internal`, for now.
     backend: Literal["internal", "mcp"]
-    # The RAG server of config/mcp.yaml the `mcp` backend calls (I11).
-    mcp_server: str = "rag"
+    # The server of config/mcp.yaml the `mcp` backend calls (I11); none: no `mcp` backend.
+    mcp_server: str | None = None
     limits: Limits
     chunking: Chunking
     extraction: Extraction

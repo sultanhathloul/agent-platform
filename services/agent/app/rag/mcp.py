@@ -12,6 +12,7 @@ before anything is sent. What the server returns is untrusted data, checked by t
 like any backend's (ADR-0195). The server must enforce the scope itself; the contract suite proves
 it does (G6)."""
 
+import json
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -20,7 +21,9 @@ from jsonschema import Draft202012Validator
 
 from app.mcp.client import UNAVAILABLE, MCPClient
 from app.mcp.tools import public_schema
+from app.observability.otel import tracer
 from app.rag.backend import DocumentScope, DocumentStatus, SourceHit, StoredFile
+from app.rag.retrieve import section_hash
 from app.tools.spec import ToolFailure
 
 log = logging.getLogger(__name__)
@@ -89,11 +92,33 @@ class MCPDocumentBackend:
     async def search(self, query: str, scope: DocumentScope, k: int) -> list[SourceHit]:
         if not scope.collections:
             return []
-        data = await self._call("search", {"query": query, "k": k}, self._scope(scope))
-        allowed = set(scope.collections)
-        hits = [SourceHit.model_validate(hit) for hit in data.get("hits") or []]
-        # A hit outside the scope is never passed on, whatever the server returned (G6).
-        return [hit for hit in hits if hit.collection in allowed][:k]
+        # The same content-free span as the internal backend's (ADR-0137): ids, pages, section
+        # hashes and scores, never text, so retrieval is measured alike on both backends.
+        with tracer.start_as_current_span("rag.retrieve") as span:
+            span.set_attribute("rag.backend", self.name)
+            span.set_attribute("rag.collections", len(scope.collections))
+            data = await self._call("search", {"query": query, "k": k}, self._scope(scope))
+            allowed = set(scope.collections)
+            hits = [SourceHit.model_validate(hit) for hit in data.get("hits") or []]
+            # A hit outside the scope is never passed on, whatever the server returned (G6).
+            top = [hit for hit in hits if hit.collection in allowed][:k]
+            span.set_attribute("rag.returned", len(top))
+            span.set_attribute(
+                "rag.results",
+                json.dumps(
+                    [
+                        {
+                            "chunk_id": h.ref,
+                            "attachment_id": h.document_id,
+                            "page": h.page,
+                            "section_sha": section_hash(h.section),
+                            "score": round(h.score, 4),
+                        }
+                        for h in top
+                    ]
+                ),
+            )
+            return top
 
     async def fetch(self, refs: Sequence[str], scope: DocumentScope) -> dict[str, str]:
         wanted = list(dict.fromkeys(refs))

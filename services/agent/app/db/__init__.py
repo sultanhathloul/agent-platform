@@ -54,7 +54,7 @@ class Database:
         schema: str = SCHEMA,
     ):
         """`schema`: where the migrations are recorded and the search path starts; the agent's
-        `agent`, or a reference server's own (`rag_ref`, ADR-0211)."""
+        `agent`, or another service's own (ADR-0211)."""
         if not re.match(r"^[a-z_][a-z0-9_]{0,62}$", schema):
             raise ValueError(f"invalid schema name {schema!r}")
         self._migrations_dir = migrations_dir

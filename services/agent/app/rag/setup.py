@@ -81,7 +81,7 @@ def build_documents(
     )
     worker = IngestWorker(pipeline, attachments, config, queue) if redis is not None else None
     backends: dict[str, DocumentBackend] = {"internal": backend}
-    if mcp is not None and config.mcp_server in mcp.servers:
+    if mcp is not None and config.mcp_server is not None and config.mcp_server in mcp.servers:
         backends["mcp"] = MCPDocumentBackend(mcp, config.mcp_server)
     backends |= dict(extra_backends or {})
     if selected not in backends:

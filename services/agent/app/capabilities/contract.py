@@ -3,6 +3,7 @@ included, is a package under app/capabilities/<slug>/ with a manifest.yaml and
 a graph.py whose build() returns a compiled LangGraph subgraph. The subgraph's
 state holds `input: CapabilityInput` and returns `output: CapabilityOutput`."""
 
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, get_args
@@ -39,8 +40,12 @@ class RoutingRule(_Strict):
     # keyword appears in the message. attachments: the turn carries new files.
     # conversation_attachments: the conversation holds indexed files, so the router model
     # may choose this capability when no other rule decided (ADR-0145).
+    # keyword_candidate: a routing keyword in the message makes the capability a router-model
+    # candidate and never selects it (phase 05, I15, ADR-0216).
     # fallback: chosen when no other capability's rule matched.
-    when: Literal["toggled", "keyword", "attachments", "conversation_attachments", "fallback"]
+    when: Literal[
+        "toggled", "keyword", "keyword_candidate", "attachments", "conversation_attachments", "fallback"
+    ]
 
 
 class RoutingHints(_Strict):
@@ -90,6 +95,85 @@ class DocumentsSpec(_Strict):
         return self
 
 
+# ------------------------------------------------------------------ declarative capabilities (I12)
+
+_REF = re.compile(r"^\$\.(extract\.[A-Za-z_][A-Za-z0-9_]*|steps\.[a-z][a-z0-9_]*\.result(\.[A-Za-z0-9_]+)*)$")
+ArgValue = str | int | float | bool | None
+
+
+class ExtractSpec(_Strict):
+    """One structured-output call that reads the message (I12): its role, the capability's prompt
+    for it, the JSON Schema of what it fills, and what happens when a required field is missing
+    (`ask`: the answer asks the user for it)."""
+
+    role: str = "extractor"
+    prompt: str
+    schema_: dict[str, Any] = Field(alias="schema")
+    on_missing: Literal["ask"] = "ask"
+
+    @model_validator(mode="after")
+    def _an_object_schema(self) -> "ExtractSpec":
+        from jsonschema import Draft202012Validator
+        from jsonschema.exceptions import SchemaError
+
+        try:
+            Draft202012Validator.check_schema(self.schema_)
+        except SchemaError as exc:
+            raise ValueError(f"declarative.extract.schema is not a JSON Schema: {exc.message}") from exc
+        if self.schema_.get("type") != "object" or not isinstance(self.schema_.get("properties"), dict):
+            raise ValueError("declarative.extract.schema must be an object schema with properties")
+        return self
+
+    @property
+    def fields(self) -> list[str]:
+        return list(self.schema_["properties"])
+
+
+class StepSpec(_Strict):
+    """One tool call. Each argument is a literal or a reference, `$.extract.<field>` or
+    `$.steps.<id>.result.<path>` (an earlier step's result; list items by index); nothing else."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    tool: str
+    args: dict[str, ArgValue] = {}
+
+    def references(self) -> list[str]:
+        return [v for v in self.args.values() if isinstance(v, str) and v.startswith("$")]
+
+
+class FindingsSpec(_Strict):
+    prompt: str
+
+
+class DeclarativeSpec(_Strict):
+    """A capability made of a manifest, prompts and evals, no Python (I12, ADR-0213): the core
+    runner (app/capabilities/declarative.py) extracts, runs the steps in order through the broker
+    and renders the findings. No expressions, conditionals, loops or parallelism."""
+
+    extract: ExtractSpec
+    steps: list[StepSpec] = Field(min_length=1)
+    findings: FindingsSpec
+
+    @model_validator(mode="after")
+    def _references_resolve(self) -> "DeclarativeSpec":
+        seen: list[str] = []
+        for step in self.steps:
+            if step.id in seen:
+                raise ValueError(f"declarative step id {step.id!r} is used twice")
+            for ref in step.references():
+                if not _REF.match(ref):
+                    raise ValueError(
+                        f"step {step.id}: {ref!r} is not $.extract.<field> or $.steps.<id>.result..."
+                    )
+                parts = ref.split(".")
+                if parts[1] == "extract" and parts[2] not in self.extract.fields:
+                    raise ValueError(f"step {step.id}: {ref!r} names no field of the extract schema")
+                if parts[1] == "steps" and parts[2] not in seen:
+                    raise ValueError(f"step {step.id}: {ref!r} names no earlier step")
+            seen.append(step.id)
+        return self
+
+
 class Manifest(_Strict):
     slug: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
@@ -108,6 +192,8 @@ class Manifest(_Strict):
     # The tools this capability may call; the broker refuses any other (S1, ADR-0160).
     tools: list[str] = []
     documents: DocumentsSpec = DocumentsSpec()
+    # A declarative capability (I12): no graph.py; the core runner builds its subgraph.
+    declarative: DeclarativeSpec | None = None
 
     @model_validator(mode="after")
     def _derived_names(self) -> "Manifest":
@@ -115,6 +201,14 @@ class Manifest(_Strict):
             raise ValueError(f"permission must be 'cap:{self.slug}' (ADR-0006), got {self.permission!r}")
         if self.state_namespace != f"cap.{self.slug}":
             raise ValueError(f"state_namespace must be 'cap.{self.slug}', got {self.state_namespace!r}")
+        if self.declarative is not None:
+            spec = self.declarative
+            for prompt in (spec.extract.prompt, spec.findings.prompt):
+                if not prompt.startswith(f"{self.slug}."):
+                    raise ValueError(f"declarative prompt {prompt!r} must be one of the capability's own")
+            undeclared = sorted({s.tool for s in spec.steps} - set(self.tools))
+            if undeclared:
+                raise ValueError(f"declarative steps call tools the manifest does not declare: {undeclared}")
         return self
 
     def model_spec(self) -> CapabilityModelSpec:
@@ -232,10 +326,18 @@ class ModelCaller(Protocol):
     """Calls a model for this capability. The core resolves the tier for (role,
     step) against the manifest, assembles context through `context.needs`, calls
     LiteLLM and records usage. `extra_blocks` are findings the capability produced
-    (Block name `findings`); they need `findings` in `context.needs`."""
+    (Block name `findings`); they need `findings` in `context.needs`. `prompt` names one of
+    the capability's own prompts (`{slug}.<name>`), rendered with `prompt_vars` as the call's
+    system block (the declarative runner's extract call, I12)."""
 
     async def __call__(
-        self, role: str, *, step: str | None = None, extra_blocks: Sequence[Block] = ()
+        self,
+        role: str,
+        *,
+        step: str | None = None,
+        extra_blocks: Sequence[Block] = (),
+        prompt: str | None = None,
+        prompt_vars: Mapping[str, Any] | None = None,
     ) -> ModelResult: ...
 
 

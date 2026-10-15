@@ -31,8 +31,8 @@ _TABLE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$")
 
 class PgVectorStore:
     def __init__(self, db: Database, *, table: str = "agent.rag_chunks"):
-        """`table`: the agent's `agent.rag_chunks`, or a reference server's own (`rag_ref.chunks`),
-        so two backends never share rows (ADR-0211)."""
+        """`table`: the agent's `agent.rag_chunks`, or another service's own chunk table, so two
+        backends never share rows (ADR-0211)."""
         if not _TABLE.match(table):
             raise ValueError(f"invalid chunk table {table!r}")
         self._db = db

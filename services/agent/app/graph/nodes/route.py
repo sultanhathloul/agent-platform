@@ -1,9 +1,11 @@
 """Capability routing (README §5.3). Candidates are the enabled capabilities
 the principal holds the permission for. Deterministic manifest rules decide
 first; `fallback` capabilities are chosen only when no other rule matched.
-When no rule decided and the conversation holds indexed files, the capabilities
-declaring `conversation_attachments` become candidates and the router model
-chooses among them and the fallback capabilities (phase 04, ADR-0139, ADR-0145).
+When no rule decided, the capabilities declaring `conversation_attachments` (when the
+conversation holds indexed files) or `keyword_candidate` (when one of their keywords is in the
+message) become candidates, and the router model chooses among them and the fallback
+capabilities (phase 04, ADR-0139, ADR-0145; phase 05, ADR-0216). A keyword alone never selects
+such a capability, and a turn with no candidate costs no router call.
 The core has no capability-specific branch: adding a capability changes the
 candidates, not this code."""
 
@@ -42,7 +44,7 @@ def select_capabilities(
                 matched = any(contains_keyword(message, k) for k in [*hints.keywords.ar, *hints.keywords.en])
             elif rule.when == "attachments":
                 matched = has_attachments
-            else:  # fallback and conversation_attachments: decided after every other rule
+            else:  # fallback, conversation_attachments, keyword_candidate: after every other rule
                 continue
             if matched:
                 selected.append(cap.slug)
@@ -56,15 +58,26 @@ def select_capabilities(
     return selected[:MAX_CAPABILITIES], reasons[:MAX_CAPABILITIES]
 
 
-def router_candidates(candidates: Sequence[LoadedCapability], *, has_indexed: bool) -> list[LoadedCapability]:
-    """Capabilities the router model may choose because the conversation holds indexed files."""
-    if not has_indexed:
-        return []
-    return [
-        c
-        for c in candidates
-        if any(r.when == "conversation_attachments" for r in c.manifest.routing_hints.rules)
-    ]
+def _keyword_in(cap: LoadedCapability, message: str) -> bool:
+    keywords = cap.manifest.routing_hints.keywords
+    return any(contains_keyword(message, k) for k in [*keywords.ar, *keywords.en])
+
+
+def router_candidates(
+    candidates: Sequence[LoadedCapability], *, has_indexed: bool, message: str = ""
+) -> list[LoadedCapability]:
+    """Capabilities the router model may choose: those whose `conversation_attachments` rule holds
+    (the conversation holds indexed files) or whose `keyword_candidate` rule holds (one of their
+    keywords is in the message)."""
+    pool = []
+    for cap in candidates:
+        for rule in cap.manifest.routing_hints.rules:
+            if (rule.when == "conversation_attachments" and has_indexed) or (
+                rule.when == "keyword_candidate" and _keyword_in(cap, message)
+            ):
+                pool.append(cap)
+                break
+    return pool
 
 
 @traced("route")
@@ -79,7 +92,7 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     complexity = risk = None
     if all(reason.endswith(":fallback") for reason in reasons):
         has_indexed = any(a["status"] == "indexed" for a in state.get("attachments") or [])
-        pool = router_candidates(candidates, has_indexed=has_indexed)
+        pool = router_candidates(candidates, has_indexed=has_indexed, message=state["user_message"])
         if pool:
             fallback = [
                 c for c in candidates if any(r.when == "fallback" for r in c.manifest.routing_hints.rules)
