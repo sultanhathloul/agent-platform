@@ -1796,3 +1796,39 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: Compose passed `GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-60}`, so a deployment whose .env lacked the variable ran at 60 uploads per minute per user, three times the baseline of 20 in config/docs.yaml.
 - Decision: Compose passes `${UPLOADS_PER_MINUTE:-}`: no fallback value, so an absent variable reaches the gateway empty, and an empty or absent `GATEWAY_DOCS_UPLOADS_PER_MINUTE` binds to no value, so the gateway uses config/docs.yaml's `uploads_per_minute` (20). The empty `:-` form rather than a bare `${UPLOADS_PER_MINUTE}` only avoids compose's "variable is not set" warning on every command; the value passed is the same, empty (assumed). `.env.example` sets the development value, 60. `scripts/smoke.sh` expects 20 when .env does not set it. The `GatewayProperties` javadoc names the variable correctly, `GATEWAY_DOCS_UPLOADS_PER_MINUTE`.
 - Consequences: A .env created before ADR-0188 (without the variable) now runs at 20 uploads per minute; `make eval` then waits out a 429 when it uploads faster (it already retries after 61 s), so development .env files should copy `UPLOADS_PER_MINUTE=60` from `.env.example`. `max_concurrent_uploads`, `max_concurrent_uploads_total`, `upload_deadline_seconds` and the size limit have no environment override; their defaults when absent from config/docs.yaml are 2, 50 and 120 s, and a missing `max_file_bytes` or `uploads_per_minute` stops the gateway at start. Test (`UploadRateDefaultTest`, bound from environment variables): unset → 20, empty → 20, `60` → 60, the shipped baseline is 20.
+
+### ADR-0192: Conversation history is read from the checkpointed thread; the list comes from the agent's ownership table
+- Date: 2026-10-15
+- Phase: standalone PR before phase 05 (owner decision, 2026-10-15)
+- Status: decided
+- Context: The web page had no history: every chat started empty and a reopened `/chat/<id>` showed nothing. README §6.1 item 5 names conversation CRUD, but no phase built it. The agent keeps every exchange: `persist_state` appends the question and the post-guard reply to `AgentState.messages`, and the rolling summary only moves `summary_cursor`, so the latest checkpoint of a thread holds its whole history. The hardening backlog's checkpoint pruning keeps the latest checkpoint per conversation.
+- Decision:
+  - The history of a conversation is the latest checkpoint of its thread, read with `graph.aget_state`. No second message store.
+  - The list of a user's conversations comes from `agent.conversation_owners`, which gains `title` (the conversation's first question as stored, at most 80 characters) and `last_turn_at`. The runner sets both after a turn ends with `done`; the title is set once.
+  - Rows from before this change are filled on demand: listing a caller's conversations reads, for at most 50 of their rows without a title, the thread's first question and the time of its latest checkpoint. A thread with no exchange gets an empty title, so it is not read again, and is not listed until a turn finishes in it.
+  - A conversation is listed once a turn has finished in it. A conversation that holds only uploads is not listed.
+- Consequences: Every existing conversation, old ones included, shows its full history. The list is one indexed query per page once filled. If checkpoint pruning ever removes the latest checkpoint of a thread, the history goes with it; the backlog item already keeps it.
+
+### ADR-0193: What the history shows
+- Date: 2026-10-15
+- Phase: standalone PR before phase 05 (owner decision, 2026-10-15)
+- Status: decided
+- Context: A persisted reply carries `content` (the post-guard text every later model call reads), and, when a DATA redaction changed the draft after it streamed, `shown_answer` (the streamed text, audit metadata only, ADR-0048). A reply can be retracted when its audit record failed (ADR-0048, ADR-0076). Failed turns are never persisted.
+- Decision:
+  - Each message returns `role`, `text` (`content`), and for a reply its `turn_id`. `shown_answer` and `retract_reason` never leave the agent.
+  - A retracted exchange is left out as a pair, question included, as Context Assembly leaves it out (ADR-0076).
+  - From now on `persist_state` keeps the turn's attachment ids on the question and the turn's citations on the reply. The history returns the names of those files (from `agent.attachments`, this conversation's only) and the citations as the `citation` events carried them. Messages persisted before this change have neither.
+  - No rename, no delete: the product deletes nothing (ADR-0166).
+- Consequences: A user sees what the model may see again, which after a late redaction is the redacted text rather than what streamed. The extra fields on persisted messages are never read by Context Assembly, which reads `content` only.
+
+### ADR-0194: Conversation API: two audited reads, owner only, at the gateway and the agent
+- Date: 2026-10-15
+- Phase: standalone PR before phase 05 (owner decision, 2026-10-15)
+- Status: decided
+- Decision:
+  - Gateway `GET /v1/conversations?limit&before`: the caller's conversations, newest `last_turn_at` first; `limit` 1–100, default 30; `before` an ISO-8601 instant for the next page; the reply has `next_before` when more remain. Gateway `GET /v1/conversations/{id}/messages`: that conversation's messages, oldest first.
+  - The gateway names the caller from the verified token only (X-User-Id, X-Tenant-Id, ADR-0059). It checks ownership against `gateway.conversations`, and the agent checks again against `agent.conversation_owners`: another owner's conversation is 403 `conversation_forbidden` at both; a conversation nobody has used is an empty list.
+  - Both are audited fail-closed like memory and attachments (ADR-0042): actions `conversation.list` (detail: count) and `conversation.read` (conversation id; detail: message count). No message text in the audit.
+  - API version 2.0.0 → 2.1.0 in both services (additive; CLAUDE.md, ADR-0046).
+- Consequences: The web page lists conversations and reopens them. Admins have no access to other users' conversations through this API.
+

@@ -8,6 +8,7 @@ independently, before a turn touches the thread. The bindings live in Postgres
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.db import Database
 
@@ -19,6 +20,22 @@ class Owner:
 
 
 StoredOwner = Callable[[], Awaitable[Owner | None]]
+
+# The longest title kept for a conversation (ADR-0192).
+TITLE_MAX_CHARS = 80
+
+
+@dataclass(frozen=True)
+class ConversationRow:
+    conversation_id: str
+    title: str
+    last_turn_at: datetime
+
+
+def title_of(question: str) -> str:
+    """A conversation's title: its first question on one line, at most TITLE_MAX_CHARS."""
+    line = " ".join(question.split())
+    return line if len(line) <= TITLE_MAX_CHARS else line[: TITLE_MAX_CHARS - 1].rstrip() + "…"
 
 
 class ConversationOwners:
@@ -56,3 +73,47 @@ class ConversationOwners:
     async def owner_of(self, conversation_id: str, stored: StoredOwner) -> Owner | None:
         """The owner without binding anyone; None for a conversation nobody has used."""
         return await self._bound(conversation_id) or await stored()
+
+    async def record_turn(self, conversation_id: str, question: str) -> None:
+        """After a turn ends with `done`: the conversation's latest turn time, and its title
+        once, from the first question it was given (ADR-0192)."""
+        async with self._db.connection() as conn:
+            await conn.execute(
+                "UPDATE agent.conversation_owners SET last_turn_at = now(), "
+                "title = CASE WHEN title IS NULL OR title = '' THEN %s ELSE title END "
+                "WHERE conversation_id = %s",
+                (title_of(question), conversation_id),
+            )
+
+    async def untitled(self, owner: Owner, limit: int) -> list[str]:
+        """The owner's conversations recorded before titles existed, not read yet."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT conversation_id::text AS id FROM agent.conversation_owners "
+                "WHERE tenant_id = %s AND user_id = %s AND title IS NULL "
+                "ORDER BY created_at DESC LIMIT %s",
+                (owner.tenant_id, owner.user_id, limit),
+            )
+            return [row["id"] for row in await cursor.fetchall()]
+
+    async def fill(self, conversation_id: str, title: str, last_turn_at: datetime | None) -> None:
+        """Fills a row read from its thread; an empty title marks a thread without an exchange."""
+        async with self._db.connection() as conn:
+            await conn.execute(
+                "UPDATE agent.conversation_owners SET title = %s, "
+                "last_turn_at = COALESCE(last_turn_at, %s) WHERE conversation_id = %s AND title IS NULL",
+                (title, last_turn_at, conversation_id),
+            )
+
+    async def listed(self, owner: Owner, limit: int, before: datetime | None) -> list[ConversationRow]:
+        """The owner's conversations with a finished turn, newest first, older than `before`."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT conversation_id::text AS id, COALESCE(title, '') AS title, last_turn_at "
+                "FROM agent.conversation_owners "
+                "WHERE tenant_id = %s AND user_id = %s AND last_turn_at IS NOT NULL "
+                "AND (%s::timestamptz IS NULL OR last_turn_at < %s::timestamptz) "
+                "ORDER BY last_turn_at DESC, conversation_id DESC LIMIT %s",
+                (owner.tenant_id, owner.user_id, before, before, limit),
+            )
+            return [ConversationRow(r["id"], r["title"], r["last_turn_at"]) for r in await cursor.fetchall()]

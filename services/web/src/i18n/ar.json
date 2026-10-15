@@ -49,7 +49,9 @@
     "sendWaiting": "انتظر حتى تكتمل معالجة الملفات المرفقة.",
     "citationPageOne": "الصفحة {pages}",
     "citationPageTwo": "الصفحتان {pages}",
-    "citationPageMany": "الصفحات {pages}"
+    "citationPageMany": "الصفحات {pages}",
+    "historyLoading": "جارٍ تحميل المحادثة…",
+    "historyFailed": "تعذّر تحميل الرسائل السابقة في هذه المحادثة."
   },
   "chips": {
     "tier": "مستوى النموذج",
@@ -461,5 +463,13 @@
       "txt": "نص",
       "md": "ماركداون"
     }
+  },
+  "conversations": {
+    "title": "المحادثات",
+    "loading": "جارٍ التحميل…",
+    "loadFailed": "تعذّر تحميل المحادثات.",
+    "empty": "لا توجد محادثات بعد.",
+    "untitled": "محادثة بلا عنوان",
+    "loadMore": "عرض المزيد"
   }
 }

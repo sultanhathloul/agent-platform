@@ -15,7 +15,8 @@ import {
   turnAttachmentIds,
   uploadAttachment,
 } from "@/lib/attachments";
-import { GatewayError, isAbortError, streamTurn } from "@/lib/gateway";
+import { type Turn, turnsFromHistory } from "@/lib/conversations";
+import { GatewayError, getConversationMessages, isAbortError, streamTurn } from "@/lib/gateway";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 import {
   applyEvent,
@@ -31,10 +32,9 @@ import { AttachmentTray, LimitsHint } from "./AttachmentTray";
 import { useAuth } from "./AuthProvider";
 import { useRuntimeConfig } from "./ConfigProvider";
 
-type Turn = { id: string; question: string; files: string[]; answer: AssistantMessage };
-
-// Conversation history lives in memory only; persistence arrives with state in phase 02.
-export function Chat({ conversationId }: { conversationId: string }) {
+// The conversation's earlier messages load from the gateway when it opens (ADR-0193); new turns
+// are added in memory as they stream.
+export function Chat({ conversationId, onTurnDone }: { conversationId: string; onTurnDone?: () => void }) {
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
@@ -49,6 +49,7 @@ export function Chat({ conversationId }: { conversationId: string }) {
   const [limits, setLimits] = useState<AttachmentLimits | null>(null);
   const [sentFiles, setSentFiles] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [history, setHistory] = useState<"loading" | "ready" | "failed">("loading");
   const controllerRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -56,6 +57,32 @@ export function Chat({ conversationId }: { conversationId: string }) {
   const updateFile = useCallback((localId: string, fn: (f: ComposerFile) => ComposerFile) => {
     setFiles((all) => all.map((f) => (f.localId === localId ? fn(f) : f)));
   }, []);
+
+  // The conversation's history, before any new turn (ADR-0193).
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      const token = await auth.getAccessToken();
+      if (!token) return;
+      try {
+        const loaded = await getConversationMessages({
+          gatewayUrl: config.gatewayUrl,
+          token,
+          conversationId,
+          signal: controller.signal,
+        });
+        // Idempotent: a reload replaces the history part and keeps turns sent meanwhile.
+        setTurns((current) => [
+          ...turnsFromHistory(loaded.messages),
+          ...current.filter((turn) => !turn.id.startsWith("history-")),
+        ]);
+        setHistory("ready");
+      } catch (error) {
+        if (!isAbortError(error)) setHistory("failed");
+      }
+    })();
+    return () => controller.abort();
+  }, [auth, config.gatewayUrl, conversationId]);
 
   // The upload limits, shown before a file is chosen (D2).
   useEffect(() => {
@@ -200,6 +227,7 @@ export function Chat({ conversationId }: { conversationId: string }) {
     } finally {
       controllerRef.current = null;
       setStreaming(false);
+      onTurnDone?.();
     }
   }
 
@@ -218,7 +246,10 @@ export function Chat({ conversationId }: { conversationId: string }) {
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
       <div className="flex-1 overflow-y-auto px-4 py-6" aria-busy={streaming}>
-        {turns.length === 0 ? (
+        {history === "failed" && <p className="mb-4 text-center text-sm text-red-700">{t("chat.historyFailed")}</p>}
+        {turns.length === 0 && history === "loading" ? (
+          <p className="mt-24 text-center text-sm text-slate-500">{t("chat.historyLoading")}</p>
+        ) : turns.length === 0 ? (
           <div className="mt-24 text-center">
             <h1 className="text-2xl font-semibold text-slate-800">{t("chat.emptyTitle")}</h1>
             <p className="mt-2 text-slate-500">{t("chat.emptyHint")}</p>

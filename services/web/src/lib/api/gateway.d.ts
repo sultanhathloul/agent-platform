@@ -229,6 +229,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's conversations, newest first */
+        get: operations["list_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/conversations/{conversationId}/attachments": {
         parameters: {
             query?: never;
@@ -276,6 +293,23 @@ export interface paths {
         };
         /** Downloads one attachment's file (owner only) */
         get: operations["download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversationId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A conversation's messages, oldest first */
+        get: operations["messages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -385,6 +419,16 @@ export interface components {
         };
         ApiEnvelopeAttachmentView: {
             data?: components["schemas"]["AttachmentView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeConversationList: {
+            data?: components["schemas"]["ConversationList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeConversationMessages: {
+            data?: components["schemas"]["ConversationMessages"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -514,8 +558,49 @@ export interface components {
             /** @default [] */
             selected_kbs: string[];
         };
+        ConversationList: {
+            conversations: components["schemas"]["ConversationSummary"][];
+            /**
+             * Format: date-time
+             * @description Pass as `before` for the next page; absent on the last page.
+             */
+            next_before?: string;
+        };
+        ConversationMessages: {
+            conversation_id: string;
+            messages: components["schemas"]["HistoryMessage"][];
+        };
+        ConversationSummary: {
+            id: string;
+            /** Format: date-time */
+            last_turn_at: string;
+            /** @description The conversation's first question, at most 80 characters. */
+            title: string;
+        };
         HealthResponse: {
             status?: string;
+        };
+        HistoryAttachment: {
+            id: string;
+            name: string;
+        };
+        HistoryCitation: {
+            document_id?: string;
+            id: string;
+            kb?: string;
+            locator?: string;
+            pages: number[];
+            source: string;
+            title: string;
+            url?: string;
+        };
+        HistoryMessage: {
+            attachments: components["schemas"]["HistoryAttachment"][];
+            citations: components["schemas"]["HistoryCitation"][];
+            /** @enum {string} */
+            role: "user" | "assistant";
+            text: string;
+            turn_id?: string;
         };
         /** @description Policies whose exception flag this change set or cleared (ADR-0115) */
         InducedFlag: {
@@ -1419,6 +1504,67 @@ export interface operations {
             };
         };
     };
+    list_2: {
+        parameters: {
+            query?: {
+                /** @description Page size, 1 to 100; 30 when absent. */
+                limit?: string;
+                /** @description `next_before` of the previous page (ISO-8601 instant). */
+                before?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's conversations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeConversationList"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: never;
@@ -1677,6 +1823,73 @@ export interface operations {
                 };
             };
             /** @description agent_unavailable or storage_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    messages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation's messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeConversationMessages"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description conversation_forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
             502: {
                 headers: {
                     [name: string]: unknown;

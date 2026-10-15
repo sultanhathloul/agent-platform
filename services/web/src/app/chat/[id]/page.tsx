@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
-import { Chat } from "@/components/Chat";
+import { ChatShell } from "@/components/ChatShell";
 import { isUuid } from "@/lib/uuid";
 
 export default async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
@@ -9,7 +9,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
 
   return (
     <AuthGate>
-      <Chat key={id} conversationId={id} />
+      <ChatShell conversationId={id} />
     </AuthGate>
   );
 }

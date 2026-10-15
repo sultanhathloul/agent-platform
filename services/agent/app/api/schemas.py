@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.events import ErrorData
+from app.api.events import Citation, ErrorData
 from app.identity import Locale, Principal
 
 # A conversation id is a UUID in canonical lower-case form; the gateway normalises it (ADR-0050).
@@ -360,3 +360,38 @@ class AttachmentView(BaseModel):
 
 class AttachmentList(BaseModel):
     attachments: list[AttachmentView] = Field(description="Oldest first.")
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str = Field(description="The conversation's first question, at most 80 characters (ADR-0192).")
+    last_turn_at: datetime = Field(description="When the latest finished turn ended.")
+
+
+class ConversationList(BaseModel):
+    conversations: list[ConversationSummary] = Field(description="Newest first.")
+    next_before: datetime | None = Field(
+        default=None, description="Pass as `before` for the next page; absent on the last page."
+    )
+
+
+class HistoryAttachment(BaseModel):
+    id: str
+    name: str
+
+
+class HistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(description="The post-guard text, the text later turns see (ADR-0193).")
+    turn_id: str | None = Field(default=None, description="A reply's turn.")
+    attachments: list[HistoryAttachment] = Field(
+        default=[], description="The files sent with a question, when recorded (ADR-0193)."
+    )
+    citations: list[Citation] = Field(
+        default=[], description="A reply's citations, when recorded (ADR-0193)."
+    )
+
+
+class ConversationMessages(BaseModel):
+    conversation_id: str
+    messages: list[HistoryMessage] = Field(description="Oldest first; a retracted exchange is left out.")
