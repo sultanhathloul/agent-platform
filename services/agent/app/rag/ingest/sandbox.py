@@ -23,6 +23,7 @@ from app.rag.types import Chunk, DocumentKind, FailureReason
 class Parsed:
     pages: int | None
     chunks: list[Chunk]
+    pages_without_text: int = 0  # D7: PDF pages under the text threshold, not read
 
 
 class Aborted(ExtractionFailed):
@@ -47,7 +48,7 @@ def parse(kind: DocumentKind, data: bytes, config: DocsConfig) -> Parsed:
         raise ExtractionFailed("too_many_chunks", pages=document.pages)
     if not chunks:
         raise ExtractionFailed("empty_document", pages=document.pages)
-    return Parsed(pages=document.pages, chunks=chunks)
+    return Parsed(pages=document.pages, chunks=chunks, pages_without_text=document.pages_without_text)
 
 
 def outcome(kind: DocumentKind, data: bytes, config: DocsConfig) -> tuple:
@@ -55,7 +56,12 @@ def outcome(kind: DocumentKind, data: bytes, config: DocsConfig) -> tuple:
     exception's type name, never a message (S5)."""
     try:
         parsed = parse(kind, data, config)
-        return ("ok", parsed.pages, [chunk.model_dump() for chunk in parsed.chunks])
+        return (
+            "ok",
+            parsed.pages,
+            [chunk.model_dump() for chunk in parsed.chunks],
+            parsed.pages_without_text,
+        )
     except ExtractionFailed as failure:
         return ("failed", failure.reason, failure.pages)
     except MemoryError:
@@ -104,7 +110,11 @@ def run_sandboxed(kind: DocumentKind, data: bytes, config: DocsConfig) -> Parsed
         raise Aborted()
     status = message[0]
     if status == "ok":
-        return Parsed(pages=message[1], chunks=[Chunk.model_validate(chunk) for chunk in message[2]])
+        return Parsed(
+            pages=message[1],
+            chunks=[Chunk.model_validate(chunk) for chunk in message[2]],
+            pages_without_text=int(message[3]),
+        )
     if status == "failed":
         reason: FailureReason = message[1]
         raise ExtractionFailed(reason, pages=message[2])

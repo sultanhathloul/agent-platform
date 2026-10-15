@@ -78,7 +78,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.1.0"
+API_VERSION = "2.2.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -157,6 +157,13 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         attachments=attachment_store,
         objects=objects,
     )
+    for cap in registry.all():
+        name = cap.config.get("backend")
+        if name and name not in documents.backends:
+            raise ManifestError(
+                f"config/{cap.slug}.yaml: backend {name!r} is not a document backend; "
+                f"known: {sorted(documents.backends)}"
+            )
     attachments = AttachmentService(
         db=db,
         store=attachment_store,
@@ -182,7 +189,12 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         guard=guard,
         registry=registry,
         tools=tools,
-        broker=ToolBroker(tools, guard, {cap.slug: cap.manifest.tools for cap in registry.all()}),
+        broker=ToolBroker(
+            tools,
+            guard,
+            {cap.slug: cap.manifest.tools for cap in registry.all()},
+            {cap.slug: cap.manifest.documents.collections for cap in registry.all()},
+        ),
         messages=ErrorMessages.load(settings.config_dir),
         validation=load_validation_config(settings.config_dir),
         db=db,
@@ -196,6 +208,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
         attachments=attachments,
         documents=documents.backend,
+        backends=documents.backends,
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
         redis=redis,

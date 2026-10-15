@@ -121,11 +121,10 @@ async def test_docs_and_general_in_one_turn_and_a_cross_namespace_write_stays_in
     """The real `docs` and `general` run together (the router chooses both). `docs` is wrapped so
     that, after its real run, it tries to write `general`'s namespace twice: by returning a
     `cap.general` key, and by writing into its RuntimeContext's copy. Neither reaches `general`."""
+    from app.rag.backend import DocumentScope
     from tests.fixtures.backends import Harness
     from tests.fixtures.documents import LEAVE_REGULATION
     from tests.fixtures.replace import replacing
-
-    from app.rag.backend import DocumentScope
 
     real_docs = services.registry.get("docs")
 
@@ -158,7 +157,7 @@ async def test_docs_and_general_in_one_turn_and_a_cross_namespace_write_stays_in
     principal = Principal(user_id=f"u-iso-{uuid.uuid4().hex[:6]}", permissions=("cap:general", "cap:docs"))
     conversation = str(uuid.uuid4())
     harness = Harness("internal", wrapped)
-    scope = DocumentScope(
+    scope = DocumentScope.session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
     document = await harness.upload(scope, "لائحة.pdf", ["\n".join(page) for page in LEAVE_REGULATION])

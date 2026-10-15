@@ -3,6 +3,8 @@ with a manifest.yaml is loaded at startup. An invalid manifest or a missing
 build() fails fast, naming the offending file."""
 
 import importlib
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -55,15 +57,22 @@ def _compile_capability(built: object, directory: Path) -> CompiledStateGraph:
     return built.compile()
 
 
-def load_capability_config(config_dir: Path, slug: str) -> dict:
-    """A capability's own configuration file, config/<slug>.yaml, or nothing (C3)."""
+def load_capability_config(config_dir: Path, slug: str, environ: Mapping[str, str] | None = None) -> dict:
+    """A capability's own configuration file, config/<slug>.yaml, or nothing (C3). The document
+    backend it names (`backend`, I1) may be overridden per environment by `<SLUG>_BACKEND` in
+    .env (I11: `DOCS_BACKEND` for config/docs.yaml), so a deployment switches backend without a
+    file edit."""
     path = config_dir / f"{slug}.yaml"
-    if not path.is_file():
-        return {}
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(loaded, dict):
-        raise ManifestError(f"{path}: a capability's configuration must be a mapping")
-    return loaded
+    loaded: object = {}
+    if path.is_file():
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ManifestError(f"{path}: a capability's configuration must be a mapping")
+    config = dict(loaded)  # type: ignore[arg-type]
+    override = (os.environ if environ is None else environ).get(f"{slug.upper()}_BACKEND", "").strip()
+    if override:
+        config["backend"] = override
+    return config
 
 
 def load_manifest(path: Path, models: ModelsConfig) -> Manifest:

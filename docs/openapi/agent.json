@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.1.0"
+    "version": "2.2.0"
   },
   "paths": {
     "/v1/health": {
@@ -3243,6 +3243,15 @@
             ],
             "title": "Chunks"
           },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AttachmentWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Indexed with something the user should know (D7, ADR-0201).",
+            "default": []
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3279,6 +3288,27 @@
           "object_key"
         ],
         "title": "AttachmentView"
+      },
+      "AttachmentWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "pages_without_text",
+            "title": "Code"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "count"
+        ],
+        "title": "AttachmentWarning",
+        "description": "D7 (ADR-0201): `count` pages of an indexed PDF held too little text and were not read."
       },
       "Citation": {
         "properties": {

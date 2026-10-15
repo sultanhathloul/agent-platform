@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     rerank_enabled: bool = False
     rerank_candidates: int = Field(default=16, gt=0)
     rerank_max_chars: int | None = Field(default=1070, gt=0)
+    # The document backend uploads are registered with and the docs capability searches (I11):
+    # empty keeps config/docs.yaml's `backend`; `mcp` selects the RAG server of config/mcp.yaml.
+    docs_backend: str = ""
 
 
 @lru_cache

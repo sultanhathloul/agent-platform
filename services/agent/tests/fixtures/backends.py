@@ -9,11 +9,10 @@ it to the backend; `ingest` brings it to a terminal status the way that backend 
 import uuid
 from collections.abc import Sequence
 
-from tests.fixtures.ingestion import ingestion
+from app.rag.backend import DocumentScope
 from tests.fixtures.documents import docx_bytes, pdf_bytes
 from tests.fixtures.fake_backend import FakeDocumentBackend, with_backend
-
-from app.rag.backend import DocumentScope
+from tests.fixtures.ingestion import ingestion
 
 BACKENDS = ("internal", "fake")
 
@@ -57,11 +56,11 @@ class Harness:
         else:
             # Laid out as a bidi-aware producer lays Arabic out (python-bidi, owner decision A2).
             data, mime = pdf_bytes([page.split("\n") for page in pages], visual=True), "application/pdf"
-        key = f"test/{scope.conversation_id}/{uuid.uuid4()}"
+        key = f"test/{scope.conversations[0]}/{uuid.uuid4()}"
         if self.name == "internal":
             await self.services.attachments.objects.put(key, data, mime)
         record = await self.services.attachments.register(
-            scope.owner, scope.conversation_id, name=name, mime=mime, size=len(data), object_key=key
+            scope.owner, scope.conversations[0], name=name, mime=mime, size=len(data), object_key=key
         )
         self._content[record.id] = (pages, sections, broken)
         return record.id

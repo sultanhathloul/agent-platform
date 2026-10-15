@@ -80,10 +80,19 @@ _GUARD_AUDIT_DESCRIPTION = (
 )
 
 
+class ToolLabel(_Model):
+    ar: str
+    en: str
+
+
 class ToolStartData(_Model):
     call_id: str
     tool: str
     capability: str
+    label: ToolLabel | None = Field(
+        default=None,
+        description="What the client shows while the tool runs, per locale (I13); absent: a generic string.",
+    )
 
 
 class ToolEndData(_Model):

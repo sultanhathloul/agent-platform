@@ -13,6 +13,7 @@ from app.context.package import Block, BlockName, ContextPackage
 from app.identity import Principal
 from app.models.gateway import ModelResult
 from app.models.routing import CapabilityModelSpec
+from app.rag.collections import CollectionKind
 from app.tools.spec import ToolResult
 
 
@@ -76,6 +77,19 @@ class Limits(_Strict):
     timeout_s: float = 30.0
 
 
+class DocumentsSpec(_Strict):
+    # The kinds of document collection this capability's tools may read (I1, ADR-0202): the
+    # broker builds the turn's collections from the principal and keeps only these kinds, so a
+    # capability declaring [session] never reaches a knowledge base. [] reaches no document.
+    collections: list[CollectionKind] = []
+
+    @model_validator(mode="after")
+    def _unique(self) -> "DocumentsSpec":
+        if len(set(self.collections)) != len(self.collections):
+            raise ValueError("documents.collections lists a kind twice")
+        return self
+
+
 class Manifest(_Strict):
     slug: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
@@ -93,6 +107,7 @@ class Manifest(_Strict):
     state_namespace: str
     # The tools this capability may call; the broker refuses any other (S1, ADR-0160).
     tools: list[str] = []
+    documents: DocumentsSpec = DocumentsSpec()
 
     @model_validator(mode="after")
     def _derived_names(self) -> "Manifest":
@@ -130,6 +145,11 @@ class Source(_Strict):
     document_id: str | None = None
     ref: str | None = None
     score: float | None = Field(default=None, description="Relevance as the backend ranked it, best first.")
+    # Which backend and which collection found the chunk (I1): the answer step fetches its text
+    # from there, after checking the collection is one this capability may read this turn. Both
+    # stay internal: no citation, event or persisted reply carries them (ADR-0202).
+    backend: str | None = None
+    collection: str | None = None
 
 
 class Citation(_Strict):
@@ -247,8 +267,9 @@ class RuntimeContext:
     event writer, the document backend, its context package and its configuration. No
     resolver, guard engine, model config or AgentState (ADR-0047).
 
-    - `documents`: the DocumentBackend; it reaches the capability's tool handlers through the
-      broker, which scopes every call to the principal and the conversation (C6, S1).
+    - `documents`: the DocumentBackends by name (I1); the one `config/<slug>.yaml` `backend`
+      names reaches the capability's tool handlers through the broker, which scopes every call
+      to the principal and the turn's collections (C6, S1).
     - `context()`: the package assembled per `context.needs`, detached from AgentState; it
       is assembled on the first call only, so a capability that never reads it costs no
       assembly (owner decision C3).
@@ -261,6 +282,6 @@ class RuntimeContext:
     call_model: ModelCaller
     broker: CapabilityBroker
     stream_writer: EventWriter
-    documents: Any = None
+    documents: Mapping[str, Any] = field(default_factory=dict)
     context: ContextReader = _no_context
     config: Mapping[str, Any] = field(default_factory=dict)

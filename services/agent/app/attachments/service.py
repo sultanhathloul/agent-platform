@@ -56,6 +56,7 @@ class AttachmentService:
                 conversation_id=record.conversation_id,
                 tenant_id=record.tenant_id,
                 user_id=record.user_id,
+                collection=record.collection,
                 name=record.name,
                 mime=record.mime,
                 kind=record.kind,
@@ -82,11 +83,18 @@ class AttachmentService:
     async def _with_status(self, record: AttachmentRecord, scope: DocumentScope) -> AttachmentRecord:
         status = await self.documents.status(record.id, scope)
         if status is None:
-            return record.model_copy(update={"status": "pending", "reason": None})
+            return record.model_copy(update={"status": "pending", "reason": None, "warnings": []})
         return record.model_copy(
-            update={"status": status.status, "reason": status.reason, "pages": status.pages}
+            update={
+                "status": status.status,
+                "reason": status.reason,
+                "pages": status.pages,
+                "warnings": [w.model_dump() for w in status.warnings],
+            }
         )
 
 
 def _scope(owner: Owner, conversation_id: str) -> DocumentScope:
-    return DocumentScope(tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation_id)
+    return DocumentScope.session(
+        tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation_id
+    )

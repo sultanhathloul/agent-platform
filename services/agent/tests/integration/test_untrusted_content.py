@@ -9,13 +9,13 @@ import re
 import uuid
 
 import pytest
-from tests.fixtures.backends import BACKENDS, Harness
-from tests.fixtures.replace import replacing
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.identity import Principal
 from app.rag.backend import DocumentScope
+from tests.fixtures.backends import BACKENDS, Harness
+from tests.fixtures.replace import replacing
 
 pytestmark = pytest.mark.integration
 
@@ -37,7 +37,7 @@ def _principal(role: str | None = None) -> Principal:
 
 
 def _scope(principal: Principal, conversation: str) -> DocumentScope:
-    return DocumentScope(
+    return DocumentScope.session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
 

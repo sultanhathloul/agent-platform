@@ -7,13 +7,13 @@ before it runs and audited."""
 import uuid
 
 import pytest
-from tests.fixtures.backends import Harness
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.capabilities.docs.tools import SearchArgs
 from app.identity import Principal
 from app.rag.backend import DocumentScope
+from tests.fixtures.backends import Harness
 
 pytestmark = pytest.mark.integration
 
@@ -32,7 +32,9 @@ async def test_a_call_naming_another_owner_never_runs_and_a_conversation_id_alon
     harness = Harness("internal", services)
     victim = Principal(user_id=f"u-victim-{uuid.uuid4().hex[:6]}", permissions=("cap:docs",))
     conversation = str(uuid.uuid4())
-    scope = DocumentScope(tenant_id=victim.tenant_id, user_id=victim.user_id, conversation_id=conversation)
+    scope = DocumentScope.session(
+        tenant_id=victim.tenant_id, user_id=victim.user_id, conversation_id=conversation
+    )
     document = await harness.upload(scope, "لائحة.pdf", LEAVE)
     assert await harness.ingest(document) == "indexed"
 

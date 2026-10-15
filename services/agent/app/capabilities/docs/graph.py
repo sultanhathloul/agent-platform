@@ -54,6 +54,8 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
                     page=hit.get("page"),
                     document_id=hit["attachment_id"],
                     score=hit.get("score"),
+                    backend=hit.get("backend"),
+                    collection=hit.get("collection"),
                 )
                 for hit in result.sources
             ]

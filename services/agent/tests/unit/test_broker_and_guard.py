@@ -32,10 +32,10 @@ async def _echo(args: EchoArgs, ctx) -> ToolOutput:
     return ToolOutput(content=args.text, sources=[{"id": "s1"}])
 
 
-def _broker(spec) -> ToolBroker:
+def _broker(spec, collections=None) -> ToolBroker:
     registry = ToolRegistry()
     registry.register(spec, capability="demo")
-    return ToolBroker(registry, GuardEngine(), {"demo": [spec.name], "other": []})
+    return ToolBroker(registry, GuardEngine(), {"demo": [spec.name], "other": []}, collections)
 
 
 ALLOWED = Principal(user_id="u", permissions=("cap:demo",))
@@ -105,19 +105,36 @@ async def test_timeout_retries_then_errors():
     assert len(calls) == 2 and result.retries == 1
 
 
-async def test_the_scope_comes_from_the_principal_and_the_conversation_never_the_arguments():
+async def test_the_scope_comes_from_the_principal_and_the_turn_never_the_arguments():
+    """I1: the session collection, plus the knowledge bases both permitted and selected, kept to
+    the kinds the caller's manifest declares."""
     seen = []
 
     async def handler(args, ctx):
         seen.append(ctx.scope)
         return ToolOutput(content="x")
 
-    principal = Principal(user_id="u-scope", tenant_id="t-scope", permissions=("cap:demo",))
-    result = await _broker(_spec(handler)).execute(
-        "echo", {"text": "x"}, caller="demo", principal=principal, conversation_id="c-1"
+    principal = Principal(
+        user_id="u-scope", tenant_id="t-scope", permissions=("cap:demo", "kb:moe:read", "kb:hr:read")
     )
-    assert result.status == "ok"
-    assert [(s.tenant_id, s.user_id, s.conversation_id) for s in seen] == [("t-scope", "u-scope", "c-1")]
+    for kinds, expected in [
+        (["session", "kb"], ("sess_c-1", "kb_moe")),
+        (["session"], ("sess_c-1",)),
+        (["kb"], ("kb_moe",)),
+        ([], ()),
+    ]:
+        seen.clear()
+        broker = _broker(_spec(handler), collections={"demo": kinds})
+        result = await broker.execute(
+            "echo",
+            {"text": "x"},
+            caller="demo",
+            principal=principal,
+            conversation_id="c-1",
+            selected_kbs=("moe", "sales"),  # sales is selected but not permitted; hr permitted, not selected
+        )
+        assert result.status == "ok"
+        assert [(s.tenant_id, s.user_id, s.collections) for s in seen] == [("t-scope", "u-scope", expected)]
 
 
 async def test_a_tool_the_callers_manifest_does_not_declare_is_refused_and_audited():

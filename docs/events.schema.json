@@ -1052,6 +1052,25 @@
       "title": "ToolEndEvent",
       "type": "object"
     },
+    "ToolLabel": {
+      "additionalProperties": false,
+      "properties": {
+        "ar": {
+          "title": "Ar",
+          "type": "string"
+        },
+        "en": {
+          "title": "En",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ar",
+        "en"
+      ],
+      "title": "ToolLabel",
+      "type": "object"
+    },
     "ToolStartData": {
       "additionalProperties": false,
       "properties": {
@@ -1066,6 +1085,18 @@
         "capability": {
           "title": "Capability",
           "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolLabel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the client shows while the tool runs, per locale (I13); absent: a generic string."
         }
       },
       "required": [

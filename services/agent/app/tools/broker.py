@@ -5,8 +5,9 @@ timeout and retries, runs POST_TOOL, normalizes the result, emits
 tool_start/tool_end events and one `tool.exec` span.
 
 The handler receives a ToolContext beside its arguments: the scope, built here from the
-verified principal and the turn's conversation (never from the arguments, S1), and the
-document backend of the calling capability's RuntimeContext (C6). A capability may call
+verified principal and the turn (never from the arguments, S1): the tenant, the user and the
+document collections the caller's manifest kinds allow (I1, ADR-0202); and the document backend
+the caller's configuration names (C6). A capability may call
 only the tools its manifest declares (`tools`); any other call is refused before anything
 runs, with an audit-only record of who called what (ADR-0160).
 
@@ -33,6 +34,7 @@ from app.guardrails.engine import GuardEngine
 from app.guardrails.schema import GuardContext, GuardEventRecord, GuardOutcome
 from app.identity import Principal
 from app.observability.otel import tracer
+from app.rag.collections import turn_collections
 from app.tools.registry import ToolRegistry
 from app.tools.spec import ToolContext, ToolOutput, ToolResult, ToolScope
 
@@ -49,11 +51,31 @@ class ToolBroker:
         registry: ToolRegistry,
         guard: GuardEngine,
         declared: Mapping[str, Collection[str]] | None = None,
+        collections: Mapping[str, Collection[str]] | None = None,
     ):
-        """`declared`: each capability's manifest `tools`, by slug."""
+        """`declared`: each capability's manifest `tools`, by slug. `collections`: the document
+        collection kinds each capability's manifest declares (`documents.collections`)."""
         self.registry = registry
         self.guard = guard
         self.declared = {slug: frozenset(tools) for slug, tools in (declared or {}).items()}
+        self.collections = {slug: frozenset(kinds) for slug, kinds in (collections or {}).items()}
+
+    def scope_for(
+        self, caller: str, principal: Principal, *, conversation_id: str, selected_kbs: Collection[str] = ()
+    ) -> ToolScope:
+        """The scope of `caller`'s tool calls this turn (I1): the principal's tenant and user, the
+        conversation's session collection and the permitted, selected knowledge bases, kept to the
+        kinds the caller's manifest declares."""
+        return ToolScope(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            collections=turn_collections(
+                permissions=principal.permissions,
+                conversation_id=conversation_id,
+                selected_kbs=selected_kbs,
+                kinds=self.collections.get(caller, frozenset()),
+            ),
+        )
 
     async def execute(
         self,
@@ -63,6 +85,7 @@ class ToolBroker:
         caller: str,
         principal: Principal,
         conversation_id: str = "",
+        selected_kbs: Collection[str] = (),
         documents: Any = None,
         emit: Emit | None = None,
         context: GuardContext | None = None,
@@ -80,15 +103,18 @@ class ToolBroker:
             span.set_attribute("tool.name", name)
             span.set_attribute("tool.capability", capability)
             span.set_attribute("tool.call_id", call_id)
-            emit("tool_start", {"call_id": call_id, "tool": name, "capability": capability})
+            start = {"call_id": call_id, "tool": name, "capability": capability}
+            if spec.label is not None:
+                start["label"] = spec.label.model_dump()
+            emit("tool_start", start)
 
             base = context or GuardContext()
             scoped = GuardContext(
                 kbs=base.kbs, tools=(*base.tools, name, capability), locale=base.locale, turn=base.turn
             )
             tool_context = ToolContext(
-                scope=ToolScope(
-                    tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation_id
+                scope=self.scope_for(
+                    caller, principal, conversation_id=conversation_id, selected_kbs=selected_kbs
                 ),
                 documents=documents,
             )

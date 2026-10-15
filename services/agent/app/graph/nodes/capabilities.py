@@ -198,15 +198,16 @@ class _Broker:
         self._ctx, self._runtime, self._state, self._slug = ctx, runtime, state, slug
 
     async def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
-        # The scope comes from the verified principal and this conversation, never from the
-        # capability or a model (S1); the backend is the one the RuntimeContext carries (C6).
+        # The scope comes from the verified principal and this turn, never from the capability or
+        # a model (S1, I1); the backend is the one the capability's configuration names (C6).
         return await self._ctx.services.broker.execute(
             name,
             args,
             caller=self._slug,
             principal=self._ctx.principal,
             conversation_id=self._state["conversation_id"],
-            documents=self._ctx.services.documents,
+            selected_kbs=tuple(self._state.get("selected_kbs") or ()),
+            documents=self._ctx.services.backend_for(self._slug),
             emit=lambda type_, data: emit(self._runtime, type_, data),
             context=guard_context(self._state, self._ctx, tools=()),
             on_guard=self._on_guard,
@@ -349,7 +350,7 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 call_model=_model_caller(cap, ctx, request, runtime),
                 broker=_Broker(ctx, runtime, state, slug),
                 stream_writer=_event_writer(runtime, cap),
-                documents=services.documents,
+                documents=dict(services.backends),
                 context=_context_reader(cap, request, ctx),
                 config=copy.deepcopy(cap.config),
             )

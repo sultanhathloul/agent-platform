@@ -1,7 +1,7 @@
 """What graph nodes can reach: long-lived services built at startup, and the
 per-turn runtime context passed to LangGraph (`context_schema`)."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,7 +56,7 @@ class Services:
     guard_config: GuardrailsConfig
     locks: TurnLocks
     attachments: AttachmentService
-    documents: DocumentBackend
+    documents: DocumentBackend  # the one uploads are registered with (I11)
     citations: AttributionRule
     router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
@@ -64,6 +64,19 @@ class Services:
     # The compiled main graph, set by app.main.start_services once the database is open:
     # the Postgres checkpointer binds to the running event loop (ADR-0055).
     graph: Any = None
+    # Every DocumentBackend by name (I1, ADR-0202); a capability's config/<slug>.yaml `backend`
+    # names the one its tools use, `documents` otherwise.
+    backends: Mapping[str, DocumentBackend] = field(default_factory=dict)
+    mcp: Any = None  # app.mcp.client.MCPClient when config/mcp.yaml lists a server, else None
+
+    def backend_name(self, slug: str) -> str | None:
+        name = self.registry.get(slug).config.get("backend")
+        return str(name) if name else getattr(self.documents, "name", None)
+
+    def backend_for(self, slug: str) -> DocumentBackend:
+        """The DocumentBackend `slug`'s tools use: the one its configuration names."""
+        name = self.registry.get(slug).config.get("backend")
+        return self.backends[name] if name else self.documents
 
 
 @dataclass

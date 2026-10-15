@@ -27,6 +27,8 @@ context:
   needs: [state_digest, summary, window, memory, retrieval, findings]   # the answer's blocks (C2): chunks and notes
   max_input_tokens: 14000            # room for 8 chunks of evidence beside the answer's own blocks
 tools: [docs_search]                     # the only tool the broker lets this capability call (ADR-0160)
+documents:
+  collections: [session]                 # this conversation's files only; never a knowledge base (I1)
 limits:
   max_iterations: 1
   timeout_s: 60

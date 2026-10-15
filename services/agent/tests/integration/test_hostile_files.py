@@ -7,8 +7,6 @@ import asyncio
 import uuid
 
 import pytest
-from tests.fixtures.hostile import BUILDERS, EXPECTED, external_entity_docx
-from tests.fixtures.ingestion import ingestion
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
@@ -17,6 +15,8 @@ from app.rag.backend import DocumentScope
 from app.rag.config import load_docs_config
 from app.rag.extract import ExtractionFailed
 from app.rag.ingest.sandbox import run_sandboxed
+from tests.fixtures.hostile import BUILDERS, EXPECTED, external_entity_docx
+from tests.fixtures.ingestion import ingestion
 
 pytestmark = pytest.mark.integration
 
@@ -34,7 +34,7 @@ async def test_a_hostile_file_fails_with_its_reason_while_a_turn_completes(servi
     data = BUILDERS[name]()
     key = f"test/{conversation}/{uuid.uuid4()}"
     await services.attachments.objects.put(key, data, MIMES[name.rsplit(".", 1)[1]])
-    owner = DocumentScope(
+    owner = DocumentScope.session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
     record = await services.attachments.register(
@@ -65,8 +65,9 @@ def test_python_docx_resolves_no_entity_even_past_the_archive_check():
     import io
     import zipfile
 
-    import app.rag.extract.docx  # noqa: F401  (installs the hardened parser)
     from docx.oxml.parser import parse_xml
+
+    import app.rag.extract.docx  # noqa: F401  (installs the hardened parser)
 
     with zipfile.ZipFile(io.BytesIO(external_entity_docx())) as archive:
         xml = archive.read("word/document.xml")

@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # The source fields a person reads: POST_TOOL sanitizes and checks them like `content` (S2).
 SOURCE_TEXT_FIELDS = ("title", "locator")
@@ -47,20 +47,30 @@ class ToolResult(BaseModel):
 @dataclass(frozen=True)
 class ToolScope:
     """Whose data a tool call may touch. The broker builds it from the verified principal and
-    the conversation in state; it is never an argument a capability or a model fills (S1)."""
+    the turn: the tenant, the user and the document collections the calling capability may
+    read this turn (I1, ADR-0202). It is never an argument a capability or a model fills (S1)."""
 
     tenant_id: str
     user_id: str
-    conversation_id: str
+    collections: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class ToolContext:
     """What a handler receives beside its arguments: the scope and the document backend the
-    calling capability's RuntimeContext holds (C3, C6). No module global reaches a handler."""
+    calling capability's configuration names (C3, C6, I1). No module global reaches a handler."""
 
     scope: ToolScope
     documents: Any = None
+
+
+class Label(BaseModel):
+    """What the user reads while a tool runs (I13): one short phrase per locale."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ar: str
+    en: str
 
 
 @dataclass(frozen=True)
@@ -74,3 +84,5 @@ class ToolSpec:
     timeout_s: float
     max_retries: int
     handler: Callable[[BaseModel, ToolContext], Awaitable[ToolOutput]]
+    # Streamed in tool_start for the client to show (I13); None leaves it to a generic string.
+    label: Label | None = None

@@ -342,6 +342,13 @@ class AttachmentRegistration(BaseModel):
     object_key: str = Field(min_length=1, max_length=512)
 
 
+class AttachmentWarning(BaseModel):
+    """D7 (ADR-0201): `count` pages of an indexed PDF held too little text and were not read."""
+
+    code: Literal["pages_without_text"]
+    count: int = Field(ge=1)
+
+
 class AttachmentView(BaseModel):
     id: str
     conversation_id: str
@@ -353,6 +360,9 @@ class AttachmentView(BaseModel):
     reason: str | None = Field(default=None, description="Why ingestion failed (failed only).")
     pages: int | None = None
     chunks: int | None = None
+    warnings: list[AttachmentWarning] = Field(
+        default=[], description="Indexed with something the user should know (D7, ADR-0201)."
+    )
     created_at: datetime
     indexed_at: datetime | None = None
     object_key: str = Field(description="Where the gateway reads the bytes; never sent to a browser.")

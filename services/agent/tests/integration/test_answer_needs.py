@@ -7,15 +7,15 @@ import dataclasses
 import uuid
 
 import pytest
-from tests.fixtures.backends import Harness
-from tests.fixtures.documents import LEAVE_REGULATION
-from tests.fixtures.replace import replacing
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.capabilities.contract import ContextSpec
 from app.identity import Principal
 from app.rag.backend import DocumentScope
+from tests.fixtures.backends import Harness
+from tests.fixtures.documents import LEAVE_REGULATION
+from tests.fixtures.replace import replacing
 
 pytestmark = pytest.mark.integration
 
@@ -75,7 +75,7 @@ async def test_a_general_turn_in_a_conversation_with_indexed_files_carries_no_ev
     harness = Harness("internal", services)
     principal = Principal(user_id=f"u-needs-{uuid.uuid4().hex[:6]}", permissions=("cap:general", "cap:docs"))
     conversation = str(uuid.uuid4())
-    scope = DocumentScope(
+    scope = DocumentScope.session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
     document = await harness.upload(scope, "لائحة.pdf", ["\n".join(page) for page in LEAVE_REGULATION])

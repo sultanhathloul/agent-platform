@@ -101,7 +101,7 @@ class OrphanSweeper(_Strict):
 
 class DocsConfig(_Strict):
     # Which DocumentBackend serves documents (C6): the phase 04 pipeline, `internal`, for now.
-    backend: Literal["internal"]
+    backend: Literal["internal", "mcp"]
     limits: Limits
     chunking: Chunking
     extraction: Extraction

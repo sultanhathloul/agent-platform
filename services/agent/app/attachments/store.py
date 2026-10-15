@@ -10,16 +10,19 @@ reachable from a request."""
 
 import uuid
 from datetime import datetime
+from typing import Any
 
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.db import Database
+from app.rag.collections import session_collection
 from app.rag.types import AttachmentStatus, DocumentKind, FailureReason, Owner
 
 
 def collection_for(conversation_id: str) -> str:
     """A conversation's session-scoped collection (README §9.3, ADR-0131)."""
-    return f"sess_{conversation_id}"
+    return session_collection(conversation_id)
 
 
 def conversation_lock_key(conversation_id: str) -> int:
@@ -44,6 +47,8 @@ class AttachmentRecord(BaseModel):
     reason: FailureReason | None = None
     pages: int | None = None
     chunks: int | None = None
+    # D7 (ADR-0201): [{code: pages_without_text, count}] on an indexed PDF with pages not read.
+    warnings: list[dict[str, Any]] = []
     attempts: int = 0
     created_at: datetime
     updated_at: datetime
@@ -60,8 +65,8 @@ class LimitReached(Exception):
 
 _COLUMNS = (
     "id::text AS id, conversation_id::text AS conversation_id, tenant_id, user_id, name, mime, kind, "
-    "size, object_key, collection, status, reason, pages, chunks, attempts, created_at, updated_at, "
-    "indexed_at"
+    "size, object_key, collection, status, reason, pages, chunks, warnings, attempts, created_at, "
+    "updated_at, indexed_at"
 )
 
 
@@ -161,11 +166,19 @@ class AttachmentStore:
             row = await cursor.fetchone()
         return _record(row) if row else None
 
-    async def mark_indexed(self, attachment_id: str, *, pages: int | None, chunks: int, conn) -> bool:
+    async def mark_indexed(
+        self,
+        attachment_id: str,
+        *,
+        pages: int | None,
+        chunks: int,
+        conn,
+        warnings: list[dict[str, Any]] | None = None,
+    ) -> bool:
         cursor = await conn.execute(
             "UPDATE agent.attachments SET status = 'indexed', reason = NULL, pages = %s, chunks = %s, "
-            "indexed_at = now(), updated_at = now() WHERE id = %s AND status = 'pending'",
-            (pages, chunks, attachment_id),
+            "warnings = %s, indexed_at = now(), updated_at = now() WHERE id = %s AND status = 'pending'",
+            (pages, chunks, Jsonb(warnings or []), attachment_id),
         )
         return cursor.rowcount == 1
 

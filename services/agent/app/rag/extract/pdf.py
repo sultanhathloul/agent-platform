@@ -1,6 +1,8 @@
 """PDF, page by page, with pypdf (BSD-3). Arabic lines come back in logical order with
 presentation forms folded (app/rag/bidi.py). A PDF with no text layer fails as
-`scanned_unsupported` (ADR-0128); one over the page limit as `too_many_pages`. Bounded
+`scanned_unsupported` (ADR-0128); one over the page limit as `too_many_pages`. A PDF that passes
+the threshold on average but holds pages under it is indexed from its text pages and counts the
+others (`pages_without_text`, D7, ADR-0201); they are not read (OCR is v2). Bounded
 (owner decision R4): a stream that decompresses past `extraction.max_pdf_stream_bytes` fails as
 `stream_too_large`, and more than `extraction.max_chars` of text as `text_too_long`, as soon as
 the page that passes it is read."""
@@ -54,7 +56,8 @@ class PdfExtractor:
         if pages > config.limits.max_pdf_pages:
             raise ExtractionFailed("too_many_pages", pages=pages)
         segments: list[Segment] = []
-        characters = extracted = 0
+        characters = extracted = without_text = 0
+        threshold = config.extraction.min_text_chars_per_page
         for number, page in enumerate(reader.pages, start=1):
             try:
                 # Decoded first: extract_text swallows a decompression limit and returns no text,
@@ -68,12 +71,15 @@ class PdfExtractor:
             except Exception as exc:  # a broken content stream on one page
                 raise ExtractionFailed("corrupt_file", pages=pages, detail=type(exc).__name__) from exc
             text = restore_text(raw).strip()
-            characters += sum(not c.isspace() for c in text)
+            on_page = sum(not c.isspace() for c in text)
+            characters += on_page
+            if on_page < threshold:
+                without_text += 1
             extracted += len(text)
             if extracted > config.extraction.max_chars:
                 raise ExtractionFailed("text_too_long", pages=pages)
             if text:
                 segments.append(Segment(text=text, page=number))
-        if characters < config.extraction.min_text_chars_per_page * pages:
+        if characters < threshold * pages:
             raise ExtractionFailed("scanned_unsupported", pages=pages)
-        return ExtractedDocument(kind="pdf", pages=pages, segments=segments)
+        return ExtractedDocument(kind="pdf", pages=pages, segments=segments, pages_without_text=without_text)

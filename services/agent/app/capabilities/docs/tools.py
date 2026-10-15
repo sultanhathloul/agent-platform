@@ -20,13 +20,18 @@ class SearchArgs(BaseModel):
 
 
 async def search(args: SearchArgs, ctx: ToolContext) -> ToolOutput:
+    # The collections are the broker's: this conversation's files, never a knowledge base, since
+    # the manifest declares documents.collections [session] (I1).
     scope = DocumentScope(
-        tenant_id=ctx.scope.tenant_id, user_id=ctx.scope.user_id, conversation_id=ctx.scope.conversation_id
+        tenant_id=ctx.scope.tenant_id, user_id=ctx.scope.user_id, collections=ctx.scope.collections
     )
     hits = await ctx.documents.search(args.query, scope, args.k)
+    backend = getattr(ctx.documents, "name", None)
     sources = [
         {
             "id": h.ref,
+            "backend": backend,
+            "collection": h.collection,
             "attachment_id": h.document_id,
             "title": h.file_name,
             "page": h.page,
