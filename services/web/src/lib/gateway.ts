@@ -2,6 +2,8 @@
 import type {
   ApiErrorEnvelope,
   ChatTurnRequest,
+  ConversationList,
+  ConversationMessages,
   MeResponse,
   MemoryList,
   MemorySettings,
@@ -108,6 +110,28 @@ async function callJson<T>(url: string, token: string, init: RequestInit): Promi
 function required<T>(data: T | undefined, status: number): T {
   if (data === undefined) throw new GatewayError(status, { code: "unknown" });
   return data;
+}
+
+/** The caller's conversations, newest first; `before` is the previous page's `next_before` (ADR-0194). */
+export async function listConversations({
+  gatewayUrl,
+  token,
+  signal,
+  before,
+}: Authorized & { before?: string }): Promise<ConversationList> {
+  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  return required(await callJson<ConversationList>(`${gatewayUrl}/v1/conversations${query}`, token, { method: "GET", signal }), 200);
+}
+
+/** A conversation's messages, oldest first, as the model may see them again (ADR-0193). */
+export async function getConversationMessages({
+  gatewayUrl,
+  token,
+  signal,
+  conversationId,
+}: Authorized & { conversationId: string }): Promise<ConversationMessages> {
+  const url = `${gatewayUrl}/v1/conversations/${encodeURIComponent(conversationId)}/messages`;
+  return required(await callJson<ConversationMessages>(url, token, { method: "GET", signal }), 200);
 }
 
 /** The caller's memory items and memory switch (README §8). */

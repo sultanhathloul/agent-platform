@@ -44,3 +44,7 @@ export type PolicyWarning = Schemas["PolicyWarning"];
 export type AttachmentView = Schemas["AttachmentView"];
 export type AttachmentList = Schemas["AttachmentList"];
 export type AttachmentLimits = Schemas["AttachmentLimits"];
+export type ConversationList = Schemas["ConversationList"];
+export type ConversationSummary = Schemas["ConversationSummary"];
+export type ConversationMessages = Schemas["ConversationMessages"];
+export type HistoryMessage = Schemas["HistoryMessage"];

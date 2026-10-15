@@ -49,7 +49,9 @@
     "sendWaiting": "Wait until the attached files are processed.",
     "citationPageOne": "page {pages}",
     "citationPageTwo": "pages {pages}",
-    "citationPageMany": "pages {pages}"
+    "citationPageMany": "pages {pages}",
+    "historyLoading": "Loading the conversation…",
+    "historyFailed": "The earlier messages of this conversation could not be loaded."
   },
   "chips": {
     "tier": "Model tier",
@@ -461,5 +463,13 @@
       "txt": "text",
       "md": "Markdown"
     }
+  },
+  "conversations": {
+    "title": "Conversations",
+    "loading": "Loading…",
+    "loadFailed": "The conversations could not be loaded.",
+    "empty": "No conversations yet.",
+    "untitled": "Untitled conversation",
+    "loadMore": "Show more"
   }
 }
