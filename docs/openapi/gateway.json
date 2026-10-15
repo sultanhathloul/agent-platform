@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.0.0"
+    "version" : "2.1.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -769,6 +769,82 @@
         "tags" : [ "chat" ]
       }
     },
+    "/v1/conversations" : {
+      "get" : {
+        "operationId" : "list_2",
+        "parameters" : [ {
+          "description" : "Page size, 1 to 100; 30 when absent.",
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "`next_before` of the previous page (ISO-8601 instant).",
+          "in" : "query",
+          "name" : "before",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeConversationList"
+                }
+              }
+            },
+            "description" : "A page of the caller's conversations"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The caller's conversations, newest first",
+        "tags" : [ "conversations" ]
+      }
+    },
     "/v1/conversations/{conversationId}/attachments" : {
       "get" : {
         "operationId" : "list",
@@ -1107,6 +1183,83 @@
         "tags" : [ "attachments" ]
       }
     },
+    "/v1/conversations/{conversationId}/messages" : {
+      "get" : {
+        "operationId" : "messages",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeConversationMessages"
+                }
+              }
+            },
+            "description" : "The conversation's messages"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "A conversation's messages, oldest first",
+        "tags" : [ "conversations" ]
+      }
+    },
     "/v1/health" : {
       "get" : {
         "operationId" : "health",
@@ -1369,6 +1522,34 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/AttachmentView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeConversationList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/ConversationList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeConversationMessages" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/ConversationMessages"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -1717,12 +1898,129 @@
         },
         "required" : [ "conversation_id", "message" ]
       },
+      "ConversationList" : {
+        "properties" : {
+          "conversations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ConversationSummary"
+            }
+          },
+          "next_before" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "Pass as `before` for the next page; absent on the last page."
+          }
+        },
+        "required" : [ "conversations" ]
+      },
+      "ConversationMessages" : {
+        "properties" : {
+          "conversation_id" : {
+            "type" : "string"
+          },
+          "messages" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/HistoryMessage"
+            }
+          }
+        },
+        "required" : [ "conversation_id", "messages" ]
+      },
+      "ConversationSummary" : {
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "last_turn_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "title" : {
+            "type" : "string",
+            "description" : "The conversation's first question, at most 80 characters."
+          }
+        },
+        "required" : [ "id", "last_turn_at", "title" ]
+      },
       "HealthResponse" : {
         "properties" : {
           "status" : {
             "type" : "string"
           }
         }
+      },
+      "HistoryAttachment" : {
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "id", "name" ]
+      },
+      "HistoryCitation" : {
+        "properties" : {
+          "document_id" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "kb" : {
+            "type" : "string"
+          },
+          "locator" : {
+            "type" : "string"
+          },
+          "pages" : {
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int32"
+            }
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "id", "pages", "source", "title" ]
+      },
+      "HistoryMessage" : {
+        "properties" : {
+          "attachments" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/HistoryAttachment"
+            }
+          },
+          "citations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/HistoryCitation"
+            }
+          },
+          "role" : {
+            "type" : "string",
+            "enum" : [ "user", "assistant" ]
+          },
+          "text" : {
+            "type" : "string"
+          },
+          "turn_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "attachments", "citations", "role", "text" ]
       },
       "InducedFlag" : {
         "description" : "Policies whose exception flag this change set or cleared (ADR-0115)",

@@ -182,7 +182,7 @@ public class AgentClient {
     }
 
     /**
-     * Calls an attachment endpoint (phase 04) and returns the status and body whatever they are; the
+     * Calls an attachment or conversation endpoint (phase 04, ADR-0194) and returns the status and body whatever they are; the
      * caller maps them. With {@code caller}, the caller is named in headers from the verified token
      * (ADR-0059); a registration names it in the body instead.
      *
