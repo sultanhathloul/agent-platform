@@ -465,7 +465,9 @@
       "xlsx": "Excel",
       "txt": "text",
       "md": "Markdown"
-    }
+    },
+    "indexedWithUnreadPages": "Ready — {count, plural, one {{shown} image page not read} other {{shown} image pages not read}}",
+    "unreadPagesNote": "Some pages are scanned images without text and were not read, since reading images is not supported yet; answers come from the other pages only."
   },
   "conversations": {
     "title": "Conversations",

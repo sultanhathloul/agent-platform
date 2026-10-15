@@ -12,6 +12,8 @@ const chipClass =
 
 function ChipView({ chip }: { chip: Chip }) {
   const t = useTranslations();
+  const rawLocale = useLocale();
+  const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   switch (chip.kind) {
     case "tier":
       return (
@@ -38,10 +40,17 @@ function ChipView({ chip }: { chip: Chip }) {
     }
     case "tool": {
       const statusKey = `toolStatus.${chip.status}`;
+      // A tool's label in the user's language (I13); a tool without one keeps the generic chip.
       return (
-        <li className={chipClass}>
-          <span>{t("chips.tool")}</span>
-          <bdi className="font-mono">{chip.tool}</bdi>
+        <li className={chipClass} title={chip.label ? chip.tool : undefined}>
+          {chip.label ? (
+            <span>{locale === "ar" ? chip.label.ar : chip.label.en}</span>
+          ) : (
+            <>
+              <span>{t("chips.tool")}</span>
+              <bdi className="font-mono">{chip.tool}</bdi>
+            </>
+          )}
           {t.has(statusKey) ? <span>{t(statusKey)}</span> : <bdi>{chip.status}</bdi>}
           {chip.latencyMs !== null && <span>{t("chips.latency", { ms: chip.latencyMs })}</span>}
         </li>
