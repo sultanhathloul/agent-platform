@@ -443,6 +443,8 @@ Seed policies in `config/policies/`:
 - "What did the model see" panel (admin only) reading `/v1/debug/context`.
 - Feedback: thumbs up/down + "this refusal was wrong" → stored as Langfuse score + audit.
 
+> **Amendment 2026-10-15 (ADR-0192 to ADR-0194, owner decision).** The chat page lists the caller's conversations, newest first, beside the chat, and `/chat/[id]` opens with the conversation's earlier messages. The gateway serves `GET /v1/conversations` and `GET /v1/conversations/{id}/messages`, owner only, audited (`conversation.list`, `conversation.read`); the agent reads the history from the checkpointed thread and the list from `agent.conversation_owners`. The history shows the post-guard text, the files sent with each question and each answer's citations when they were recorded; a retracted exchange is left out. Read-only: no rename or delete (ADR-0166). API version 2.1.0.
+
 ---
 
 ## 14. Docker Compose (v1 services)

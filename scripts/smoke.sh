@@ -599,4 +599,26 @@ for entry in $HOSTILE; do
 done
 check "the ingest service is still healthy" bash -c "[[ \$(docker compose ps --format '{{.Health}}' ingest) == healthy ]]"
 
-printf '\nsmoke: all phase 01 to 04 checks passed\n'
+step "conversation history: listed after its turn, reopened with its file and citation, the owner's only (ADR-0192 to ADR-0194)"
+# Fresh tokens: the realm's access tokens live 300 s and the steps above take a while.
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/conversations?limit=100" > "$TMP/conversations.json" || fail "the viewer's list failed"
+check "the viewer's list holds the docs conversation, titled by its question" jq -e --arg c "$DOC_CONV" \
+  '[.data.conversations[] | select(.id == $c)] | length == 1 and (.[0].title | startswith("ما مدة إجازة الأمومة"))' "$TMP/conversations.json"
+check "newest first" jq -e '[.data.conversations[].last_turn_at] as $t | $t == ($t | sort | reverse)' "$TMP/conversations.json"
+curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/conversations/$DOC_CONV/messages" > "$TMP/history.json" || fail "the history read failed"
+check "the history holds the question with its file, then the answer" jq -e \
+  '[.data.messages[].role] == ["user", "assistant"] and .data.messages[0].attachments[0].name == "leave-regulation.pdf"' "$TMP/history.json"
+check "the answer comes back with its citation of page 3" jq -e --arg a "$DOC_ATT" \
+  '.data.messages[1].citations | map(select(.document_id == $a and (.pages | index(3)))) | length == 1' "$TMP/history.json"
+check "the history is the post-guard text, never shown_answer" jq -e '[.. | objects | has("shown_answer")] | any | not' "$TMP/history.json"
+code=$(curl -s -o "$TMP/denied.json" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$DOC_CONV/messages")
+[[ $code == 403 ]] && jq -e '.error.code == "conversation_forbidden"' "$TMP/denied.json" >/dev/null \
+  && ok "the analyst reading the viewer's history → 403 conversation_forbidden" || fail "the analyst's read returned $code"
+check "the analyst's list never holds the viewer's conversation" bash -c \
+  "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/conversations?limit=100' | jq -e --arg c '$DOC_CONV' '[.data.conversations[].id] | index(\$c) | not'"
+reads=$(sql "select string_agg(status, ',' order by status) from gateway.audit_events where action = 'conversation.read' and conversation_id = '$DOC_CONV'")
+[[ $reads == denied,ok ]] && ok "both reads are audited: ok for the owner, denied for the analyst" || fail "conversation.read audit rows: $reads"
+
+printf '\nsmoke: all phase 01 to 04 checks and the conversation history checks passed\n'
