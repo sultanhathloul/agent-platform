@@ -18,6 +18,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.api.admin import router as admin_router
 from app.api.attachments import router as attachments_router
+from app.api.conversations import router as conversations_router
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
@@ -77,7 +78,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.0.0"
+API_VERSION = "2.1.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -275,6 +276,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(router)
     app.include_router(admin_router)
     app.include_router(attachments_router)
+    app.include_router(conversations_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:

@@ -38,6 +38,7 @@ from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
 from app.api.events import DoneData, ErrorData, GuardAuditData, GuardData, StateDigest, Usage, build_event
+from app.api.history import first_question
 from app.api.locks import LockPoolBusy, TurnLease
 from app.api.ownership import Owner, StoredOwner
 from app.api.schemas import TurnRequest
@@ -279,6 +280,7 @@ class TurnRunner:
                 )
                 if settings.observability_capture_content:
                     span.set_attribute("langfuse.trace.output", done.answer)
+                await self._record_turn(req.conversation_id, final.get("messages") or [])
                 emit("done", done)
             except TurnError as exc:
                 log.warning("turn %s ended with %s: %s", turn_id, exc.code, exc)
@@ -294,6 +296,17 @@ class TurnRunner:
                 emit("error", self._error(ctx, "turn_failed", retryable=True))
             finally:
                 await self._record_guard_events(ctx, req)
+
+    async def _record_turn(self, conversation_id: str, messages: list) -> None:
+        """The conversation's place in its owner's list (ADR-0192), before `done`, so a list
+        read after the turn holds it. Never fails a turn."""
+        question = first_question(messages)
+        if question is None:
+            return
+        try:
+            await self.services.owners.record_turn(conversation_id, question)
+        except Exception as exc:
+            log.warning("conversation %s not recorded in the list: %s", conversation_id, type(exc).__name__)
 
     @staticmethod
     def _guard_data(ctx: TurnContext) -> list[GuardData]:
