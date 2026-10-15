@@ -39,7 +39,7 @@ documents:
 tools: [routing.geocode, routing.route]
 limits:
   max_iterations: 1
-  timeout_s: 45
+  timeout_s: 60                     # the extract call on a hosted model can take tens of seconds (eval, 2026-10-15)
 state_namespace: "cap.directions"
 declarative:
   extract:
