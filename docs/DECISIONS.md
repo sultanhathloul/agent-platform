@@ -1832,3 +1832,181 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - API version 2.0.0 → 2.1.0 in both services (additive; CLAUDE.md, ADR-0046).
 - Consequences: The web page lists conversations and reopens them. Admins have no access to other users' conversations through this API.
 
+
+### ADR-0195: Guard policies on MCP results run at runtime, per principal (D1)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D1)
+- Status: decided
+- Context: MCP servers return content the platform did not write. ADR-0158 put every guard policy at runtime, per principal, never at ingestion or inside a backend.
+- Decision: No guard policy runs at ingestion, inside a document backend or inside an MCP server. An MCP result is a tool output: it passes POST_TOOL (sanitize_untrusted first), then OUTPUT and DATA on what leaves, for the principal who asked. Reference servers apply no policy.
+- Consequences: Role exceptions (ADR-0107) keep working for MCP content as for documents. An MCP server cannot weaken or replace a platform policy.
+
+### ADR-0196: Capabilities stay independent over MCP; one capability per integration (D2)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D2)
+- Status: decided
+- Context: An "all MCP tools" capability would lose per-integration permissions, routing, tier, policies and evals (BACKLOG, MCP principles).
+- Decision: A capability's context comes only from its manifest (ADR-0161) and it calls only the tools it declares (ADR-0160), MCP tools included. Each integration is its own capability with its own `cap:{slug}`, routing hints, prompts and evals; there is never a generic capability exposing every MCP tool.
+- Consequences: Adding an integration is a capability folder, an allowlist entry and a role, reviewed together.
+
+### ADR-0197: Every MCP call goes through the broker (D3)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D3)
+- Status: decided
+- Context: CLAUDE.md rule 6; the broker is where scope injection, PRE_TOOL, POST_TOOL, audit and the manifest's declarations are enforced.
+- Decision: MCP tools are broker tools from an MCP tool provider. No capability imports or reaches the MCP client; the capability lint refuses an import of `app.mcp`. The MCP document backend reaches its server through the same client, behind `docs_search`, the broker tool the docs capability declares.
+- Consequences: Every MCP call is guarded, timed, audited and declared like any first-party tool.
+
+### ADR-0198: MCP servers and their tools are an allowlist in config/mcp.yaml (D4)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D4)
+- Status: decided
+- Context: Runtime discovery would let a server add tools no one reviewed.
+- Decision: `config/mcp.yaml` lists the servers and the tools allowed from each, versioned and reviewed by PR. A tool a server lists but the file does not name is never registered. There is no admin UI for MCP servers.
+- Consequences: A new server or tool is a PR to `config/mcp.yaml`, with the schema hash of each tool (ADR-0206).
+
+### ADR-0199: Internal servers in every profile; external servers off, never under airgap (D5)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D5)
+- Status: decided
+- Context: CLAUDE.md forbids a dependency on external SaaS; the owner's internal services must work air-gapped.
+- Decision: A server marked `internal: true` is allowed in every profile, air-gapped included. No external server is shipped; external servers are disabled by default, never available in the airgap profile, and enabling one is a later owner decision per server (ADR-0216 states the mechanism).
+- Consequences: `config/mcp.yaml` ships the two reference servers, both internal.
+
+### ADR-0200: Read-class MCP tools only; a write tool is refused at startup; no delete tool ever (D6)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D6)
+- Status: decided
+- Context: Approvals for write-class tools arrive in phase 11; the product deletes nothing (ADR-0166).
+- Decision: Every allowlisted tool is `risk: read`. A tool marked `risk: write` stops the agent at startup with a clear error until approvals exist. No delete tool is ever allowlisted: a tool whose name or remote name holds `delete`, `remove`, `drop` or `purge` is refused by validation.
+- Consequences: The reference servers expose read tools only (the RAG server's `register` writes its own index of a file the platform already stored; it is called by the document backend as transport, never declared to a capability; see ADR-0212).
+
+### ADR-0201: A partly scanned PDF ends indexed with a warning (D7)
+- Date: 2026-10-15
+- Phase: 05 (owner decision D7; amends the partly scanned part of ADR-0128)
+- Status: decided
+- Context: A PDF whose average text passes `extraction.min_text_chars_per_page` was indexed from its text pages, and nothing told the user that some pages were not read (BACKLOG).
+- Decision: Pages under `extraction.min_text_chars_per_page` are counted. The file still ends `indexed` (a whole file under the threshold still fails `scanned_unsupported`), and its status carries `warnings: [{code: pages_without_text, count}]`. The `DocumentBackend` status contract gains `warnings`; the contract suite covers it on every backend. The gateway passes the field through and the web badge says, for example, «جاهز — ٥ صفحات صور لم تُقرأ». The pages themselves are still not read: OCR is v2.
+- Consequences: Agent migration 0012 stores the warnings on the attachment record. API version 2.2.0 (ADR-0214).
+
+### ADR-0202: DocumentScope names collections; the broker builds it; evidence is fetched per source (I1)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I1; BACKLOG MCP item 10; amends ADR-0159 and ADR-0160 on the scope's shape)
+- Status: decided
+- Context: The scope was (tenant, user, conversation), one backend served every capability, and the answer step fetched every source through it: kb (phase 08) and an MCP backend would each need a core change.
+- Decision:
+  - `DocumentScope` and `ToolScope` name `tenant_id`, `user_id` and `collections`. The broker builds the collections from the verified principal and the turn: `sess_{conversation_id}`, plus `kb_{slug}` for each `kb:{slug}:read` the principal holds intersected with the turn's `selected_kbs`. A manifest declares the collection kinds it reads (`documents.collections`, `session` and/or `kb`); the broker keeps only those, so docs (`[session]`) never sees a kb collection.
+  - `Source` gains `backend` and `collection`; `graph/evidence.py` fetches each source through the backend and the collection that found it, with a scope holding that one collection after checking it belongs to the turn's scope.
+  - `RuntimeContext` carries the backends by name (`documents` is a mapping); `config/<slug>.yaml` `backend` names the one a capability uses, and the broker hands that backend to its tools.
+  - The citation event, `done.citations` and the citations persisted on replies (ADR-0193) keep their shape: backend and collection stay internal.
+- Consequences: kb (phase 08) is a manifest with `collections: [kb]` and no core change. Tests: the fake backend holding a kb collection (permitted and selected → found; not permitted, or not selected → nothing, by any reference) and a conversation persisted before this change reopening with its citations (G9).
+
+### ADR-0203: MCP transport is Streamable HTTP with the official SDK; server-initiated features refused (I2)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I2)
+- Status: decided
+- Context: stdio would make the agent spawn server processes; server-initiated features would let a server reach back into the platform.
+- Decision: The client speaks MCP Streamable HTTP only, with the official Python `mcp` SDK pinned to an exact version (recorded in ADR-0218). `transport: stdio` is refused by config validation; the agent spawns no server process. Sampling, elicitation and roots are refused (the client declares none of them and answers any such request with an error); resources and prompts are never read; `tools/list_changed` is ignored.
+- Consequences: A server that only speaks stdio needs an HTTP front of its own, run as its own service.
+
+### ADR-0204: config/mcp.yaml per server and per tool (I3)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I3)
+- Status: decided
+- Decision: Per server: `id` (logical and stable: `routing`, `rag`), `url_env` (the URL comes from `.env`), `auth` (`none` | `bearer_env`: the token's variable name), `internal`, `profiles` where enabled, `timeout_s` (10), `max_result_bytes` (262144), `max_concurrency` (8), and `tools`: `{name, remote_name, risk: read, label {ar, en}, input_schema_sha256, injected {field: principal.tenant_id | principal.user_id | scope.collections}}`. Secrets live only in `.env`.
+- Consequences: The file holds no URL and no secret; it is safe to review and to ship.
+
+### ADR-0205: MCP broker tool names are {server}.{tool}; policy scope tool:{server}.{tool} and tool:{server}.* (I4)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I4)
+- Status: decided
+- Decision: An allowlisted tool registers in the broker as `{server}.{tool}` (`routing.geocode`). Policies scoped `tool:{server}.{tool}` apply to it, and `tool:{server}.*` to every tool of the server. A capability declares MCP tools in its manifest `tools` like any tool.
+- Consequences: The policy scope grammar gains one wildcard form, for server scopes only.
+
+### ADR-0206: Each allowlisted tool's input schema is pinned by hash; drift disables that tool (I5)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I5)
+- Status: decided
+- Decision: At startup and on every reconnect the client lists the server's tools and compares the SHA-256 of each allowlisted tool's canonical input schema with `input_schema_sha256`. A mismatch or a missing tool disables that tool only (fail closed, logged, listed in `/v1/health`); the others work. `make mcp-hashes` prints the current hashes for the owner to review into the config.
+- Consequences: A server cannot change what a tool accepts without a reviewed config change.
+
+### ADR-0207: Injected fields are filled by the broker and hidden from models (I6)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I6; ADR-0160 precedent)
+- Status: decided
+- Decision: A tool's `injected` fields are filled by the broker from the verified principal and the scope, removed from any schema a model or a capability sees, and a call whose arguments name one is refused before anything is sent.
+- Consequences: A model or a capability cannot name another tenant, user or collection to an MCP server.
+
+### ADR-0208: MCP results: structured content or text, capped while reading, never cached (I7)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I7)
+- Status: decided
+- Decision: A result is its `structuredContent` when present, else its text parts; images, audio, resource links and embedded resources are dropped with a note. `max_result_bytes` is enforced while the HTTP body is read (`tool_result_too_large`, nothing parsed beyond the cap). Results reach a model only through POST_TOOL (sanitize_untrusted first), inside the untrusted delimiters in the user role (ADR-0165). No MCP result is cached.
+- Consequences: A large or hostile result cannot exhaust the agent's memory or reach a prompt unsanitized.
+
+### ADR-0209: Resilience: per-server semaphore, timeout, circuit breaker; a dead server never ends the agent (I8)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I8)
+- Status: decided
+- Decision: Each server has a semaphore (`max_concurrency`), a per-call timeout and a circuit breaker (5 consecutive failures → open 30 s → one half-open probe). An unavailable, timed-out or open-circuit call returns `tool_unavailable` / `tool_timeout` to the capability, which says so in its findings; the turn continues. The agent starts and `make up` stays green with a server down; the client reconnects with backoff. `/v1/health` lists each server and each disabled tool, content-free. The codes have Arabic and English messages in `config/messages/errors.yaml`, the gateway catalogs, `ar.json` and `en.json`.
+- Consequences: A slow or dead server costs its own callers a bounded wait and nobody else anything (G7).
+
+### ADR-0210: MCP sessions are pooled per server and carry no per-user state (I9)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I9)
+- Status: decided
+- Decision: One pooled session per server; every call carries all it needs (injected scope included). An expired session is re-initialised.
+- Consequences: A server's session id says nothing about who is calling.
+
+### ADR-0211: Two reference MCP servers in the repository (I10)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I10)
+- Status: decided
+- Decision:
+  - `mcp-routing-ref`: `geocode {query}` → up to three matches `{name, point, score}`, and `route {from, to, profile: car|foot}` → `{distance_km, duration_min, steps[]}`, over a fixed fixture of about 30 public Riyadh landmarks with Arabic, Gulf and English aliases and an invented road graph; Dijkstra; fixed speeds per profile; deterministic. One place's description holds an injection sentence. A test-only switch (environment, off in compose) adds a delay or an oversize result.
+  - `mcp-rag-ref`: the phase 04 pipeline over MCP, tools `register`, `status`, `search`, `fetch`, with scope fields always injected. It enforces scope itself, reads MinIO with a read-only user of its own (ADR-0178), never parses a document in its own process (ADR-0176), keeps its chunks in schema `rag_ref`, and applies no policy (ADR-0158).
+  - Python, official SDK, each its own container on an internal network, never published to the host.
+- Consequences: The owner's servers replace them by configuration and a contract test run.
+
+### ADR-0212: MCPDocumentBackend over the platform MCP client; docs_search stays the guard point (I11)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I11)
+- Status: decided
+- Decision: `MCPDocumentBackend` implements `DocumentBackend` with the platform MCP client as transport (allowlist, auth, timeouts, size caps, audit). The rag server's tools are declared to no capability, so no model can call them around `docs_search`. `config/docs.yaml` `backend: internal | mcp`, overridable by `DOCS_BACKEND` in `.env`; `internal` stays the default.
+- Consequences: The same contract suite and `rag.jsonl` run on both backends.
+
+### ADR-0213: Declarative capabilities: extract, fixed steps, findings; no graph.py (I12)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I12)
+- Status: decided
+- Decision: A manifest section `declarative: {extract: {role: extractor, prompt, schema, on_missing: ask}, steps: [{id, tool, args}], findings: {prompt}}` replaces `graph.py`. A core runner (`capabilities/declarative.py`, capability-agnostic) builds the subgraph: one structured-output call fills `extract` (validated; one repair call on invalid output); steps run in order, their arguments mapped deterministically from `$.extract.<field>`, `$.steps.<id>.result.<path>` or literals; a missing extract field or an empty step result stops with a findings note (the answer asks the user, or lists up to three candidates). The model never fills a tool's arguments directly; the broker validates every call against the pinned schema. No expressions, conditionals, loops or parallelism (phase 07 may supersede this syntax). A capability with a `graph.py` keeps working unchanged.
+- Consequences: A simple integration is a manifest, prompts and evals.
+
+### ADR-0214: Tool progress labels in tool_start; API and events 2.2.0 (I13)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I13; ADR-0194 was 2.1.0)
+- Status: decided
+- Decision: `tool_start` carries `label {ar, en}` from `config/mcp.yaml` or the tool spec; the web shows the label in the user's locale, with a generic fallback string, so a new MCP capability needs no web change. Agent and gateway OpenAPI and the events schema move once, 2.1.0 → 2.2.0 (additive: the event label, the status warnings of ADR-0201); `make openapi` regenerates the web's types.
+- Consequences: Changes until this PR merges stay within 2.2.0 (ADR-0046).
+
+### ADR-0215: The reference routing capability is `directions` (I14)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I14; amends the CLAUDE.md phase 05 row)
+- Status: decided
+- Context: `run_evals` names a capability suite by its slug, and `routing` is the router suite.
+- Decision: Slug `directions` (name ar «الاتجاهات والمسارات»). Permission `cap:directions` in the realm export, held by the seed users `analyst` and `evaluator`, not by `viewer` and not in the base `user` role. `min_tier: standard`, `ui.mode: auto`, `tools: [routing.geocode, routing.route]`, `context.needs: [window]`, `documents.collections: []`. Text answers only (distance, duration, main steps); maps wait for artifact outputs (phase 11). The CLAUDE.md phase 05 row names the slug.
+- Consequences: The router suite keeps its name.
+
+### ADR-0216: Routing rule keyword_candidate (I15)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I15; README §5.3; ADR-0145 precedent)
+- Status: decided
+- Decision: A generic manifest rule `keyword_candidate`: a keyword match makes the capability a router-model candidate and never selects it. `directions` declares it with Arabic, Gulf and English keywords. Turns with no candidate cost no router call, as today. The router cache key is unchanged (ADR-0169).
+- Consequences: «ما الطريق إلى النجاح» reaches the router model, which sends it to general; no keyword alone decides a route.
+
+### ADR-0217: External MCP servers need an env flag, never run under airgap, and need a PRE_TOOL policy per call (I16)
+- Date: 2026-10-15
+- Phase: 05 (implementation choice I16; ADR-0199)
+- Status: decided
+- Decision: A server with `internal: false` is enabled only when `.env` sets `MCP_ALLOW_EXTERNAL=true`; it is refused under the airgap overlay whatever `.env` says; and the broker refuses every call to its tools unless an enabled PRE_TOOL policy is scoped to the tool or its server. Proven with a test-only fixture config; `config/mcp.yaml` ships no external server.
+- Consequences: Enabling an external server is an owner decision recorded as `.env`, config and policy changes together.
