@@ -1367,20 +1367,20 @@ Phase 05 ground rules (from the phase prompt, verbatim):
 Checklist:
 - [x] A1 PROGRESS future-phase headings follow the CLAUDE.md table (this edit).
 - [x] A2 smoke: poll Langfuse for the generation's usage (bounded 30 s) instead of reading once.
-- [ ] ADRs for D1–D7 and I1–I16 (decided), and the assumptions of this session.
-- [ ] B1 contracts: `DocumentScope` (tenant, user, collections), `ToolScope`, `Source.backend`/`collection`, manifest `documents.collections`, `config/<slug>.yaml` `backend`; types and tests.
-- [ ] B1 broker builds the scope (session + permitted∩selected kb) ∩ manifest kinds; RuntimeContext carries backends by name; internal and fake backends take collections; evidence fetched per source's backend and collection; contract suite extended; G6 kb tests on the fake; G9 test (a conversation persisted before this change reopens with its citations).
-- [ ] B2 D7: extraction counts pages without text; status `warnings [{code: pages_without_text, count}]` through backend, agent, gateway; contract suite on both backends; web badge.
-- [ ] C1 contracts: `config/mcp.yaml` schema and validation (stdio refused, write refused, delete never, external rules, profiles), broker MCP tool spec, `tool_start` label, error codes; tests first.
-- [ ] C1 client: official `mcp` SDK pinned; Streamable HTTP; pooled sessions; schema pinning (I5) and `make mcp-hashes`; injected fields (I6); result handling and byte cap while reading (I7); semaphore, timeout, circuit breaker, reconnect with backoff (I8); `/v1/health` lists servers and disabled tools; I16 external gate.
-- [ ] C1 tests: unlisted remote tool never registered; schema drift disables one tool; injected fields; write refused at startup; size cap; timeout; breaker; G7 (20 delayed calls while another user's general turn completes in normal time); G8 (no argument or result text in spans or audit).
-- [ ] D1 `mcp-routing-ref` and `mcp-rag-ref` in compose (healthchecks, internal network, never published; airgap overlay).
-- [ ] D2 `MCPDocumentBackend`; the full contract suite against `mcp-rag-ref`, isolation first; `DOCS_BACKEND` override.
-- [ ] E1 declarative runner (core) with a test-only fixture capability.
-- [ ] E2 `capabilities/directions/` (manifest, prompts ar/en, ≥ 24 evals), `cap:directions` in the realm (analyst, evaluator); zero-core-change diff check.
-- [ ] E3 `keyword_candidate` routing rule.
-- [ ] F1 web: tool labels from `tool_start`, D7 badge, new error messages; ar.json and en.json.
-- [ ] API 2.1.0 → 2.2.0 (agent, gateway, events schema); `make openapi`.
+- [x] ADRs for D1–D7 and I1–I16 (decided), and the assumptions of this session.
+- [x] B1 contracts: `DocumentScope` (tenant, user, collections), `ToolScope`, `Source.backend`/`collection`, manifest `documents.collections`, `config/<slug>.yaml` `backend`; types and tests.
+- [x] B1 broker builds the scope (session + permitted∩selected kb) ∩ manifest kinds; RuntimeContext carries backends by name; internal and fake backends take collections; evidence fetched per source's backend and collection; contract suite extended; G6 kb tests on the fake; G9 test (a conversation persisted before this change reopens with its citations).
+- [x] B2 D7: extraction counts pages without text; status `warnings [{code: pages_without_text, count}]` through backend, agent, gateway; contract suite on both backends; web badge.
+- [x] C1 contracts: `config/mcp.yaml` schema and validation (stdio refused, write refused, delete never, external rules, profiles), broker MCP tool spec, `tool_start` label, error codes; tests first.
+- [x] C1 client: official `mcp` SDK pinned; Streamable HTTP; pooled sessions; schema pinning (I5) and `make mcp-hashes`; injected fields (I6); result handling and byte cap while reading (I7); semaphore, timeout, circuit breaker, reconnect with backoff (I8); `/v1/health` lists servers and disabled tools; I16 external gate.
+- [x] C1 tests: unlisted remote tool never registered; schema drift disables one tool; injected fields; write refused at startup; size cap; timeout; breaker; G7 (20 delayed calls while another user's general turn completes in normal time); G8 (no argument or result text in spans or audit).
+- [x] D1 `mcp-routing-ref` and `mcp-rag-ref` in compose (healthchecks, internal network, never published; airgap overlay).
+- [x] D2 `MCPDocumentBackend`; the full contract suite against `mcp-rag-ref`, isolation first; `DOCS_BACKEND` override.
+- [x] E1 declarative runner (core) with a test-only fixture capability.
+- [x] E2 `capabilities/directions/` (manifest, prompts ar/en, ≥ 24 evals), `cap:directions` in the realm (analyst, evaluator); zero-core-change diff check.
+- [x] E3 `keyword_candidate` routing rule.
+- [x] F1 web: tool labels from `tool_start`, D7 badge, new error messages; ar.json and en.json.
+- [x] API 2.1.0 → 2.2.0 (agent, gateway, events schema); `make openapi`.
 - [ ] G1 evals: routing.jsonl +20 cases; directions suite and thresholds; rag on both backends side by side; 429 backoff with retry counts.
 - [ ] G2 smoke checks (directions, history, viewer, undeclared tool, server down and recovery, injection, MCP backend upload, partly scanned warning, airgap networks).
 - [ ] G3 measurements (n=20, p50/p95, rerank off).
