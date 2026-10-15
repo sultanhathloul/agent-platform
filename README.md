@@ -234,6 +234,8 @@ Loop behaviour (`reason → tool_decision → guard(PRE_TOOL) → execute → gu
 | Human approval? | **Policy engine only** | never the model |
 | Loop done? | **Broker / subgraph orchestrator** | model says final OR shared limits reached OR validation failed twice |
 
+> **Amendment 2026-10-15 (phase 05, ADR-0216).** A manifest rule `keyword_candidate` makes a capability a router-model candidate when one of its keywords is in the message; it never selects it. The router model then chooses among the candidates and the fallback capabilities, as for `conversation_attachments`; a turn with no candidate costs no router call, and the router's cache key is unchanged (ADR-0169).
+
 ## 6. Gateway (Spring Boot)
 
 ### 6.1 Responsibilities
@@ -258,6 +260,8 @@ POST /v1/turns/{id}/approve body: {approved: bool, note}      ← HITL resume
 POST /v1/kb/{slug}/ingest   body: {object_key, metadata}      ← admin ingestion
 GET  /v1/health
 ```
+> **Amendment 2026-10-15 (phase 05, ADR-0209, ADR-0214, ADR-0219).** Agent and gateway API version 2.2.0, additive: `tool_start` carries the tool's `label {ar, en}`; an attachment carries `warnings` (`[{code: pages_without_text, count}]`, ADR-0201); the terminal `done` and `error` events carry `tool_audit`, every tool call of the turn without content, from the agent to the gateway only (the gateway writes it into the audit record as `tool_calls` and removes it, like `guard_audit`); `GET /v1/health` lists each MCP server and each disabled tool, content-free.
+
 ### 6.3 API standards
 
 - **REST:** every HTTP API (gateway public API, agent internal API) is described by **OpenAPI 3.1**. FastAPI generates the agent spec from Pydantic models; the gateway uses `springdoc-openapi`. Specs are committed under `docs/openapi/{gateway,agent}.json` and regenerated in CI; a diff without a version bump fails the build.
@@ -559,6 +563,8 @@ limits:
 state_namespace: "cap.email_proofreader"    # isolated slice of AgentState
 ```
 
+> **Amendment 2026-10-15 (phase 05, ADR-0202, ADR-0213).** Two manifest sections. `documents.collections` (`session`, `kb`) names the kinds of document collection the capability's tools may read; the broker builds the turn's collections from the principal (the conversation's session collection, and each knowledge base the principal may read and the turn selected) and keeps only those kinds; omitted, no document. `declarative: {extract: {role, prompt, schema, on_missing: ask}, steps: [{id, tool, args}], findings: {prompt}}` makes a capability of a manifest, prompts and evals with no `graph.py`: a core runner fills the extract schema with one structured-output call, runs the steps in order through the broker with arguments mapped from `$.extract.<field>`, `$.steps.<id>.result.<path>` or literals, and renders the findings with the capability's prompt. MCP tools are declared in `tools` as `{server}.{tool}` (ADR-0205). `RuntimeContext.documents` holds the document backends by name; config/<slug>.yaml `backend` names the one a capability's tools use.
+
 ### 18.3 Runtime contract
 
 ```python
@@ -740,6 +746,22 @@ Rules:
 | `config/prompts/router/` | `router.system`, `router.request` | The router model's prompts |
 | `capabilities/docs/prompts/` | `docs.evidence` | Retrieved chunks inside untrusted delimiters (ADR-0136) |
 | `.env` | `LITELLM_PORT` | Loopback port of LiteLLM for `make eval` (default 4000) |
+
+### 20.4 Configuration keys added in phase 05
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/mcp.yaml` | `servers[]`: `id`, `url_env`, `auth` (`none` \| `bearer_env`), `internal`, `profiles`, `timeout_s`, `max_result_bytes`, `max_concurrency` | The MCP servers the platform may call, reviewed by PR (D4, ADR-0204); Streamable HTTP only, no URL or secret in the file |
+| | `servers[].tools[]`: `name`, `remote_name`, `risk`, `label {ar, en}`, `input_schema_sha256`, `injected` | The tools allowed from each server, read class only (D6), their progress label (I13), their pinned input schema (I5) and the fields the broker fills from the principal and the scope (I6) |
+| `config/docs.yaml` | `backend` (`internal` \| `mcp`), `mcp_server` | The document backend of uploads and the docs capability, and the server of config/mcp.yaml the `mcp` backend calls (I11) |
+| `capabilities/directions/manifest.yaml` | `declarative.*`, `documents.collections`, `routing_hints.rules: keyword_candidate` | The reference routing capability (ADR-0213, ADR-0215, ADR-0216) |
+| `capabilities/directions/prompts/` | `directions.extract`, `directions.findings` | The extract call's instructions and the findings for the answer, ar and en |
+| `.env` | `MCP_ROUTING_URL`, `MCP_RAG_URL`, `MCP_RAG_TOKEN` | Where the servers of config/mcp.yaml are, and the RAG reference server's bearer token |
+| | `MCP_PROFILE`, `MCP_ALLOW_EXTERNAL` | The profile this deployment runs (`airgap` in the airgap overlay) and the external-server gate, off (D5, I16) |
+| | `DOCS_BACKEND` (generally `<SLUG>_BACKEND`) | Overrides a capability's `backend` per environment (ADR-0224) |
+| | `RAG_REF_DB_PASSWORD`, `MINIO_RAGREF_ACCESS_KEY`, `MINIO_RAGREF_SECRET_KEY` | The RAG reference server's own database role and MinIO user (ADR-0225) |
+
+> **Amendment 2026-10-15 (phase 05, ADR-0211).** Compose gains `mcp-routing-ref` and `mcp-rag-ref`, the reference MCP servers (infra/mcp-ref), on `mcp`, an internal network with no route out, never published; `postgres-roles`, a one-shot job creating the RAG server's database role and schema; and `make mcp-hashes`. The agent does not wait for any MCP server: one that is down is reported in `/v1/health`, and the capabilities that need it say so in their answers.
 
 ## 21. Getting started on a new machine
 

@@ -28,18 +28,19 @@ The platform has no MCP support. Every tool today is first-party Python inside a
 - **Process isolation**: the hardening phase (phase 12) decides process isolation before any third-party code (ADR-0054). MCP servers run as separate processes/services by nature; the platform-side client still runs behind the broker with timeouts and size limits.
 
 ### Scope sketch (to refine into a build prompt)
-1. Platform MCP client as a tool provider of the broker: connect to configured servers, map their tools to broker tools (`tool:{server}.{tool}` policy scope), timeouts, result size caps, audit.
-2. `config/mcp.yaml` with server list, transport, auth reference, allowed tools, internal/external flag, profiles where enabled.
-3. `MCPDocumentBackend` implementing `DocumentBackend`, built and tested against a reference RAG MCP server in the repo (it exposes the internal pipeline over MCP, so `rag.jsonl` runs end to end on both paths); the owner's RAG/OCR MCP server is wired later by configuration; passes the backend contract test suite; `config/docs.yaml backend: mcp` switches it.
+Phase 05 status (2026-10-15): items 1–6, 9 and 10 → phase 05 (docs/PHASE-05-BUILD-PROMPT.md, ADR-0195 to ADR-0229); items 7 and 8 stay in phase 11. Item 6's capability is named `directions` (ADR-0215).
+1. → phase 05. Platform MCP client as a tool provider of the broker: connect to configured servers, map their tools to broker tools (`tool:{server}.{tool}` policy scope), timeouts, result size caps, audit.
+2. → phase 05. `config/mcp.yaml` with server list, transport, auth reference, allowed tools, internal/external flag, profiles where enabled.
+3. → phase 05. `MCPDocumentBackend` implementing `DocumentBackend`, built and tested against a reference RAG MCP server in the repo (it exposes the internal pipeline over MCP, so `rag.jsonl` runs end to end on both paths); the owner's RAG/OCR MCP server is wired later by configuration; passes the backend contract test suite; `config/docs.yaml backend: mcp` switches it.
    - Backend selection is configuration, never routing: the router picks the docs capability; config picks the backend. Later options, decided on eval numbers: per file type (scanned PDFs to the MCP backend for OCR, text files internal) or per tenant, with results merged in one search.
    - The guard point stays `docs_search`: it is the only tool the docs capability sees; scope injection and PRE_TOOL / POST_TOOL run there. The adapter's calls to the RAG server go through the platform MCP client (allowlist, auth, timeouts, size caps, audit) as transport. The RAG server's own tools are never declared to any capability, so the model cannot call them around `docs_search`.
-4. Evaluation: the same `rag.jsonl` runs against both backends; the switch is decided on the numbers (retrieval hit@8, citation page accuracy, faithfulness, abstention, latency). OCR cases (scanned PDFs) added for the MCP backend.
-5. **Declarative MCP capability**: a capability made of a manifest, prompts and evals only, no Python. The manifest names the MCP tools, how the model fills their arguments (structured output against the tool's input schema) and how results become findings. Python stays possible when a flow needs custom logic. Adding a simple integration = one `config/mcp.yaml` entry + one capability folder + one Keycloak role.
-6. Reference capability: `routing` (geocode origin and destination, then route) on a reference routing MCP server in the repo with a small fixed Riyadh fixture graph, proving zero core change; the owner's GraphHopper MCP server replaces it by configuration when ready.
+4. → phase 05 (OCR cases wait for the owner's RAG/OCR server). Evaluation: the same `rag.jsonl` runs against both backends; the switch is decided on the numbers (retrieval hit@8, citation page accuracy, faithfulness, abstention, latency). OCR cases (scanned PDFs) added for the MCP backend.
+5. → phase 05. **Declarative MCP capability**: a capability made of a manifest, prompts and evals only, no Python. The manifest names the MCP tools, how the model fills their arguments (structured output against the tool's input schema) and how results become findings. Python stays possible when a flow needs custom logic. Adding a simple integration = one `config/mcp.yaml` entry + one capability folder + one Keycloak role.
+6. → phase 05 (slug `directions`). Reference capability: `routing` (geocode origin and destination, then route) on a reference routing MCP server in the repo with a small fixed Riyadh fixture graph, proving zero core change; the owner's GraphHopper MCP server replaces it by configuration when ready.
 7. **Artifact outputs** (→ phase 11; needed by a page-builder agent): a capability may return a file (HTML, later others) instead of, or beside, text. Stored in MinIO, shown in a sandboxed preview (iframe sandbox, strict CSP, never rendered inline in the app), downloadable, passed through runtime DATA policies on its text.
 8. **Long-running tool calls** (→ phase 11): an MCP call that takes minutes runs as a background job with progress shown to the user and resumable state (reuses the phase 04 ingestion worker pattern and the interrupt/resume path, phase 11).
-9. Smoke and airgap: internal MCP servers work with egress blocked; external ones are absent from the airgap profile.
-10. **Generalise DocumentScope first** (PR #4 review round 2, finding 1): today evidence is fetched only from the conversation's own files (scope = user + conversation, one backend for every capability). Before kb (phase 08) and the MCP backend: a scope names collections (the session's, and kb collections allowed by the principal's kb:{slug}:read), injected by the broker; evidence is fetched per source's collection and backend; more than one backend is reachable through RuntimeContext. Without this, kb needs a core change.
+9. → phase 05. Smoke and airgap: internal MCP servers work with egress blocked; external ones are absent from the airgap profile.
+10. → phase 05. **Generalise DocumentScope first** (PR #4 review round 2, finding 1): today evidence is fetched only from the conversation's own files (scope = user + conversation, one backend for every capability). Before kb (phase 08) and the MCP backend: a scope names collections (the session's, and kb collections allowed by the principal's kb:{slug}:read), injected by the broker; evidence is fetched per source's collection and backend; more than one backend is reachable through RuntimeContext. Without this, kb needs a core change.
 
 ### Integration contract (ICD) to settle with each MCP server before wiring it
 | Item | Question to answer |
@@ -53,8 +54,11 @@ The platform has no MCP support. Every tool today is first-party Python inside a
 | Data handling | What the server stores, for how long, and where (sovereignty) |
 | Versioning | How tool changes are announced without breaking the platform |
 
+### Owner's servers (after phase 05)
+- Wire each by URL in `.env` (`url_env`, a bearer token in `bearer_env` when it needs one), add its entry and tools to `config/mcp.yaml` with the hashes `make mcp-hashes` prints, run the DocumentBackend contract suite (a RAG server) and the evals; settle the ICD table above with its team first.
+
 ### Deferred from phase 04 that bears on the MCP document backend
-- **Partly scanned PDFs**: a partly scanned PDF is indexed from its text pages only; its scanned pages are not read, and nothing tells the user. A PDF fails `scanned_unsupported` only when its text averages under `extraction.min_text_chars_per_page` per page over the whole file. OCR is v2, behind the `Extractor` hook. The OCR cases of scope item 4 should include a partly scanned PDF. (Source: PROGRESS phase 04, fix session round 1, R5; ADR-0128.)
+- → phase 05 (D7, ADR-0201: indexed with a `pages_without_text` warning the web shows; the pages themselves still wait for OCR). **Partly scanned PDFs**: a partly scanned PDF is indexed from its text pages only; its scanned pages are not read, and nothing tells the user. A PDF fails `scanned_unsupported` only when its text averages under `extraction.min_text_chars_per_page` per page over the whole file. OCR is v2, behind the `Extractor` hook. The OCR cases of scope item 4 should include a partly scanned PDF. (Source: PROGRESS phase 04, fix session round 1, R5; ADR-0128.)
 
 ---
 
@@ -111,7 +115,7 @@ Phases it needs: 04 docs (search the file), 05 MCP (routing), 06 skills (the pag
 
 ## kb phase (phase 08) — carried from phase 04
 
-- **DocumentScope generalisation** must land first: see MCP item 10 above (it is scheduled in phase 05). (Source: PROGRESS phase 04, fix session round 2, item 5.)
+- **DocumentScope generalisation** must land first: see MCP item 10 above (it is scheduled in phase 05). Done in phase 05 (ADR-0202): kb is a manifest with `documents.collections: [kb]` and a backend whose `kb_{slug}` collections hold the KB documents. (Source: PROGRESS phase 04, fix session round 2, item 5.)
 - **KB documents need their own record for their chunks**: `agent.rag_chunks.attachment_id` is a foreign key to `agent.attachments` with ON DELETE CASCADE (migration 0010), so a chunk cannot exist without an attachment record. (Source: ADR-0166.)
 - **`kb:` and `tool:` exceptions at OUTPUT and DATA stay refused**: page attribution says which pages an answer drew on, not which sentence came from which source, so an exception scoped to one KB cannot apply to its part of the answer. Revisit with the kb capability. (Source: ADR-0146.)
 - **Re-measure the reranker on large KB documents**: phase 04's measurement used six small documents of at most 40 chunks, where fusion alone put the answer in the top 8 every time. (Source: ADR-0184; also listed under the hardening phase below.)
