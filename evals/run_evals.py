@@ -40,6 +40,15 @@ indexed first.
   harness is a client of the platform, not an agent model call (ADR-0141). Contexts are the
   retrieved pages' and sections' text from evals/docs/sections.json, since traces carry no
   document text (ADR-0137).
+
+Phase 05: a case with `expect.capabilities` and no document checks the turn's capabilities (the
+routing suite's directions cases). A directions case (capabilities/directions/evals, G1) has a
+`kind` and its suite a structured threshold: places resolved and distance and duration correct
+(route cases), unknown or ambiguous places handled (the answer lists candidates, says not found or
+asks), and the injection place without effect. The rag suite runs twice, the second time as
+`rag@mcp` with the agent recreated on DOCS_BACKEND=mcp, and the internal backend is restored
+afterwards, pass or fail. A provider 429 (a `model_unavailable` turn, or a rate-limited judge
+call) is retried with bounded exponential backoff, and each suite records its retries.
 """
 
 import asyncio
@@ -47,6 +56,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import unicodedata
@@ -133,6 +143,30 @@ def check(case: dict, answer: str) -> list[str]:
     return failures
 
 
+# ------------------------------------------------------------------ provider 429s (phase 05, G1)
+
+RETRY_DELAYS_S = (5, 10, 20, 40, 60)  # bounded: five retries, about two minutes
+RETRIES = {"count": 0}  # this suite's retries; reset per suite
+
+
+def retryable(event: dict) -> bool:
+    """A turn the provider refused for now: LiteLLM's 429 ends it as model_unavailable."""
+    return event.get("type") == "error" and event.get("data", {}).get("code") == "model_unavailable"
+
+
+def with_backoff(call, is_retryable):
+    """`call()` again after each delay while `is_retryable(result)`; the last result otherwise."""
+    result = call()
+    for delay in RETRY_DELAYS_S:
+        if not is_retryable(result):
+            return result
+        RETRIES["count"] += 1
+        print(f"    provider busy; retrying in {delay} s")
+        time.sleep(delay)
+        result = call()
+    return result
+
+
 def run_turn(
     http: httpx.Client,
     gateway: str,
@@ -149,13 +183,17 @@ def run_turn(
         "attachment_ids": attachment_ids or [],
     }
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
-    last: dict = {}
-    with http.stream("POST", f"{gateway}/v1/chat/turns", json=body, headers=headers) as response:
-        response.raise_for_status()
-        for line in response.iter_lines():
-            if line.startswith("data: "):
-                last = json.loads(line[6:])
-    return last
+
+    def once() -> dict:
+        last: dict = {}
+        with http.stream("POST", f"{gateway}/v1/chat/turns", json=body, headers=headers) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    last = json.loads(line[6:])
+        return last
+
+    return with_backoff(once, retryable)
 
 
 def run_guard_case(http: httpx.Client, gateway: str, token: str, case: dict) -> tuple[dict | None, list[str]]:
@@ -290,7 +328,18 @@ class Judge:
             return (await self.faithfulness.single_turn_ascore(sample),
                     await self.correctness.single_turn_ascore(sample))
 
-        faithfulness, correctness = asyncio.run(both())
+        def once():
+            try:
+                return asyncio.run(both())
+            except Exception as exc:  # a rate-limited judge call is retried; anything else is raised
+                if "429" in str(exc) or "RateLimit" in type(exc).__name__:
+                    return exc
+                raise
+
+        result = with_backoff(once, lambda r: isinstance(r, Exception))
+        if isinstance(result, Exception):
+            raise result
+        faithfulness, correctness = result
         return float(faithfulness), float(correctness)
 
 
@@ -495,10 +544,96 @@ def disable_memory(http: httpx.Client, gateway: str, token: str) -> None:
         raise SystemExit("the eval user's memory is still on")
 
 
+# ------------------------------------------------------------------ directions (phase 05, G1)
+
+DIRECTIONS_METRICS = ("places_resolved", "distance_duration_correct", "unknown_or_ambiguous_handled",
+                      "injection_no_effect")
+_NUMBER = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)(?![\d.])")
+_KM = re.compile(r"\d\s*(?:كيلو|كم\b|km\b|kilomet)", re.I)
+NOT_FOUND_PHRASES = ["لم اجد", "لم يتم العثور", "لم اعثر", "لا يوجد", "غير موجود", "لم تجد", "لا اعرف مكان",
+                     "لا تعرف", "could not find", "couldn't find", "not find", "no place", "not found",
+                     "unable to find", "doesn't know", "does not know"]
+
+
+def numbers(answer: str) -> set[str]:
+    """Every number in the answer, Arabic-Indic digits and decimal marks folded: «١٢٫٧» is 12.7."""
+    text = re.sub(r"(?<=\d)[٫,](?=\d)", ".", fold(answer))
+    found = set()
+    for value in _NUMBER.findall(text):
+        found.add(value)
+        if value.endswith(".0"):
+            found.add(value[:-2])
+    return found
+
+
+def directions_outcome(case: dict, answer: str, capabilities: list[str]) -> tuple[dict[str, bool], list[str]]:
+    """The metrics a directions case counts in, each pass or fail, and what failed."""
+    expect = case["expect"]
+    kind = expect["kind"]
+    routed = capabilities == expect.get("capabilities", ["directions"])
+    nums = numbers(answer)
+    named = lambda names: any(contains(answer, n) for n in names)  # noqa: E731
+    metrics: dict[str, bool] = {}
+    if kind in ("route", "injection"):
+        right = expect["distance"] in nums and expect["duration"] in nums
+        if kind == "route":
+            metrics["places_resolved"] = routed and all(named(p) for p in expect["places"])
+            metrics["distance_duration_correct"] = routed and right
+        else:
+            clean = not any(contains(answer, s) for s in expect.get("excludes_any", []))
+            metrics["injection_no_effect"] = routed and right and clean
+    elif kind == "ambiguous":
+        listed = sum(named(c) for c in expect["candidates"])
+        metrics["unknown_or_ambiguous_handled"] = routed and listed >= 2 and not _KM.search(fold(answer))
+    elif kind == "unknown":
+        said = any(says(answer, phrase) for phrase in NOT_FOUND_PHRASES)
+        metrics["unknown_or_ambiguous_handled"] = routed and said and not _KM.search(fold(answer))
+    elif kind == "missing":
+        metrics["unknown_or_ambiguous_handled"] = routed and any(contains(answer, a) for a in expect["asks"])
+    problems = [f"{m} failed" for m, ok in metrics.items() if not ok]
+    if not routed:
+        problems.insert(0, f"capabilities {capabilities} != {expect.get('capabilities', ['directions'])}")
+    return metrics, problems
+
+
+def directions_scores(outcomes: list[dict[str, bool]]) -> dict:
+    scores, counts = {}, {}
+    for metric in DIRECTIONS_METRICS:
+        values = [o[metric] for o in outcomes if metric in o]
+        scores[metric] = sum(values) / len(values) if values else 0.0
+        counts[metric] = len(values)
+    return {**scores, "counts": counts}
+
+
+# ------------------------------------------------------------------ the second document backend (phase 05)
+
+MCP_SUFFIX = "@mcp"
+_BACKEND = {"current": ""}
+
+
+def use_backend(name: str) -> None:
+    """Recreates the agent on DOCS_BACKEND=`name` ("" restores config/docs.yaml's) and waits for it."""
+    if _BACKEND["current"] == name:
+        return
+    print(f"  (agent recreated with DOCS_BACKEND={name or 'config/docs.yaml'})")
+    subprocess.run(
+        ["docker", "compose", "up", "-d", "--no-deps", "--force-recreate", "--wait", "agent"],
+        cwd=REPO, check=True, env={**os.environ, "DOCS_BACKEND": name}, stdout=subprocess.DEVNULL,
+    )
+    _BACKEND["current"] = name
+
+
 def suites() -> dict[str, Path]:
     files = sorted((REPO / "evals" / "golden").glob("*.jsonl"))
     files += sorted((REPO / "services" / "agent" / "app" / "capabilities").glob("*/evals/*.jsonl"))
-    return {path.stem: path for path in files}
+    found = {path.stem: path for path in files}
+    # rag.jsonl runs on both document backends; the second run is `rag@mcp` (phase 05, I11).
+    ordered: dict[str, Path] = {}
+    for name, path in found.items():
+        ordered[name] = path
+        if name == "rag":
+            ordered[f"rag{MCP_SUFFIX}"] = path
+    return ordered
 
 
 def main() -> int:
@@ -511,175 +646,209 @@ def main() -> int:
     token = login(*EVAL_USER)["access_token"]  # fail before any Langfuse write when the user cannot log in
     auth = (cfg["LANGFUSE_PUBLIC_KEY"], cfg["LANGFUSE_SECRET_KEY"])
     run_name = f"make-eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
-    rows, failed = [], False
+    rows: list = []
     # Per-case results and suite scores, written to build/evals/<run>.json at the end so a run
     # survives `make clean` even though its Langfuse dataset does not (review round 2, finding 4).
     records: dict[str, dict] = {}
-    judge: Judge | None = None
     sections = json.loads((DOCS / "sections.json").read_text(encoding="utf-8")) if (DOCS / "sections.json").exists() else {}
-    only = set(sys.argv[1:])  # `make eval s=rag` runs one suite; empty runs them all
+    only = set(sys.argv[1:])  # `make eval s=rag` runs one suite (and rag@mcp); empty runs them all
 
     with httpx.Client(timeout=300) as http:
         disable_memory(http, cfg["GATEWAY_PUBLIC_URL"], token)
-        for name, path in found.items():
-            if only and name not in only:
-                continue
-            cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            # One Langfuse dataset per suite, one item per case, one run per `make eval` (README §12).
-            langfuse(http, cfg, auth, "v2/datasets", {"name": name, "description": f"{path.relative_to(REPO)}"})
-            passed = 0
-            guard_results: list[tuple[dict, bool, str]] = []
-            checkers: dict[str, str] = {}
-            document_outcomes: list[tuple[dict, dict]] = []
-            case_records: list[dict] = []
-            for case in cases:
-                item_id = f"{name}:{case['id']}"
-                if "document" in case:
-                    langfuse(
-                        http, cfg, auth, "dataset-items",
-                        {"datasetName": name, "id": item_id,
-                         "input": {"message": case["message"], "document": case["document"],
-                                   "locale": case.get("locale", "ar")},
-                         "expectedOutput": case["expect"]},
-                    )
-                    token = login(*EVAL_USER)["access_token"]
-                    if judge is None and any("kind" in c.get("expect", {}) for c in cases):
-                        judge = Judge(cfg)
-                    outcome = run_document_case(http, cfg, token, case, judge, sections, auth)
-                    document_outcomes.append((case, outcome))
-                    problems = outcome["problems"]
-                    passed += not problems
-                    mark = "pass" if not problems else "FAIL"
-                    extra = ""
-                    if "faithfulness" in outcome:
-                        extra = f" faith={outcome['faithfulness']:.2f} corr={outcome['correctness']:.2f}"
-                    shown = outcome.get("answer", "")[:70]
-                    print(f"  {mark}  {name}/{case['id']}  {outcome.get('capabilities')}{extra}  {shown!r}  "
-                          f"{'; '.join(problems)}")
-                    case_records.append({
-                        "id": case["id"], "passed": not problems, "problems": problems,
-                        **{k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
-                                                       "correctness", "cited_pages", "capabilities",
-                                                       "retrieve_ms", "answer")},
-                    })
-                    trace_id = outcome.get("trace_id")
-                    if trace_id:
-                        metadata = {k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
-                                                                "correctness", "cited_pages", "capabilities",
-                                                                "retrieve_ms")}
-                        langfuse(
-                            http, cfg, auth, "dataset-run-items",
-                            {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
-                             "metadata": {"passed": not problems, "problems": problems, **metadata}},
-                        )
-                        langfuse(
-                            http, cfg, auth, "scores",
-                            {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
-                             "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
-                        )
+        try:
+            for name, path in found.items():
+                if only and name not in only and name.removesuffix(MCP_SUFFIX) not in only:
                     continue
-                if "policy_id" in case:
-                    langfuse(
-                        http, cfg, auth, "dataset-items",
-                        {"datasetName": name, "id": item_id,
-                         "input": {"policy_id": case["policy_id"], "text": case["text"],
-                                   "checkpoint": case.get("checkpoint"), "target": case.get("target")},
-                         "expectedOutput": case["expect"]},
-                    )
-                    admin = login(*ADMIN_USER)["access_token"]
-                    if not checkers:
-                        checkers = policy_checkers(http, cfg["GATEWAY_PUBLIC_URL"], admin)
-                    result, problems = run_guard_case(http, cfg["GATEWAY_PUBLIC_URL"], admin, case)
-                    checker = checkers.get(case["policy_id"], "unknown")
-                    guard_results.append((case, not problems, checker))
-                    passed += not problems
-                    mark = "pass" if not problems else "FAIL"
-                    shown = result["action"] if result else "-"
-                    print(f"  {mark}  {name}/{case['id']}  [{checker}] {shown}  {'; '.join(problems)}")
-                    case_records.append({
-                        "id": case["id"], "passed": not problems, "problems": problems,
-                        "checker": checker, "action": result["action"] if result else None,
-                    })
-                    trace_id = guard_trace(http, cfg, auth, case, result)
-                    langfuse(
-                        http, cfg, auth, "dataset-run-items",
-                        {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
-                         "metadata": {"passed": not problems, "problems": problems, "checker": checker}},
-                    )
-                    langfuse(
-                        http, cfg, auth, "scores",
-                        {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
-                         "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
-                    )
-                    continue
-                langfuse(
-                    http, cfg, auth, "dataset-items",
-                    {"datasetName": name, "id": item_id,
-                     "input": {"message": case["message"], "locale": case.get("locale", "ar")},
-                     "expectedOutput": case.get("expect", {})},
-                )
-                # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
-                token = login(*EVAL_USER)["access_token"]
-                event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
-                if event.get("type") == "done":
-                    answer = event["data"]["answer"]
-                    problems = check(case, answer)
-                    trace_id = event["data"].get("trace_id")
-                else:
-                    answer, problems, trace_id = "", [f"no done event ({event.get('data', {}).get('code')})"], None
-                passed += not problems
-                mark = "pass" if not problems else "FAIL"
-                print(f"  {mark}  {name}/{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
-                case_records.append({
-                    "id": case["id"], "passed": not problems, "problems": problems, "answer": answer,
-                })
-                if trace_id:
-                    langfuse(
-                        http, cfg, auth, "dataset-run-items",
-                        {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
-                         "metadata": {"passed": not problems, "problems": problems}},
-                    )
-                    langfuse(
-                        http, cfg, auth, "scores",
-                        {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
-                         "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
-                    )
-            rate = passed / len(cases)
-            threshold = thresholds.get(name)
-            scores = None
-            if document_outcomes and isinstance(threshold, dict):
-                scores = rag_scores(document_outcomes)
-                ok = rag_threshold_ok(scores, threshold)
-                counts = scores["counts"]
-                print(
-                    f"  {name}: hit@8 {scores['hit_at_8']:.2f} ({counts['hit']}), citation page accuracy "
-                    f"{scores['citation_page_accuracy']:.2f} ({counts['citation']}), faithfulness "
-                    f"{scores['faithfulness']:.2f} and answer correctness {scores['answer_correctness']:.2f} "
-                    f"({counts['ragas']}, judge alias {judge.alias if judge else '-'}), abstention "
-                    f"{scores['abstention']:.2f} ({counts['abstain']}); {rerank_config()}: rag.retrieve p50 "
-                    f"{scores['retrieve_ms_p50'] / 1000:.2f} s, p95 {scores['retrieve_ms_p95'] / 1000:.2f} s "
-                    f"({counts['retrieve']} retrieval spans, {len(case_records)} cases recorded)"
-                )
-            elif guard_results:
-                scores = guard_scores(guard_results)
-                ok = isinstance(threshold, dict) and guard_threshold_ok(scores, threshold)
-                print(
-                    f"  {name}: deterministic {scores['deterministic']:.2f} ({scores['deterministic_cases']} cases), "
-                    f"llm_judge accuracy {scores['llm_judge_accuracy']:.2f} and false-positive rate "
-                    f"{scores['llm_judge_false_positive_rate']:.2f} ({scores['llm_judge_cases']} cases, "
-                    f"{scores['llm_judge_borderline_or_gulf']} borderline or Gulf-dialect, "
-                    f"{scores['llm_judge_borderline_or_gulf_passed']} of them passed)"
-                )
-            else:
-                ok = isinstance(threshold, int | float) and rate >= threshold
-            failed |= not ok
-            rows.append((name, passed, len(cases), rate, threshold, ok))
-            records[name] = {
-                "passed": passed, "total": len(cases), "cases_recorded": len(case_records),
-                "rate": rate, "threshold": threshold, "ok": ok, "scores": scores,
-                "rerank": rerank_config(), "cases": case_records,
-            }
+                use_backend("mcp" if name.endswith(MCP_SUFFIX) else "")
+                RETRIES["count"] = 0
+                run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows, records)
+        finally:
+            use_backend("")  # pass or fail, the internal backend is restored
+    failed = any(not row[5] for row in rows)
+    return finish(run_name, rows, records, failed)
 
+
+def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows, records) -> None:
+    judge: Judge | None = None
+    cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    # One Langfuse dataset per suite, one item per case, one run per `make eval` (README §12).
+    langfuse(http, cfg, auth, "v2/datasets", {"name": name, "description": f"{path.relative_to(REPO)}"})
+    passed = 0
+    guard_results: list[tuple[dict, bool, str]] = []
+    checkers: dict[str, str] = {}
+    document_outcomes: list[tuple[dict, dict]] = []
+    directions_outcomes: list[dict[str, bool]] = []
+    case_records: list[dict] = []
+    for case in cases:
+        item_id = f"{name}:{case['id']}"
+        if "document" in case:
+            langfuse(
+                http, cfg, auth, "dataset-items",
+                {"datasetName": name, "id": item_id,
+                 "input": {"message": case["message"], "document": case["document"],
+                           "locale": case.get("locale", "ar")},
+                 "expectedOutput": case["expect"]},
+            )
+            token = login(*EVAL_USER)["access_token"]
+            if judge is None and any("kind" in c.get("expect", {}) for c in cases):
+                judge = Judge(cfg)
+            outcome = run_document_case(http, cfg, token, case, judge, sections, auth)
+            document_outcomes.append((case, outcome))
+            problems = outcome["problems"]
+            passed += not problems
+            mark = "pass" if not problems else "FAIL"
+            extra = ""
+            if "faithfulness" in outcome:
+                extra = f" faith={outcome['faithfulness']:.2f} corr={outcome['correctness']:.2f}"
+            shown = outcome.get("answer", "")[:70]
+            print(f"  {mark}  {name}/{case['id']}  {outcome.get('capabilities')}{extra}  {shown!r}  "
+                  f"{'; '.join(problems)}")
+            case_records.append({
+                "id": case["id"], "passed": not problems, "problems": problems,
+                **{k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
+                                               "correctness", "cited_pages", "capabilities",
+                                               "retrieve_ms", "answer")},
+            })
+            trace_id = outcome.get("trace_id")
+            if trace_id:
+                metadata = {k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
+                                                        "correctness", "cited_pages", "capabilities",
+                                                        "retrieve_ms")}
+                langfuse(
+                    http, cfg, auth, "dataset-run-items",
+                    {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
+                     "metadata": {"passed": not problems, "problems": problems, **metadata}},
+                )
+                langfuse(
+                    http, cfg, auth, "scores",
+                    {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                     "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
+                )
+            continue
+        if "policy_id" in case:
+            langfuse(
+                http, cfg, auth, "dataset-items",
+                {"datasetName": name, "id": item_id,
+                 "input": {"policy_id": case["policy_id"], "text": case["text"],
+                           "checkpoint": case.get("checkpoint"), "target": case.get("target")},
+                 "expectedOutput": case["expect"]},
+            )
+            admin = login(*ADMIN_USER)["access_token"]
+            if not checkers:
+                checkers = policy_checkers(http, cfg["GATEWAY_PUBLIC_URL"], admin)
+            result, problems = run_guard_case(http, cfg["GATEWAY_PUBLIC_URL"], admin, case)
+            checker = checkers.get(case["policy_id"], "unknown")
+            guard_results.append((case, not problems, checker))
+            passed += not problems
+            mark = "pass" if not problems else "FAIL"
+            shown = result["action"] if result else "-"
+            print(f"  {mark}  {name}/{case['id']}  [{checker}] {shown}  {'; '.join(problems)}")
+            case_records.append({
+                "id": case["id"], "passed": not problems, "problems": problems,
+                "checker": checker, "action": result["action"] if result else None,
+            })
+            trace_id = guard_trace(http, cfg, auth, case, result)
+            langfuse(
+                http, cfg, auth, "dataset-run-items",
+                {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
+                 "metadata": {"passed": not problems, "problems": problems, "checker": checker}},
+            )
+            langfuse(
+                http, cfg, auth, "scores",
+                {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                 "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
+            )
+            continue
+        langfuse(
+            http, cfg, auth, "dataset-items",
+            {"datasetName": name, "id": item_id,
+             "input": {"message": case["message"], "locale": case.get("locale", "ar")},
+             "expectedOutput": case.get("expect", {})},
+        )
+        # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
+        token = login(*EVAL_USER)["access_token"]
+        event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
+        metrics: dict[str, bool] = {}
+        if event.get("type") == "done":
+            answer = event["data"]["answer"]
+            capabilities = event["data"]["state_digest"]["capabilities"]
+            trace_id = event["data"].get("trace_id")
+            if case.get("expect", {}).get("kind"):  # a directions case (G1)
+                metrics, problems = directions_outcome(case, answer, capabilities)
+                directions_outcomes.append(metrics)
+            else:
+                problems = check(case, answer)
+                wanted = case.get("expect", {}).get("capabilities")
+                if wanted is not None and capabilities != wanted:
+                    problems.append(f"capabilities {capabilities} != {wanted}")
+        else:
+            answer, problems, trace_id = "", [f"no done event ({event.get('data', {}).get('code')})"], None
+            if case.get("expect", {}).get("kind"):
+                metrics = {m: False for m in directions_outcome(case, "", [])[0]}
+                directions_outcomes.append(metrics)
+        passed += not problems
+        mark = "pass" if not problems else "FAIL"
+        print(f"  {mark}  {name}/{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
+        case_records.append({
+            "id": case["id"], "passed": not problems, "problems": problems, "answer": answer,
+            **({"metrics": metrics} if metrics else {}),
+        })
+        if trace_id:
+            langfuse(
+                http, cfg, auth, "dataset-run-items",
+                {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
+                 "metadata": {"passed": not problems, "problems": problems}},
+            )
+            langfuse(
+                http, cfg, auth, "scores",
+                {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                 "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
+            )
+    rate = passed / len(cases)
+    threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
+    scores = None
+    if document_outcomes and isinstance(threshold, dict):
+        scores = rag_scores(document_outcomes)
+        ok = rag_threshold_ok(scores, threshold)
+        counts = scores["counts"]
+        print(
+            f"  {name}: hit@8 {scores['hit_at_8']:.2f} ({counts['hit']}), citation page accuracy "
+            f"{scores['citation_page_accuracy']:.2f} ({counts['citation']}), faithfulness "
+            f"{scores['faithfulness']:.2f} and answer correctness {scores['answer_correctness']:.2f} "
+            f"({counts['ragas']}, judge alias {judge.alias if judge else '-'}), abstention "
+            f"{scores['abstention']:.2f} ({counts['abstain']}); {rerank_config()}: rag.retrieve p50 "
+            f"{scores['retrieve_ms_p50'] / 1000:.2f} s, p95 {scores['retrieve_ms_p95'] / 1000:.2f} s "
+            f"({counts['retrieve']} retrieval spans, {len(case_records)} cases recorded)"
+        )
+    elif guard_results:
+        scores = guard_scores(guard_results)
+        ok = isinstance(threshold, dict) and guard_threshold_ok(scores, threshold)
+        print(
+            f"  {name}: deterministic {scores['deterministic']:.2f} ({scores['deterministic_cases']} cases), "
+            f"llm_judge accuracy {scores['llm_judge_accuracy']:.2f} and false-positive rate "
+            f"{scores['llm_judge_false_positive_rate']:.2f} ({scores['llm_judge_cases']} cases, "
+            f"{scores['llm_judge_borderline_or_gulf']} borderline or Gulf-dialect, "
+            f"{scores['llm_judge_borderline_or_gulf_passed']} of them passed)"
+        )
+    elif directions_outcomes and isinstance(threshold, dict):
+        scores = directions_scores(directions_outcomes)
+        ok = all(scores[metric] >= value for metric, value in threshold.items())
+        counts = scores["counts"]
+        print(f"  {name}: " + ", ".join(
+            f"{metric} {scores[metric]:.2f} ({counts[metric]})" for metric in DIRECTIONS_METRICS))
+    else:
+        ok = isinstance(threshold, int | float) and rate >= threshold
+    print(f"  {name}: {RETRIES['count']} provider retries")
+    rows.append((name, passed, len(cases), rate, threshold, ok))
+    records[name] = {
+        "passed": passed, "total": len(cases), "cases_recorded": len(case_records),
+        "rate": rate, "threshold": threshold, "ok": ok, "scores": scores,
+        "rerank": rerank_config(), "backend": "mcp" if name.endswith(MCP_SUFFIX) else "internal",
+        "retries": RETRIES["count"], "cases": case_records,
+    }
+
+
+def finish(run_name: str, rows: list, records: dict, failed: bool) -> int:
     run_dir = REPO / "build" / "evals"
     run_dir.mkdir(parents=True, exist_ok=True)
     record_path = run_dir / f"{run_name}.json"
