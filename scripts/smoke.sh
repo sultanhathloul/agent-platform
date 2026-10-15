@@ -150,8 +150,18 @@ BLOCKS=$(jq -c '[.observations[] | select(.name == "context.assemble") | .metada
   | map_values(if type == "string" then fromjson else . end)
   | select(.context.node == "answer") | .blocks][0]' "$TMP/trace.json")
 check "block token counts: $BLOCKS" jq -en --argjson b "$BLOCKS" '$b.system > 0 and $b.user_message > 0'
-check "model.call is a generation with usage" jq -e \
-  '[.observations[] | select(.name == "model.call")][0] | .type == "GENERATION" and (.usageDetails.output // .usage.output // 0) > 0' "$TMP/trace.json"
+# Langfuse can list the generation before it has ingested its usage (phase 05, A2): poll for up to
+# 30 s; a generation still without usage after the wait fails.
+usage_found=""
+for _ in $(seq 1 15); do
+  if jq -e '[.observations[] | select(.name == "model.call")][0] | .type == "GENERATION" and (.usageDetails.output // .usage.output // 0) > 0' \
+       "$TMP/trace.json" >/dev/null 2>&1; then
+    usage_found=1; break
+  fi
+  sleep 2
+  curl -fsS -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" "$LF/api/public/traces/$TRACE_ID" > "$TMP/trace.json" 2>/dev/null || true
+done
+[[ -n "$usage_found" ]] && ok "model.call is a generation with usage" || fail "model.call is a generation with usage"
 check "trace carries session (conversation) id" jq -e --arg c "$CONV" '.sessionId == $c' "$TMP/trace.json"
 
 step "audit record"

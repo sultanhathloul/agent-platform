@@ -1366,7 +1366,7 @@ Phase 05 ground rules (from the phase prompt, verbatim):
 
 Checklist:
 - [x] A1 PROGRESS future-phase headings follow the CLAUDE.md table (this edit).
-- [ ] A2 smoke: poll Langfuse for the generation's usage (bounded 30 s) instead of reading once.
+- [x] A2 smoke: poll Langfuse for the generation's usage (bounded 30 s) instead of reading once.
 - [ ] ADRs for D1–D7 and I1–I16 (decided), and the assumptions of this session.
 - [ ] B1 contracts: `DocumentScope` (tenant, user, collections), `ToolScope`, `Source.backend`/`collection`, manifest `documents.collections`, `config/<slug>.yaml` `backend`; types and tests.
 - [ ] B1 broker builds the scope (session + permitted∩selected kb) ∩ manifest kinds; RuntimeContext carries backends by name; internal and fake backends take collections; evidence fetched per source's backend and collection; contract suite extended; G6 kb tests on the fake; G9 test (a conversation persisted before this change reopens with its citations).
