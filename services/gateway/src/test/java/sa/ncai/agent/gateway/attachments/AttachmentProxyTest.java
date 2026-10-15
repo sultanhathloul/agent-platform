@@ -178,6 +178,20 @@ class AttachmentProxyTest extends GatewayTestSupport {
         }
     }
 
+    /** D7 (ADR-0201): a partly scanned PDF's warning reaches the client as the agent reports it. */
+    @Test
+    void anIndexedFilesWarningsReachTheClient() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        String warned = view("indexed", null).replace("\"pages\":3,",
+                "\"pages\":7,\"warnings\":[{\"code\":\"pages_without_text\",\"count\":5}],");
+        AGENT.enqueue(json(200, "{\"attachments\":[" + warned + "," + view("pending", null) + "]}"));
+        mvc.perform(get(BASE).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attachments[0].warnings[0].code").value("pages_without_text"))
+                .andExpect(jsonPath("$.data.attachments[0].warnings[0].count").value(5))
+                .andExpect(jsonPath("$.data.attachments[1].warnings").isEmpty());
+    }
+
     @Test
     void aConversationNobodyUsedHoldsNothingAndBindsNobody() throws Exception {
         mvc.perform(get(BASE).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))

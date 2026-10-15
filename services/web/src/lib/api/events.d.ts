@@ -75,6 +75,8 @@ export type Type3 = "tool_start";
 export type CallId = string;
 export type Tool = string;
 export type Capability = string;
+export type Ar = string;
+export type En = string;
 export type RequestId4 = string;
 export type TurnId4 = string | null;
 /**
@@ -181,6 +183,33 @@ export type TokensOut1 = number;
  * Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
  */
 export type GuardAudit = GuardAuditData[];
+export type CallId2 = string;
+export type Tool2 = string;
+/**
+ * The capability that called it.
+ */
+export type Caller = string;
+export type Status1 = "ok" | "error" | "denied" | "pending_approval";
+/**
+ * A content-free code.
+ */
+export type Error = string | null;
+export type LatencyMs2 = number;
+export type Retries = number;
+/**
+ * MCP tools: the server id of config/mcp.yaml.
+ */
+export type Server = string | null;
+export type RequestBytes = number | null;
+export type ResponseBytes = number | null;
+/**
+ * MCP tools: HMAC-SHA256 of the arguments under CONTENT_HASH_KEY.
+ */
+export type ArgsHmac = string | null;
+/**
+ * Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
+ */
+export type ToolAudit = ToolAuditData[];
 export type Turn = number;
 /**
  * Capability slugs that ran this turn, in order.
@@ -210,6 +239,10 @@ export type GuardEvents1 = GuardData[];
  * Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
  */
 export type GuardAudit1 = GuardAuditData[];
+/**
+ * Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
+ */
+export type ToolAudit1 = ToolAuditData[];
 export type RequestId9 = string;
 export type TurnId9 = string | null;
 /**
@@ -277,6 +310,14 @@ export interface ToolStartData {
   call_id: CallId;
   tool: Tool;
   capability: Capability;
+  /**
+   * What the client shows while the tool runs, per locale (I13); absent: a generic string.
+   */
+  label?: ToolLabel | null;
+}
+export interface ToolLabel {
+  ar: Ar;
+  en: En;
 }
 export interface ToolEndEvent {
   request_id: RequestId4;
@@ -338,6 +379,7 @@ export interface DoneData {
   usage: Usage;
   guard_events?: GuardEvents;
   guard_audit?: GuardAudit;
+  tool_audit?: ToolAudit;
   state_digest: StateDigest;
   trace_id?: TraceId;
 }
@@ -381,6 +423,24 @@ export interface GuardUsage {
   tokens_in: TokensIn1;
   tokens_out: TokensOut1;
 }
+/**
+ * One tool call of the turn for the gateway's audit record (G8, ADR-0219): who called what,
+ * how it ended, how long it took and how big it was, never its arguments or its result. It
+ * travels in the terminal event's `tool_audit`, which the gateway removes before relaying.
+ */
+export interface ToolAuditData {
+  call_id: CallId2;
+  tool: Tool2;
+  caller: Caller;
+  status: Status1;
+  error?: Error;
+  latency_ms: LatencyMs2;
+  retries?: Retries;
+  server?: Server;
+  request_bytes?: RequestBytes;
+  response_bytes?: ResponseBytes;
+  args_hmac?: ArgsHmac;
+}
 export interface StateDigest {
   turn: Turn;
   capabilities: Capabilities;
@@ -400,6 +460,7 @@ export interface ErrorData {
   policy_id?: PolicyId2;
   guard_events?: GuardEvents1;
   guard_audit?: GuardAudit1;
+  tool_audit?: ToolAudit1;
 }
 /**
  * Withdraws every answer token streamed so far in this turn.

@@ -2,6 +2,7 @@ package sa.ncai.agent.gateway.attachments;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.List;
 
 /**
  * An attachment as a client sees it (ADR-0138): its status and, when failed, the reason code the
@@ -21,5 +22,20 @@ public record AttachmentView(
         @Schema(description = "Why ingestion failed (failed only), e.g. scanned_unsupported.") String reason,
         Integer pages,
         Integer chunks,
+        @Schema(description = "Indexed with something the user should know (phase 05, D7, ADR-0201): "
+                + "[{code: pages_without_text, count}] for a partly scanned PDF.")
+        List<Warning> warnings,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
-        @Schema(format = "date-time") String indexedAt) {}
+        @Schema(format = "date-time") String indexedAt) {
+
+    /** {@code count} pages of an indexed PDF held too little text and were not read (D7). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Warning(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"pages_without_text"})
+            String code,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int count) {}
+
+    public AttachmentView {
+        warnings = warnings == null ? List.of() : List.copyOf(warnings);
+    }
+}

@@ -22,8 +22,9 @@ import sa.ncai.agent.gateway.api.ErrorMessages;
  * Copies the agent's SSE stream to the browser byte for byte (README §6.1.6), one event block at
  * a time, flushing at every event boundary. Before the terminal {@code done}/{@code error} event
  * leaves, {@code commit} writes the audit record from it; the terminal event's {@code guard_audit}
- * (every guard evaluation in full, for that record only) is then removed, so a client never
- * receives a checker's detail (ADR-0116). When the audit record fails, the terminal event is replaced
+ * (every guard evaluation in full, for that record only) and {@code tool_audit} (every tool call,
+ * content-free) are then removed, so a client never receives a checker's detail (ADR-0116,
+ * ADR-0219). When the audit record fails, the terminal event is replaced
  * by {@code retract} and an {@code audit_unavailable} error, so no turn completes without its
  * audit record (ADR-0042). If the stream breaks or ends without a terminal event, a single
  * {@code agent_stream_interrupted} error event is appended, also after {@code commit}. An event
@@ -36,6 +37,8 @@ public class SseRelay {
     private static final Logger log = LoggerFactory.getLogger(SseRelay.class);
     /** The terminal event's audit-only list of guard evaluations (ADR-0116). */
     static final String GUARD_AUDIT = "guard_audit";
+    /** The terminal event's audit-only list of tool calls, content-free (phase 05, G8, ADR-0219). */
+    static final String TOOL_AUDIT = "tool_audit";
 
     private final ObjectMapper mapper;
     private final ErrorMessages messages;
@@ -144,8 +147,9 @@ public class SseRelay {
     }
 
     /**
-     * The terminal event as a client gets it: without {@code data.guard_audit}, which only the
-     * audit record reads (ADR-0116). An event without that field leaves byte for byte.
+     * The terminal event as a client gets it: without {@code data.guard_audit} and
+     * {@code data.tool_audit}, which only the audit record reads (ADR-0116, ADR-0219). An event
+     * without either field leaves byte for byte.
      */
     private byte[] forClient(String eventType, String eventId, StringBuilder data, byte[] block) {
         JsonNode envelope;
@@ -154,10 +158,12 @@ public class SseRelay {
         } catch (JsonProcessingException e) {
             return block;
         }
-        if (!(envelope.path("data") instanceof ObjectNode payload) || !payload.has(GUARD_AUDIT)) {
+        if (!(envelope.path("data") instanceof ObjectNode payload)
+                || !(payload.has(GUARD_AUDIT) || payload.has(TOOL_AUDIT))) {
             return block;
         }
         payload.remove(GUARD_AUDIT);
+        payload.remove(TOOL_AUDIT);
         try {
             String id = eventId == null ? "" : "id: " + eventId + "\n";
             return ("event: " + eventType + "\n" + id + "data: " + mapper.writeValueAsString(envelope) + "\n\n")

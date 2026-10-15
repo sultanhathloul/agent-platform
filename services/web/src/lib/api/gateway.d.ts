@@ -540,6 +540,8 @@ export interface components {
             size: number;
             /** @enum {string} */
             status: "pending" | "indexed" | "failed";
+            /** @description Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF. */
+            warnings?: components["schemas"]["Warning"][];
         };
         ChatTurnRequest: {
             /**
@@ -834,6 +836,13 @@ export interface components {
             policy_roles?: string[];
             /** @description Default: default */
             tenant_id?: string;
+        };
+        /** @description Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF. */
+        Warning: {
+            /** @enum {string} */
+            code: "pages_without_text";
+            /** Format: int32 */
+            count: number;
         };
     };
     responses: never;

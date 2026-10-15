@@ -415,6 +415,34 @@ class ChatProxyTest extends GatewayTestSupport {
         assertThat(event.detail()).containsEntry("guard_policies", List.of());
     }
 
+    /** Phase 05, G8 (ADR-0219): every tool call reaches the audit record, content-free; the
+     * terminal event's tool_audit never reaches the client. */
+    @Test
+    void toolCallsReachTheAuditRecordAndNeverTheClient() throws Exception {
+        String stream = """
+                event: done
+                id: 1
+                data: {"type":"done","request_id":"r","turn_id":"t","seq":1,"data":{"answer":"a","citations":[],"usage":{"tokens_in":1,"tokens_out":1,"cost_usd":0.0},"guard_events":[],"guard_audit":[],"tool_audit":[{"call_id":"c1","tool":"routing.route","caller":"directions","status":"ok","error":null,"latency_ms":42,"retries":0,"server":"routing","request_bytes":120,"response_bytes":900,"args_hmac":"ab12","unexpected":"never copied"}],"state_digest":{},"trace_id":null}}
+
+                """;
+        AGENT.enqueue(sse(stream));
+
+        String content = mvc.perform(chat(body("ودني البوليفارد", List.of())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(content).doesNotContain("tool_audit").doesNotContain("args_hmac").doesNotContain("routing.route");
+        AuditEvent event = singleAudit();
+        @SuppressWarnings("unchecked")
+        List<java.util.Map<String, Object>> calls = (List<java.util.Map<String, Object>>) event.detail().get("tool_calls");
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0))
+                .containsEntry("tool", "routing.route").containsEntry("caller", "directions")
+                .containsEntry("server", "routing").containsEntry("args_hmac", "ab12")
+                .containsEntry("latency_ms", 42).containsEntry("response_bytes", 900)
+                .doesNotContainKey("unexpected").doesNotContainKey("error");
+    }
+
     @Test
     void agentErrorEventIsAuditedAsError() throws Exception {
         String stream = """

@@ -239,6 +239,7 @@ public class ChatController {
                 }
                 detail.put("guard_events", data.path("guard_events").size());
                 detail.put("guard_policies", guardPolicies(auditedGuards(data)));
+                putToolCalls(detail, data);
             }
             case ERROR -> {
                 detail.put("error_code", data.path("code").asText("unknown"));
@@ -250,11 +251,47 @@ public class ChatController {
                 if (guardUsage != null) {
                     detail.put("guard_usage", guardUsage);
                 }
+                putToolCalls(detail, data);
             }
             case INTERRUPTED -> detail.put("error_code", ErrorCode.AGENT_STREAM_INTERRUPTED.code());
         }
         return detail;
     }
+
+    /**
+     * The turn's tool calls for the audit record (README §6.1 item 4, phase 05 G8, ADR-0219): the
+     * terminal event's {@code tool_audit}, content-free by construction (tool, caller, status,
+     * error code, latency, MCP server, byte sizes, argument HMAC). Only those fields are copied.
+     */
+    private static void putToolCalls(Map<String, Object> detail, JsonNode data) {
+        JsonNode calls = data.path("tool_audit");
+        if (!calls.isArray() || calls.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> copied = new ArrayList<>();
+        for (JsonNode call : calls) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            for (String field : TOOL_AUDIT_FIELDS) {
+                JsonNode value = call.get(field);
+                if (value == null || value.isNull()) {
+                    continue;
+                }
+                if (value.isNumber()) {
+                    entry.put(field, value.numberValue());
+                } else if (value.isBoolean()) {
+                    entry.put(field, value.asBoolean());
+                } else {
+                    entry.put(field, value.asText());
+                }
+            }
+            copied.add(entry);
+        }
+        detail.put("tool_calls", copied);
+    }
+
+    private static final List<String> TOOL_AUDIT_FIELDS = List.of(
+            "call_id", "tool", "caller", "status", "error", "latency_ms", "retries", "server",
+            "request_bytes", "response_bytes", "args_hmac");
 
     /** The terminal event's guard evaluations in full ({@code guard_audit}, ADR-0116). */
     private static JsonNode auditedGuards(JsonNode data) {
