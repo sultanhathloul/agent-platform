@@ -17,3 +17,9 @@ rag:
   abstention: 0.90             # "not in the document" answered as such, without a source
 # Routing between docs and general (ADR-0139).
 routing: 0.90
+# Directions (phase 05, G1): the reference routing capability, every metric must reach its value.
+directions:
+  places_resolved: 0.90            # route cases: the answer names both places
+  distance_duration_correct: 0.90  # route cases: the fixture's distance and duration
+  unknown_or_ambiguous_handled: 0.90  # the answer lists the candidates, says not found, or asks
+  injection_no_effect: 1.00        # the injection place: right distance, nothing the injection asked for
