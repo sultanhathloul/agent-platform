@@ -1338,34 +1338,94 @@ Results (rule 11):
 
 Files for human review: `services/agent/app/db/migrations/0011_conversation_list.sql`; `README.md` §13 amendment.
 
-## Phase 05: UC4 KB plugins (`kb` capability)
+## Phase 05: MCP integration
 
-- Branch: `phase/05-kb`
+- Branch: `phase/05-mcp`
+- Status: in progress (session 2026-10-15)
+- Done when (CLAUDE.md, phase 05 row): MCP client as a broker tool provider with the `config/mcp.yaml` allowlist; declarative MCP capability (manifest, prompts and evals, no Python); reference MCP servers in compose; a routing capability (slug `directions`, I14) on the reference routing server with zero core change; `MCPDocumentBackend` passes the `DocumentBackend` contract suite against the reference RAG MCP server and `rag.jsonl` runs on both backends; every MCP call guarded and audited through the broker; internal servers work under `smoke-airgap`; external servers disabled. Plus: `DocumentScope` generalised (BACKLOG MCP item 10) before any MCP code; D7 (partly scanned PDFs indexed with a warning); A2 (smoke flake); `make test`, `make eval` (general, guardrails, rag on both backends, routing, directions), `make smoke` and `make smoke-airgap` green.
+- Baseline on `main` at the start (2026-10-15, rule 11): agent 700, gateway 136, gateway-db 5, web 145, evals harness 6 (passed; 0 failed, 0 skipped); `make smoke` 119/119. No layer may end with fewer passing tests unless an ADR names each removed test and why.
+- Carried from phase 04 (PR #4 review round 2, finding 1): the evidence path reaches only the conversation's own files, so `kb` as specified would need core changes. Generalise `DocumentScope` beyond `(tenant, user, conversation)` to name a collection, including the `kb_{slug}` collections the principal's `kb:{slug}:read` roles allow, injected by the broker from the verified principal (never a tool argument, S1/ADR-0160); `graph/evidence.py` fetches each source's text through the backend and scope that found it, not one fixed conversation scope; and `RuntimeContext` can carry more than one backend (the internal pipeline plus the owner's KB/RAG service) so a capability's tool reaches the right one. This keeps S4 (no chunk text in state) and C6 (one backend interface) intact. Scheduled here as Part B1 (I1).
+
+Scope restated (session 2026-10-15):
+1. Core first, capability-agnostic: `DocumentScope` names tenant, user and collections (session plus permitted and selected `kb_{slug}`), intersected with the manifest's `documents.collections`; `Source` carries backend and collection internally; evidence fetched per source; D7 warnings on the status contract.
+2. MCP client as a broker tool provider: `config/mcp.yaml` allowlist (Streamable HTTP only, schema pinning, injected fields, read tools only, size caps, timeouts, per-server semaphore, circuit breaker, content-free spans and audit); external servers refused unless explicitly enabled and never under airgap.
+3. Two reference servers in compose on an internal network (`mcp-routing-ref`, `mcp-rag-ref`), and `MCPDocumentBackend` passing the full contract suite against `mcp-rag-ref`.
+4. A core declarative runner and the `directions` capability as manifest, prompts and evals only, with a generic `keyword_candidate` routing rule; tool labels in `tool_start`; API 2.2.0.
+5. Done = the done-check above, with every count recorded per rule 11 and G1, measurements per G3, and the files for human review listed.
+
+Phase 05 ground rules (from the phase prompt, verbatim):
+- G1. Counts per CLAUDE.md rule 11 after every green run, plus each eval suite's per-metric scores and its build/evals record path (ADR-0188).
+- G2. Contracts first: the config/mcp.yaml schema, the MCP tool spec in the broker, the generalised DocumentScope/ToolScope and Source, the declarative manifest section, the event label field; as types with tests before any client, server or capability code.
+- G3. Fake data only (ADR-0065): the routing fixture uses public landmark names of Riyadh with an invented road graph; documents are the generated ones of phase 04; no real or ministry data.
+- G4. Arabic first: geocoding matches through app/text/arabic.py (MSA, Gulf and English names of the same place); every new prompt in ar and en; Arabic and Gulf eval cases.
+- G5. Core changes allowed in this phase are only those of Part A2, B, C, D and the routing rule in E3, all capability-agnostic. No core file names `directions`, `routing` or any server. Anything else that seems to need a core change: stop and explain.
+- G6. Isolation is the first test of every new path: a user never reaches another user's or tenant's document through any backend, any collection, any chunk reference, over MCP or not (ADR-0059, ADR-0160 precedent).
+- G7. A slow, failing or dead MCP server never stops or slows another user's chat, and never ends the agent. Tested.
+- G8. MCP arguments and results never leave the platform through traces or audit: spans and audit records carry server, tool, status, latency, byte sizes and an HMAC of the arguments (CONTENT_HASH_KEY), never their text (ADR-0137 precedent).
+- G9. Conversation history (ADR-0192 to ADR-0194) keeps working: the history endpoint's message and citation shapes do not change, and conversations persisted before this phase reopen unchanged. Tested.
+
+Checklist:
+- [x] A1 PROGRESS future-phase headings follow the CLAUDE.md table (this edit).
+- [ ] A2 smoke: poll Langfuse for the generation's usage (bounded 30 s) instead of reading once.
+- [ ] ADRs for D1–D7 and I1–I16 (decided), and the assumptions of this session.
+- [ ] B1 contracts: `DocumentScope` (tenant, user, collections), `ToolScope`, `Source.backend`/`collection`, manifest `documents.collections`, `config/<slug>.yaml` `backend`; types and tests.
+- [ ] B1 broker builds the scope (session + permitted∩selected kb) ∩ manifest kinds; RuntimeContext carries backends by name; internal and fake backends take collections; evidence fetched per source's backend and collection; contract suite extended; G6 kb tests on the fake; G9 test (a conversation persisted before this change reopens with its citations).
+- [ ] B2 D7: extraction counts pages without text; status `warnings [{code: pages_without_text, count}]` through backend, agent, gateway; contract suite on both backends; web badge.
+- [ ] C1 contracts: `config/mcp.yaml` schema and validation (stdio refused, write refused, delete never, external rules, profiles), broker MCP tool spec, `tool_start` label, error codes; tests first.
+- [ ] C1 client: official `mcp` SDK pinned; Streamable HTTP; pooled sessions; schema pinning (I5) and `make mcp-hashes`; injected fields (I6); result handling and byte cap while reading (I7); semaphore, timeout, circuit breaker, reconnect with backoff (I8); `/v1/health` lists servers and disabled tools; I16 external gate.
+- [ ] C1 tests: unlisted remote tool never registered; schema drift disables one tool; injected fields; write refused at startup; size cap; timeout; breaker; G7 (20 delayed calls while another user's general turn completes in normal time); G8 (no argument or result text in spans or audit).
+- [ ] D1 `mcp-routing-ref` and `mcp-rag-ref` in compose (healthchecks, internal network, never published; airgap overlay).
+- [ ] D2 `MCPDocumentBackend`; the full contract suite against `mcp-rag-ref`, isolation first; `DOCS_BACKEND` override.
+- [ ] E1 declarative runner (core) with a test-only fixture capability.
+- [ ] E2 `capabilities/directions/` (manifest, prompts ar/en, ≥ 24 evals), `cap:directions` in the realm (analyst, evaluator); zero-core-change diff check.
+- [ ] E3 `keyword_candidate` routing rule.
+- [ ] F1 web: tool labels from `tool_start`, D7 badge, new error messages; ar.json and en.json.
+- [ ] API 2.1.0 → 2.2.0 (agent, gateway, events schema); `make openapi`.
+- [ ] G1 evals: routing.jsonl +20 cases; directions suite and thresholds; rag on both backends side by side; 429 backoff with retry counts.
+- [ ] G2 smoke checks (directions, history, viewer, undeclared tool, server down and recovery, injection, MCP backend upload, partly scanned warning, airgap networks).
+- [ ] G3 measurements (n=20, p50/p95, rerank off).
+- [ ] H1 README amendments (§20.4, §6.2/§6.3, §18.2, §5.3), BACKLOG marks, CLAUDE.md phase 05 row names `directions`.
+- [ ] `make test`, `make eval`, `make smoke`, `make smoke-airgap`; results per rule 11 and G1.
+
+## Phase 06: Skills
+
+- Branch: `phase/06-skills`
+- Status: not started
+- Done when: `skills/<slug>/SKILL.md` registry (name and description in Arabic and English, when to use, the capabilities or MCP tools it needs, the Keycloak role that may use it); the router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block; text outputs only; no scripts; per-skill evals for format adherence plus routing cases; two reference skills (official memo, official letter); adding a third skill needs no core change.
+
+## Phase 07: Planner
+
+- Branch: `phase/07-planner`
+- Status: not started
+- Done when: compound requests produce a plan of steps (capability, MCP tool or skill), each step's inputs may reference earlier steps' outputs; simple requests keep single-step routing with no added latency; capabilities declare structured output schemas in their manifests; dependent steps run in order and independent ones in parallel, every step through the broker; step and time budgets; when a step fails, a partial answer that states what is missing; plan progress shown to the user; `planning.jsonl` ≥ threshold; reference compound case: docs → routing (reference MCP server) → official memo skill.
+
+## Phase 08: UC4 KB plugins (`kb` capability)
+
+- Branch: `phase/08-kb`
 - Status: not started
 - Done when: KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent.
-- Carried from PR #4 review round 2 (finding 1): the evidence path reaches only the conversation's own files, so `kb` as specified would need core changes. Generalise `DocumentScope` beyond `(tenant, user, conversation)` to name a collection, including the `kb_{slug}` collections the principal's `kb:{slug}:read` roles allow, injected by the broker from the verified principal (never a tool argument, S1/ADR-0160); `graph/evidence.py` fetches each source's text through the backend and scope that found it, not one fixed conversation scope; and `RuntimeContext` can carry more than one backend (the internal pipeline plus the owner's KB/RAG service) so a capability's tool reaches the right one. This keeps S4 (no chunk text in state) and C6 (one backend interface) intact.
 
-## Phase 06: UC2 web (`web` capability)
+## Phase 09: UC2 web (`web` capability)
 
-- Branch: `phase/06-web`
+- Branch: `phase/09-web`
 - Status: not started
 - Done when: SearXNG + fetch loop within limits; untrusted sanitization; citation validation fails on fabricated URL (test).
 
-## Phase 07: UC1 Text-to-SQL (`sql` capability)
+## Phase 10: UC1 Text-to-SQL (`sql` capability)
 
-- Branch: `phase/07-sql`
+- Branch: `phase/10-sql`
 - Status: not started
 - Done when: semantic layer indexed; sqlglot validation; EXPLAIN gate; `agent_ro` execution; self-correction ≤2; results table + CSV; `sql.jsonl` ≥ threshold.
 
-## Phase 08: Reflection, model routing, HITL
+## Phase 11: Reflection, tiers, HITL and artifact outputs
 
-- Branch: `phase/08-tiers-reflection-hitl`
+- Branch: `phase/11-reflection-hitl`
 - Status: not started
-- Done when: tier resolver with logged decisions; reflection rules; validation escalation; interrupt/resume path exercised by `smoke.sh`; `routing.jsonl` with `expected_tier`.
+- Done when: tier resolver with logged decisions; reflection rules; validation escalation; interrupt/resume path exercised by `smoke.sh`; `routing.jsonl` with `expected_tier`; artifact outputs (a capability or skill returns a file such as an HTML page, stored in MinIO, shown in a sandboxed preview, downloadable, its text through runtime DATA policies); long-running tool calls run as background jobs with progress shown to the user and resumable state (`docs/BACKLOG.md`, MCP items 7 and 8).
 
-## Phase 09: Evaluation & hardening
+## Phase 12: Evaluation & hardening
 
-- Branch: `phase/09-hardening`
+- Branch: `phase/12-hardening`
 - Status: not started
 - Done when: CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check.
 
