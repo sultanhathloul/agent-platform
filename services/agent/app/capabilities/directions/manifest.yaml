@@ -19,8 +19,10 @@ routing_hints:
     ar: "طلبات الطريق أو المسار أو المسافة أو مدة الوصول من مكان إلى آخر داخل الرياض، بالسيارة أو مشيًا."
     en: "Requests for the way, route, distance or travel time from one place to another in Riyadh, by car or on foot."
   keywords:
-    ar: ["طريق", "مسار", "ودّني", "ودني", "وصّلني", "وصلني", "كم يبعد", "المسافة", "أقرب طريق", "كيف أروح", "كيف اروح"]
-    en: ["directions", "route", "how far"]
+    # I15's list, with walking and travel-time phrasings the eval found missing (2026-10-15).
+    ar: ["طريق", "مسار", "ودّني", "ودني", "وصّلني", "وصلني", "كم يبعد", "المسافة", "أقرب طريق", "كيف أروح", "كيف اروح",
+         "أمشي", "امشي", "مشيًا", "مشيا", "كم ياخذ", "كم يستغرق"]
+    en: ["directions", "route", "how far", "how do i get", "get to", "walk from", "walking"]
   rules:
     - when: keyword_candidate      # a keyword makes it a router candidate, never selects it (I15)
 model:

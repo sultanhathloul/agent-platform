@@ -52,6 +52,10 @@ class Fixture:
             pid: {normalize(alias) for alias in (*p.aliases, p.name_ar, p.name_en)}
             for pid, p in self.places.items()
         }
+        self._stems = {
+            pid: {" ".join(search_terms(alias)) for alias in (*p.aliases, p.name_ar, p.name_en)}
+            for pid, p in self.places.items()
+        }
         self._terms = {
             pid: [set(search_terms(alias)) for alias in (*p.aliases, p.name_ar, p.name_en)]
             for pid, p in self.places.items()
@@ -66,6 +70,13 @@ class Fixture:
         if folded in self._names[place_id]:
             return 1.0
         best = 0.0
+        # The query's stems, the article and proclitics stripped («الجامعة» is «جامعه»), inside a
+        # name's stems: a partial name that may mean several places.
+        stem = " ".join(search_terms(query))
+        if len(stem) >= 4:
+            for name in self._stems[place_id]:
+                if f" {stem} " in f" {name} ":
+                    best = max(best, 0.6 + 0.3 * len(stem) / len(name))
         for name in self._names[place_id]:
             # A whole name inside the query ("برج المملكة في العليا"), or the query inside a name.
             if len(name) >= 4 and f" {name} " in f" {folded} ":
