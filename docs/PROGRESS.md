@@ -1294,6 +1294,24 @@ Human review (owner's list) for this session:
 - `docker-compose.yml` (`GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}`) and `.env.example`;
 - `docs/openapi/gateway.json` (upload 408 `upload_timeout`; regenerated within the unmerged 2.0.0, ADR-0046).
 
+## Conversation history (standalone PR before phase 05, owner decision 2026-10-15)
+
+- Branch: `feat/conversation-history` (from `main`, not a phase).
+- Why: README §6.1 item 5 names "Conversation CRUD" in the gateway, but no phase done-check asked for it. The web page starts every chat empty, and reopening `/chat/<id>` shows nothing, although the agent keeps every conversation's history in its checkpointed thread.
+- Done when: a user sees their conversations, most recent first, in the chat page; opening one shows its earlier messages, with the file names sent and the citations of each answer when they were recorded; another user's conversation is refused at the gateway AND the agent; both reads are audited fail-closed; `make test`, `make eval` and `make smoke` are green with the new smoke checks.
+- Ground rules: no capability code; no new message store (the history is the checkpointed thread, ADR-0192); no rename or delete (ADR-0166); the client never sees `shown_answer` or a retracted exchange (ADR-0193); API version 2.0.0 → 2.1.0, additive (ADR-0194).
+
+Checklist:
+- [ ] Agent: migration `0011` adds `title` and `last_turn_at` to `agent.conversation_owners`; the runner records them after a finished turn.
+- [ ] Agent: `persist_state` keeps the turn's attachment ids on the user message and the citations on the reply.
+- [ ] Agent: `GET /v1/conversations` (caller's, newest first, `limit`, `before`), with a bounded backfill of rows recorded before this change; `GET /v1/conversations/{id}/messages` (owner only).
+- [ ] Agent tests: listing, ordering, paging, backfill, another owner, retracted pair, `shown_answer` never returned, citations and file names.
+- [ ] Gateway: `GET /v1/conversations` and `GET /v1/conversations/{id}/messages`, ownership checked against `gateway.conversations`, audited (`conversation.list`, `conversation.read`); tests.
+- [ ] OpenAPI regenerated (`make openapi`), version 2.1.0; web API types regenerated.
+- [ ] Web: conversations list beside the chat; `/chat/[id]` loads the history; Arabic and English strings; tests.
+- [ ] Smoke checks: the list holds a conversation after its turn; its messages come back; another user is refused.
+- [ ] `make test`, `make eval`, `make smoke`; results per rule 11.
+
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
 - Branch: `phase/05-kb`
