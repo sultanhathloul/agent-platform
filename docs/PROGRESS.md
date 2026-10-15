@@ -1302,15 +1302,32 @@ Human review (owner's list) for this session:
 - Ground rules: no capability code; no new message store (the history is the checkpointed thread, ADR-0192); no rename or delete (ADR-0166); the client never sees `shown_answer` or a retracted exchange (ADR-0193); API version 2.0.0 → 2.1.0, additive (ADR-0194).
 
 Checklist:
-- [ ] Agent: migration `0011` adds `title` and `last_turn_at` to `agent.conversation_owners`; the runner records them after a finished turn.
-- [ ] Agent: `persist_state` keeps the turn's attachment ids on the user message and the citations on the reply.
-- [ ] Agent: `GET /v1/conversations` (caller's, newest first, `limit`, `before`), with a bounded backfill of rows recorded before this change; `GET /v1/conversations/{id}/messages` (owner only).
-- [ ] Agent tests: listing, ordering, paging, backfill, another owner, retracted pair, `shown_answer` never returned, citations and file names.
-- [ ] Gateway: `GET /v1/conversations` and `GET /v1/conversations/{id}/messages`, ownership checked against `gateway.conversations`, audited (`conversation.list`, `conversation.read`); tests.
-- [ ] OpenAPI regenerated (`make openapi`), version 2.1.0; web API types regenerated.
-- [ ] Web: conversations list beside the chat; `/chat/[id]` loads the history; Arabic and English strings; tests.
-- [ ] Smoke checks: the list holds a conversation after its turn; its messages come back; another user is refused.
-- [ ] `make test`, `make eval`, `make smoke`; results per rule 11.
+- [x] Agent: migration `0011` adds `title` and `last_turn_at` to `agent.conversation_owners`; the runner records them after a finished turn.
+- [x] Agent: `persist_state` keeps the turn's attachment ids on the user message and the citations on the reply.
+- [x] Agent: `GET /v1/conversations` (caller's, newest first, `limit`, `before`), with a bounded backfill of rows recorded before this change; `GET /v1/conversations/{id}/messages` (owner only).
+- [x] Agent tests: listing, ordering, paging, backfill, another owner, retracted pair, `shown_answer` never returned, citations and file names.
+- [x] Gateway: `GET /v1/conversations` and `GET /v1/conversations/{id}/messages`, ownership checked against `gateway.conversations`, audited (`conversation.list`, `conversation.read`); tests.
+- [x] OpenAPI regenerated (`make openapi`), version 2.1.0; web API types regenerated.
+- [x] Web: conversations list beside the chat; `/chat/[id]` loads the history; Arabic and English strings; tests.
+- [x] Smoke checks: the list holds a conversation after its turn; its messages come back; another user is refused.
+- [x] `make test`, `make eval`, `make smoke`; results per rule 11.
+
+Status: done (2026-10-15). Not a phase; no phase number changes.
+
+What was built:
+- Agent: migration `0011_conversation_list.sql`; `ConversationOwners.record_turn`, `untitled`, `fill`, `listed`; `app/api/history.py` (the client's view of a thread); `app/api/conversations.py` (`GET /v1/conversations`, `GET /v1/conversations/{id}/messages`); `persist_state` keeps attachment ids and citations; the runner records the title and turn time before `done`.
+- Gateway: `conversations/ConversationController` and its records; `ConversationProxyTest` (11 tests).
+- Web: `ConversationSidebar`, `ChatShell`, history loading in `Chat`, `lib/conversations.ts` and its tests; Arabic and English strings.
+- API version 2.1.0; `docs/openapi/*.json`, `docs/events.schema.json` and the web's API types regenerated with `make openapi`.
+- The sidebar is shown from the `md` breakpoint up; on a phone-width screen it is hidden (no toggle yet).
+
+Results (rule 11):
+- `make test`: agent 700 / 0 / 0, gateway 136 / 0 / 0, gateway-db 5 / 0 / 0, web 145 / 0 / 0, evals harness 6 / 0 / 0 (passed / failed / skipped).
+- `make smoke`: 119/119 (111 earlier checks and 8 new). The first run stopped at the phase 01 check "model.call is a generation with usage": the trace was found before Langfuse had ingested the generation's usage; the rerun passed every check, unchanged code.
+- `make eval`, run `make-eval-20261015T100011Z` (`build/evals/make-eval-20261015T100011Z.json`): general 28/28, guardrails 142/142 (deterministic 1.00 on 89, judge 1.00 and FPR 0.00 on 53), routing 34/34, rag 50/53 (hit@8 1.00, citation page accuracy 0.91, faithfulness 0.96, answer correctness 0.91, abstention 1.00; `rag.retrieve` p50 0.13 s, p95 0.14 s, rerank off). The three misses are the twenty-page documents' citation pages (`twenty-past-truncation-p3`, `-p15`, `-p18`), the known long-document item in the hardening backlog; this change does not touch retrieval or attribution. An earlier run the same day stopped mid-rag on an OpenRouter 429 for the fast tier during Ragas scoring (no record written); every case it had reached had passed.
+- Checked in headless Chrome as the seed `analyst`: the list shows 30 conversations with titles and times; opening one shows its earlier question and answer.
+
+Files for human review: `services/agent/app/db/migrations/0011_conversation_list.sql`; `README.md` §13 amendment.
 
 ## Phase 05: UC4 KB plugins (`kb` capability)
 
