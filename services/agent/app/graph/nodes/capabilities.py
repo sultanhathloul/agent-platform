@@ -105,7 +105,7 @@ def _request_for(cap: LoadedCapability, state: AgentState, ctx: TurnContext) -> 
         tools=[
             spec.description_ar if locale == "ar" else spec.description_en
             for spec in cap.tools
-            if ctx.principal.has(spec.required_permission)
+            if spec.required_permission is None or ctx.principal.has(spec.required_permission)
         ],
         memory_scope=MemoryScope.of(ctx.principal) if "memory" in needs else None,
     )
@@ -211,6 +211,7 @@ class _Broker:
             emit=lambda type_, data: emit(self._runtime, type_, data),
             context=guard_context(self._state, self._ctx, tools=()),
             on_guard=self._on_guard,
+            on_audit=self._ctx.tool_audit.append,
         )
 
     def _on_guard(self, outcome: GuardOutcome) -> None:

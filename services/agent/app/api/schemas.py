@@ -44,9 +44,32 @@ class TurnRequest(BaseModel):
     locale: Locale = "ar"
 
 
+class MCPDisabledTool(BaseModel):
+    tool: str = Field(description="{server}.{tool}")
+    reason: str = Field(
+        description="not_connected | missing | schema_mismatch | server_<why the server is disabled>"
+    )
+
+
+class MCPServerHealth(BaseModel):
+    """One server of config/mcp.yaml as this environment runs it (I8): content-free, no URL or token."""
+
+    id: str
+    internal: bool
+    enabled: bool
+    reason: str | None = Field(
+        default=None,
+        description="Why disabled: profile, external_not_allowed, external_in_airgap, no_url, no_token.",
+    )
+    connected: bool
+    circuit: Literal["closed", "open", "half_open"] | None = None
+    disabled_tools: list[MCPDisabledTool] = []
+
+
 class HealthResponse(BaseModel):
     status: str
     capabilities: list[str]
+    mcp: list[MCPServerHealth] = Field(default=[], description="MCP servers and their disabled tools (I8).")
 
 
 class MemoryItemView(BaseModel):

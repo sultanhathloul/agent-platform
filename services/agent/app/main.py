@@ -50,6 +50,8 @@ from app.guardrails.config import load_guardrails_config
 from app.guardrails.engine import GuardEngine
 from app.guardrails.sanitize import Sanitizer
 from app.guardrails.store import PolicyStore
+from app.mcp.setup import build_mcp_client
+from app.mcp.tools import register_mcp_tools
 from app.memory.config import load_memory_config
 from app.memory.retriever import MemoryRetriever
 from app.memory.service import MemoryService
@@ -131,6 +133,8 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     for cap in registry.all():
         for spec in cap.tools:
             tools.register(spec, cap.slug)
+    mcp = build_mcp_client(settings, API_VERSION)
+    register_mcp_tools(tools, mcp)
     for cap in registry.all():
         unknown = [name for name in cap.manifest.tools if not tools.has(name)]
         if unknown:
@@ -211,6 +215,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         backends=documents.backends,
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
+        mcp=mcp,
         redis=redis,
         closers=(presidio.close,),
     )
@@ -245,10 +250,14 @@ async def start_services(services: Services) -> Services:
     await services.locks.open()
     await services.policies.seed(policy_roots(services.settings, services.registry))
     await services.policies.start()
+    if services.mcp is not None:
+        services.mcp.start()  # connects in the background: a server that is down never stops the agent (I8)
     return dataclasses.replace(services, graph=build_graph(checkpointer))
 
 
 async def stop_services(services: Services) -> None:
+    if services.mcp is not None:
+        await services.mcp.stop()
     await services.policies.stop()
     for close in services.closers:
         await close()

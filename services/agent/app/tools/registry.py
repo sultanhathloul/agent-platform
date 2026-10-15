@@ -26,4 +26,8 @@ class ToolRegistry:
         return self._tools[name][1]
 
     def for_principal(self, principal: Principal) -> list[ToolSpec]:
-        return [spec for spec, _ in self._tools.values() if principal.has(spec.required_permission)]
+        return [
+            spec
+            for spec, _ in self._tools.values()
+            if spec.required_permission is None or principal.has(spec.required_permission)
+        ]

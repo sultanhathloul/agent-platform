@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     # The document backend uploads are registered with and the docs capability searches (I11):
     # empty keeps config/docs.yaml's `backend`; `mcp` selects the RAG server of config/mcp.yaml.
     docs_backend: str = ""
+    # MCP (phase 05): the allowlist file (default config/mcp.yaml), the profile this deployment runs
+    # (a server is enabled when it is in the server's `profiles`; `airgap` never enables an external
+    # server), and whether external servers may be enabled at all (I16, off by default).
+    mcp_config: Path | None = None
+    mcp_profile: str = "default"
+    mcp_allow_external: bool = False
 
 
 @lru_cache

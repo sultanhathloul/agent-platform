@@ -37,7 +37,16 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
-from app.api.events import DoneData, ErrorData, GuardAuditData, GuardData, StateDigest, Usage, build_event
+from app.api.events import (
+    DoneData,
+    ErrorData,
+    GuardAuditData,
+    GuardData,
+    StateDigest,
+    ToolAuditData,
+    Usage,
+    build_event,
+)
 from app.api.history import first_question
 from app.api.locks import LockPoolBusy, TurnLease
 from app.api.ownership import Owner, StoredOwner
@@ -273,6 +282,7 @@ class TurnRunner:
                     ),
                     guard_events=self._guard_data(ctx),
                     guard_audit=self._guard_audit(ctx),
+                    tool_audit=[ToolAuditData.model_validate(entry) for entry in ctx.tool_audit],
                     state_digest=StateDigest(
                         turn=final["turn"], capabilities=final["intent"]["capabilities"]
                     ),
@@ -330,7 +340,11 @@ class TurnRunner:
     ) -> ErrorData:
         """errors.yaml's text, or a blocking policy's own message (README §10.1)."""
         error = self.services.messages.error(code, retryable=retryable)
-        update: dict = {"guard_events": self._guard_data(ctx), "guard_audit": self._guard_audit(ctx)}
+        update: dict = {
+            "guard_events": self._guard_data(ctx),
+            "guard_audit": self._guard_audit(ctx),
+            "tool_audit": [ToolAuditData.model_validate(entry) for entry in ctx.tool_audit],
+        }
         if exc is not None and exc.message_ar and exc.message_en:
             update |= {"message_ar": exc.message_ar, "message_en": exc.message_en, "policy_id": exc.policy_id}
         return error.model_copy(update=update)

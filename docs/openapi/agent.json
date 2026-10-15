@@ -3524,6 +3524,15 @@
             },
             "type": "array",
             "title": "Capabilities"
+          },
+          "mcp": {
+            "items": {
+              "$ref": "#/components/schemas/MCPServerHealth"
+            },
+            "type": "array",
+            "title": "Mcp",
+            "description": "MCP servers and their disabled tools (I8).",
+            "default": []
           }
         },
         "type": "object",
@@ -3621,6 +3630,91 @@
           "exception"
         ],
         "title": "InducedFlag"
+      },
+      "MCPDisabledTool": {
+        "properties": {
+          "tool": {
+            "type": "string",
+            "title": "Tool",
+            "description": "{server}.{tool}"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "not_connected | missing | schema_mismatch | server_<why the server is disabled>"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool",
+          "reason"
+        ],
+        "title": "MCPDisabledTool"
+      },
+      "MCPServerHealth": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "internal": {
+            "type": "boolean",
+            "title": "Internal"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Why disabled: profile, external_not_allowed, external_in_airgap, no_url, no_token."
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "circuit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "closed",
+                  "open",
+                  "half_open"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Circuit"
+          },
+          "disabled_tools": {
+            "items": {
+              "$ref": "#/components/schemas/MCPDisabledTool"
+            },
+            "type": "array",
+            "title": "Disabled Tools",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "internal",
+          "enabled",
+          "connected"
+        ],
+        "title": "MCPServerHealth",
+        "description": "One server of config/mcp.yaml as this environment runs it (I8): content-free, no URL or token."
       },
       "MemoryItemView": {
         "properties": {

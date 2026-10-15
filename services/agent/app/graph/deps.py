@@ -112,6 +112,9 @@ class TurnContext:
     # This turn's chunk texts by reference, fetched for the answer and checked at POST_TOOL;
     # page attribution reads them. Never written to state (owner decision S4).
     evidence: dict[str, str] = field(default_factory=dict)
+    # Every tool call of the turn, content-free, for the audit record (G8): the terminal event's
+    # tool_audit, which the gateway strips before relaying.
+    tool_audit: list[dict] = field(default_factory=list)
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

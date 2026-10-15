@@ -36,13 +36,17 @@ from app.identity import Principal
 from app.observability.otel import tracer
 from app.rag.collections import turn_collections
 from app.tools.registry import ToolRegistry
-from app.tools.spec import ToolContext, ToolOutput, ToolResult, ToolScope
+from app.tools.spec import ToolContext, ToolFailure, ToolOutput, ToolResult, ToolScope
 
 Emit = Callable[[str, dict[str, Any]], None]
 OnGuard = Callable[[GuardOutcome], None]
+OnAudit = Callable[[dict[str, Any]], None]
 
 
 UNDECLARED = "undeclared_tool"
+EXTERNAL_WITHOUT_POLICY = "external_tool_without_policy"
+# The owner the MCP tool provider registers its tools under: no capability's scope (ADR-0205).
+PROVIDER_OWNER = "mcp"
 
 
 class ToolBroker:
@@ -90,28 +94,30 @@ class ToolBroker:
         emit: Emit | None = None,
         context: GuardContext | None = None,
         on_guard: OnGuard | None = None,
+        on_audit: OnAudit | None = None,
     ) -> ToolResult:
         if name not in self.declared.get(caller, ()):
             return self._undeclared(name, caller, on_guard)
         spec = self.registry.get(name)
-        capability = self.registry.capability_of(name)
+        owner = self.registry.capability_of(name)
         call_id = uuid.uuid4().hex
         emit = emit or (lambda _type, _data: None)
         started = time.monotonic()
+        observed: dict[str, str | int | bool] = {}
 
         with tracer.start_as_current_span("tool.exec") as span:
             span.set_attribute("tool.name", name)
-            span.set_attribute("tool.capability", capability)
+            span.set_attribute("tool.capability", caller)
             span.set_attribute("tool.call_id", call_id)
-            start = {"call_id": call_id, "tool": name, "capability": capability}
+            start = {"call_id": call_id, "tool": name, "capability": caller}
             if spec.label is not None:
                 start["label"] = spec.label.model_dump()
             emit("tool_start", start)
 
             base = context or GuardContext()
-            scoped = GuardContext(
-                kbs=base.kbs, tools=(*base.tools, name, capability), locale=base.locale, turn=base.turn
-            )
+            # The tool's own scope and its caller's; a capability's tool also its owner's (ADR-0025).
+            tools = tuple(dict.fromkeys(t for t in (*base.tools, name, caller, owner) if t != PROVIDER_OWNER))
+            scoped = GuardContext(kbs=base.kbs, tools=tools, locale=base.locale, turn=base.turn)
             tool_context = ToolContext(
                 scope=self.scope_for(
                     caller, principal, conversation_id=conversation_id, selected_kbs=selected_kbs
@@ -119,22 +125,40 @@ class ToolBroker:
                 documents=documents,
             )
             result = await self._run(
-                spec, args, principal, scoped, tool_context, on_guard or (lambda _outcome: None)
+                spec, args, principal, scoped, tool_context, on_guard or (lambda _outcome: None), observed
             )
             result.latency_ms = int((time.monotonic() - started) * 1000)
 
             span.set_attribute("tool.status", result.status)
             span.set_attribute("tool.retries", result.retries)
+            if result.error:
+                span.set_attribute("tool.error", result.error)
+            for key, value in observed.items():
+                span.set_attribute(f"tool.{key}", value)
             emit(
                 "tool_end",
                 {
                     "call_id": call_id,
                     "tool": name,
-                    "capability": capability,
+                    "capability": caller,
                     "status": result.status,
                     "latency_ms": result.latency_ms,
                 },
             )
+            if on_audit is not None:
+                # Content-free (G8): who called what, how it ended, how long, how big; never text.
+                on_audit(
+                    {
+                        "call_id": call_id,
+                        "tool": name,
+                        "caller": caller,
+                        "status": result.status,
+                        "error": result.error,
+                        "latency_ms": result.latency_ms,
+                        "retries": result.retries,
+                        **observed,
+                    }
+                )
             return result
 
     def _undeclared(self, name: str, caller: str, on_guard: OnGuard | None) -> ToolResult:
@@ -164,9 +188,26 @@ class ToolBroker:
         context: GuardContext,
         tool_context: ToolContext,
         on_guard: OnGuard,
+        observed: dict[str, str | int | bool],
     ) -> ToolResult:
-        if not principal.has(spec.required_permission):
+        if spec.required_permission is not None and not principal.has(spec.required_permission):
             return ToolResult(status="denied", error="permission")
+        if spec.external and not self._external_policy(spec.name):
+            on_guard(
+                GuardOutcome(
+                    action="block",
+                    events=[
+                        GuardEventRecord(
+                            checkpoint=Checkpoint.PRE_TOOL,
+                            action="block",
+                            detail=f"{spec.name} is external and no enabled PRE_TOOL policy is scoped to it",
+                            reason=EXTERNAL_WITHOUT_POLICY,
+                            audit_only=True,
+                        )
+                    ],
+                )
+            )
+            return ToolResult(status="denied", error=EXTERNAL_WITHOUT_POLICY)
         try:
             parsed = spec.input_schema.model_validate(args)
         except ValidationError as exc:
@@ -195,10 +236,15 @@ class ToolBroker:
                 break
             except TimeoutError:
                 error = f"timeout after {spec.timeout_s}s"
+            except ToolFailure as failure:  # a content-free code; not retried (I8)
+                observed.update(failure.observed)
+                error = failure.code
+                break
             except Exception as exc:  # a tool failure is data for the capability, not a crash
                 error = f"{type(exc).__name__}: {exc}"
         if output is None:
             return ToolResult(status="error", error=error, retries=attempt)
+        observed.update(output.observed)
 
         post = await self.guard.evaluate(Checkpoint.POST_TOOL, output, principal=principal, context=context)
         on_guard(post)
@@ -207,4 +253,11 @@ class ToolBroker:
         if post.blocked:
             return ToolResult(status="denied", error="policy", retries=attempt)
         final: ToolOutput = post.payload
-        return ToolResult(status="ok", content=final.content, sources=final.sources, retries=attempt)
+        return ToolResult(
+            status="ok", content=final.content, sources=final.sources, data=final.data, retries=attempt
+        )
+
+    def _external_policy(self, name: str) -> bool:
+        """Whether an enabled PRE_TOOL policy is scoped to this tool or to its server (I16)."""
+        server = name.split(".", 1)[0]
+        return bool(self.guard.applicable(Checkpoint.PRE_TOOL, {f"tool:{name}", f"tool:{server}.*"}))

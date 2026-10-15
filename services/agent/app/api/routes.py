@@ -63,7 +63,9 @@ _CALLER_ERRORS = {400: {"model": ErrorEnvelope}, 401: {"model": ErrorEnvelope}}
 @router.get("/health", response_model=HealthResponse)
 async def health(request: Request) -> HealthResponse:
     services = request.app.state.services
-    return HealthResponse(status="ok", capabilities=[c.slug for c in services.registry.enabled()])
+    # A server that is down never makes the agent unhealthy (I8): it is reported, not a failure.
+    mcp = services.mcp.health() if services.mcp is not None else []
+    return HealthResponse(status="ok", capabilities=[c.slug for c in services.registry.enabled()], mcp=mcp)
 
 
 @router.post(
