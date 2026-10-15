@@ -693,7 +693,8 @@ printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/directions.jso
 calls=$(sql "select detail->'tool_calls' from gateway.audit_events where request_id = '$DIR_REQUEST' and action = 'chat.turn'")
 check "the audit row holds the three MCP calls with server, sizes and an argument HMAC (G8)" jq -en --argjson c "$calls" \
   '$c | length == 3 and all(.server == "routing" and .status == "ok" and (.args_hmac | test("^[0-9a-f]{64}$")) and .response_bytes > 0)'
-check "and no place name, argument or result text" bash -c "! grep -q 'برج\|بوليفارد\|12.7' <<<'$calls'"
+# Fixed strings: a byte count such as 1207 must not pass for the distance 12.7.
+check "and no place name, argument or result text" bash -c "! grep -qF -e 'برج' -e 'بوليفارد' -e 'المملكة' -e '\"12.7' <<<'$calls'"
 
 step "phase 05: the directions conversation is listed and reopened (G9)"
 curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations?limit=100" > "$TMP/conversations.json" || fail "the analyst's list failed"
