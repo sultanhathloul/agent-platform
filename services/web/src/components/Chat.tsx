@@ -122,14 +122,16 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
     return () => window.clearInterval(timer);
   }, [pendingKey, auth, config.gatewayUrl, conversationId]);
 
-  async function addFiles(chosen: FileList | File[]) {
+  // Takes an array, never the live FileList: the picker clears its list right after the change
+  // event, before the token await below resolves, which left nothing to upload.
+  async function addFiles(chosen: File[]) {
     const token = await auth.getAccessToken();
     if (!token) {
       await auth.login(pathname);
       return;
     }
     let held = sentFiles + files.filter((f) => !f.error).length;
-    for (const file of Array.from(chosen)) {
+    for (const file of chosen) {
       const localId = newUuid();
       const refusal = limits ? checkBeforeUpload(file, limits, held) : null;
       const entry: ComposerFile = { localId, name: file.name, size: file.size, progress: 0 };
@@ -165,7 +167,7 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files.length) void addFiles(Array.from(e.dataTransfer.files));
   }
 
   const busy = files.some(isBusy);
@@ -302,7 +304,7 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
             hidden
             accept={limits ? limits.extensions.map((e) => `.${e}`).join(",") : undefined}
             onChange={(e) => {
-              if (e.target.files?.length) void addFiles(e.target.files);
+              if (e.target.files?.length) void addFiles(Array.from(e.target.files));
               e.target.value = "";
             }}
           />

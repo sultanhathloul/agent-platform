@@ -1294,6 +1294,15 @@ Human review (owner's list) for this session:
 - `docker-compose.yml` (`GATEWAY_DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}`) and `.env.example`;
 - `docs/openapi/gateway.json` (upload 408 `upload_timeout`; regenerated within the unmerged 2.0.0, ADR-0046).
 
+### Fix: the web attachment picker uploaded nothing (2026-10-15)
+
+- Branch: `fix/web-attachment-picker` (after PR #4 merged; not a phase).
+- Found by the owner in the browser: choosing a file with the attach button showed no chip and sent no upload; the turn went out without the file and the model answered that it could not see attachments.
+- Cause: `Chat.tsx` `addFiles` awaited the access token before reading the `FileList` it was given, while the picker's `onChange` cleared the input right after the call; the live list was empty by then. The drop handler passed the live `dataTransfer.files` the same way.
+- Fix: both handlers copy the files into an array at the event; `addFiles` takes `File[]` only.
+- Reproduced before and verified after in headless Chrome (seed user `analyst`, the owner's 29-page PDF): before, no chip and no `POST …/attachments`; after, the chip shows "قيد المعالجة", the upload returns 201 and status polling runs. Not covered by a unit test: the web layer has no browser-level component tests.
+- Results (rule 11): `make test` agent 689 / 0 / 0, gateway 125 / 0 / 0, gateway-db 5 / 0 / 0, web 142 / 0 / 0, evals harness 6 / 0 / 0 (passed / failed / skipped); `make smoke` 111/111. `make eval` not run: web-only change, no agent, prompt or config change.
+
 ## Conversation history (standalone PR before phase 05, owner decision 2026-10-15)
 
 - Branch: `feat/conversation-history` (from `main`, not a phase).
