@@ -4,6 +4,8 @@ reports. The agent indexes nothing itself: the ingest service does (owner decisi
 Capability-agnostic. The product deletes no file (owner decision S4): files stay for as long
 as the platform keeps them, and deleting one is an operations task."""
 
+from collections.abc import Mapping
+
 from app.attachments.limits import UploadLimits
 from app.attachments.objects import ObjectStore
 from app.attachments.store import AttachmentRecord, AttachmentStore
@@ -25,12 +27,16 @@ class AttachmentService:
         objects: ObjectStore,
         documents: DocumentBackend,
         limits: UploadLimits,
+        backends: Mapping[str, DocumentBackend] | None = None,
     ):
+        """`documents`: the backend new uploads are registered with; `backends`: every backend by
+        name, so an upload's status is read from the one it was registered with (I11)."""
         self.db = db
         self.store = store
         self.objects = objects
         self.documents = documents
         self.limits = limits
+        self.backends = dict(backends or {})
 
     async def register(
         self, owner: Owner, conversation_id: str, *, name: str, mime: str, size: int, object_key: str
@@ -49,6 +55,7 @@ class AttachmentService:
             size=size,
             object_key=object_key,
             max_files=self.limits.max_files_per_conversation,
+            backend=getattr(self.documents, "name", "internal"),
         )
         await self.documents.register(
             StoredFile(
@@ -81,7 +88,8 @@ class AttachmentService:
         return await self._with_status(record, _scope(owner, conversation_id))
 
     async def _with_status(self, record: AttachmentRecord, scope: DocumentScope) -> AttachmentRecord:
-        status = await self.documents.status(record.id, scope)
+        backend = self.backends.get(record.backend, self.documents)
+        status = await backend.status(record.id, scope)
         if status is None:
             return record.model_copy(update={"status": "pending", "reason": None, "warnings": []})
         return record.model_copy(

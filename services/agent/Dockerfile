@@ -25,6 +25,9 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 COPY conftest.py ./
 COPY app ./app
 COPY tests ./tests
+# The reference MCP servers (infra/mcp-ref, named context `mcpref`): the contract suite runs the
+# reference RAG server in-process against the MCP document backend (phase 05, D2).
+COPY --from=mcpref mcp_ref ./mcp_ref
 CMD ["pytest", "-q"]
 
 FROM base AS runtime

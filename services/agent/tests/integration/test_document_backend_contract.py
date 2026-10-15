@@ -9,7 +9,8 @@ import uuid
 import pytest
 
 from app.rag.backend import DocumentScope
-from tests.fixtures.backends import BACKENDS, Harness
+from tests.fixtures.backends import CONTRACT_BACKENDS, Harness
+from tests.fixtures.rag_ref import rag_ref_backend  # noqa: F401 (a fixture)
 
 pytestmark = pytest.mark.integration
 
@@ -20,8 +21,11 @@ LEAVE = [
 ]
 
 
-@pytest.fixture(params=BACKENDS)
+@pytest.fixture(params=CONTRACT_BACKENDS)
 def harness(request, services, litellm) -> Harness:
+    """Every backend, the MCP one over the reference RAG server (phase 05, D2)."""
+    if request.param == "mcp":
+        return Harness("mcp", services, request.getfixturevalue("rag_ref_backend"))
     return Harness(request.param, services)
 
 

@@ -6,6 +6,7 @@
 # `mcp` is the RAG server `rag` of config/mcp.yaml, reached through the platform's MCP client.
 # DOCS_BACKEND in .env overrides it per environment (ADR-0212).
 backend: internal
+mcp_server: rag                     # the server of config/mcp.yaml the `mcp` backend calls
 
 # Checked in the gateway before anything is stored, re-checked by the agent (ADR-0126, D2).
 limits:

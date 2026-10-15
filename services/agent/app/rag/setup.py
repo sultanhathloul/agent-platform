@@ -19,6 +19,7 @@ from app.rag.ingest.pipeline import IngestPipeline
 from app.rag.ingest.queue import IngestQueue
 from app.rag.ingest.worker import IngestWorker
 from app.rag.internal import InternalDocumentBackend
+from app.rag.mcp import MCPDocumentBackend
 from app.rag.rerank import Reranker
 from app.rag.retrieve import HybridRetriever
 from app.rag.vectorstore import PgVectorStore
@@ -46,9 +47,11 @@ def build_documents(
     counter: TokenCounter,
     attachments: AttachmentStore,
     objects: ObjectStore,
+    mcp=None,
     extra_backends: Mapping[str, DocumentBackend] | None = None,
 ) -> Documents:
-    """`extra_backends`: backends built elsewhere, by name (the MCP backend, I11)."""
+    """`mcp`: the platform's MCP client; when config/mcp.yaml lists the server `mcp_server` names,
+    the `mcp` backend reaches it (I11). `extra_backends`: more backends by name (tests)."""
     config = load_docs_config(settings.config_dir)
     selected = settings.docs_backend or config.backend
     # The reranker is configured per environment, from .env, not config/docs.yaml (finding 3): the
@@ -77,7 +80,10 @@ def build_documents(
         attachments=attachments, vectors=vectors, retriever=retriever, queue=queue
     )
     worker = IngestWorker(pipeline, attachments, config, queue) if redis is not None else None
-    backends: dict[str, DocumentBackend] = {"internal": backend, **(extra_backends or {})}
+    backends: dict[str, DocumentBackend] = {"internal": backend}
+    if mcp is not None and config.mcp_server in mcp.servers:
+        backends["mcp"] = MCPDocumentBackend(mcp, config.mcp_server)
+    backends |= dict(extra_backends or {})
     if selected not in backends:
         raise ValueError(f"unknown document backend {selected!r}; known: {sorted(backends)}")
     return Documents(

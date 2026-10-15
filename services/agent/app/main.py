@@ -160,6 +160,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         counter=counter,
         attachments=attachment_store,
         objects=objects,
+        mcp=mcp,
     )
     for cap in registry.all():
         name = cap.config.get("backend")
@@ -174,6 +175,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         objects=objects,
         documents=documents.backend,
         limits=load_upload_limits(settings.config_dir),
+        backends=documents.backends,
     )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(

@@ -152,6 +152,9 @@ def with_backend(services, backend):
         documents=backend,
         limits=attachments.limits,
     )
+    swapped.backends = {other: backend for other in attachments.backends} | {
+        getattr(backend, "name", "test"): backend
+    }
     name = getattr(backend, "name", "test")
     backends = {other: backend for other in services.backends} | {name: backend}
     return dataclasses.replace(services, documents=backend, attachments=swapped, backends=backends)

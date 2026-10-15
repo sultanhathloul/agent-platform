@@ -43,6 +43,7 @@ class AttachmentRecord(BaseModel):
     size: int
     object_key: str
     collection: str
+    backend: str = "internal"  # the DocumentBackend it was registered with (I11)
     status: AttachmentStatus
     reason: FailureReason | None = None
     pages: int | None = None
@@ -65,7 +66,7 @@ class LimitReached(Exception):
 
 _COLUMNS = (
     "id::text AS id, conversation_id::text AS conversation_id, tenant_id, user_id, name, mime, kind, "
-    "size, object_key, collection, status, reason, pages, chunks, warnings, attempts, created_at, "
+    "size, object_key, collection, backend, status, reason, pages, chunks, warnings, attempts, created_at, "
     "updated_at, indexed_at"
 )
 
@@ -91,6 +92,7 @@ class AttachmentStore:
         size: int,
         object_key: str,
         max_files: int,
+        backend: str = "internal",
     ) -> AttachmentRecord:
         """Inserts a pending attachment, unless the conversation already holds `max_files`;
         the count and the insert run under the conversation's transaction lock, so two
@@ -106,8 +108,8 @@ class AttachmentStore:
                 raise LimitReached(conversation_id)
             cursor = await conn.execute(
                 "INSERT INTO agent.attachments (conversation_id, tenant_id, user_id, name, mime, kind, size, "
-                "object_key, collection) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "object_key, collection, backend) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 f"RETURNING {_COLUMNS}",
                 (
                     conversation_id,
@@ -119,6 +121,7 @@ class AttachmentStore:
                     size,
                     object_key,
                     collection_for(conversation_id),
+                    backend,
                 ),
             )
             return _record(await cursor.fetchone())
@@ -194,9 +197,12 @@ class AttachmentStore:
             return cursor.rowcount == 1
 
     async def pending_ids(self) -> list[str]:
+        """The internal backend's pending uploads; another backend's are its own to index (I11)."""
         async with self._db.connection() as conn:
             cursor = await conn.execute(
-                "SELECT id::text AS id FROM agent.attachments WHERE status = 'pending' ORDER BY created_at"
+                "SELECT id::text AS id FROM agent.attachments "
+                "WHERE status = 'pending' AND backend = 'internal' "
+                "ORDER BY created_at"
             )
             return [row["id"] for row in await cursor.fetchall()]
 
