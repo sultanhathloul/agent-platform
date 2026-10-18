@@ -214,7 +214,7 @@ async def test_a_result_over_the_cap_is_refused_without_parsing_it(server, hashe
         await client.stop()
 
 
-async def test_images_and_resources_are_dropped_with_a_note(server, hashes):
+async def test_images_and_resources_are_dropped_with_a_note(server, hashes, spans):
     client = await _started(_config(hashes), server.url)
     try:
         broker = _broker(client, ["fx.mixed", "fx.fails"])
@@ -222,7 +222,9 @@ async def test_images_and_resources_are_dropped_with_a_note(server, hashes):
         result = await _call(broker, "fx.mixed", {}, audit=audit)
         assert result.status == "ok" and result.content == "visible text" and result.data is None
         assert "hidden resource text" not in result.content
-        assert audit[-1]["dropped"] == "image,resource"
+        # The note is on the call's span; the audit entry keeps the audit record's fields only.
+        [span] = [s for s in spans.get_finished_spans() if s.name == "tool.exec"][-1:]
+        assert span.attributes["tool.dropped"] == "image,resource" and "dropped" not in audit[-1]
         failed = await _call(broker, "fx.fails", {})
         assert (failed.status, failed.error) == ("error", "tool_error")  # no server text reaches the caller
     finally:
