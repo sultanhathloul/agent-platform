@@ -129,13 +129,51 @@ class ExtractSpec(_Strict):
         return list(self.schema_["properties"])
 
 
+_RESULT_PATH = re.compile(r"^\$(\.[A-Za-z0-9_]+)+$")
+
+
+class FewerThan(_Strict):
+    fewer_than: int = Field(ge=1)
+
+
+class MoreThan(_Strict):
+    more_than: int = Field(ge=0)
+
+
 class StepSpec(_Strict):
     """One tool call. Each argument is a literal or a reference, `$.extract.<field>` or
-    `$.steps.<id>.result.<path>` (an earlier step's result; list items by index); nothing else."""
+    `$.steps.<id>.result.<path>` (an earlier step's result; list items by index); nothing else.
+
+    A step may declare where its result list is and what its size means (ADR-0238): `result_list`
+    (`$.<path>` into the result), `empty_when` (default fewer than 1 item: the run stops there,
+    status `empty`) and `ambiguous_when` (when a later reference into this step resolves to
+    nothing and the list holds more than N items, status `ambiguous`; otherwise `unresolved`). Up
+    to three items of the list are the candidates the findings may offer. Without `result_list`,
+    a step's result has no list and offers no candidate."""
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     tool: str
     args: dict[str, ArgValue] = {}
+    result_list: str | None = None
+    empty_when: FewerThan = FewerThan(fewer_than=1)
+    ambiguous_when: MoreThan | None = None
+
+    @model_validator(mode="after")
+    def _list_path(self) -> "StepSpec":
+        if self.result_list is not None and not _RESULT_PATH.match(self.result_list):
+            raise ValueError(f"step {self.id}: result_list {self.result_list!r} is not $.<path>")
+        if self.result_list is None and self.ambiguous_when is not None:
+            raise ValueError(f"step {self.id}: ambiguous_when needs result_list")
+        return self
+
+    def list_of(self, result: Any) -> list[Any] | None:
+        """The step's result list, or None when it declares none or the result holds none there."""
+        if self.result_list is None:
+            return None
+        found = result
+        for key in self.result_list.split(".")[1:]:
+            found = found.get(key) if isinstance(found, dict) else None
+        return found if isinstance(found, list) else None
 
     def references(self) -> list[str]:
         return [v for v in self.args.values() if isinstance(v, str) and v.startswith("$")]
@@ -366,12 +404,9 @@ class RuntimeContext:
     """The LangGraph runtime context of a capability subgraph (`Runtime[RuntimeContext]`).
     This is the whole surface a capability has into the core: its slug, the
     principal, a copy of its own state slice, `call_model`, the broker, the
-    event writer, the document backend, its context package and its configuration. No
-    resolver, guard engine, model config or AgentState (ADR-0047).
-
-    - `documents`: the DocumentBackends by name (I1); the one `config/<slug>.yaml` `backend`
-      names reaches the capability's tool handlers through the broker, which scopes every call
-      to the principal and the turn's collections (C6, S1).
+    event writer, its context package and its configuration. No resolver, guard engine, model
+    config, AgentState, document backend or MCP connection (ADR-0047, ADR-0231): a capability's
+    tools reach documents only through the scope-bound facade the broker hands them.
     - `context()`: the package assembled per `context.needs`, detached from AgentState; it
       is assembled on the first call only, so a capability that never reads it costs no
       assembly (owner decision C3).
@@ -384,6 +419,5 @@ class RuntimeContext:
     call_model: ModelCaller
     broker: CapabilityBroker
     stream_writer: EventWriter
-    documents: Mapping[str, Any] = field(default_factory=dict)
     context: ContextReader = _no_context
     config: Mapping[str, Any] = field(default_factory=dict)

@@ -13,6 +13,7 @@ import uuid
 from collections.abc import Sequence
 
 from app.attachments.service import AttachmentService
+from app.rag.access import DocumentAccess
 from app.rag.backend import DocumentScope, DocumentStatus, DocumentWarning, SourceHit, StoredFile
 from app.rag.collections import kb_collection, kind_of
 from app.rag.types import FailureReason
@@ -157,4 +158,18 @@ def with_backend(services, backend):
     }
     name = getattr(backend, "name", "test")
     backends = {other: backend for other in services.backends} | {name: backend}
-    return dataclasses.replace(services, documents=backend, attachments=swapped, backends=backends)
+    # The broker's facade reaches the same backend under every name (ADR-0231).
+    access = services.broker.documents
+    documents = DocumentAccess(
+        backends,
+        configured={slug: name for slug in (access.configured if access else {})},
+        default=name,
+        records=access.records if access else None,
+    )
+    return dataclasses.replace(
+        services,
+        documents=backend,
+        attachments=swapped,
+        backends=backends,
+        broker=services.broker.with_documents(documents),
+    )

@@ -10,7 +10,7 @@ import pytest
 
 from app.rag.backend import DocumentScope
 from tests.fixtures.backends import CONTRACT_BACKENDS, Harness
-from tests.fixtures.rag_ref import rag_ref_backend  # noqa: F401 (a fixture)
+from tests.fixtures.rag_ref import rag_ref_backend, rag_ref_broker, rag_ref_client  # noqa: F401 (fixtures)
 
 pytestmark = pytest.mark.integration
 

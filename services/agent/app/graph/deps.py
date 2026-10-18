@@ -67,16 +67,10 @@ class Services:
     # Every DocumentBackend by name (I1, ADR-0202); a capability's config/<slug>.yaml `backend`
     # names the one its tools use, `documents` otherwise.
     backends: Mapping[str, DocumentBackend] = field(default_factory=dict)
-    mcp: Any = None  # app.mcp.client.MCPClient when config/mcp.yaml lists a server, else None
 
     def backend_name(self, slug: str) -> str | None:
         name = self.registry.get(slug).config.get("backend")
         return str(name) if name else getattr(self.documents, "name", None)
-
-    def backend_for(self, slug: str) -> DocumentBackend:
-        """The DocumentBackend `slug`'s tools use: the one its configuration names."""
-        name = self.registry.get(slug).config.get("backend")
-        return self.backends[name] if name else self.documents
 
 
 @dataclass

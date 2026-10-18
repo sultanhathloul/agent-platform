@@ -2,13 +2,15 @@
 only, read tools only, no delete tool, closed injection sources, unique names; each server
 enabled per profile and flag; the capped transport's refusals (I2, I7)."""
 
+import asyncio
 import json
+import time
 
 import httpx
 import pytest
 
 from app.mcp.config import MCPConfig, MCPConfigError, load_mcp_config, resolve
-from app.mcp.transport import TOO_LARGE, CappedTransport
+from app.mcp.transport import TOO_LARGE, TRANSPORT_TIMEOUT, CappedTransport
 
 HASH = "a" * 64
 
@@ -54,6 +56,40 @@ def test_a_write_tool_is_refused_at_startup(tmp_path):
     path.write_text(json.dumps({"servers": [_server(tool={"risk": "write"})]}))
     with pytest.raises(MCPConfigError):
         load_mcp_config(path)
+
+
+def test_a_transport_operation_is_its_own_class_and_may_write_on_its_server_only():
+    """ADR-0230 (supersedes ADR-0200): D6 stands for model-callable tools; a transport operation
+    is never a broker tool, may be marked write (it writes on its own server), and never deletes."""
+    [server] = MCPConfig.model_validate(
+        {"servers": [_server(tool={"class": "transport", "risk": "write"})]}
+    ).servers
+    assert server.tools[0].class_ == "transport" and server.tools_of("tool") == []
+    assert "write-class" in _invalid(_server(tool={"class": "tool", "risk": "write"}))
+    assert "delete" in _invalid(
+        _server(tool={"class": "transport", "name": "purge_all", "remote_name": "purge_all"})
+    )
+    assert "class" in _invalid(_server(tool={"class": "both"}))
+
+
+def test_the_shipped_rag_operations_are_transport_and_never_broker_tools(config_dir):
+    from app.mcp.client import MCPClient
+    from app.mcp.tools import mcp_tool_specs, transport_operations
+
+    config = load_mcp_config(config_dir / "mcp.yaml")
+    rag = next(s for s in config.servers if s.id == "rag")
+    assert {t.name: (t.class_, t.risk) for t in rag.tools} == {
+        "register": ("transport", "write"),
+        "status": ("transport", "read"),
+        "search": ("transport", "read"),
+        "fetch": ("transport", "read"),
+    }
+    client = MCPClient(
+        resolve(config, profile="default", allow_external=False, environ={}), hash_key="k", client_version="t"
+    )
+    names = {spec.name for spec in mcp_tool_specs(client)}
+    assert names == {"routing.geocode", "routing.route"}
+    assert transport_operations(client) == {"rag.register", "rag.status", "rag.search", "rag.fetch"}
 
 
 @pytest.mark.parametrize("name", ["delete_file", "remove", "drop_index", "purge_cache"])
@@ -141,7 +177,7 @@ def _post(rid: int = 7) -> httpx.Request:
 
 
 async def test_a_body_over_the_cap_becomes_a_json_rpc_error_for_that_request():
-    transport = CappedTransport(100, _Upstream(b"{" + b"x" * 10_000))
+    transport = CappedTransport(100, inner=_Upstream(b"{" + b"x" * 10_000))
     response = await transport.handle_async_request(_post(7))
     await response.aread()
     assert response.json() == {"jsonrpc": "2.0", "id": 7, "error": {"code": -32099, "message": TOO_LARGE}}
@@ -150,10 +186,10 @@ async def test_a_body_over_the_cap_becomes_a_json_rpc_error_for_that_request():
 
 async def test_the_server_stream_is_never_opened_and_encoding_must_be_identity():
     upstream = _Upstream(b"{}")
-    transport = CappedTransport(100, upstream)
+    transport = CappedTransport(100, inner=upstream)
     response = await transport.handle_async_request(httpx.Request("GET", "http://s/mcp"))
     assert response.status_code == 405 and upstream.requests == []
-    encoded = CappedTransport(100, _Upstream(b"{}", encoding="gzip"))
+    encoded = CappedTransport(100, inner=_Upstream(b"{}", encoding="gzip"))
     response = await encoded.handle_async_request(_post(3))
     await response.aread()
     assert response.json()["error"]["message"] == "content_encoding_refused"
@@ -161,7 +197,78 @@ async def test_the_server_stream_is_never_opened_and_encoding_must_be_identity()
 
 async def test_an_sse_answer_is_read_up_to_its_event():
     events = b'event: message\ndata: {"jsonrpc":"2.0","id":9,"result":{}}\n\n' + b"data: " + b"y" * 5000
-    transport = CappedTransport(4096, _Upstream(events, content_type="text/event-stream"))
+    transport = CappedTransport(4096, inner=_Upstream(events, content_type="text/event-stream"))
     response = await transport.handle_async_request(_post(9))
     body = await response.aread()
     assert b'"id":9' in body and not transport.sizes["c1"].too_large
+
+
+class _Chunks(httpx.AsyncByteStream):
+    """A body sent in the given chunks, `pause` seconds apart."""
+
+    def __init__(self, chunks, pause: float = 0.0):
+        self.chunks, self.pause, self.closed = list(chunks), pause, False
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            if self.pause:
+                await asyncio.sleep(self.pause)
+            yield chunk
+
+    async def aclose(self):
+        self.closed = True
+
+
+class _Streaming(httpx.AsyncBaseTransport):
+    def __init__(self, stream: _Chunks):
+        self.stream = stream
+
+    async def handle_async_request(self, request):
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=self.stream)
+
+
+def _event(message: dict) -> bytes:
+    return b"event: message\ndata: " + json.dumps(message).encode() + b"\n\n"
+
+
+async def test_sse_events_reach_the_sdk_whole_even_when_split_across_chunks():
+    """The incremental parser (ADR-0236): a server's request on the stream is passed on, an event
+    split anywhere is passed whole, and the stream ends after the answer."""
+    sampling = _event({"jsonrpc": "2.0", "id": "s1", "method": "sampling/createMessage", "params": {}})
+    answer = _event({"jsonrpc": "2.0", "id": 9, "result": {"ok": True}})
+    after = _event({"jsonrpc": "2.0", "method": "notifications/progress", "params": {}})
+    body = sampling + answer + after
+    chunks = [body[i : i + 7] for i in range(0, len(body), 7)]
+    transport = CappedTransport(4096, inner=_Streaming(_Chunks(chunks)))
+    response = await transport.handle_async_request(_post(9))
+    received = await response.aread()
+    assert received == sampling + answer and transport.sizes["c1"].response_bytes == len(sampling + answer)
+
+
+async def test_every_byte_counts_toward_the_cap_notifications_included():
+    progress = _event({"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progress": 1}})
+    stream = _Chunks([progress] * 100)  # ~9 KB of notifications and never an answer
+    transport = CappedTransport(2048, inner=_Streaming(stream))
+    response = await transport.handle_async_request(_post(4))
+    received = await response.aread()
+    error = json.loads(received.rsplit(b"data: ", 1)[1])
+    assert error == {"jsonrpc": "2.0", "id": 4, "error": {"code": -32099, "message": TOO_LARGE}}
+    assert transport.sizes["c1"].too_large and stream.closed and len(received) < 2048 + 200
+
+
+async def test_a_trickling_answer_ends_at_the_wall_clock_deadline_and_closes_the_connection():
+    stream = _Chunks([b":"] * 1000, pause=0.2)  # a byte every 0.2 s: no read ever times out
+    transport = CappedTransport(262144, timeout_s=1.0, inner=_Streaming(stream))
+    started = time.monotonic()
+    response = await transport.handle_async_request(_post(5))
+    received = await response.aread()
+    assert time.monotonic() - started < 1.6
+    assert json.loads(received.rsplit(b"data: ", 1)[1])["error"]["message"] == TRANSPORT_TIMEOUT
+    assert stream.closed
+
+
+async def test_a_stream_that_ends_without_its_answer_is_an_error_for_that_request():
+    transport = CappedTransport(4096, inner=_Streaming(_Chunks([b": keep-alive\n\n"])))
+    response = await transport.handle_async_request(_post(6))
+    received = await response.aread()
+    assert json.loads(received.rsplit(b"data: ", 1)[1])["error"]["message"] == "tool_unavailable"

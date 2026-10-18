@@ -5,7 +5,9 @@ the backend and from the collection that found it (I1, ADR-0202), scoped to the 
 principal; a collection outside what that capability may read this turn (the scope the broker
 gives its tools) is never fetched, whatever a source names. The text passes POST_TOOL
 (sanitize_untrusted first, then the policies, per principal) on the way in, under the scope of
-the capability that found it, as any tool output does (README §10.3).
+the capability that found it, as any tool output does (README §10.3). A backend that reaches a
+server over MCP does so through `broker.transport`; those calls join the turn's tool audit under
+the capability that found the sources (ADR-0230).
 
 The texts are kept on the turn context, never in state: page attribution after the answer
 compares the answer with them (owner decision C1)."""
@@ -21,7 +23,8 @@ from app.graph.guarding import guard_context
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
 from app.rag.backend import DocumentScope
-from app.tools.spec import ToolOutput
+from app.tools.broker import auditing
+from app.tools.spec import ToolFailure, ToolOutput
 
 # Opens each chunk in the text POST_TOOL checks at once; the text is split back on it.
 # Angle brackets would be stripped as tags, so none are used.
@@ -71,7 +74,16 @@ async def _fetch(
             user_id=ctx.principal.user_id,
             collections=(collection,) if collection is not None else allowed,
         )
-        fetched = await backend.fetch(refs, scope)
+        try:
+            with auditing(capability, ctx.tool_audit.append):
+                fetched = await backend.fetch(refs, scope)
+        except ToolFailure as failure:
+            # A server that cannot answer leaves these sources without text: the answer has less
+            # evidence, and the failure is in the audit entry, by its code.
+            span.add_event(
+                "evidence.unavailable", {"capability": capability, "backend": name, "code": failure.code}
+            )
+            continue
         texts |= {(name, ref): text for ref, text in fetched.items() if ref in refs}
     return texts
 

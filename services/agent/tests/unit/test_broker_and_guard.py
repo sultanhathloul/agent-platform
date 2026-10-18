@@ -87,7 +87,7 @@ async def test_missing_permission_is_denied_without_running():
 
 async def test_invalid_arguments_are_an_error():
     result = await _broker(_spec(_echo)).execute("echo", {"wrong": 1}, caller="demo", principal=ALLOWED)
-    assert result.status == "error" and "invalid arguments" in result.error
+    assert (result.status, result.error) == ("error", "invalid_arguments")
 
 
 async def test_timeout_retries_then_errors():

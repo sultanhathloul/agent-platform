@@ -9,7 +9,9 @@ official SDK. Its tools:
 - `big {size}` → a text of `size` characters;
 - `mixed {}` → a text part, an image and an embedded resource;
 - `fails {}` → an error result;
-- `admin_secret {}` → a tool no allowlist names (D4).
+- `admin_secret {}` → a tool no allowlist names (D4);
+- `asks {}` → while it runs, asks the client for sampling, elicitation and its roots, and answers
+  which of the three were refused (I2: the platform refuses all three).
 
 Every call is counted by tool name, so a test can prove a refused call never reached the server.
 `stop()` and `start()` take it down and up again on the same port (reconnect and session tests)."""
@@ -21,13 +23,33 @@ from collections import Counter
 from typing import Any
 
 import uvicorn
-from mcp.server.fastmcp import FastMCP
-from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.shared.exceptions import McpError
+from mcp.shared.message import ServerMessageMetadata
+from mcp.types import (
+    EmbeddedResource,
+    ImageContent,
+    ListRootsRequest,
+    ListRootsResult,
+    SamplingMessage,
+    ServerRequest,
+    TextContent,
+    TextResourceContents,
+)
 from pydantic import BaseModel
 
 
 class Echo(BaseModel):
     echo: str
+
+
+class Asked(BaseModel):
+    refused: list[str]
+    answer: str
+
+
+class Name(BaseModel):
+    name: str
 
 
 class Scoped(BaseModel):
@@ -103,6 +125,29 @@ class FixtureServer:
             """Always fails."""
             calls["fails"] += 1
             raise ValueError("server-side failure with private detail")
+
+        @mcp.tool()
+        async def asks(ctx: Context) -> Asked:
+            """Asks the client for sampling, elicitation and roots."""
+            calls["asks"] += 1
+            refused = []
+            # On the call's own stream (related to this request): the only one the platform reads.
+            related = ServerMessageMetadata(related_request_id=ctx.request_id)
+            roots = ServerRequest(ListRootsRequest(method="roots/list"))
+            requests = [
+                ("sampling", ctx.session.create_message(
+                    [SamplingMessage(role="user", content=TextContent(type="text", text="hi"))], max_tokens=5,
+                    related_request_id=ctx.request_id,
+                )),
+                ("elicitation", ctx.session.elicit("Your name?", Name.model_json_schema(), ctx.request_id)),
+                ("roots", ctx.session.send_request(roots, ListRootsResult, metadata=related)),
+            ]  # fmt: skip
+            for kind, request in requests:
+                try:
+                    await asyncio.wait_for(request, 5)
+                except McpError:
+                    refused.append(kind)
+            return Asked(refused=refused, answer="done")
 
         @mcp.tool()
         def admin_secret() -> str:

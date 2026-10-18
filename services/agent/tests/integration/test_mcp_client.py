@@ -141,7 +141,7 @@ async def test_a_call_naming_an_injected_field_never_reaches_the_server(server, 
         before = server.calls["scoped"]
         for forged in ({"tenant": "other"}, {"user": "victim"}, {"collections": ["sess_x"]}):
             result = await _call(broker, "fx.scoped", {"query": "q", **forged})
-            assert result.status == "error" and "invalid arguments" in result.error
+            assert (result.status, result.error) == ("error", "invalid_arguments")
         assert server.calls["scoped"] == before
 
         result = await _call(broker, "fx.scoped", {"query": "q"}, conversation="c-77")
@@ -166,7 +166,7 @@ async def test_arguments_are_validated_against_the_pinned_schema(server, hashes)
         before = server.calls["echo"]
         for bad in ({}, {"text": 5}, {"text": "x", "extra": 1} if False else {"text": None}):
             result = await _call(broker, "fx.echo", bad)
-            assert result.status == "error" and "invalid arguments" in result.error
+            assert (result.status, result.error) == ("error", "invalid_arguments")
         assert server.calls["echo"] == before
         ok = await _call(broker, "fx.echo", {"text": "مرحبا"})
         assert ok.status == "ok" and ok.data == {"echo": "مرحبا"} and json.loads(ok.content) == ok.data
@@ -294,10 +294,7 @@ async def test_an_expired_session_is_reinitialised(hashes):
         assert (await _call(broker, "fx.echo", {"text": "1"})).status == "ok"
         await fixture.stop()  # the restarted server knows no session: 404 on the next request
         await fixture.start()
-        result = await _call(broker, "fx.echo", {"text": "2"})
-        if result.status != "ok":  # the first call after a restart may find the old connection gone
-            assert await client.wait_connected(15)
-            result = await _call(broker, "fx.echo", {"text": "2"})
+        result = await _call(broker, "fx.echo", {"text": "2"})  # one call, re-sent on a new session (I9)
         assert result.status == "ok" and result.data == {"echo": "2"}
     finally:
         await client.stop()
@@ -415,4 +412,7 @@ def test_the_shipped_allowlist_has_no_external_server_and_validates(config_dir):
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     config = MCPConfig.model_validate(raw)
     assert config.servers and all(server.internal for server in config.servers)
-    assert all(tool.risk == "read" for server in config.servers for tool in server.tools)
+    # D6: every model-callable tool is read; a transport operation may write on its server (ADR-0230).
+    assert all(tool.risk == "read" for server in config.servers for tool in server.tools_of("tool"))
+    writes = {t.name for s in config.servers for t in s.tools_of("transport") if t.risk == "write"}
+    assert writes == {"register"}

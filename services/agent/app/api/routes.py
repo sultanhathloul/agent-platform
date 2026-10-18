@@ -64,7 +64,7 @@ _CALLER_ERRORS = {400: {"model": ErrorEnvelope}, 401: {"model": ErrorEnvelope}}
 async def health(request: Request) -> HealthResponse:
     services = request.app.state.services
     # A server that is down never makes the agent unhealthy (I8): it is reported, not a failure.
-    mcp = services.mcp.health() if services.mcp is not None else []
+    mcp = services.broker.mcp_health()
     return HealthResponse(status="ok", capabilities=[c.slug for c in services.registry.enabled()], mcp=mcp)
 
 

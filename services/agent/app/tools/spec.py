@@ -9,16 +9,33 @@ from pydantic import BaseModel, ConfigDict
 
 # The source fields a person reads: POST_TOOL sanitizes and checks them like `content` (S2).
 SOURCE_TEXT_FIELDS = ("title", "locator")
+# The owner the MCP tool provider registers its tools under: no capability's scope (ADR-0205).
+PROVIDER_OWNER = "mcp"
 
 
-Path = tuple[str | int, ...]
+@dataclass(frozen=True)
+class Key:
+    """A path step naming a mapping's key itself, not its value: a structured result's keys are
+    text a server wrote, checked like its values (G8, ADR-0234)."""
+
+    name: str
+
+
+Path = tuple[str | int | Key, ...]
 
 
 def _string_leaves(value: Any, path: Path = ()) -> list[Path]:
+    """Every readable text of a structured value: each non-empty string key, before what it holds,
+    and each non-empty string leaf."""
     if isinstance(value, str):
         return [path] if value else []
     if isinstance(value, dict):
-        return [p for key, item in value.items() for p in _string_leaves(item, (*path, key))]
+        paths: list[Path] = []
+        for key, item in value.items():
+            if isinstance(key, str) and key:
+                paths.append((*path, Key(key)))
+            paths += _string_leaves(item, (*path, key))
+        return paths
     if isinstance(value, list):
         return [p for index, item in enumerate(value) for p in _string_leaves(item, (*path, index))]
     return []
@@ -26,6 +43,8 @@ def _string_leaves(value: Any, path: Path = ()) -> list[Path]:
 
 def _get(value: Any, path: Path) -> Any:
     for step in path:
+        if isinstance(step, Key):
+            return step.name
         value = value[step]
     return value
 
@@ -33,13 +52,23 @@ def _get(value: Any, path: Path) -> Any:
 def _set(value: Any, path: Path, text: str) -> None:
     for step in path[:-1]:
         value = value[step]
-    value[path[-1]] = text
+    last = path[-1]
+    if not isinstance(last, Key):
+        value[last] = text
+        return
+    if text == last.name:
+        return
+    # A key a check changed: renamed in place, or its entry dropped when nothing of it is left or
+    # its new name is taken (a policy redacted it, ADR-0234).
+    item = value.pop(last.name)
+    if text and text not in value:
+        value[text] = item
 
 
 class ToolOutput(BaseModel):
     """What a tool handler returns; the broker wraps it into a ToolResult. `data` is a structured
     result (an MCP tool's structured content, I7): POST_TOOL sanitizes and checks every string
-    in it like `content`, so it keeps its shape (ADR-0208)."""
+    in it like `content`, its keys included, so it keeps its shape (ADR-0208, ADR-0234)."""
 
     content: str
     sources: list[dict[str, Any]] = []
@@ -65,7 +94,8 @@ class ToolOutput(BaseModel):
 
     def with_field_texts(self, texts: list[str]) -> "ToolOutput":
         root = copy.deepcopy({"sources": self.sources, "data": self.data})
-        for path, text in zip(self.text_fields(), texts, strict=True):
+        # Deepest first: a key is renamed after what it holds was set, so every path still holds.
+        for path, text in reversed(list(zip(self.text_fields(), texts, strict=True))):
             _set(root, path, text)
         return self.model_copy(update={"sources": root["sources"], "data": root["data"]})
 
@@ -104,11 +134,13 @@ class ToolScope:
 
 @dataclass(frozen=True)
 class ToolContext:
-    """What a handler receives beside its arguments: the scope and the document backend the
-    calling capability's configuration names (C3, C6, I1). No module global reaches a handler."""
+    """What a handler receives beside its arguments: the scope, and for a capability whose
+    manifest declares `documents.collections`, a document facade bound to that scope (search,
+    fetch, status; app/rag/access.py, ADR-0231). No backend, transport or connection reaches a
+    handler, and no module global does."""
 
     scope: ToolScope
-    documents: Any = None
+    documents: Any = None  # app.rag.access.DocumentFacade, or None
 
 
 class Label(BaseModel):

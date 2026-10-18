@@ -1,28 +1,43 @@
 """The reference RAG MCP server for the contract suite (phase 05, D2): `mcp_ref.rag` run in the
-test's event loop with uvicorn on the loopback interface, over the test database (schema
-`rag_ref`, as the app role here; its own role in compose), MinIO and the mock LiteLLM. The
-platform reaches it through its MCP client with the shipped config/mcp.yaml entry `rag`, so the
-pinned schemas are checked too, and MCPDocumentBackend is the backend under test."""
+test's event loop with uvicorn on the loopback interface, as its own role `rag_ref` on its own
+database `rag_ref_test` (schema `rag_ref`; infra/postgres/roles, ADR-0242), so `make test`
+exercises the role separation compose runs it with, over MinIO and the mock LiteLLM. The platform
+reaches it through `broker.transport` with the shipped config/mcp.yaml entry `rag`, so the pinned
+schemas and the transport class are checked too, and MCPDocumentBackend is the backend under
+test."""
 
 import asyncio
+import os
 
 import pytest
 import uvicorn
 
+from app.guardrails.engine import GuardEngine
 from app.mcp.client import MCPClient
 from app.mcp.config import load_mcp_config, resolve
 from app.rag.mcp import MCPDocumentBackend
+from app.tools.broker import ToolBroker
+from app.tools.registry import ToolRegistry
 from tests.fixtures.mcp_server import free_port
 
 TOKEN = "test-rag-ref-token"
 
 
+def rag_ref_database_url() -> str:
+    """The rag_ref role's test database; `make test-agent` provisions both (ADR-0242)."""
+    url = os.environ.get("RAG_REF_TEST_DATABASE_URL")
+    if not url:
+        pytest.fail("RAG_REF_TEST_DATABASE_URL is not set; make test-agent sets it (infra/postgres/roles)")
+    return url
+
+
 @pytest.fixture(scope="session")
-async def rag_ref_backend(settings, database_url, litellm):
+async def rag_ref_client(settings, litellm):
+    """The MCP client connected to the reference RAG server, as compose runs it: its own role."""
     from mcp_ref.rag.server import build_app, build_pipeline
 
     port = free_port()
-    pipeline = build_pipeline(settings, database_url)
+    pipeline = build_pipeline(settings, rag_ref_database_url())
     app = build_app(pipeline, token=TOKEN, host="127.0.0.1", port=port)
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on")
@@ -44,7 +59,18 @@ async def rag_ref_backend(settings, database_url, litellm):
     client.start()
     assert await client.wait_connected(20), client.health()
     assert client.servers["rag"].disabled == {}, client.health()  # the shipped pins match the server
-    yield MCPDocumentBackend(client, "rag")
+    yield client
     await client.stop()
     server.should_exit = True
     await asyncio.wait_for(task, 10)
+
+
+@pytest.fixture(scope="session")
+def rag_ref_broker(rag_ref_client) -> ToolBroker:
+    """A broker holding only that client: the backend's one path to the server (ADR-0230)."""
+    return ToolBroker(ToolRegistry(), GuardEngine(), mcp=rag_ref_client)
+
+
+@pytest.fixture(scope="session")
+def rag_ref_backend(rag_ref_broker) -> MCPDocumentBackend:
+    return MCPDocumentBackend(rag_ref_broker.transport, "rag")

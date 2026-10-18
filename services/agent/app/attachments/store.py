@@ -148,6 +148,43 @@ class AttachmentStore:
             row = await cursor.fetchone()
         return _record(row) if row else None
 
+    async def remember_status(
+        self,
+        owner: Owner,
+        attachment_id: str,
+        *,
+        status: AttachmentStatus,
+        reason: FailureReason | None,
+        pages: int | None,
+        warnings: list[dict[str, Any]],
+    ) -> None:
+        """Keeps the status another backend last reported on the owner's record, so a read that
+        cannot reach that backend shows it (ADR-0233). The internal backend's records are its
+        status already and are never written here."""
+        async with self._db.connection() as conn:
+            await conn.execute(
+                "UPDATE agent.attachments SET status = %s, reason = %s, pages = %s, warnings = %s, "
+                "indexed_at = CASE WHEN %s = 'indexed' THEN coalesce(indexed_at, now()) ELSE indexed_at END, "
+                "updated_at = now() "
+                "WHERE id = %s AND tenant_id = %s AND user_id = %s AND backend <> 'internal' "
+                "AND (status, coalesce(reason, ''), coalesce(pages, -1), warnings) "
+                "IS DISTINCT FROM (%s, coalesce(%s, ''), coalesce(%s, -1), %s)",
+                (
+                    status,
+                    reason,
+                    pages,
+                    Jsonb(warnings),
+                    status,
+                    attachment_id,
+                    owner.tenant_id,
+                    owner.user_id,
+                    status,
+                    reason,
+                    pages,
+                    Jsonb(warnings),
+                ),
+            )
+
     # ------------------------------------------------------------------ ingest service and sweeper only
 
     async def by_id(self, attachment_id: str) -> AttachmentRecord | None:

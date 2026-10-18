@@ -45,9 +45,8 @@ async def test_a_call_naming_another_owner_never_runs_and_a_conversation_id_alon
         caller="docs",
         principal=intruder,
         conversation_id=conversation,
-        documents=services.documents,
     )
-    assert named.status == "error" and "invalid arguments" in named.error
+    assert (named.status, named.error) == ("error", "invalid_arguments")
 
     # The victim's conversation id with the intruder's own principal: the scope is the intruder's.
     guessed = await services.broker.execute(
@@ -56,7 +55,6 @@ async def test_a_call_naming_another_owner_never_runs_and_a_conversation_id_alon
         caller="docs",
         principal=intruder,
         conversation_id=conversation,
-        documents=services.documents,
     )
     assert (guessed.status, guessed.content, guessed.sources) == ("ok", "", [])
 
@@ -66,7 +64,6 @@ async def test_a_call_naming_another_owner_never_runs_and_a_conversation_id_alon
         caller="docs",
         principal=victim,
         conversation_id=conversation,
-        documents=services.documents,
     )
     assert owned.status == "ok" and [s["attachment_id"] for s in owned.sources] == [document]
 

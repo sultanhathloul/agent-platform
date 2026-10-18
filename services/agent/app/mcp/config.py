@@ -3,9 +3,13 @@ ADR-0198, ADR-0204). Validated at startup; a file that breaks a rule stops the a
 rule it broke.
 
 - Transport is Streamable HTTP only (I2): `stdio` is refused, the agent spawns no process.
-- Read-class tools only (D6): `risk: write` is refused until approvals exist (phase 11), and no
-  delete tool is ever allowed: a tool whose name or remote name holds delete, remove, drop or
-  purge is refused.
+- Read-class tools only (D6): a model-callable tool (`class: tool`, the default) with `risk:
+  write` is refused until approvals exist (phase 11), and no delete tool is ever allowed: a tool
+  whose name or remote name holds delete, remove, drop or purge is refused.
+- Transport operations (`class: transport`, ADR-0230) are a backend adapter's calls to its
+  server: never broker tools, never declared by a capability, callable only through
+  `broker.transport`. One may write on its own server (`register` starts indexing there) and is
+  marked so; it still never deletes.
 - Injected fields (I6) are filled by the broker from the principal and the scope; their sources
   are a closed list.
 - The URL and any token come from the environment (`url_env`, `bearer_env`): this file holds no
@@ -47,9 +51,17 @@ class BearerAuth(_Strict):
     bearer_env: str = Field(pattern=_ENV, description="The environment variable holding the token.")
 
 
+OperationClass = Literal["tool", "transport"]
+
+
 class ToolEntry(_Strict):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
     name: str = Field(pattern=_SLUG, description="The tool's name in the platform: {server}.{name}.")
     remote_name: str = Field(pattern=_REMOTE, description="The tool's name on the server.")
+    # `tool`: a broker tool a capability may declare (D6: read only). `transport`: an operation a
+    # backend adapter calls through broker.transport only, never a broker tool (ADR-0230).
+    class_: OperationClass = Field(default="tool", alias="class")
     risk: Literal["read", "write"]
     label: Label
     input_schema_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -57,10 +69,10 @@ class ToolEntry(_Strict):
 
     @model_validator(mode="after")
     def _read_only_and_never_deleting(self) -> "ToolEntry":
-        if self.risk == "write":
+        if self.risk == "write" and self.class_ == "tool":
             raise ValueError(
                 f"tool {self.name!r} is risk: write; write-class MCP tools are refused until approvals "
-                "exist (D6, ADR-0200)"
+                "exist (D6, ADR-0230)"
             )
         if _DELETING.search(self.name) or _DELETING.search(self.remote_name):
             raise ValueError(f"tool {self.name!r} deletes; no delete tool is ever allowed (D6, ADR-0166)")
@@ -101,6 +113,9 @@ class ServerEntry(_Strict):
 
     def tool(self, name: str) -> ToolEntry:
         return next(t for t in self.tools if t.name == name)
+
+    def tools_of(self, operation_class: OperationClass) -> list[ToolEntry]:
+        return [t for t in self.tools if t.class_ == operation_class]
 
 
 class MCPConfig(_Strict):

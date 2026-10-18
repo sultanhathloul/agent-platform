@@ -23,7 +23,8 @@ import contextvars
 import copy
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.runnables.config import var_child_runnable_config
@@ -207,31 +208,37 @@ def _event_writer(runtime: Runtime[TurnContext], cap: LoadedCapability):
     return stream_writer
 
 
+@dataclass(frozen=True)
 class _Broker:
-    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState, slug: str):
-        self._ctx, self._runtime, self._state, self._slug = ctx, runtime, state, slug
+    """The broker as a capability sees it: one function, bound to this turn. It holds no turn
+    context, service, backend or connection as an attribute (ADR-0231)."""
 
-    async def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
+    execute: Callable[[str, dict[str, Any]], Awaitable[ToolResult]]
+
+
+def _broker_for(ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState, slug: str) -> _Broker:
+    def on_guard(outcome: GuardOutcome) -> None:
+        ctx.report_guard(outcome.events)
+        if outcome.unavailable and ctx.guard_unavailable is None:
+            ctx.guard_unavailable = outcome.unavailable
+
+    async def execute(name: str, args: dict[str, Any]) -> ToolResult:
         # The scope comes from the verified principal and this turn, never from the capability or
-        # a model (S1, I1); the backend is the one the capability's configuration names (C6).
-        return await self._ctx.services.broker.execute(
+        # a model (S1, I1); the broker hands the tool a scope-bound document facade (ADR-0231).
+        return await ctx.services.broker.execute(
             name,
             args,
-            caller=self._slug,
-            principal=self._ctx.principal,
-            conversation_id=self._state["conversation_id"],
-            selected_kbs=tuple(self._state.get("selected_kbs") or ()),
-            documents=self._ctx.services.backend_for(self._slug),
-            emit=lambda type_, data: emit(self._runtime, type_, data),
-            context=guard_context(self._state, self._ctx, tools=()),
-            on_guard=self._on_guard,
-            on_audit=self._ctx.tool_audit.append,
+            caller=slug,
+            principal=ctx.principal,
+            conversation_id=state["conversation_id"],
+            selected_kbs=tuple(state.get("selected_kbs") or ()),
+            emit=lambda type_, data: emit(runtime, type_, data),
+            context=guard_context(state, ctx, tools=()),
+            on_guard=on_guard,
+            on_audit=ctx.tool_audit.append,
         )
 
-    def _on_guard(self, outcome: GuardOutcome) -> None:
-        self._ctx.report_guard(outcome.events)
-        if outcome.unavailable and self._ctx.guard_unavailable is None:
-            self._ctx.guard_unavailable = outcome.unavailable
+    return _Broker(execute=execute)
 
 
 def _output(cap: LoadedCapability, payload: str) -> CapabilityOutput:
@@ -363,9 +370,8 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 call_model=_model_caller(cap, ctx, request, runtime),
-                broker=_Broker(ctx, runtime, state, slug),
+                broker=_broker_for(ctx, runtime, state, slug),
                 stream_writer=_event_writer(runtime, cap),
-                documents=dict(services.backends),
                 context=_context_reader(cap, request, ctx),
                 config=copy.deepcopy(cap.config),
             )

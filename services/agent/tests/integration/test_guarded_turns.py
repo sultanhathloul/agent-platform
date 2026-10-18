@@ -337,7 +337,14 @@ async def test_a_fail_closed_tool_policy_ends_the_turn_with_guard_unavailable(pr
     broken = dataclasses.replace(
         probe_services,
         guard=engine,
-        broker=ToolBroker(probe_services.tools, engine, probe_services.broker.declared),
+        broker=ToolBroker(
+            probe_services.tools,
+            engine,
+            probe_services.broker.declared,
+            probe_services.broker.collections,
+            documents=probe_services.broker.documents,
+            mcp=probe_services.broker.mcp,
+        ),
     )
     # The seeded DATA policies use presidio too; this turn never gets that far.
     events, _ = await turn(broken, probe_principal(name), "مسبار")

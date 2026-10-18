@@ -6,11 +6,15 @@ capability imports this module (ADR-0197).
   input schema is hashed and compared with `input_schema_sha256`. A mismatch or a missing tool
   disables that tool only (fail closed, logged, in /v1health); a tool the server lists but the
   allowlist does not name is never known to the platform (D4).
-- Resilience (I8): a semaphore per server (`max_concurrency`), a timeout per call, and a circuit
-  breaker (5 consecutive failures open it for 30 s; then one trial call). A call that cannot be made
-  fails at once with `tool_unavailable`, one that takes too long with `tool_timeout`; neither
-  touches any other server or turn (G7). The connection is kept in a task of its own, which
-  reconnects with backoff, so a server that is down never stops the agent from starting.
+- Resilience (I8, ADR-0237): a semaphore per server (`max_concurrency`), a deadline per call and
+  a circuit breaker (5 consecutive failures open it for 30 s; then one trial call). Waiting for
+  the semaphore past `timeout_s` fails `tool_busy`, which says nothing about the server and leaves
+  the breaker as it was. A call that cannot be made fails at once with `tool_unavailable`; one
+  that takes longer than `timeout_s` from send to its last byte is cut by the transport and fails
+  `tool_timeout`. The trial call is resolved in a `finally`: a success closes the breaker, and any
+  other end, a cancellation included, reopens it. Nothing here touches any other server or turn
+  (G7). The connection is kept in a task of its own, which reconnects with backoff, so a server
+  that is down never stops the agent from starting.
 - Sessions carry no per-user state (I9): every call carries what it needs; an expired session is
   re-initialised and the call tried once more.
 - Results (I7): the structured content when present, else the text parts; images, audio and
@@ -49,9 +53,13 @@ log = logging.getLogger(__name__)
 UNAVAILABLE = "tool_unavailable"
 TIMEOUT = "tool_timeout"
 TOOL_ERROR = "tool_error"
+BUSY = "tool_busy"
 BREAKER_FAILURES = 5
 BREAKER_OPEN_S = 30.0
 _BACKOFF_MAX_S = 30.0
+# Past the transport's own deadline, so a call ends by the transport's tool_timeout first; this only
+# bounds what the transport cannot see (a re-initialisation, the SDK's own queue).
+_BACKSTOP_S = 2.0
 # What the SDK reports when the server no longer knows the session (HTTP 404 on a request).
 _SESSION_GONE = "Session terminated"
 
@@ -87,22 +95,40 @@ class Breaker:
             return "closed"
         return "half_open" if self._clock() - self.opened_at >= BREAKER_OPEN_S else "open"
 
-    def allow(self) -> bool:
+    def admit(self) -> str | None:
+        """`call` in the closed state, `trial` for the one call let through when half open, None
+        when the call is refused. A trial must be resolved by `success` or `failure`."""
         state = self.state
         if state == "closed":
-            return True
+            return "call"
         if state == "half_open" and not self._trial:
             self._trial = True
-            return True
-        return False
+            return "trial"
+        return None
+
+    def allow(self) -> bool:
+        return self.admit() is not None
 
     def success(self) -> None:
         self.failures, self.opened_at, self._trial = 0, None, False
+
+    @property
+    def trial_in_progress(self) -> bool:
+        return self._trial
 
     def failure(self) -> None:
         self.failures += 1
         if self._trial or self.failures >= BREAKER_FAILURES:
             self.opened_at, self._trial = self._clock(), False
+
+
+class _Failed(Exception):
+    """A call that failed, by its content-free code, and whether that says the server failed."""
+
+    def __init__(self, code: str, server_failed: bool):
+        super().__init__(code)
+        self.code = code
+        self.server_failed = server_failed
 
 
 class ServerConnection:
@@ -120,6 +146,7 @@ class ServerConnection:
         self._ended: asyncio.Event | None = None
         self._task: asyncio.Task | None = None
         self.connected = asyncio.Event()
+        self.sessions = 0  # sessions initialised so far: one per (re)connection (I9)
         # Allowlisted tools whose pinned schema matched, by platform name: their input schema.
         self.verified: dict[str, dict[str, Any]] = {}
         # Allowlisted tools that cannot be called, by platform name: why (content-free). A server
@@ -162,7 +189,7 @@ class ServerConnection:
                 await asyncio.sleep(delay * (0.8 + 0.4 * random.random()))
 
     async def _connect_once(self) -> None:
-        transport = CappedTransport(self.entry.max_result_bytes)
+        transport = CappedTransport(self.entry.max_result_bytes, self.entry.timeout_s)
         timeout = self.entry.timeout_s
         headers = {"Authorization": f"Bearer {self.resolved.token}"} if self.resolved.token else {}
         ended = asyncio.Event()
@@ -186,6 +213,7 @@ class ServerConnection:
             ) as session,
         ):
             await asyncio.wait_for(session.initialize(), timeout)
+            self.sessions += 1
             listed = await asyncio.wait_for(_list_tools(session), timeout)
             self._pin(listed)
             self._session, self._transport, self._ended = session, transport, ended
@@ -216,8 +244,14 @@ class ServerConnection:
             log.warning("mcp server %s: tool %s disabled (%s)", self.entry.id, name, reason)
         self.verified, self.disabled = verified, disabled
 
-    def _reset(self) -> None:
-        """Ends the current session; the connection task re-initialises it."""
+    def _reset(self, session: ClientSession | None) -> None:
+        """Ends `session` when it is still the current one; the connection task re-initialises it.
+        The connected flag is cleared here, at once, so a call waiting for the new session never
+        sees the old one as connected; a session already replaced is left alone."""
+        if session is None or self._session is not session:
+            return
+        self._session = None
+        self.connected.clear()
         if self._ended is not None:
             self._ended.set()
 
@@ -259,56 +293,80 @@ class ServerConnection:
     ) -> CallResult:
         if tool.name not in self.verified or self._session is None:
             raise ToolFailure(UNAVAILABLE)
-        if not self.breaker.allow():
+        if self.breaker.state == "open":
             raise ToolFailure(UNAVAILABLE)
         if self._semaphore.locked():
             observed["queued"] = True
         try:
             async with asyncio.timeout(self.entry.timeout_s):
-                async with self._semaphore:
-                    try:
-                        result = await self._send(tool, arguments, observed)
-                    except McpError as exc:
-                        if _SESSION_GONE not in str(exc.error.message):
-                            raise
-                        # I9: an expired session is re-initialised and the call tried once more.
-                        self._reset()
-                        await asyncio.wait_for(self.connected.wait(), self.entry.timeout_s)
-                        result = await self._send(tool, arguments, observed)
+                await self._semaphore.acquire()
         except TimeoutError:
-            self.breaker.failure()
-            raise ToolFailure(TIMEOUT) from None
+            raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
+        try:
+            admitted = self.breaker.admit()
+            if admitted is None:
+                raise ToolFailure(UNAVAILABLE)
+            trial = admitted == "trial"
+            resolved = False
+            try:
+                result = await self._attempt(tool, arguments, observed)
+                resolved = True
+                self.breaker.success()
+                return result
+            except _Failed as failed:
+                resolved = True
+                if failed.server_failed or trial:
+                    self.breaker.failure()
+                else:
+                    self.breaker.success()  # the server is up and answered this call
+                raise ToolFailure(failed.code) from None
+            finally:
+                if trial and not resolved:
+                    self.breaker.failure()  # a cancelled trial reopens the breaker (ADR-0237)
+        finally:
+            self._semaphore.release()
+
+    async def _attempt(
+        self, tool: ToolEntry, arguments: dict[str, Any], observed: dict[str, str | int | bool]
+    ) -> CallResult:
+        """One call, re-sent once on a new session when the server no longer knows this one (I9).
+        Raises _Failed with a content-free code."""
+        try:
+            async with asyncio.timeout(self.entry.timeout_s + _BACKSTOP_S):
+                session = self._session
+                try:
+                    return await self._send(tool, arguments, observed)
+                except McpError as exc:
+                    if _SESSION_GONE not in str(exc.error.message):
+                        raise
+                    # I9: an expired session is re-initialised once and the call sent on it.
+                    self._reset(session)
+                    await self.connected.wait()
+                    return await self._send(tool, arguments, observed)
+        except TimeoutError:
+            raise _Failed(TIMEOUT, True) from None
         except McpError as exc:
             message = str(exc.error.message)
             if message == TOO_LARGE:
-                self.breaker.success()  # the server answered; the answer was too big
-                raise ToolFailure(TOO_LARGE) from None
+                raise _Failed(TOO_LARGE, False) from None  # the server answered; the answer was too big
             if message == TRANSPORT_TIMEOUT:
-                self.breaker.failure()
-                raise ToolFailure(TIMEOUT) from None
+                raise _Failed(TIMEOUT, True) from None
             if message == TRANSPORT_FAILED:
                 # The server is not reachable: the session is likely gone with it. Reconnecting
                 # (with backoff) is the connection task's; this call fails at once.
-                self.breaker.failure()
-                self._reset()
-                raise ToolFailure(UNAVAILABLE) from None
+                self._reset(self._session)
+                raise _Failed(UNAVAILABLE, True) from None
             if exc.error.code == httpx.codes.REQUEST_TIMEOUT:
-                self.breaker.failure()
-                raise ToolFailure(TIMEOUT) from None
+                raise _Failed(TIMEOUT, True) from None
             if exc.error.code in (types.INVALID_PARAMS, types.METHOD_NOT_FOUND, types.INTERNAL_ERROR):
-                self.breaker.success()  # the server is up and refused or failed this call
-                raise ToolFailure(TOOL_ERROR) from None
-            self.breaker.failure()
-            raise ToolFailure(UNAVAILABLE) from None
-        except ToolFailure:
-            raise
+                raise _Failed(TOOL_ERROR, False) from None  # the server is up and refused or failed it
+            raise _Failed(UNAVAILABLE, True) from None
+        except ToolFailure as failure:
+            raise _Failed(failure.code, True) from None
         except Exception as exc:  # transport, closed stream, protocol: the server is not reachable
             log.warning("mcp server %s: call failed (%s)", self.entry.id, type(exc).__name__)
-            self.breaker.failure()
-            self._reset()
-            raise ToolFailure(UNAVAILABLE) from None
-        self.breaker.success()
-        return result
+            self._reset(self._session)
+            raise _Failed(UNAVAILABLE, True) from None
 
     async def _send(
         self, tool: ToolEntry, arguments: dict[str, Any], observed: dict[str, str | int | bool]

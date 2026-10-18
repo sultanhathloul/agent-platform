@@ -1,8 +1,9 @@
 """Builds the document side of the platform from config/docs.yaml (C6, owner decision C3): every
 DocumentBackend by name (I1), the internal pipeline's ingestion and worker, and the backend uploads
-are registered with: `backend` of config/docs.yaml, overridden by `DOCS_BACKEND` in .env (I11).
-The core calls this and holds only generic DocumentBackends; no docs-named configuration or type
-reaches it."""
+are registered with, which the caller names (the backend the capabilities reading session
+collections are configured with, `<SLUG>_BACKEND` overriding it: app/capabilities/registry.py is
+the only override, ADR-0235). The core calls this and holds only generic DocumentBackends; no
+docs-named setting reaches it."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -47,13 +48,16 @@ def build_documents(
     counter: TokenCounter,
     attachments: AttachmentStore,
     objects: ObjectStore,
-    mcp=None,
+    uploads_backend: str = "internal",
+    broker=None,
     extra_backends: Mapping[str, DocumentBackend] | None = None,
 ) -> Documents:
-    """`mcp`: the platform's MCP client; when config/mcp.yaml lists the server `mcp_server` names,
-    the `mcp` backend reaches it (I11). `extra_backends`: more backends by name (tests)."""
+    """`uploads_backend`: the backend new uploads are registered with. `broker`: the tool broker;
+    when config/mcp.yaml lists the server `mcp_server` names with transport operations, the `mcp`
+    backend reaches it through `broker.transport` (I11, ADR-0230). `extra_backends`: more
+    backends by name (tests)."""
     config = load_docs_config(settings.config_dir)
-    selected = settings.docs_backend or config.backend
+    selected = uploads_backend
     # The reranker is configured per environment, from .env, not config/docs.yaml (finding 3): the
     # development default is off, and a GPU deployment turns it on with 16 candidates on 1070 chars.
     rerank = Rerank(
@@ -81,8 +85,12 @@ def build_documents(
     )
     worker = IngestWorker(pipeline, attachments, config, queue) if redis is not None else None
     backends: dict[str, DocumentBackend] = {"internal": backend}
-    if mcp is not None and config.mcp_server is not None and config.mcp_server in mcp.servers:
-        backends["mcp"] = MCPDocumentBackend(mcp, config.mcp_server)
+    if (
+        broker is not None
+        and config.mcp_server is not None
+        and config.mcp_server in broker.transport_servers()
+    ):
+        backends["mcp"] = MCPDocumentBackend(broker.transport, config.mcp_server)
     backends |= dict(extra_backends or {})
     if selected not in backends:
         raise ValueError(f"unknown document backend {selected!r}; known: {sorted(backends)}")
