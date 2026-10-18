@@ -147,6 +147,9 @@ From phase 04 (added from PROGRESS and the ADRs, 2026-10-14):
 - **Development `.env` files created before ADR-0188** have no `UPLOADS_PER_MINUTE` and run at the strict 20 per minute, so `make eval` waits out 429s; copy `UPLOADS_PER_MINUTE=60` from `.env.example`. A note for the runbook. (Source: PROGRESS phase 04, narrow fix of 2026-10-14; ADR-0191.)
 - **Docs latency not re-measured with rerank off**: the E3 measurements (time to indexed p50 2.42 s; docs answer TTFT p50 7.72 s, p95 8.13 s) were taken at the build, with the reranker on (16 candidates, first 400 tokens). The fix sessions measured `rag.retrieve` only (p50 0.13 s with rerank off). Re-run `scripts/measure_docs.py` for the production configuration. (Source: PROGRESS phase 04, E3 and the Q1 table; ADR-0184.)
 
+From phase 05 (owner decision, fix session on PR #10, 2026-10-18; not implemented in phase 05):
+- **Scoped LiteLLM keys per internal service**: `mcp-rag-ref` receives `LITELLM_MASTER_KEY`, following the existing precedent (the agent and the ingest service hold it too). Give each internal service a scoped LiteLLM key limited to the aliases it needs (the RAG server: `embed`, and `rerank` when it is on).
+
 ## Management decisions pending (also in the phase summaries)
 - Production model hosting on the entity's servers, same families as development (ADR-0065).
 - Which topic policies to enable at go-live, and at which checkpoints (recommendation: INPUT only first).

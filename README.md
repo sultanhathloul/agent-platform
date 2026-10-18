@@ -565,6 +565,8 @@ state_namespace: "cap.email_proofreader"    # isolated slice of AgentState
 
 > **Amendment 2026-10-15 (phase 05, ADR-0202, ADR-0213).** Two manifest sections. `documents.collections` (`session`, `kb`) names the kinds of document collection the capability's tools may read; the broker builds the turn's collections from the principal (the conversation's session collection, and each knowledge base the principal may read and the turn selected) and keeps only those kinds; omitted, no document. `declarative: {extract: {role, prompt, schema, on_missing: ask}, steps: [{id, tool, args}], findings: {prompt}}` makes a capability of a manifest, prompts and evals with no `graph.py`: a core runner fills the extract schema with one structured-output call, runs the steps in order through the broker with arguments mapped from `$.extract.<field>`, `$.steps.<id>.result.<path>` or literals, and renders the findings with the capability's prompt. MCP tools are declared in `tools` as `{server}.{tool}` (ADR-0205). `RuntimeContext.documents` holds the document backends by name; config/<slug>.yaml `backend` names the one a capability's tools use.
 
+> **Amendment 2026-10-18 (phase 05 fix session, ADR-0230, ADR-0231, ADR-0238, ADR-0239).** `RuntimeContext` carries no document backend: a tool of a capability declaring `documents.collections` receives a scope-bound facade (search, fetch, status) from the broker, which resolves the backend from `config/<slug>.yaml`. A declarative step may declare `result_list`, `empty_when` and `ambiguous_when`; the core appends every step result inside untrusted delimiters (`context.tool_result`). An MCP document backend reaches its server only through `broker.transport`, whose operations are `class: transport` in config/mcp.yaml and never declared by a capability.
+
 ### 18.3 Runtime contract
 
 ```python
@@ -760,6 +762,8 @@ Rules:
 | | `MCP_PROFILE`, `MCP_ALLOW_EXTERNAL` | The profile this deployment runs (`airgap` in the airgap overlay) and the external-server gate, off (D5, I16) |
 | | `DOCS_BACKEND` (generally `<SLUG>_BACKEND`) | Overrides a capability's `backend` per environment (ADR-0224) |
 | | `RAG_REF_DB_PASSWORD`, `MINIO_RAGREF_ACCESS_KEY`, `MINIO_RAGREF_SECRET_KEY` | The RAG reference server's own database role and MinIO user (ADR-0225) |
+
+> **Amendment 2026-10-18 (phase 05 fix session).** Keys added: config/mcp.yaml `servers[].tools[].class` (`tool` | `transport`, ADR-0230); config/docs.yaml `status_timeout_s` (2: one bound on reading a conversation's file statuses, ADR-0233); a capability's `evals/metrics.yaml` (its eval metrics with generic scorers, ADR-0240); `.env` `MCP_REF_TEST_DELAY_S` (the reference routing server's test-only delay, 0). `mcp-routing-ref` is on `mcp-routing`, a network it shares with the agent only, and CONNECT is kept from PUBLIC on the business, keycloak, langfuse and agent_test databases (ADR-0242).
 
 > **Amendment 2026-10-15 (phase 05, ADR-0211).** Compose gains `mcp-routing-ref` and `mcp-rag-ref`, the reference MCP servers (infra/mcp-ref), on `mcp`, an internal network with no route out, never published; `postgres-roles`, a one-shot job creating the RAG server's database role and schema; and `make mcp-hashes`. The agent does not wait for any MCP server: one that is down is reported in `/v1/health`, and the capabilities that need it say so in their answers.
 
