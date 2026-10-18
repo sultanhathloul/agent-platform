@@ -3,13 +3,17 @@ collections from the verified principal and the turn, so a knowledge base is rea
 the principal holds `kb:{slug}:read`, the turn selected it, and the calling capability's manifest
 declares the `kb` kind; another tenant never reaches it. The answer step fetches a source's text
 only from a collection the capability that found it may read this turn, whatever the source
-names. Then G9: a conversation persisted before this change reopens with its citations, and a
-docs turn now persists citations of the same shape, with no backend or collection in them."""
+names. Then G9: a conversation persisted by the phase 04 code (a committed checkpoint fixture)
+reopens unchanged, and a docs turn now persists citations of the same shape, with no backend or
+collection in them."""
 
 import dataclasses
+import json
 import uuid
+from pathlib import Path
 
 import pytest
+from psycopg.types.json import Jsonb
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
@@ -19,7 +23,7 @@ from app.identity import Principal
 from app.rag.backend import DocumentScope
 from app.tools.broker import ToolBroker
 from tests.fixtures.backends import Harness
-from tests.fixtures.http import post_turn
+from tests.fixtures.replace import replacing
 
 pytestmark = pytest.mark.integration
 
@@ -41,6 +45,7 @@ def _broker(services) -> ToolBroker:
         services.guard,
         {"docs": ["docs_search"], "kbreader": ["docs_search"]},
         {"docs": ["session"], "kbreader": ["session", "kb"]},
+        documents=services.broker.documents,
     )
 
 
@@ -57,7 +62,6 @@ async def _search(broker, harness, caller, principal, selected):
         principal=principal,
         conversation_id=str(uuid.uuid4()),
         selected_kbs=selected,
-        documents=harness.backend,
     )
 
 
@@ -122,47 +126,75 @@ async def test_the_answer_step_fetches_only_from_a_collection_the_capability_may
         assert await load_evidence(state, ctx) == [] and ctx.evidence == {}
 
 
-async def test_a_conversation_persisted_before_collections_reopens_with_its_citations(
-    client, services, litellm
-):
-    """G9: messages and citations in the phase 04 shape (ADR-0193) come back unchanged."""
-    user = f"u-g9-{uuid.uuid4().hex[:8]}"
-    conversation = str(uuid.uuid4())
-    principal = {"user_id": user, "tenant_id": "default", "permissions": ["cap:general"]}
-    await post_turn(client, conversation_id=conversation, principal=principal, message="سؤال أول")
-    old_citation = {
-        "id": "c-old",
-        "title": "لائحة الإجازات.pdf",
-        "source": "doc",
-        "url": None,
-        "kb": None,
-        "locator": None,
-        "document_id": "d-old",
-        "pages": [2, 3],
-    }
-    await services.graph.aupdate_state(
-        {"configurable": {"thread_id": conversation}},
-        {
-            "messages": [
-                {"role": "user", "content": "كم مدة إجازة الأمومة؟", "attachment_ids": ["d-old"]},
-                {
-                    "role": "assistant",
-                    "content": "عشرة أسابيع.",
-                    "turn_id": "t" * 32,
-                    "citations": [old_citation],
-                },
-            ]
-        },
-        as_node="persist_state",
-    )
+PHASE_04 = Path(__file__).resolve().parents[1] / "fixtures" / "checkpoints" / "phase04_docs_conversation.json"
+
+
+async def _load_checkpoints(db, fixture: dict) -> None:
+    """The fixture's rows into the checkpoint tables, as the phase 04 code wrote them (G9)."""
+    thread = fixture["conversation_id"]
+    columns = fixture["schema"]["columns"]
+    async with db.connection() as conn:
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            await conn.execute(f"DELETE FROM agent.{table} WHERE thread_id = %s", (thread,))
+        for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
+            for row in fixture["tables"][table]:
+                names = list(row)
+                values = [
+                    Jsonb(row[n]) if columns[table][n] == "jsonb" and row[n] is not None
+                    else bytes.fromhex(row[n]) if columns[table][n] == "bytea" and row[n] is not None
+                    else row[n]
+                    for n in names
+                ]  # fmt: skip
+                await conn.execute(
+                    f"INSERT INTO agent.{table} ({', '.join(names)}) "
+                    f"VALUES ({', '.join(['%s'] * len(names))})",
+                    values,
+                )
+        for owner in fixture["conversation_owners"]:
+            await conn.execute(
+                "INSERT INTO agent.conversation_owners (conversation_id, user_id, tenant_id) "
+                "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (owner["conversation_id"], owner["user_id"], owner["tenant_id"]),
+            )
+
+
+async def test_a_conversation_persisted_by_phase_04_reopens_unchanged(client, services, litellm):
+    """G9 with a committed checkpoint fixture serialized by the phase 04 code (30302d2, the merge
+    of PR #4; tests/fixtures/checkpoints/generate_phase04.py), not written by this graph: the
+    history endpoint returns its questions and answers unchanged. Phase 04 kept a turn's citations
+    in the per-turn `citations` channel, not on the reply, so its replies carry none (ADR-0193:
+    citations are shown when they were recorded)."""
+    fixture = json.loads(PHASE_04.read_text(encoding="utf-8"))
+    assert fixture["generated_from"] == "30302d2"
+    await _load_checkpoints(services.db, fixture)
     response = await client.get(
-        f"/v1/conversations/{conversation}/messages",
-        headers={"X-User-Id": user, "X-Tenant-Id": "default", "X-Internal-Token": "test-internal-token"},
+        f"/v1/conversations/{fixture['conversation_id']}/messages",
+        headers={
+            "X-User-Id": fixture["user_id"],
+            "X-Tenant-Id": fixture["tenant_id"],
+            "X-Internal-Token": "test-internal-token",
+        },
     )
     assert response.status_code == 200, response.text
-    *_, question, reply = response.json()["messages"]
-    assert (question["role"], question["text"]) == ("user", "كم مدة إجازة الأمومة؟")
-    assert (reply["text"], reply["turn_id"], reply["citations"]) == ("عشرة أسابيع.", "t" * 32, [old_citation])
+    messages = response.json()["messages"]
+    expected = [
+        part
+        for turn in fixture["turns"]
+        for part in (("user", turn["question"], None), ("assistant", turn["answer"], turn["turn_id"]))
+    ]
+    assert [(m["role"], m["text"], m.get("turn_id")) for m in messages] == expected
+    assert all(m.get("citations", []) == [] for m in messages if m["role"] == "assistant")
+    # The phase 04 state still loads whole in this graph: the docs turn's citations were recorded
+    # in its own checkpoint, in the phase 04 shape, without backend or collection.
+    history = [
+        s
+        async for s in services.graph.aget_state_history(
+            {"configurable": {"thread_id": fixture["conversation_id"]}}
+        )
+    ]
+    recorded = [c for s in history for c in s.values.get("citations") or []]
+    assert recorded and {c["document_id"] for c in recorded} == {fixture["attachment_id"]}
+    assert not {"backend", "collection"} & {k for c in recorded for k in c}
 
 
 async def test_a_docs_turn_persists_citations_without_backend_or_collection(services, litellm):
@@ -185,12 +217,18 @@ async def test_a_docs_turn_persists_citations_without_backend_or_collection(serv
         attachment_ids=[document],
         locale="ar",
     )
-    events = [e async for e in TurnRunner(harness.services).stream(request, "req-g9")]
+    # An answer that quotes the file, so page attribution cites it (the mock's answer cites nothing).
+    answered, _ = replacing(
+        harness.services, {"reasoning": "تمنح الموظفة إجازة أمومة مدتها عشرة أسابيع براتب كامل."}
+    )
+    events = [e async for e in TurnRunner(answered).stream(request, "req-g9")]
     assert events[-1].type == "done"
-    state = await harness.services.graph.aget_state({"configurable": {"thread_id": conversation}})
+    state = await answered.graph.aget_state({"configurable": {"thread_id": conversation}})
     [reply] = [m for m in state.values["messages"] if getattr(m, "type", "") == "ai"]
     allowed = set(Citation.model_fields)
-    for citation in reply.additional_kwargs.get("citations") or []:
+    citations = reply.additional_kwargs.get("citations") or []
+    assert citations, "the docs turn's reply records at least one citation"
+    for citation in citations:
         assert set(citation) <= allowed and not {"backend", "collection"} & set(citation)
     for source in state.values["capability_outputs"][0]["sources"] or []:
         assert source["backend"] == "fake" and source["collection"] == f"sess_{conversation}"
