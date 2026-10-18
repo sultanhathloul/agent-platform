@@ -369,7 +369,7 @@ services:
       DOCS_BACKEND: ${DOCS_BACKEND:-}
     volumes:
       - ./config:/srv/config:ro
-    networks: [default, mcp]
+    networks: [default, mcp, mcp-routing]
     depends_on:
       postgres:
         condition: service_healthy
@@ -397,7 +397,11 @@ services:
       additional_contexts:
         agent: ./services/agent
     command: ["python", "-m", "mcp_ref.routing"]
-    networks: [mcp]
+    environment:
+      # The test-only switch (I10): off unless smoke's hung-server step sets it for one recreate.
+      MCP_REF_TEST_DELAY_S: ${MCP_REF_TEST_DELAY_S:-0}
+    # Least privilege (ADR-0242): a network it shares with the agent only, no postgres, minio or litellm.
+    networks: [mcp-routing]
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
@@ -438,10 +442,11 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
 
   # Database roles a new volume's init scripts cannot create on an existing one: the reference RAG
-  # server's role and schema (infra/postgres/roles). Idempotent, on every `make up`.
+  # server's role and schema, and CONNECT kept from PUBLIC (infra/postgres/roles, ADR-0242).
+  # Idempotent, on every `make up` and `make test-agent`.
   postgres-roles:
     image: pgvector/pgvector:0.8.6-pg16
-    entrypoint: ["bash", "/roles/rag-ref.sh"]
+    entrypoint: ["bash", "-c", "bash /roles/rag-ref.sh && bash /roles/connect.sh"]
     environment:
       PGHOST: postgres
       PGUSER: postgres
@@ -613,6 +618,8 @@ services:
       DOCS_DIR: /srv/docs
       # The test database from infra/postgres/init, as the app role; never the superuser (ADR-0070).
       AGENT_TEST_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/agent_test
+      # The reference RAG server under test runs as its own role on its own database (ADR-0242).
+      RAG_REF_TEST_DATABASE_URL: postgresql://rag_ref:${RAG_REF_DB_PASSWORD}@postgres:5432/rag_ref_test
       # Redis database 15 and a namespace of its own: tests never meet the stack's keys or channels.
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/15
       # Tests store uploads as the gateway does, and sweep as the ingest service does (S7).
@@ -660,6 +667,9 @@ networks:
     internal: true
   # The reference MCP servers and what they reach (phase 05, ADR-0211): no route out.
   mcp:
+    internal: true
+  # The reference routing server and its one client, the agent (ADR-0242): no route out.
+  mcp-routing:
     internal: true
 
 volumes:

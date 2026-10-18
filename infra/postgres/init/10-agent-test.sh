@@ -9,6 +9,9 @@ set -euo pipefail
 psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname postgres <<'SQL'
 SELECT 'CREATE DATABASE agent_test OWNER app'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'agent_test') \gexec
+-- Only its owner connects (ADR-0242); infra/postgres/roles/connect.sh keeps it so.
+REVOKE CONNECT ON DATABASE agent_test FROM PUBLIC;
+GRANT CONNECT ON DATABASE agent_test TO app;
 SQL
 psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname agent_test <<'SQL'
 CREATE EXTENSION IF NOT EXISTS vector;

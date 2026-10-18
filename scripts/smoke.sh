@@ -50,7 +50,8 @@ SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt ttft-buffered-output)
 # Phase 05 changes the stack for two steps; whatever happens, it is put back (EXIT trap).
 RESTORE_ROUTING="" RESTORE_BACKEND=""
 cleanup() {
-  [[ -n $RESTORE_ROUTING ]] && docker compose start mcp-routing-ref >/dev/null 2>&1 || true
+  [[ $RESTORE_ROUTING == 1 ]] && docker compose start mcp-routing-ref >/dev/null 2>&1 || true
+  [[ $RESTORE_ROUTING == hung ]] && docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null 2>&1 || true
   [[ -n $RESTORE_BACKEND ]] && docker compose up -d --no-deps --force-recreate --wait agent >/dev/null 2>&1 || true
   if [[ -n ${ADMIN:-} ]]; then
     for id in "${SMOKE_POLICY_IDS[@]}"; do
@@ -673,6 +674,13 @@ for service in mcp-routing-ref mcp-rag-ref; do
       [[ \$(docker network inspect -f '{{.Internal}}' \$n) == true ]] || exit 1
     done"
 done
+check "mcp-routing-ref shares its network with the agent only, no postgres, minio or litellm (ADR-0242)" bash -c '
+  id=$(docker compose ps -q mcp-routing-ref); [[ -n $id ]] || exit 1
+  for n in $(docker inspect -f "{{range \$k, \$_ := .NetworkSettings.Networks}}{{\$k}} {{end}}" $id); do
+    others=$(docker network inspect -f "{{range .Containers}}{{.Name}} {{end}}" $n | tr " " "\n" \
+      | grep -v -e "^$" -e mcp-routing-ref -e "[-_]agent[-_][0-9]*$" || true)
+    [[ -z $others ]] || exit 1
+  done'
 agent_health > "$TMP/health.json" || fail "the agent's health endpoint"
 check "the agent's health lists both servers, connected, with no disabled tool" jq -e \
   '[.mcp[] | select(.connected and (.disabled_tools | length == 0))] | map(.id) | sort == ["rag", "routing"]' "$TMP/health.json"
@@ -728,18 +736,38 @@ check "the turn ends with done and ran directions" jq -se 'last.type == "done" a
 check "the answer gives the fixture's distance, 6.7 km" has_number "$TMP/injection.jsonl" 6.7
 check "and nothing the injection asked for (صفر, مغلق)" jq -se 'last.data.answer | (contains("صفر") or contains("مغلق")) | not' "$TMP/injection.jsonl"
 
+# G7 (fix session 2026-10-18, item 15): a general turn's time, its median in this run, bounds another
+# user's turn while the routing server is down or hung; the failed call's code comes from the audit row.
+general_s() {  # $1 output file: a viewer's general turn, timed; prints whole seconds with a decimal
+  local started; started=$(python3 -c 'import time; print(time.monotonic())')
+  chat "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "ما عاصمة المملكة العربية السعودية؟" "$1"
+  python3 -c "import time; print(f'{time.monotonic() - $started:.2f}')"
+}
+tool_errors() {  # $1 events file: the error codes of the turn's tool calls, from its audit row
+  local request; request=$(jq -rse 'last.request_id' "$1")
+  sql "select coalesce(json_agg(c->>'error'), '[]') from gateway.audit_events, json_array_elements((detail->'tool_calls')::json) c where request_id = '$request' and action = 'chat.turn'"
+}
+GENERAL_TIMES=()
+for i in 1 2 3; do GENERAL_TIMES+=("$(general_s "$TMP/general-base-$i.jsonl")"); done
+GENERAL_MEDIAN=$(printf '%s\n' "${GENERAL_TIMES[@]}" | sort -n | sed -n 2p)
+GENERAL_BOUND=$(python3 -c "print(f'{$GENERAL_MEDIAN + 3:.2f}')")
+printf '        general turn: %s s (median of %s); bound while a server fails: %s s\n' \
+  "$GENERAL_MEDIAN" "${GENERAL_TIMES[*]}" "$GENERAL_BOUND"
+within() { python3 -c "import sys; sys.exit(0 if $1 <= $2 else 1)"; }
+
 step "phase 05: mcp-routing-ref stopped: the turn says so, another user's chat goes on; then it recovers (G7)"
 RESTORE_ROUTING=1
 docker compose stop mcp-routing-ref >/dev/null
 chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "كم المسافة من برج المملكة إلى بوليفارد رياض سيتي بالسيارة؟" "$TMP/routing-down.jsonl"
-check "the directions turn completes with done" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["directions"]' "$TMP/routing-down.jsonl"
 mkdir -p build/smoke && cp "$TMP/routing-down.jsonl" build/smoke/routing-down.jsonl   # kept for diagnosis
-check "its tool call ended in error, not a crash" jq -se '[.[] | select(.type == "tool_end")] | length > 0 and all(.data.status == "error")' "$TMP/routing-down.jsonl"
+check "the directions turn completes with done" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["directions"]' "$TMP/routing-down.jsonl"
+down_errors=$(tool_errors "$TMP/routing-down.jsonl")
+check "its tool call ended with the code tool_unavailable (audit row: $down_errors)" jq -en --argjson e "$down_errors" '$e | length > 0 and all(. == "tool_unavailable")'
 check "the answer says the service is unavailable, in Arabic" jq -se 'last.data.answer | test("غير متاح")' "$TMP/routing-down.jsonl"
 printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/routing-down.jsonl" | head -2 | tr '\n' ' ')"
-started=$SECONDS
-chat "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "ما عاصمة المملكة العربية السعودية؟" "$TMP/general-during.jsonl"
-check "another user's general turn completes normally ($((SECONDS - started)) s)" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["general"]' "$TMP/general-during.jsonl"
+during=$(general_s "$TMP/general-during.jsonl")
+check "another user's general turn completes in ${during} s, within ${GENERAL_BOUND} s" bash -c \
+  "jq -se 'last.type == \"done\" and last.data.state_digest.capabilities == [\"general\"]' '$TMP/general-during.jsonl' && python3 -c 'import sys; sys.exit(0 if $during <= $GENERAL_BOUND else 1)'"
 check "the agent stays healthy with a server down" bash -c "[[ \$(docker compose ps --format '{{.Health}}' agent) == healthy ]]"
 docker compose start mcp-routing-ref >/dev/null
 RESTORE_ROUTING=""
@@ -749,6 +777,26 @@ for _ in $(seq 1 45); do connected routing && { recovered=1; break; }; sleep 2; 
 [[ -n $recovered ]] && ok "the agent reconnected to mcp-routing-ref" || fail "the agent did not reconnect to mcp-routing-ref"
 chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "كم المسافة من برج المملكة إلى بوليفارد رياض سيتي بالسيارة؟" "$TMP/routing-back.jsonl"
 check "after the restart the route is answered again (12.7 km)" has_number "$TMP/routing-back.jsonl" 12.7
+
+step "phase 05: mcp-routing-ref hung (its test-only delay, 30 s past the 10 s deadline): tool_timeout, others on time (G7)"
+RESTORE_ROUTING=hung
+MCP_REF_TEST_DELAY_S=30 docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null
+chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "كم المسافة من برج المملكة إلى بوليفارد رياض سيتي بالسيارة؟" "$TMP/routing-hung.jsonl" &
+hung_pid=$!
+sleep 2
+during=$(general_s "$TMP/general-hung.jsonl")
+wait "$hung_pid"
+cp "$TMP/routing-hung.jsonl" build/smoke/routing-hung.jsonl
+check "the directions turn completes with done" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["directions"]' "$TMP/routing-hung.jsonl"
+hung_errors=$(tool_errors "$TMP/routing-hung.jsonl")
+check "its tool call ended with the code tool_timeout (audit row: $hung_errors)" jq -en --argjson e "$hung_errors" '$e | length > 0 and all(. == "tool_timeout")'
+check "another user's general turn, sent meanwhile, completes in ${during} s, within ${GENERAL_BOUND} s" bash -c \
+  "jq -se 'last.type == \"done\" and last.data.state_digest.capabilities == [\"general\"]' '$TMP/general-hung.jsonl' && python3 -c 'import sys; sys.exit(0 if $during <= $GENERAL_BOUND else 1)'"
+docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null
+RESTORE_ROUTING=""
+recovered=""
+for _ in $(seq 1 45); do connected routing && { recovered=1; break; }; sleep 2; done
+[[ -n $recovered ]] && ok "the agent reconnected to mcp-routing-ref without its delay" || fail "the agent did not reconnect to mcp-routing-ref"
 
 step "phase 05: a partly scanned PDF is indexed with its warning (D7), internal backend"
 SCAN2_CONV=$(uuidgen | tr 'A-Z' 'a-z')

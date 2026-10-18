@@ -33,6 +33,14 @@ for service in mcp-routing-ref mcp-rag-ref; do
   done
 done
 ok "mcp-routing-ref and mcp-rag-ref run, on internal networks only"
+# Least privilege (ADR-0242): every network of the routing server is shared with the agent only.
+routing=$(docker compose ps -q mcp-routing-ref)
+for network in $(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$routing"); do
+  others=$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$network" | tr ' ' '\n' \
+    | grep -v -e '^$' -e 'mcp-routing-ref' -e '[-_]agent[-_][0-9]*$' || true)
+  [[ -z $others ]] || fail "mcp-routing-ref shares $network with $(echo $others | tr '\n' ' ')"
+done
+ok "mcp-routing-ref shares its network with the agent only"
 [[ $(docker compose exec -T agent printenv MCP_PROFILE) == airgap ]] && ok "the agent runs the airgap MCP profile" \
   || fail "the agent does not run the airgap MCP profile"
 [[ $(docker network inspect -f '{{.Internal}}' "${project}_airgap") == true ]] && ok "${project}_airgap is internal" \

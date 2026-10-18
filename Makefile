@@ -37,6 +37,8 @@ test-agent: .env
 	$(COMPOSE) run --rm minio-init
 	@# The test database and its owner come from infra/postgres/init; idempotent on an existing volume (ADR-0070).
 	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/10-agent-test.sh
+	@# The reference RAG server's role and its test database; CONNECT kept from PUBLIC (ADR-0242).
+	$(COMPOSE) run --rm postgres-roles
 	$(COMPOSE) --profile test up -d --wait litellm-mock
 	$(COMPOSE) --profile test run --rm --build agent-tests
 
