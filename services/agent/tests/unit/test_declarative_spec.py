@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from app.capabilities.contract import Manifest
-from app.capabilities.declarative import _arguments, _candidates, _Missing, _resolve
+from app.capabilities.contract import Manifest, StepSpec
+from app.capabilities.declarative import _arguments, _Missing, _resolve, _unresolved
 from app.capabilities.registry import CapabilityRegistry, LoadedCapability, ManifestError
 from app.graph.nodes.route import router_candidates, select_capabilities
 
@@ -92,8 +92,27 @@ def test_references_resolve_deterministically():
         {"query": "$.extract.origin", "profile": "$.extract.profile"}, extract, results, {"$.extract.profile"}
     )
     assert args == {"query": "برج المملكة"}  # an empty optional field leaves its argument out
-    many = {"from": {"matches": [{"id": i} for i in range(5)]}}
-    assert len(_candidates(many, "from")) == 3
+    # A step's result list is the path it declares, never a key the runner knows (ADR-0238).
+    listed = StepSpec(id="from", tool="t", result_list="$.options.items", ambiguous_when={"more_than": 1})
+    bare = StepSpec(id="from", tool="t")
+    many = {"from": {"options": {"items": [{"id": i} for i in range(5)]}, "matches": [{"id": 9}]}}
+    assert _unresolved({"from": listed}, many, "from") == {
+        "status": "ambiguous",
+        "candidates": [{"id": 0}, {"id": 1}, {"id": 2}],
+    }
+    one = {"from": {"options": {"items": [{"id": 0}]}}}
+    assert _unresolved({"from": listed}, one, "from") == {"status": "unresolved", "candidates": [{"id": 0}]}
+    assert _unresolved({"from": bare}, many, "from") == {"status": "unresolved", "candidates": []}
+
+
+def test_a_step_result_list_is_a_path_and_ambiguity_needs_one():
+    with pytest.raises(ValueError, match="result_list"):
+        StepSpec(id="s", tool="t", result_list="matches")
+    with pytest.raises(ValueError, match="ambiguous_when needs result_list"):
+        StepSpec(id="s", tool="t", ambiguous_when={"more_than": 1})
+    step = StepSpec(id="s", tool="t", result_list="$.a.b")
+    assert step.list_of({"a": {"b": [1, 2]}}) == [1, 2] and step.list_of({"a": {}}) is None
+    assert step.empty_when.fewer_than == 1
 
 
 # ------------------------------------------------------------------ keyword_candidate (I15)

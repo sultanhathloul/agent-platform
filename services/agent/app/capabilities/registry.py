@@ -16,6 +16,7 @@ from app.capabilities.contract import Manifest
 from app.capabilities.declarative import build_declarative
 from app.identity import Principal
 from app.models.config import ModelsConfig
+from app.models.prompts import PromptLibrary
 from app.models.routing import CapabilityModelSpec
 from app.tools.spec import ToolSpec
 
@@ -95,8 +96,14 @@ class CapabilityRegistry:
 
     @classmethod
     def discover(
-        cls, models: ModelsConfig, root: Path = PACKAGE_DIR, package: str = PACKAGE
+        cls,
+        models: ModelsConfig,
+        root: Path = PACKAGE_DIR,
+        package: str = PACKAGE,
+        core_prompts: PromptLibrary | None = None,
     ) -> "CapabilityRegistry":
+        """`core_prompts`: the core's prompt library, which a declarative capability's runner
+        renders its step results with (`context.tool_result`, ADR-0239)."""
         loaded = []
         for directory in sorted(p for p in root.iterdir() if (p / "manifest.yaml").is_file()):
             manifest = load_manifest(directory / "manifest.yaml", models)
@@ -108,7 +115,7 @@ class CapabilityRegistry:
                     raise ManifestError(
                         f"{directory}: a declarative capability has no Python file, found {python}"
                     )
-                built = build_declarative(manifest, directory)
+                built = build_declarative(manifest, directory, core_prompts)
             else:
                 module = importlib.import_module(f"{package}.{directory.name}.graph")
                 build = getattr(module, "build", None)

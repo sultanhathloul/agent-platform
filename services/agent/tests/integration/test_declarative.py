@@ -4,6 +4,7 @@ Python). The extract call goes through Context Assembly and LiteLLM; its text is
 (ADR-0075). The steps call the probe's tool through the broker, the second fed by the first's
 result; the model never fills a tool's arguments."""
 
+import json
 import uuid
 
 import pytest
@@ -84,3 +85,58 @@ async def test_the_model_cannot_name_a_tool_argument(probe_services, litellm):
     )
     assert _tools(events) == ["probe_lookup", "probe_lookup"]
     assert "forged" not in output["findings"]
+
+
+# ------------------------------------------------------------- result shape, delimiters (ADR-0238, ADR-0239)
+
+JUNCTION = ("cap:general", "cap:junction", "cap:probe")
+
+
+async def _junction(services, query: str):
+    swapped, _ = replacing(services, {"extractor": [json.dumps({"query": query}, ensure_ascii=False)]})
+    principal = Principal(user_id=f"u-jn-{uuid.uuid4().hex[:6]}", permissions=JUNCTION)
+    conversation = str(uuid.uuid4())
+    request = TurnRequest(
+        conversation_id=conversation, principal=principal, message="تقاطع-اختبار", locale="ar"
+    )
+    events = [e async for e in TurnRunner(swapped).stream(request, "req-jn")]
+    state = await swapped.graph.aget_state({"configurable": {"thread_id": conversation}})
+    [output] = [o for o in state.values.get("capability_outputs") or [] if o["capability"] == "junction"]
+    return events, output["findings"]
+
+
+def _delimited(findings: str, tool: str) -> list[dict]:
+    """The step results the core rendered for `tool` inside the untrusted delimiters."""
+    blocks = []
+    marker = f'<untrusted source="{tool}">'
+    start = findings.find(marker)
+    while start >= 0:
+        end = findings.index("</untrusted>", start)
+        blocks.append(json.loads(findings[start + len(marker) : end]))
+        start = findings.find(marker, end)
+    return blocks
+
+
+async def test_a_declared_result_list_of_another_shape_gives_the_status_and_candidates(
+    probe_services, litellm
+):
+    events, findings = await _junction(probe_services, "عدة")
+    assert _tools(events) == ["probe_find"]  # the second step never ran
+    assert findings.startswith("status=ambiguous stopped_at=use candidates=الأول,الثاني,الثالث")
+    events, findings = await _junction(probe_services, "لا شيء")
+    assert _tools(events) == ["probe_find"] and findings.startswith("status=empty stopped_at=find")
+    events, findings = await _junction(probe_services, "واحد")
+    assert _tools(events) == ["probe_find", "probe_lookup"] and findings.startswith("status=complete")
+
+
+async def test_step_results_are_delimited_by_the_core_whatever_the_template_says(probe_services, litellm):
+    """The template renders no delimiter; the core puts every step result inside them."""
+    _, findings = await _junction(probe_services, "واحد")
+    assert "<untrusted" not in findings.split("\n", 1)[0]  # the template's own line
+    [found] = _delimited(findings, "probe_find")
+    assert found["options"]["items"] == [{"name": "الأول"}]
+    [used] = _delimited(findings, "probe_lookup")
+    assert used == {"text": "lookup:الأول"}
+    _, ambiguous = await _junction(probe_services, "عدة")
+    [listed] = _delimited(ambiguous, "probe_find")
+    assert len(listed["options"]["items"]) == 4

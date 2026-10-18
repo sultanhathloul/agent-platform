@@ -1,7 +1,7 @@
 """The declarative capability runner (phase 05, I12, ADR-0213). A capability whose manifest has a
 `declarative` section and no graph.py gets its subgraph from here; the core compiles it like any
 other (ADR-0053) and runs it behind the same boundary, with the same RuntimeContext. Capability-
-agnostic: it names no capability, tool or server.
+agnostic: it names no capability, tool, server or result shape.
 
 1. Extract: one structured-output call (the section's role and prompt, the capability's own) fills
    the extract schema from the message; the answer is validated against the schema, and an invalid
@@ -9,14 +9,19 @@ agnostic: it names no capability, tool or server.
    missing, and the answer asks the user for it (`on_missing: ask`).
 2. Steps, in order, each one broker call. Arguments are mapped deterministically from
    `$.extract.<field>`, `$.steps.<id>.result.<path>` or literals; the model never fills a tool's
-   arguments, and the broker validates every call against the tool's (pinned) schema. A reference
-   that resolves to nothing, or a step that returns nothing, stops the run; the findings then carry
-   what the earlier steps returned (for example up to three candidate places) so the answer can
-   ask the user to choose. A tool that fails stops the run with its content-free code.
+   arguments, and the broker validates every call against the tool's (pinned) schema. A step
+   that returns nothing, or whose declared result list (`result_list`) holds fewer items than
+   `empty_when` says, stops the run (`empty`). A reference that resolves to nothing stops it too:
+   `ambiguous` when the step it names declared `ambiguous_when` and its list holds more items
+   than that, `unresolved` otherwise; up to three items of that list are the candidates (for
+   example places to choose from) (ADR-0238). A tool that fails stops the run with its
+   content-free code.
 3. Findings: the section's prompt renders what happened (the extract, each step's result, where
    and why it stopped) for the answer. Step results arrive already checked at POST_TOOL
-   (sanitize_untrusted first, every string of a structured result, ADR-0208), and the findings
-   reach the answer inside the untrusted delimiters in the user role (ADR-0165).
+   (sanitize_untrusted first, every string and key of a structured result, ADR-0208, ADR-0234).
+   Whatever the capability's template says, the core then appends each step's result inside the
+   untrusted delimiters, rendered by `context.tool_result` (ADR-0239), and the findings reach the
+   answer in the user role (ADR-0165).
 
 No expressions, conditionals, loops or parallelism (phase 07 may supersede this syntax)."""
 
@@ -35,8 +40,12 @@ from app.capabilities.contract import (
     DeclarativeSpec,
     Manifest,
     RuntimeContext,
+    StepSpec,
 )
 from app.models.prompts import PromptLibrary
+from app.settings import _default_config_dir
+
+TOOL_RESULT_PROMPT = "context.tool_result"
 
 _JSON = re.compile(r"\{.*\}", re.S)
 MAX_CANDIDATES = 3
@@ -109,29 +118,33 @@ def _result(content: str, data: Any) -> Any:
     return parsed if parsed is not None else ({"text": content} if content else None)
 
 
-def _candidates(results: dict[str, Any], step: str | None = None) -> list[dict[str, Any]]:
-    """Up to three alternatives a step offered (a list under `matches` or `candidates`): the step
-    a reference named, else the last one that offered any."""
-    ordered = [results[step]] if step in results else list(reversed(list(results.values())))
-    for result in ordered:
-        if isinstance(result, dict):
-            for key in ("matches", "candidates"):
-                if isinstance(result.get(key), list):
-                    return [c for c in result[key] if isinstance(c, dict)][:MAX_CANDIDATES]
-    return []
-
-
 def _step_of(reference: str) -> str | None:
     parts = reference.split(".")
     return parts[2] if len(parts) > 2 and parts[1] == "steps" else None
 
 
-def build_declarative(manifest: Manifest, directory: Path) -> StateGraph:
-    """The uncompiled subgraph of a declarative capability; the core compiles it (ADR-0053)."""
+def _unresolved(steps: dict[str, StepSpec], results: dict[str, Any], step_id: str | None) -> dict[str, Any]:
+    """Why a reference into `step_id` resolved to nothing, by that step's declared list."""
+    spec = steps.get(step_id) if step_id else None
+    items = spec.list_of(results.get(step_id)) if spec is not None else None
+    if items is None:
+        return {"status": "unresolved", "candidates": []}
+    ambiguous = spec.ambiguous_when is not None and len(items) > spec.ambiguous_when.more_than
+    return {"status": "ambiguous" if ambiguous else "unresolved", "candidates": items[:MAX_CANDIDATES]}
+
+
+def build_declarative(
+    manifest: Manifest, directory: Path, core_prompts: PromptLibrary | None = None
+) -> StateGraph:
+    """The uncompiled subgraph of a declarative capability; the core compiles it (ADR-0053).
+    `core_prompts`: the core's prompt library (config/prompts), for `context.tool_result`."""
     spec: DeclarativeSpec = manifest.declarative  # type: ignore[assignment]
     prompts = PromptLibrary.load(directory / "prompts")
     for prompt in (spec.extract.prompt, spec.findings.prompt):
         prompts.require(prompt)
+    core = core_prompts or PromptLibrary.load(_default_config_dir() / "prompts")
+    core.require(TOOL_RESULT_PROMPT)
+    by_id = {step.id: step for step in spec.steps}
     schema = spec.extract.schema_
     validator = Draft202012Validator(schema)
     required = [f for f in schema.get("required", []) if f in spec.extract.fields]
@@ -177,11 +190,10 @@ def build_declarative(manifest: Manifest, directory: Path) -> StateGraph:
                 except _Missing as missing_ref:
                     reference = str(missing_ref)
                     view.update(
-                        status="unresolved",
                         stopped_at=step.id,
                         reference=reference,
                         unresolved_step=_step_of(reference),
-                        candidates=_candidates(results, _step_of(reference)),
+                        **_unresolved(by_id, results, _step_of(reference)),
                     )
                     break
                 outcome = await rt.broker.execute(step.tool, args)
@@ -191,12 +203,26 @@ def build_declarative(manifest: Manifest, directory: Path) -> StateGraph:
                     )
                     break
                 result = _result(outcome.content, outcome.data)
-                if _empty(result):
-                    view.update(status="empty", stopped_at=step.id, candidates=_candidates(results))
+                items = step.list_of(result)
+                if _empty(result) or (items is not None and len(items) < step.empty_when.fewer_than):
+                    if not _empty(result):
+                        results[step.id] = result
+                    view.update(status="empty", stopped_at=step.id, candidates=[])
                     break
                 results[step.id] = result
             view["steps"] = results
         findings = prompts.render(spec.findings.prompt, request.locale, **view).text
+        # The core delimits every step result, whatever the template rendered (ADR-0239).
+        delimited = [
+            core.render(
+                TOOL_RESULT_PROMPT,
+                request.locale,
+                tool=by_id[step_id].tool,
+                content=json.dumps(result, ensure_ascii=False, sort_keys=True),
+            ).text
+            for step_id, result in view["steps"].items()
+        ]
+        findings = "\n\n".join([findings.strip(), *delimited]) if delimited else findings
         runs = int(rt.cap_state.get("runs", 0)) + 1
         repaired = int(rt.cap_state.get("repairs", 0)) + repairs
         state_out = {"runs": runs, "last_status": view["status"], "repairs": repaired}

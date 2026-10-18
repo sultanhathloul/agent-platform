@@ -2,7 +2,7 @@
 # this manifest, its prompts and its evals, and no Python. It reaches the routing MCP server of
 # config/mcp.yaml through the broker only (D3), with the two tools it declares.
 slug: directions
-version: 1.0.0
+version: 1.1.0
 name: {ar: "الاتجاهات والمسارات", en: "Directions and routes"}
 description:
   ar: "المسافة ومدة الوصول وأهم خطوات الطريق بين مكانين في الرياض، بالسيارة أو مشيًا."
@@ -55,8 +55,18 @@ declarative:
         profile: {type: [string, "null"], enum: [car, foot, null]}
       required: [origin, destination]
   steps:
-    - {id: from, tool: routing.geocode, args: {query: $.extract.origin}}
-    - {id: to, tool: routing.geocode, args: {query: $.extract.destination}}
+    # A geocode result's list is `matches` (ADR-0238): none is a place not found; when `best` is
+    # missing, more than one match is a name to choose between, and the matches are the candidates.
+    - id: from
+      tool: routing.geocode
+      args: {query: $.extract.origin}
+      result_list: $.matches
+      ambiguous_when: {more_than: 1}
+    - id: to
+      tool: routing.geocode
+      args: {query: $.extract.destination}
+      result_list: $.matches
+      ambiguous_when: {more_than: 1}
     - id: route
       tool: routing.route
       args: {from: $.steps.from.result.best.id, to: $.steps.to.result.best.id, profile: $.extract.profile}
