@@ -176,3 +176,28 @@ async def test_duplicate_tool_registration_fails():
         assert "registered twice" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+async def test_an_audit_entry_carries_the_audit_fields_only_whatever_a_call_observed():
+    """A call's observed facts may hold more (queued, dropped parts); the audit entry keeps the
+    audit record's fields, so the terminal event's tool_audit always validates (G8)."""
+    from app.api.events import ToolAuditData
+
+    async def observed(args: EchoArgs, ctx) -> ToolOutput:
+        facts = {
+            "server": "fx",
+            "queued": True,
+            "dropped": "image",
+            "request_bytes": 3,
+            "args_hmac": "a" * 64,
+        }
+        return ToolOutput(content=args.text, observed=facts)
+
+    audit: list[dict] = []
+    result = await _broker(_spec(observed)).execute(
+        "echo", {"text": "x"}, caller="demo", principal=ALLOWED, on_audit=audit.append
+    )
+    assert result.status == "ok"
+    [entry] = audit
+    assert "queued" not in entry and "dropped" not in entry and entry["server"] == "fx"
+    ToolAuditData.model_validate(entry)

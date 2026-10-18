@@ -106,7 +106,7 @@ async def test_each_operation_leaves_one_audit_entry_and_one_span_content_free(
     assert hits and texts
     assert [e["tool"] for e in sink] == ["rag.register", "rag.status", "rag.search", "rag.fetch"]
     for entry in sink:
-        assert AUDIT_FIELDS <= set(entry) <= AUDIT_FIELDS | {"queued"}
+        assert set(entry) == AUDIT_FIELDS  # the audit record's fields, nothing more
         assert entry["caller"] == "docs" and entry["status"] == "ok"
         assert entry["server"] == "rag" and len(entry["args_hmac"]) == 64
         assert entry["request_bytes"] > 0 and entry["response_bytes"] > 0 and entry["latency_ms"] >= 0

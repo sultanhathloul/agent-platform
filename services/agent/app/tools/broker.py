@@ -64,6 +64,12 @@ TOOL_TIMEOUT = "tool_timeout"
 TOOL_FAILED = "tool_failed"
 # The caller named on a transport call outside any turn or tool call.
 TRANSPORT_CALLER = "transport"
+# What an audit entry carries of a call's observed facts: the audit record's own fields (G8).
+AUDIT_OBSERVED = ("server", "request_bytes", "response_bytes", "args_hmac")
+
+
+def _audited(observed: Mapping[str, str | int | bool]) -> dict[str, str | int | bool]:
+    return {key: observed[key] for key in AUDIT_OBSERVED if key in observed}
 
 audit_log = logging.getLogger("audit.transport")
 # Who a transport call is for and where its audit entry goes: set around a tool's handler by the
@@ -175,7 +181,7 @@ class ToolBroker:
                         "error": error,
                         "latency_ms": latency,
                         "retries": 0,
-                        **observed,
+                        **_audited(observed),
                     }
                 )
 
@@ -270,7 +276,7 @@ class ToolBroker:
                         "error": result.error,
                         "latency_ms": result.latency_ms,
                         "retries": result.retries,
-                        **observed,
+                        **_audited(observed),
                     }
                 )
             return result
