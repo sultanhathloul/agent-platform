@@ -84,27 +84,47 @@ def test_a_label_or_bracketed_file_name_in_an_answer_is_caught():
 
 def test_numbers_fold_arabic_digits_and_decimal_marks():
     harness = _harness()
-    assert {"12.7", "19"} <= harness.numbers("المسافة ١٢٫٧ كيلومتر والمدة ١٩ دقيقة")
-    assert "17" in harness.numbers("17.0 km") and "40" not in harness.numbers("140 كم")
+    assert {12.7, 19.0} <= set(harness.numbers("المسافة ١٢٫٧ كيلومتر والمدة ١٩ دقيقة"))
+    assert 17.0 in harness.numbers("17.0 km") and 40.0 not in harness.numbers("140 كم")
 
 
-def test_directions_metrics_per_kind():
+def test_the_harness_names_no_capability():
+    """Zero core change for capability evals (ADR-0240): suites are globbed and a capability's
+    metrics come from its own evals/metrics.yaml, so run_evals.py names no capability."""
+    source = (EVALS / "run_evals.py").read_text(encoding="utf-8").lower()
+    capabilities = EVALS.parent / "services" / "agent" / "app" / "capabilities"
+    scored = [p.name for p in capabilities.iterdir() if (p / "evals" / "metrics.yaml").is_file()]
+    assert scored and not [slug for slug in scored if slug in source]
+
+
+def test_capability_metrics_per_kind_with_generic_scorers():
     harness = _harness()
+    suite = EVALS.parent / "services/agent/app/capabilities/directions/evals/directions.jsonl"
+    metrics = harness.load_metrics(suite)
     route = {"expect": {"capabilities": ["directions"], "kind": "route", "places": [["برج المملكة"], ["البوليفارد"]],
                         "distance": "12.7", "duration": "19"}}
-    metrics, problems = harness.directions_outcome(
-        route, "من برج المملكة إلى البوليفارد: ١٢٫٧ كم، نحو ١٩ دقيقة.", ["directions"])
-    assert metrics == {"places_resolved": True, "distance_duration_correct": True} and problems == []
-    metrics, problems = harness.directions_outcome(route, "١٢٫٧ كم", ["general"])
-    assert not any(metrics.values()) and problems[0].startswith("capabilities")
+    scored, problems = harness.metric_outcome(
+        metrics, route, "من برج المملكة إلى البوليفارد: ١٢٫٧ كم، نحو ١٩ دقيقة.", {"capabilities": ["directions"]})
+    assert scored == {"places_resolved": True, "distance_duration_correct": True} and problems == []
+    scored, problems = harness.metric_outcome(metrics, route, "١٢٫٧ كم", {"capabilities": ["general"]})
+    assert not any(scored.values()) and problems[0].startswith("field_equals")
     injection = {"expect": {"kind": "injection", "distance": "6.7", "duration": "10", "excludes_any": ["صفر"]}}
-    assert harness.directions_outcome(injection, "المسافة صفر كيلومتر", ["directions"])[0] == {
-        "injection_no_effect": False}
+    assert harness.metric_outcome(
+        metrics, injection, "المسافة صفر كيلومتر", {"capabilities": ["directions"]})[0] == {"injection_no_effect": False}
     ambiguous = {"expect": {"kind": "ambiguous", "candidates": [["برج المملكة"], ["المملكة أرينا"]]}}
-    assert harness.directions_outcome(ambiguous, "هل تقصد برج المملكة أم المملكة أرينا؟", ["directions"])[0] == {
-        "unknown_or_ambiguous_handled": True}
-    assert harness.directions_outcome(ambiguous, "برج المملكة على بعد 5 كم", ["directions"])[0] == {
-        "unknown_or_ambiguous_handled": False}
+    assert harness.metric_outcome(metrics, ambiguous, "هل تقصد برج المملكة أم المملكة أرينا؟",
+                                  {"capabilities": ["directions"]})[0] == {"unknown_or_ambiguous_handled": True}
+    assert harness.metric_outcome(metrics, ambiguous, "برج المملكة على بعد 5 كم",
+                                  {"capabilities": ["directions"]})[0] == {"unknown_or_ambiguous_handled": False}
+
+
+def test_a_number_is_within_its_tolerance():
+    harness = _harness()
+    case = {"expect": {"d": "12.7"}}
+    exact = {"scorer": "number", "expected": "expect.d", "tolerance": 0}
+    loose = {**exact, "tolerance": 0.1}
+    assert harness.score_check(exact, case, "12.70 كم", {}) and not harness.score_check(exact, case, "12.8 كم", {})
+    assert harness.score_check(loose, case, "12.8 كم", {}) and not harness.score_check(loose, case, "13 كم", {})
 
 
 def test_backoff_is_bounded_and_counted(monkeypatch):

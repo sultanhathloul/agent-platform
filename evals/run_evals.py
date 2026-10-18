@@ -42,10 +42,11 @@ indexed first.
   document text (ADR-0137).
 
 Phase 05: a case with `expect.capabilities` and no document checks the turn's capabilities (the
-routing suite's directions cases). A directions case (capabilities/directions/evals, G1) has a
-`kind` and its suite a structured threshold: places resolved and distance and duration correct
-(route cases), unknown or ambiguous places handled (the answer lists candidates, says not found or
-asks), and the injection place without effect. The rag suite runs twice, the second time as
+routing suite's capability cases). A suite whose folder holds a metrics.yaml (a capability's
+evals/, ADR-0240) is scored by the metrics it declares with generic scorers (field equals, number
+within tolerance, expected abstention or candidates, text absent from the answer), each against
+its threshold; the harness names no capability. A case with `report_set` is scored and reported
+under that set and never counts toward its suite's rate (ADR-0241). The rag suite runs twice, the second time as
 `rag@mcp` with the agent recreated on DOCS_BACKEND=mcp, and the internal backend is restored
 afterwards, pass or fail. A provider 429 (a `model_unavailable` turn, or a rate-limited judge
 call) is retried with bounded exponential backoff, and each suite records its retries.
@@ -544,61 +545,85 @@ def disable_memory(http: httpx.Client, gateway: str, token: str) -> None:
         raise SystemExit("the eval user's memory is still on")
 
 
-# ------------------------------------------------------------------ directions (phase 05, G1)
+# ------------------------------------------------------------------ capability metrics (phase 05, ADR-0240)
 
-DIRECTIONS_METRICS = ("places_resolved", "distance_duration_correct", "unknown_or_ambiguous_handled",
-                      "injection_no_effect")
+METRICS_FILE = "metrics.yaml"
 _NUMBER = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)(?![\d.])")
-_KM = re.compile(r"\d\s*(?:كيلو|كم\b|km\b|kilomet)", re.I)
-NOT_FOUND_PHRASES = ["لم اجد", "لم يتم العثور", "لم اعثر", "لا يوجد", "غير موجود", "لم تجد", "لا اعرف مكان",
-                     "لا تعرف", "could not find", "couldn't find", "not find", "no place", "not found",
-                     "unable to find", "doesn't know", "does not know"]
 
 
-def numbers(answer: str) -> set[str]:
+def numbers(answer: str) -> list[float]:
     """Every number in the answer, Arabic-Indic digits and decimal marks folded: «١٢٫٧» is 12.7."""
     text = re.sub(r"(?<=\d)[٫,](?=\d)", ".", fold(answer))
-    found = set()
-    for value in _NUMBER.findall(text):
-        found.add(value)
-        if value.endswith(".0"):
-            found.add(value[:-2])
-    return found
+    return [float(value) for value in _NUMBER.findall(text)]
 
 
-def directions_outcome(case: dict, answer: str, capabilities: list[str]) -> tuple[dict[str, bool], list[str]]:
-    """The metrics a directions case counts in, each pass or fail, and what failed."""
-    expect = case["expect"]
-    kind = expect["kind"]
-    routed = capabilities == expect.get("capabilities", ["directions"])
-    nums = numbers(answer)
-    named = lambda names: any(contains(answer, n) for n in names)  # noqa: E731
-    metrics: dict[str, bool] = {}
-    if kind in ("route", "injection"):
-        right = expect["distance"] in nums and expect["duration"] in nums
-        if kind == "route":
-            metrics["places_resolved"] = routed and all(named(p) for p in expect["places"])
-            metrics["distance_duration_correct"] = routed and right
-        else:
-            clean = not any(contains(answer, s) for s in expect.get("excludes_any", []))
-            metrics["injection_no_effect"] = routed and right and clean
-    elif kind == "ambiguous":
-        listed = sum(named(c) for c in expect["candidates"])
-        metrics["unknown_or_ambiguous_handled"] = routed and listed >= 2 and not _KM.search(fold(answer))
-    elif kind == "unknown":
-        said = any(says(answer, phrase) for phrase in NOT_FOUND_PHRASES)
-        metrics["unknown_or_ambiguous_handled"] = routed and said and not _KM.search(fold(answer))
-    elif kind == "missing":
-        metrics["unknown_or_ambiguous_handled"] = routed and any(contains(answer, a) for a in expect["asks"])
-    problems = [f"{m} failed" for m, ok in metrics.items() if not ok]
-    if not routed:
-        problems.insert(0, f"capabilities {capabilities} != {expect.get('capabilities', ['directions'])}")
-    return metrics, problems
+def case_value(case: dict, path: str):
+    value = case
+    for key in path.split("."):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
 
 
-def directions_scores(outcomes: list[dict[str, bool]]) -> dict:
+def _alternatives(item) -> list[str]:
+    return [item] if isinstance(item, str) else [str(alt) for alt in item]
+
+
+def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
+    """One generic check (see a capability's evals/metrics.yaml); names no capability."""
+    scorer = check["scorer"]
+    expected = case_value(case, check["expected"]) if "expected" in check else None
+    if scorer == "field_equals":
+        wanted = expected if expected is not None else check.get("default")
+        return turn.get(check["field"]) == wanted
+    if scorer == "number":
+        if expected is None:
+            return False
+        tolerance = float(check.get("tolerance", 0))
+        return any(abs(found - float(expected)) <= tolerance + 1e-9 for found in numbers(answer))
+    if scorer == "candidates":
+        items = list(expected or [])
+        named = sum(any(contains(answer, alt) for alt in _alternatives(item)) for item in items)
+        wanted = len(items) if check.get("min", "all") == "all" else int(check["min"])
+        return bool(items) and named >= wanted
+    if scorer == "abstention":
+        return any(says(answer, phrase) for phrase in check["phrases"])
+    if scorer == "text_absent":
+        folded = fold(answer)
+        if any(contains(answer, text) for text in expected or []):
+            return False
+        return not any(re.search(pattern, folded) for pattern in check.get("patterns", []))
+    raise ValueError(f"unknown scorer {scorer!r}")
+
+
+def load_metrics(path: Path) -> dict | None:
+    """The metrics of a suite's folder, from its metrics.yaml; None when it has none."""
+    file = path.parent / METRICS_FILE
+    return yaml.safe_load(file.read_text(encoding="utf-8")) if file.is_file() else None
+
+
+def metric_outcome(metrics: dict, case: dict, answer: str, turn: dict) -> tuple[dict[str, bool], list[str]]:
+    """The metrics a case counts in, each pass or fail, and what failed."""
+    kind = case_value(case, metrics.get("case_kind", "expect.kind"))
+    common = metrics.get("common", [])
+    outcome: dict[str, bool] = {}
+    problems: list[str] = []
+    common_ok = True
+    for check in common:
+        if not score_check(check, case, answer, turn):
+            common_ok = False
+            problems.append(f"{check['scorer']} {check.get('field') or check.get('expected')} failed")
+    for metric, kinds in metrics["metrics"].items():
+        if kind not in kinds:
+            continue
+        outcome[metric] = common_ok and all(score_check(c, case, answer, turn) for c in kinds[kind])
+        if not outcome[metric]:
+            problems.append(f"{metric} failed")
+    return outcome, problems
+
+
+def metric_scores(metrics: dict, outcomes: list[dict[str, bool]]) -> dict:
     scores, counts = {}, {}
-    for metric in DIRECTIONS_METRICS:
+    for metric in metrics["metrics"]:
         values = [o[metric] for o in outcomes if metric in o]
         scores[metric] = sum(values) / len(values) if values else 0.0
         counts[metric] = len(values)
@@ -677,7 +702,10 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
     guard_results: list[tuple[dict, bool, str]] = []
     checkers: dict[str, str] = {}
     document_outcomes: list[tuple[dict, dict]] = []
-    directions_outcomes: list[dict[str, bool]] = []
+    metrics = load_metrics(path)  # the suite's own metrics (a capability's evals/metrics.yaml)
+    metric_outcomes: list[dict[str, bool]] = []
+    report_sets: dict[str, list[bool]] = {}  # cases scored and reported under a set, never gated
+    gated = 0
     case_records: list[dict] = []
     for case in cases:
         item_id = f"{name}:{case['id']}"
@@ -768,14 +796,14 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
         # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
         token = login(*EVAL_USER)["access_token"]
         event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
-        metrics: dict[str, bool] = {}
+        scored: dict[str, bool] = {}
+        capabilities: list[str] | None = None
         if event.get("type") == "done":
             answer = event["data"]["answer"]
             capabilities = event["data"]["state_digest"]["capabilities"]
             trace_id = event["data"].get("trace_id")
-            if case.get("expect", {}).get("kind"):  # a directions case (G1)
-                metrics, problems = directions_outcome(case, answer, capabilities)
-                directions_outcomes.append(metrics)
+            if metrics is not None:
+                scored, problems = metric_outcome(metrics, case, answer, {"capabilities": capabilities})
             else:
                 problems = check(case, answer)
                 wanted = case.get("expect", {}).get("capabilities")
@@ -783,15 +811,23 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
                     problems.append(f"capabilities {capabilities} != {wanted}")
         else:
             answer, problems, trace_id = "", [f"no done event ({event.get('data', {}).get('code')})"], None
-            if case.get("expect", {}).get("kind"):
-                metrics = {m: False for m in directions_outcome(case, "", [])[0]}
-                directions_outcomes.append(metrics)
-        passed += not problems
-        mark = "pass" if not problems else "FAIL"
-        print(f"  {mark}  {name}/{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
+            if metrics is not None:
+                scored = {m: False for m in metric_outcome(metrics, case, "", {})[0]}
+        if metrics is not None:
+            metric_outcomes.append(scored)
+        report_set = case.get("report_set")
+        if report_set:
+            report_sets.setdefault(report_set, []).append(not problems)
+        else:
+            gated += 1
+            passed += not problems
+        mark = ("pass" if not problems else "FAIL") if not report_set else ("ok  " if not problems else "miss")
+        shown = f"[{report_set}] " if report_set else ""
+        print(f"  {mark}  {name}/{shown}{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
         case_records.append({
             "id": case["id"], "passed": not problems, "problems": problems, "answer": answer,
-            **({"metrics": metrics} if metrics else {}),
+            "capabilities": capabilities, **({"report_set": report_set} if report_set else {}),
+            **({"metrics": scored} if scored else {}),
         })
         if trace_id:
             langfuse(
@@ -804,7 +840,8 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
                 {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
                  "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
             )
-    rate = passed / len(cases)
+    total = len(cases) - sum(len(v) for v in report_sets.values())
+    rate = passed / total if total else 0.0
     threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
     scores = None
     if document_outcomes and isinstance(threshold, dict):
@@ -830,18 +867,22 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
             f"{scores['llm_judge_borderline_or_gulf']} borderline or Gulf-dialect, "
             f"{scores['llm_judge_borderline_or_gulf_passed']} of them passed)"
         )
-    elif directions_outcomes and isinstance(threshold, dict):
-        scores = directions_scores(directions_outcomes)
+    elif metrics is not None and isinstance(threshold, dict):
+        scores = metric_scores(metrics, metric_outcomes)
         ok = all(scores[metric] >= value for metric, value in threshold.items())
         counts = scores["counts"]
         print(f"  {name}: " + ", ".join(
-            f"{metric} {scores[metric]:.2f} ({counts[metric]})" for metric in DIRECTIONS_METRICS))
+            f"{metric} {scores[metric]:.2f} ({counts[metric]})" for metric in metrics["metrics"]))
     else:
         ok = isinstance(threshold, int | float) and rate >= threshold
+    # Reported, never gated (ADR-0241): e.g. the routing suite's keyword-free coverage.
+    coverage = {key: {"passed": sum(v), "total": len(v), "rate": sum(v) / len(v)} for key, v in report_sets.items()}
+    for key, value in coverage.items():
+        print(f"  {name}[{key}]: {value['passed']}/{value['total']} ({value['rate']:.2f}), reported, not gated")
     print(f"  {name}: {RETRIES['count']} provider retries")
-    rows.append((name, passed, len(cases), rate, threshold, ok))
+    rows.append((name, passed, total, rate, threshold, ok))
     records[name] = {
-        "passed": passed, "total": len(cases), "cases_recorded": len(case_records),
+        "passed": passed, "total": total, "cases_recorded": len(case_records), "report_sets": coverage,
         "rate": rate, "threshold": threshold, "ok": ok, "scores": scores,
         "rerank": rerank_config(), "backend": "mcp" if name.endswith(MCP_SUFFIX) else "internal",
         "retries": RETRIES["count"], "cases": case_records,
