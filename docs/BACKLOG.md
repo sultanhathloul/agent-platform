@@ -66,6 +66,9 @@ Phase 05 status (2026-10-15): items 1–6, 9 and 10 → phase 05 (docs/PHASE-05-
 
 Status: not started. Done-check in `CLAUDE.md` (phase 06).
 
+### Tech debt: first item of phase 06, before any new eval suite (owner decision, PR #10 review round 2, 2026-10-19)
+- **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.
+
 ### What a skill is
 - A skill describes **how** to produce an output or carry out a task: the form, the template, worked examples. It never says **where** information comes from; that stays in capabilities. Example: the docs capability finds the facts in an uploaded file; the "official memo" skill says how the memo is laid out (heading, reference, body, closing, signature block).
 - Skills compose with any capability: the same memo skill works over docs, routing, kb, web or sql findings.
@@ -119,6 +122,8 @@ Phases it needs: 04 docs (search the file), 05 MCP (routing), 06 skills (the pag
 - **KB documents need their own record for their chunks**: `agent.rag_chunks.attachment_id` is a foreign key to `agent.attachments` with ON DELETE CASCADE (migration 0010), so a chunk cannot exist without an attachment record. (Source: ADR-0166.)
 - **`kb:` and `tool:` exceptions at OUTPUT and DATA stay refused**: page attribution says which pages an answer drew on, not which sentence came from which source, so an exception scoped to one KB cannot apply to its part of the answer. Revisit with the kb capability. (Source: ADR-0146.)
 - **Re-measure the reranker on large KB documents**: phase 04's measurement used six small documents of at most 40 chunks, where fusion alone put the answer in the top 8 every time. (Source: ADR-0184; also listed under the hardening phase below.)
+- **Routing for all capabilities** (owner decision of 2026-10-18, ADR-0247): decide whether every turn goes to the router model or keyword candidacy (ADR-0216) stays, with the router's latency measured and the keyword-free coverage set of `evals/golden/routing.jsonl` (ADR-0241; 0/9 in runs make-eval-20261018T141208Z and make-eval-20261018T150216Z) as the measure. Until then keyword candidacy stays for directions.
+- **The eval harness still names docs** (tech debt, PR #10 review round 2, 2026-10-19): in `evals/run_evals.py` (lines at 09a02a4) the document-case branch (line 712) never reads a capability's `metrics.yaml`; `name == "rag"` decides the second backend run (line 659); `DOCS_BACKEND` is set by name (lines 640–646). A kb suite with document cases and its own `metrics.yaml` must run with no harness change (zero core change, ADR-0240).
 
 ---
 
