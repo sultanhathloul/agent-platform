@@ -47,6 +47,8 @@ class AttachmentService:
         self.limits = limits
         self.backends = dict(backends or {})
         self.status_timeout_s = status_timeout_s
+        # Status reads in flight, by attachment id: at most one each; a later read joins it (ADR-0245).
+        self._reads: dict[str, asyncio.Task[AttachmentRecord]] = {}
 
     async def register(
         self, owner: Owner, conversation_id: str, *, name: str, mime: str, size: int, object_key: str
@@ -91,48 +93,58 @@ class AttachmentService:
         went. A record the backend does not know reads `pending`. The statuses are read at once,
         under one bound for all of them; a backend that does not answer in time, or cannot (its
         server down, its breaker open), leaves the record's last known status (ADR-0233), so a
-        status read never stalls a turn. `on_audit`: where a transport call's audit entry goes
-        inside a turn."""
+        status read never stalls a turn. A read past the bound is not cancelled: it ends in the
+        background, within its server's semaphore and timeout, and keeps what it read on the
+        record; a later read of the same attachment joins it (ADR-0245). `on_audit`: where a
+        transport call's audit entry goes inside a turn."""
         scope = _scope(owner, conversation_id)
         records = await self.store.list_for(owner, conversation_id)
         if not records:
             return []
         with auditing("attachments", on_audit):
-            tasks = [asyncio.ensure_future(self._with_status(record, scope)) for record in records]
-        done, pending = await asyncio.wait(tasks, timeout=self.status_timeout_s)
-        for task in pending:
-            task.cancel()
+            reads = [self._read(record, scope) for record in records]
+        done, pending = await asyncio.wait(reads, timeout=self.status_timeout_s)
         if pending:
             log.warning(
                 "attachment status: %d read(s) past %.1f s; last known status shown",
                 len(pending),
                 self.status_timeout_s,
             )
-            await asyncio.gather(*pending, return_exceptions=True)
         shown = []
-        for record, task in zip(records, tasks, strict=True):
-            if task in done and not task.cancelled() and task.exception() is None:
-                shown.append(task.result())
+        for record, read in zip(records, reads, strict=True):
+            if read in done and not read.cancelled() and read.exception() is None:
+                shown.append(read.result())
             else:
-                if task in done and not task.cancelled() and task.exception() is not None:
-                    log.warning(
-                        "attachment status: backend %s failed (%s)",
-                        record.backend,
-                        type(task.exception()).__name__,
-                    )
-                shown.append(record)
+                shown.append(record)  # its failure, if any, is logged by `_read_ended`
         return shown
 
     async def get_with_status(self, owner: Owner, conversation_id: str, attachment_id: str):
         record = await self.store.get(owner, conversation_id, attachment_id)
         if record is None:
             return None
-        try:
-            async with asyncio.timeout(self.status_timeout_s):
-                return await self._with_status(record, _scope(owner, conversation_id))
-        except Exception as exc:  # noqa: BLE001 (any failure shows the last known status)
-            log.warning("attachment status: backend %s failed (%s)", record.backend, type(exc).__name__)
-            return record
+        read = self._read(record, _scope(owner, conversation_id))
+        done, _ = await asyncio.wait([read], timeout=self.status_timeout_s)
+        if read in done and not read.cancelled() and read.exception() is None:
+            return read.result()
+        return record  # the last known status; the read goes on (ADR-0245)
+
+    def _read(self, record: AttachmentRecord, scope: DocumentScope) -> asyncio.Task[AttachmentRecord]:
+        """The status read of `record` in flight, or a new one. It belongs to no caller: a caller
+        that stops waiting (its bound, its own cancellation) leaves it running."""
+        read = self._reads.get(record.id)
+        if read is None:
+            read = asyncio.ensure_future(self._with_status(record, scope))
+            self._reads[record.id] = read
+            read.add_done_callback(lambda done: self._read_ended(record, done))
+        return read
+
+    def _read_ended(self, record: AttachmentRecord, read: asyncio.Task) -> None:
+        if self._reads.get(record.id) is read:
+            del self._reads[record.id]
+        if not read.cancelled() and read.exception() is not None:
+            log.warning(
+                "attachment status: backend %s failed (%s)", record.backend, type(read.exception()).__name__
+            )
 
     async def _with_status(self, record: AttachmentRecord, scope: DocumentScope) -> AttachmentRecord:
         backend = self.backends.get(record.backend, self.documents)
