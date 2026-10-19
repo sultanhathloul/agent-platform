@@ -1,29 +1,36 @@
-"""The platform's MCP client (phase 05, C1; ADR-0203 to ADR-0210). One pooled session per enabled
-server of config/mcp.yaml, over Streamable HTTP with the official SDK, behind the broker: no
-capability imports this module (ADR-0197).
+"""The platform's MCP client (phase 05, C1; ADR-0203 to ADR-0210, ADR-0244, ADR-0246). A pool of
+sessions per enabled server of config/mcp.yaml, over Streamable HTTP with the official SDK, behind
+the broker: no capability imports this module (ADR-0197).
 
 - Pinning (I5): on every connection the server's tools are listed and each allowlisted tool's
   input schema is hashed and compared with `input_schema_sha256`. A mismatch or a missing tool
   disables that tool only (fail closed, logged, in /v1health); a tool the server lists but the
   allowlist does not name is never known to the platform (D4).
-- Resilience (I8, ADR-0237): a semaphore per server (`max_concurrency`), a deadline per call and
+- Resilience (I8, ADR-0237, ADR-0244): a semaphore per server (`max_concurrency`), a deadline per call and
   a circuit breaker (5 consecutive failures open it for 30 s; then one trial call). Waiting for
   the semaphore past `timeout_s` fails `tool_busy`, which says nothing about the server and leaves
   the breaker as it was. A call that cannot be made fails at once with `tool_unavailable`; one
   that takes longer than `timeout_s` from send to its last byte is cut by the transport and fails
-  `tool_timeout`. The trial call is resolved in a `finally`: a success closes the breaker, and any
-  other end, a cancellation included, reopens it. Nothing here touches any other server or turn
-  (G7). The connection is kept in a task of its own, which reconnects with backoff, so a server
-  that is down never stops the agent from starting.
-- Sessions carry no per-user state (I9): every call carries what it needs; an expired session is
-  re-initialised and the call tried once more.
+  `tool_timeout`. Only the server's own outcome decides the trial call: a success closes the
+  breaker, a server error or the call's own timeout reopens it; a call its caller cancelled
+  releases the trial without a verdict, and the breaker stays half open. Nothing here touches any
+  other server or turn (G7). The connection is kept in a task of its own, which reconnects with
+  backoff, so a server that is down never stops the agent from starting.
+- Sessions (ADR-0246): up to `max_concurrency` per server, each used by one call at a time; a call
+  takes a session with its semaphore slot and returns both when its HTTP request has ended. A call
+  that is cancelled, times out or fails closes its session, which aborts its request, before its
+  slot is returned, and a fresh session takes its place: requests open at a server never exceed
+  `max_concurrency`. Sessions carry no per-user state (I9): every call carries what it needs; when
+  the server no longer knows a session, the tools are pinned again on a new one and the call is
+  tried once more.
 - Results (I7): the structured content when present, else the text parts; images, audio and
   resource links are dropped with a note; the body is capped while it is read (transport.py).
 - Observability (G8): the `mcp.call` span carries the server, the tool, the status, the latency,
   the byte sizes and an HMAC of the arguments under CONTENT_HASH_KEY, never the text of either.
-- Server-initiated features (I2): the session declares no sampling, elicitation or roots and
-  answers any such request with an error; resources and prompts are never read; a tools changed
-  notification is ignored (the allowlist and the pins decide, not the server)."""
+- Server-initiated features (I2): the session declares no sampling, elicitation or roots, and the
+  transport drops any such request unanswered (`server_request_dropped`); resources and prompts
+  are never read; a tools changed notification is ignored (the allowlist and the pins decide, not
+  the server)."""
 
 import asyncio
 import contextlib
@@ -97,7 +104,7 @@ class Breaker:
 
     def admit(self) -> str | None:
         """`call` in the closed state, `trial` for the one call let through when half open, None
-        when the call is refused. A trial must be resolved by `success` or `failure`."""
+        when the call is refused. A trial ends by `success`, `failure` or, cancelled, `release`."""
         state = self.state
         if state == "closed":
             return "call"
@@ -111,6 +118,11 @@ class Breaker:
 
     def success(self) -> None:
         self.failures, self.opened_at, self._trial = 0, None, False
+
+    def release(self) -> None:
+        """Ends the trial without a verdict (its caller cancelled it): the breaker stays half open
+        and the next call may be the trial (ADR-0244)."""
+        self._trial = False
 
     @property
     def trial_in_progress(self) -> bool:
@@ -131,22 +143,132 @@ class _Failed(Exception):
         self.server_failed = server_failed
 
 
+class _Unreachable(Exception):
+    """A session could not be opened: the server is not reachable."""
+
+
+# How long `stop` lets its sessions say goodbye to their servers before it cancels them.
+_STOP_GRACE_S = 1.0
+
+
+class _Session:
+    """One MCP session, used by one call at a time (ADR-0246). The SDK's contexts must be entered
+    and left in one task, so each session lives in a task of its own; closing it leaves those
+    contexts, which cancels the request still open on it (the HTTP connection is closed, so the
+    server sees the request end), and then tells the server the session is over."""
+
+    def __init__(self, connection: "ServerConnection", generation: int):
+        self.generation = generation
+        self.session: ClientSession | None = None
+        self.transport: CappedTransport | None = None
+        self._connection = connection
+        self._opened = asyncio.Event()
+        self._close = asyncio.Event()
+        self.task = asyncio.create_task(self._run(), name=f"mcp:{connection.entry.id}:session")
+
+    async def opened(self) -> ClientSession:
+        """The initialised session; raises _Unreachable when it could not be opened."""
+        await self._opened.wait()
+        if self.session is None:
+            raise _Unreachable()
+        return self.session
+
+    def request_close(self) -> None:
+        self._close.set()
+
+    async def close(self) -> None:
+        """Returns once the session's requests have ended and its connection is closed."""
+        self._close.set()
+        await asyncio.wait([self.task])
+
+    async def _run(self) -> None:
+        connection, entry = self._connection, self._connection.entry
+        transport = CappedTransport(entry.max_result_bytes, entry.timeout_s)
+        token = connection.resolved.token
+        # The HTTP bound is a little past the call's own, so a call ends as tool_timeout first and
+        # its request is then let go by the transport, never by the session (G7).
+        http = httpx.AsyncClient(
+            transport=transport,
+            headers={"Authorization": f"Bearer {token}"} if token else {},
+            timeout=httpx.Timeout(entry.timeout_s + 1.0),
+            follow_redirects=False,
+        )
+        client_info = types.Implementation(name="agent-platform", version=connection.version)
+        session_id: str | None = None
+        try:
+            async with http:
+                try:
+                    # The session is ended by `_terminate` below, after the requests still open on
+                    # it have been cancelled; the SDK would send its DELETE while they still run.
+                    async with (
+                        streamable_http_client(
+                            connection.resolved.url, http_client=http, terminate_on_close=False
+                        ) as (read, write, get_session_id),
+                        ClientSession(
+                            read,
+                            write,
+                            read_timeout_seconds=timedelta(seconds=entry.timeout_s),
+                            client_info=client_info,
+                            message_handler=_ignore_server_messages,
+                        ) as session,
+                    ):
+                        await asyncio.wait_for(session.initialize(), entry.timeout_s)
+                        session_id = get_session_id()
+                        connection.sessions += 1
+                        self.session, self.transport = session, transport
+                        self._opened.set()
+                        await self._close.wait()
+                finally:
+                    self.session = None
+                    if session_id:
+                        await self._terminate(http, session_id)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # noqa: BLE001 (a session that fails ends; its caller is told)
+            log.warning("mcp server %s: session ended (%s)", entry.id, _kinds(exc))
+        finally:
+            self.session = None
+            self._opened.set()
+            connection.forget(self)
+
+    async def _terminate(self, http: httpx.AsyncClient, session_id: str) -> None:
+        """Tells the server the session is over, within the server's timeout_s."""
+        with contextlib.suppress(Exception):
+            async with asyncio.timeout(self._connection.entry.timeout_s):
+                await http.delete(self._connection.resolved.url, headers={"mcp-session-id": session_id})
+
+
+@dataclass
+class _Lease:
+    """The session a call holds, and whether the call ended cleanly (an answer from the server):
+    only then does the session go back to the pool."""
+
+    pooled: _Session | None = None
+    clean: bool = False
+
+
 class ServerConnection:
-    """One server: its pooled session in a task of its own, its pins, semaphore and breaker."""
+    """One server: its pool of sessions, its pins, semaphore and breaker."""
 
     def __init__(self, resolved: Resolved, *, hash_key: str, client_version: str):
         self.resolved = resolved
         self.entry: ServerEntry = resolved.entry
         self._hash_key = hash_key
-        self._version = client_version
+        self.version = client_version
         self._semaphore = asyncio.Semaphore(self.entry.max_concurrency)
         self.breaker = Breaker()
-        self._session: ClientSession | None = None
-        self._transport: CappedTransport | None = None
-        self._ended: asyncio.Event | None = None
+        # The pool (ADR-0246): sessions of the current generation that no call holds. With the
+        # sessions calls hold, never more than max_concurrency: a call takes one with its slot.
+        self._idle: list[_Session] = []
+        self._live: set[_Session] = set()  # every session not yet ended: idle, held or closing
+        self._closing: set[asyncio.Task] = set()
+        # A generation is the sessions opened since the tools were last pinned; a call that finds
+        # the server unreachable, or not knowing its session, ends it (`_reset`).
+        self._generation = 0
+        self._down = asyncio.Event()
         self._task: asyncio.Task | None = None
         self.connected = asyncio.Event()
-        self.sessions = 0  # sessions initialised so far: one per (re)connection (I9)
+        self.sessions = 0  # sessions initialised so far (I9)
         # Allowlisted tools whose pinned schema matched, by platform name: their input schema.
         self.verified: dict[str, dict[str, Any]] = {}
         # Allowlisted tools that cannot be called, by platform name: why (content-free). A server
@@ -166,65 +288,65 @@ class ServerConnection:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
             self._task = None
+        for pooled in self._live:
+            pooled.request_close()
+        tasks = [*self._closing, *(pooled.task for pooled in self._live)]
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=_STOP_GRACE_S)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _keep_connected(self) -> None:
         attempt = 0
         while True:
             try:
                 await self._connect_once()
-                attempt = 0  # the session ended after it had worked: reconnect at once
+                attempt = 0  # the generation ended after it had worked: reconnect at once
             except asyncio.CancelledError:
                 raise
             except BaseException as exc:  # noqa: BLE001 (any failure of a connection is retried)
                 log.warning("mcp server %s: connection failed (%s)", self.entry.id, _kinds(exc))
                 attempt += 1
             finally:
-                self._session = None
-                self.connected.clear()
-                for name in self.verified:
-                    self.disabled[name] = "not_connected"
-                self.verified = {}
+                self._disconnect()
             if attempt:
                 delay = min(_BACKOFF_MAX_S, 0.5 * 2 ** min(attempt - 1, 6))
                 await asyncio.sleep(delay * (0.8 + 0.4 * random.random()))
 
     async def _connect_once(self) -> None:
-        transport = CappedTransport(self.entry.max_result_bytes, self.entry.timeout_s)
-        timeout = self.entry.timeout_s
-        headers = {"Authorization": f"Bearer {self.resolved.token}"} if self.resolved.token else {}
-        ended = asyncio.Event()
-        # The HTTP bound is a little past the call's own, so a call ends as tool_timeout first and
-        # its request is then let go by the transport, never by the session (G7).
-        http = httpx.AsyncClient(
-            transport=transport,
-            headers=headers,
-            timeout=httpx.Timeout(timeout + 1.0),
-            follow_redirects=False,
+        """Opens a generation's first session, pins the tools on it, puts it in the pool and waits
+        until a call ends the generation."""
+        self._down.clear()
+        first = self._open()
+        try:
+            session = await first.opened()
+            listed = await asyncio.wait_for(_list_tools(session), self.entry.timeout_s)
+        except BaseException:
+            self._spawn(first.close())
+            raise
+        self._pin(listed)
+        self._idle.append(first)
+        self.connected.set()
+        log.info(
+            "mcp server %s: connected, %d tool(s) verified, %d disabled",
+            self.entry.id,
+            len(self.verified),
+            len(self.disabled),
         )
-        async with (
-            http,
-            streamable_http_client(self.resolved.url, http_client=http) as (read, write, _session_id),
-            ClientSession(
-                read,
-                write,
-                read_timeout_seconds=timedelta(seconds=timeout),
-                client_info=types.Implementation(name="agent-platform", version=self._version),
-                message_handler=_ignore_server_messages,
-            ) as session,
-        ):
-            await asyncio.wait_for(session.initialize(), timeout)
-            self.sessions += 1
-            listed = await asyncio.wait_for(_list_tools(session), timeout)
-            self._pin(listed)
-            self._session, self._transport, self._ended = session, transport, ended
-            self.connected.set()
-            log.info(
-                "mcp server %s: connected, %d tool(s) verified, %d disabled",
-                self.entry.id,
-                len(self.verified),
-                len(self.disabled),
-            )
-            await ended.wait()
+        await self._down.wait()
+
+    def _disconnect(self) -> None:
+        """Ends the generation: its idle sessions are closed and its pins forgotten. Sessions calls
+        still hold are closed when those calls end (`_finish`)."""
+        self.connected.clear()
+        self._generation += 1
+        idle, self._idle = self._idle, []
+        for pooled in idle:
+            self._spawn(pooled.close())
+        for name in self.verified:
+            self.disabled[name] = "not_connected"
+        self.verified = {}
 
     def _pin(self, listed: list[types.Tool]) -> None:
         """I5: each allowlisted tool is enabled only when the server lists it with the pinned
@@ -244,16 +366,78 @@ class ServerConnection:
             log.warning("mcp server %s: tool %s disabled (%s)", self.entry.id, name, reason)
         self.verified, self.disabled = verified, disabled
 
-    def _reset(self, session: ClientSession | None) -> None:
-        """Ends `session` when it is still the current one; the connection task re-initialises it.
-        The connected flag is cleared here, at once, so a call waiting for the new session never
-        sees the old one as connected; a session already replaced is left alone."""
-        if session is None or self._session is not session:
+    def _reset(self, generation: int) -> None:
+        """Ends `generation` when it is still the current one; the connection task opens and pins
+        the next. The connected flag is cleared here, at once, so a call waiting for the next
+        generation never takes a session of this one; a generation already ended is left alone."""
+        if generation != self._generation:
             return
-        self._session = None
         self.connected.clear()
-        if self._ended is not None:
-            self._ended.set()
+        self._down.set()
+
+    # ------------------------------------------------------------------ the pool
+
+    def _open(self) -> _Session:
+        pooled = _Session(self, self._generation)
+        self._live.add(pooled)
+        return pooled
+
+    def forget(self, pooled: _Session) -> None:
+        """Called by a session when it has ended."""
+        self._live.discard(pooled)
+
+    def _spawn(self, work) -> None:
+        task = asyncio.ensure_future(work)
+        self._closing.add(task)
+        task.add_done_callback(self._closing.discard)
+
+    async def _take(self, lease: _Lease) -> None:
+        """Gives the call an idle session of the current generation, or opens one; raises
+        _Unreachable when the server cannot be reached."""
+        while self._idle:
+            pooled = self._idle.pop()
+            if pooled.session is not None:
+                lease.pooled = pooled
+                return
+        if not self.connected.is_set():
+            raise _Unreachable()
+        lease.pooled = self._open()  # held by the call before it waits, so it is never lost
+        await lease.pooled.opened()
+
+    def _finish(self, lease: _Lease) -> None:
+        """Returns a call's slot. A session after an answer goes back to the pool at once; any
+        other end (a cancellation, a timeout, a failure) may have left its request open at the
+        server, so the session is closed first, which ends that request, and only then is the slot
+        returned: requests open at a server never exceed max_concurrency (ADR-0246)."""
+        pooled = lease.pooled
+        if pooled is None:
+            self._semaphore.release()
+        elif lease.clean:
+            if pooled.generation == self._generation and pooled.session is not None:
+                self._idle.append(pooled)
+            else:
+                self._spawn(pooled.close())
+            self._semaphore.release()
+        else:
+            self._spawn(self._replace(pooled))
+
+    async def _replace(self, pooled: _Session) -> None:
+        """Closes a session a call left, then, within the call's slot, opens a fresh one in its
+        place when its generation is still current; the slot is returned last."""
+        try:
+            await pooled.close()
+            if pooled.generation == self._generation and self.connected.is_set():
+                fresh = self._open()
+                try:
+                    await fresh.opened()
+                except _Unreachable:
+                    return
+                if fresh.generation == self._generation:
+                    self._idle.append(fresh)
+                else:
+                    await fresh.close()
+        finally:
+            self._semaphore.release()
 
     # ------------------------------------------------------------------ calls
 
@@ -291,7 +475,7 @@ class ServerConnection:
     async def _call(
         self, tool: ToolEntry, arguments: dict[str, Any], observed: dict[str, str | int | bool]
     ) -> CallResult:
-        if tool.name not in self.verified or self._session is None:
+        if tool.name not in self.verified or not self.connected.is_set():
             raise ToolFailure(UNAVAILABLE)
         if self.breaker.state == "open":
             raise ToolFailure(UNAVAILABLE)
@@ -302,47 +486,61 @@ class ServerConnection:
                 await self._semaphore.acquire()
         except TimeoutError:
             raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
+        lease = _Lease()
         try:
             admitted = self.breaker.admit()
             if admitted is None:
                 raise ToolFailure(UNAVAILABLE)
             trial = admitted == "trial"
-            resolved = False
+            decided = False
             try:
-                result = await self._attempt(tool, arguments, observed)
-                resolved = True
+                result = await self._attempt(tool, arguments, observed, lease)
+                decided = True
                 self.breaker.success()
                 return result
             except _Failed as failed:
-                resolved = True
+                decided = True
                 if failed.server_failed or trial:
                     self.breaker.failure()
                 else:
                     self.breaker.success()  # the server is up and answered this call
                 raise ToolFailure(failed.code) from None
             finally:
-                if trial and not resolved:
-                    self.breaker.failure()  # a cancelled trial reopens the breaker (ADR-0237)
+                if trial and not decided:
+                    # Cancelled by its caller (a status bound, a time limit, a client gone): that
+                    # says nothing about the server. The trial is released without a verdict and
+                    # the next call may be the trial (ADR-0244).
+                    self.breaker.release()
         finally:
-            self._semaphore.release()
+            self._finish(lease)
 
     async def _attempt(
-        self, tool: ToolEntry, arguments: dict[str, Any], observed: dict[str, str | int | bool]
+        self,
+        tool: ToolEntry,
+        arguments: dict[str, Any],
+        observed: dict[str, str | int | bool],
+        lease: _Lease,
     ) -> CallResult:
-        """One call, re-sent once on a new session when the server no longer knows this one (I9).
-        Raises _Failed with a content-free code."""
+        """One call on a session of the pool, re-sent once on a new generation's session when the
+        server no longer knows this one (I9). Raises _Failed with a content-free code."""
         try:
             async with asyncio.timeout(self.entry.timeout_s + _BACKSTOP_S):
-                session = self._session
+                await self._take(lease)
                 try:
-                    return await self._send(tool, arguments, observed)
+                    result = await self._send(lease.pooled, tool, arguments, observed)
                 except McpError as exc:
                     if _SESSION_GONE not in str(exc.error.message):
                         raise
-                    # I9: an expired session is re-initialised once and the call sent on it.
-                    self._reset(session)
+                    # I9: the server restarted. Its 404 ended the request, so nothing is open on
+                    # the session; the generation ends, and the call is sent on the next one.
+                    gone, lease.pooled = lease.pooled, None
+                    self._reset(gone.generation)
+                    self._spawn(gone.close())
                     await self.connected.wait()
-                    return await self._send(tool, arguments, observed)
+                    await self._take(lease)
+                    result = await self._send(lease.pooled, tool, arguments, observed)
+                lease.clean = True
+                return result
         except TimeoutError:
             raise _Failed(TIMEOUT, True) from None
         except McpError as exc:
@@ -352,26 +550,38 @@ class ServerConnection:
             if message == TRANSPORT_TIMEOUT:
                 raise _Failed(TIMEOUT, True) from None
             if message == TRANSPORT_FAILED:
-                # The server is not reachable: the session is likely gone with it. Reconnecting
+                # The server is not reachable: the generation is likely gone with it. Reconnecting
                 # (with backoff) is the connection task's; this call fails at once.
-                self._reset(self._session)
+                self._reset(self._generation_of(lease))
                 raise _Failed(UNAVAILABLE, True) from None
             if exc.error.code == httpx.codes.REQUEST_TIMEOUT:
                 raise _Failed(TIMEOUT, True) from None
             if exc.error.code in (types.INVALID_PARAMS, types.METHOD_NOT_FOUND, types.INTERNAL_ERROR):
+                lease.clean = True
                 raise _Failed(TOOL_ERROR, False) from None  # the server is up and refused or failed it
+            raise _Failed(UNAVAILABLE, True) from None
+        except _Unreachable:
+            self._reset(self._generation_of(lease))
             raise _Failed(UNAVAILABLE, True) from None
         except ToolFailure as failure:
             raise _Failed(failure.code, True) from None
         except Exception as exc:  # transport, closed stream, protocol: the server is not reachable
             log.warning("mcp server %s: call failed (%s)", self.entry.id, type(exc).__name__)
-            self._reset(self._session)
+            self._reset(self._generation_of(lease))
             raise _Failed(UNAVAILABLE, True) from None
 
+    def _generation_of(self, lease: _Lease) -> int:
+        return lease.pooled.generation if lease.pooled is not None else self._generation
+
     async def _send(
-        self, tool: ToolEntry, arguments: dict[str, Any], observed: dict[str, str | int | bool]
+        self,
+        pooled: _Session | None,
+        tool: ToolEntry,
+        arguments: dict[str, Any],
+        observed: dict[str, str | int | bool],
     ) -> CallResult:
-        session, transport = self._session, self._transport
+        session = pooled.session if pooled is not None else None
+        transport = pooled.transport if pooled is not None else None
         if session is None or transport is None:
             raise ToolFailure(UNAVAILABLE)
         call_id = uuid.uuid4().hex
@@ -419,9 +629,9 @@ async def _list_tools(session: ClientSession) -> list[types.Tool]:
 
 
 async def _ignore_server_messages(message: Any) -> None:
-    """Notifications (tools changed, logging, progress) are ignored (I2); requests the server
-    sends (sampling, elicitation, roots) are answered with an error by the SDK, since the
-    session declares none of those capabilities."""
+    """Notifications (tools changed, logging, progress) are ignored (I2). Requests the server
+    sends (sampling, elicitation, roots) never get here: the transport drops them unanswered
+    (ADR-0246), and the session declares none of those capabilities."""
     return None
 
 

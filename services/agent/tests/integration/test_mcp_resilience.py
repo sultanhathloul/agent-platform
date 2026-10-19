@@ -6,7 +6,6 @@ The misbehaving servers run in a thread of their own (tests/fixtures/raw_mcp.py)
 lag a probe task measures here is the agent's alone."""
 
 import asyncio
-import contextlib
 import json
 import logging
 import time
@@ -202,9 +201,8 @@ def _opened(connection, now: list[float]) -> None:
     now[0] += 30  # half open: the next call is the one trial
 
 
-async def test_a_cancelled_failed_or_refused_trial_reopens_and_a_successful_one_closes(
-    fixture_server, fx_hashes
-):
+async def test_a_failed_or_refused_trial_reopens_and_a_successful_one_closes(fixture_server, fx_hashes):
+    """A cancelled trial is released, not reopened: tests/integration/test_mcp_sessions.py (ADR-0244)."""
     client = await _client(
         _config("fx", fx_hashes, ["echo", "slow", "big"], timeout_s=1.0, max_bytes=1024), fixture_server.url
     )
@@ -213,22 +211,13 @@ async def test_a_cancelled_failed_or_refused_trial_reopens_and_a_successful_one_
     now = [1000.0]
     try:
         trials = {
-            "cancelled": None,
             "failed": (slow, {"seconds": 5}),  # past the 1 s deadline: tool_timeout
             "refused": (big, {"size": 4096}),  # an answer past the cap: a ToolFailure
         }
         for kind, call in trials.items():
             _opened(connection, now)
-            if call is None:
-                task = asyncio.create_task(connection.call(slow, {"seconds": 5}))
-                await asyncio.sleep(0.3)
-                assert connection.breaker.trial_in_progress
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-            else:
-                with pytest.raises(ToolFailure):
-                    await connection.call(*call)
+            with pytest.raises(ToolFailure):
+                await connection.call(*call)
             assert connection.breaker.state == "open" and not connection.breaker.trial_in_progress, kind
             with pytest.raises(ToolFailure) as refused:  # open: nothing is sent
                 await connection.call(echo, {"text": "x"})
@@ -282,14 +271,23 @@ async def test_the_first_call_after_a_server_restart_succeeds_after_one_reinitia
 # ------------------------------------------------------------------ server-initiated requests (item 14)
 
 
-async def test_sampling_elicitation_and_roots_requests_are_refused_and_the_call_goes_on(
-    fixture_server, fx_hashes
+async def test_sampling_elicitation_and_roots_requests_are_dropped_and_the_call_goes_on(
+    fixture_server, fx_hashes, caplog
 ):
+    """None of the three is served: each is dropped unanswered and logged by its code only
+    (ADR-0246), and the call ends with the server's answer within its own deadline."""
+    caplog.set_level(logging.WARNING, logger="app.mcp.transport")
     client = await _client(_config("fx", fx_hashes, ["asks"], timeout_s=10.0), fixture_server.url)
     try:
         result = await _call(_broker(client, ["fx.asks"]), "fx.asks")
         assert result.status == "ok", result.error
-        assert result.data == {"refused": ["sampling", "elicitation", "roots"], "answer": "done"}
+        assert result.data == {
+            "refused": [],
+            "unanswered": ["sampling", "elicitation", "roots"],
+            "answer": "done",
+        }
+        dropped = [r.getMessage() for r in caplog.records if r.name == "app.mcp.transport"]
+        assert dropped == ["server_request_dropped"] * 3
     finally:
         await client.stop()
 
