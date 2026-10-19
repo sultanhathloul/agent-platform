@@ -1469,6 +1469,56 @@ Left / for the owner: the keyword_free directions questions route to general 0/9
 
 Files for human review: config/mcp.yaml (`class: transport`), config/docs.yaml (`status_timeout_s`), capabilities/directions/manifest.yaml, prompts/** and evals/metrics.yaml, evals/golden/routing.jsonl, infra/postgres/roles/connect.sh and the init scripts, docker-compose.yml (mcp-routing network, MCP_REF_TEST_DELAY_S), docker-compose.airgap.yml, .env.example, scripts/smoke.sh.
 
+### Narrow fix session: PR #10 review round 2, C1 and C2 (2026-10-19)
+
+Scope: findings C1 and C2 of review round 2 (one user or one server stalls other users' chats) and the owner's decision of 2026-10-18 on keyword candidacy; nothing else. `docs/HANDOFF.md` untouched. Threat model ADR-0054. Done = make test, make eval three times (general, guardrails, routing, rag on both backends, directions), make smoke twice, make smoke-airgap once, from `make clean && make models && make up` with nothing started by hand, recorded per rule 11 with the timings of the tests of items 1–3.
+
+Checklist:
+- [x] 1. C1: a caller's cancellation releases the half-open trial without a verdict; only the server's outcome decides (success closes; a server error or the call's own timeout_s reopens). New ADR; Status note on ADR-0237. (ADR-0244.) Tests: (a) the reviewer's case (server 2.5 s, timeout 10 s, half open, A's with_status at its 2 s bound; not reopened; B's next call reaches the server and closes it); (b) a trial cancelled repeatedly never wedges and never reopens; (c) a trial past timeout_s still reopens.
+- [x] 2. C1: a status read past its 2 s bound is not cancelled; it completes in the background within the server's semaphore and timeout_s and updates the cached status; at most one read per attachment in flight, later list reads join it. New ADR; Status note on ADR-0233. (ADR-0245.) Test: a 5 s status server, a 10-file list read 20 times → at most 10 requests at the server; another user's general turn on time.
+- [x] 3. C2: a pool of max_concurrency sessions per server, one call per session; a cancelled or timed-out call closes its session (aborting its request) before its slot is returned, and the pool re-initialises one; server-initiated requests dropped unanswered, logged `server_request_dropped`; I9 stands. New ADR; Status notes on ADR-0236 (and ADR-0203, ADR-0210, which it also replaces in part). (ADR-0246.) Tests: (a) the reviewer's case (server holds the reply to A's call → B's quick call < 0.5 s); (b) cancelled calls leave no request open (fixture counts open requests, never above max_concurrency); (c) the item 14 refusal tests pass with requests dropped.
+- [x] 4. ADR (decided): keyword candidacy stays for directions; routing for all capabilities decided in phase 08 on measured router latency with the keyword-free set (0/9 now); BACKLOG phase 08. (ADR-0247.)
+- [x] BACKLOG tech debt: phase 06 first item (lost or interrupted cases count as failures in every metric); phase 08 (run_evals.py still names docs).
+- [x] FINISH: make test; make eval ×3; make smoke ×2; make smoke-airgap ×1; rule 11 with record paths and the item 1–3 test timings; push.
+
+Results (rule 11), from `make clean && make models && make up`, nothing started by hand:
+- `make test`: agent 814 / 0 / 0, gateway 138 / 0 / 0, gateway-db 5 / 0 / 0, web 148 / 0 / 0, evals harness 12 / 0 / 0 (passed / failed / skipped). Agent +9 on the previous record (805): 8 in the new `tests/integration/test_mcp_sessions.py`, 1 unit test (a server request in place of the answer). No test was removed; the resilience breaker test lost its "cancelled" case, which now belongs to ADR-0244 and is covered by items 1(a) and 1(b).
+- Item 1–3 tests (`tests/integration/test_mcp_sessions.py`, fixture `tests/fixtures/slow_mcp.py`; 8 passed in 36.4 s):
+  - 1(a), the reviewer's case (status server 2.5 s, timeout_s 10 s, breaker half open), as A's `with_status` at its 2 s bound: A returned in 2.00 s, breaker still half open; the background read then closed it; B's next call reached the server in 0.01 s, breaker closed.
+  - 1(a), A's call itself cancelled at 2 s: breaker still half open (trial released); B's call was the trial, reached the server in 0.06 s and closed it.
+  - 1(b): 10 trials cancelled in turn in 2.03 s; the breaker never reopened nor wedged; no request open at the server 0.02 s later; a trial after them closed it.
+  - 1(c): a trial past its timeout_s (1.0 s) ended `tool_timeout` at 1.00 s and reopened the breaker.
+  - 2: status 5 s, a 10-file list read 20 times: slowest read 2.00 s (bound 2.0 s, last known status shown); peak requests open at the server 10 (one per file); another user's general turn 0.08 s (0.07 s normally).
+  - 3(a): while the server held the reply to A's call (a dropped sampling request, the answer held 3 s), B's quick call took 19 ms (2 ms alone); A's call ended in 3.01 s; no reply was posted to the server (`server_request_dropped` logged).
+  - 3(b), cancelled: 12 calls in waves of 4 in 1.13 s; peak open requests 4 (max_concurrency 4); none open 0.09 s after a wave at worst; a quick call afterwards 8 ms.
+  - 3(b), timed out: 12 calls in 3.21 s; peak 4; none open 0.06 s after a wave at worst; a quick call afterwards 9 ms.
+  - 3(c): the item 14 refusal test (`test_sampling_elicitation_and_roots_requests_are_dropped_and_the_call_goes_on`) passes: the three requests unanswered, the call answered, three `server_request_dropped` log records.
+  - The new tests fail on the code before this session (5 of the 7 stack-free tests; the two timed-out cases pass on both).
+- `make eval` ×3 (rerank off; every suite PASS in every run; every case recorded in every suite, none lost):
+
+  | run (build/evals/<run>.json) | guardrails | rag | rag@mcp | routing | directions | general |
+  |---|---|---|---|---|---|---|
+  | make-eval-20261019T125706Z | 142/142 | 51/53 | 52/53 | 65/67 | 27/27 | 28/28 |
+  | make-eval-20261019T135251Z | 142/142 | 52/53 | 49/53 | 65/67 | 26/27 | 28/28 |
+  | make-eval-20261019T150722Z | 142/142 | 50/53 | 50/53 | 65/67 | 27/27 | 28/28 |
+
+  - guardrails, all three: deterministic 1.00 (89), llm_judge accuracy 1.00, FPR 0.00 (53).
+  - rag (internal) per metric, runs 1/2/3: hit@8 1.00 ×3; citation page accuracy 0.94/0.97/0.91; faithfulness 0.97/0.96/0.98; answer correctness 0.88/0.89/0.89; abstention 1.00 ×3; rag.retrieve p50 0.13–0.14 s, p95 0.14–0.15 s.
+  - rag@mcp per metric, runs 1/2/3: hit@8 1.00 ×3; citation page accuracy 0.97/0.89/0.91; faithfulness 0.94/0.96/0.95; answer correctness 0.91/0.87/0.90; abstention 1.00 ×3; p50 0.14–0.15 s, p95 0.15–0.16 s.
+  - directions, runs 1 and 3: places_resolved 1.00 (17), distance_duration_correct 1.00 (17), unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3). Run 2: 0.94 / 0.94 / 1.00 / 1.00; its one miss (`route-gulf-boulevard-from-kingdom`) ended `agent_stream_interrupted` at the 60 s gateway timeout: its trace shows the three MCP calls in 9–17 ms and the answer's model call still streaming at 60 s (the provider, the BACKLOG item).
+  - routing: the misses are negatives ending `validation_failed` (runs 1 and 2: `negative-msa-career-path`, `negative-msa-learning-path`; run 3: `negative-msa-learning-path`, `kw-negative-msa-english`). keyword_free set (reported, not gated, ADR-0247): 0/9 in all three runs, every case routed to general.
+  - rag and rag@mcp misses: only the twenty-page truncation cases citing neighbouring pages too (p3, p12, p15, p18).
+  - Provider retries: run 2 rag@mcp 2; run 3 rag 2, routing 1; all others 0.
+- `make smoke` ×2: 163/163 and 163/163 (attempts 3 and 4). G7 timings: server stopped — audit row `tool_unavailable`, another user's general turn 3.21 s and 3.79 s; server hung 30 s past the 10 s deadline — `tool_timeout`, a general turn sent meanwhile 4.90 s and 3.02 s (bounds median + 3 s: 6.53 s, 8.81 s).
+- `make smoke-airgap` ×1: 171/171 (attempt 2). G7: 3.20 s (stopped) and 3.18 s (hung), bound 6.22 s.
+- Failed attempts, not counted, all the model provider: smoke attempt 1 stopped at 62/63, "the turn after the switch passes" (the turn ended `model_unavailable` at 16:12:28, audit row); smoke attempt 2 stopped at 150/151, the hung-server general turn took 7.45 s against a 6.34 s bound (that run's own general turns: 3.21, 3.34, 5.10 s), while the directions turn's `tool_timeout` was asserted and passed; smoke-airgap attempt 1 stopped at 105/106, the document-injection turn ended `model_unavailable` at 16:19:40 after its `docs_search` call succeeded (audit row). None touched an MCP call.
+
+How to verify: `make clean && make models && make up`, then `make test`, `make eval`, `make smoke`, `make smoke-airgap`. The item 1–3 timings: `docker compose --profile test run --rm agent-tests pytest -s tests/integration/test_mcp_sessions.py`.
+
+Left / for the owner: nothing open in this scope. Recorded in docs/BACKLOG.md, not implemented: phase 06 first item (lost or interrupted eval cases count as failures in every metric); phase 08, routing for all capabilities (ADR-0247) and the eval harness still naming docs.
+
+Files for human review: no file under `config/` or `infra/` changed this session. docs/DECISIONS.md (ADR-0244 to ADR-0247; Status notes on ADR-0203, 0210, 0233, 0236, 0237), docs/BACKLOG.md, services/agent/tests/fixtures/slow_mcp.py and mcp_server.py.
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`
