@@ -1904,7 +1904,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0203: MCP transport is Streamable HTTP with the official SDK; server-initiated features refused (I2)
 - Date: 2026-10-15
 - Phase: 05 (implementation choice I2)
-- Status: decided
+- Status: decided — Superseded by ADR-0246 on 2026-10-19 (server requests are dropped unanswered, not answered with an error)
 - Context: stdio would make the agent spawn server processes; server-initiated features would let a server reach back into the platform.
 - Decision: The client speaks MCP Streamable HTTP only, with the official Python `mcp` SDK pinned to an exact version (recorded in ADR-0218). `transport: stdio` is refused by config validation; the agent spawns no server process. Sampling, elicitation and roots are refused (the client declares none of them and answers any such request with an error); resources and prompts are never read; `tools/list_changed` is ignored.
 - Consequences: A server that only speaks stdio needs an HTTP front of its own, run as its own service.
@@ -1954,7 +1954,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0210: MCP sessions are pooled per server and carry no per-user state (I9)
 - Date: 2026-10-15
 - Phase: 05 (implementation choice I9)
-- Status: decided
+- Status: decided — Superseded by ADR-0246 on 2026-10-19 (a pool of sessions per server; I9 stands)
 - Decision: One pooled session per server; every call carries all it needs (injected scope included). An expired session is re-initialised.
 - Consequences: A server's session id says nothing about who is calling.
 
@@ -2137,7 +2137,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0233: Status reads never stall a turn: one bound, the last known status
 - Date: 2026-10-18
 - Phase: 05 (fix session, owner decision 10; amends ADR-0227 on a status the server cannot give)
-- Status: decided
+- Status: decided — Superseded by ADR-0245 on 2026-10-19 (a read past the bound is not cancelled)
 - Decision: A conversation's attachment statuses are read at once, through `broker.transport` for an MCP backend, under one bound for all of them: `status_timeout_s: 2` in config/docs.yaml. A read past the bound is cancelled; a read that fails (a server down, a breaker open) raises; either way the record's last known status is shown. An MCP backend's status, when read, is kept on the record (`AttachmentStore.remember_status`, only for records of a backend other than internal, whose records are their status already). A record never read reads `pending`, as ADR-0227 had it. Tested: with a rag server whose status hangs, a general turn in a conversation holding three of its files completes within the bound of its normal time, and the files show `indexed`, their last known status.
 - Consequences: A turn with files on a hung backend costs at most 2 s more; the file list may show a status one read old.
 
@@ -2162,14 +2162,14 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0236: The MCP transport reads incrementally, counts every byte and ends each request at a wall-clock deadline
 - Date: 2026-10-18
 - Phase: 05 (fix session, owner decision 8, G7; amends ADR-0221)
-- Status: decided
+- Status: decided — Superseded by ADR-0246 on 2026-10-19 (the shared session; server requests dropped)
 - Decision: app/mcp/transport.py passes an SSE response to the SDK one complete event at a time, through an incremental parser: each byte is scanned once and only the event being received is buffered. Every byte of the response, notifications and the server's own requests included, counts toward `max_result_bytes` (a `tools/call`; 1 MiB for the protocol's messages); past it the connection is closed and the request ends `tool_result_too_large`. `timeout_s` is a wall-clock deadline from send to the last byte: at the deadline the read is cancelled, the connection closed and the request ends `tool_timeout`. A stream that ends without its answer ends the request `tool_unavailable`. A server's requests on the call's stream reach the SDK, which refuses sampling, elicitation and roots, and the call goes on. Tests, with the misbehaving servers in a thread of their own: 1 MiB of progress notifications before the result, and one byte every 2 s; in both the agent's event-loop lag stays under 100 ms (a probe task), another user's call on the same server and a general turn take their normal time, and the trickling connection is closed when the call ends.
 - Consequences: The SDK sees a request's events as they arrive, so a long-running call can stream progress later (phase 11) without a change here.
 
 ### ADR-0237: The breaker's trial resolves in a finally; a full queue is tool_busy, not a server failure
 - Date: 2026-10-18
 - Phase: 05 (fix session, owner decision 9; amends ADR-0209)
-- Status: decided
+- Status: decided — Superseded by ADR-0244 on 2026-10-19 (a cancelled trial)
 - Decision: The half-open trial is resolved in a `finally`: a success closes the breaker; any other end, a cancellation or a ToolFailure included, reopens it. In the closed state an answer the server gave (a tool error, an answer over the cap) still counts as the server up. Waiting for the per-server semaphore past `timeout_s` fails `tool_busy` and leaves the breaker as it was; the send then has its own `timeout_s`, so the broker's bound on an MCP call is twice the server's timeout plus its margin. `_reset` ends a session only if it is still the current one and clears the connected flag at once, so a call re-sent after a re-initialisation waits for the new session (I9). Tested: a cancelled, a failed and a refused trial each reopen it and a successful one after each closes it; 50 waits on a full queue are `tool_busy` and leave it closed with no failure counted; the first call after a server restart succeeds after one re-initialisation, with no retry in the test.
 - Consequences: A burst beyond `max_concurrency` never opens a breaker; only the server's own failures do.
 
@@ -2218,3 +2218,41 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: assumed
 - Decision: tests/fixtures/checkpoints/phase04_docs_conversation.json holds the checkpoint rows (36 checkpoints, 62 blobs, 142 writes) of one conversation, a docs turn and a general turn, run by the phase 04 code at 30302d2 (the merge of PR #4) with the generator beside it; LangGraph versions were the same then and now. The G9 test loads those rows and reopens the conversation through the history endpoint: its questions and answers come back unchanged; phase 04 kept a turn's citations in the per-turn `citations` channel, not on the reply, so the replies carry none (ADR-0193 shows citations when they were recorded), and the recorded ones still load, without backend or collection. The other tests the review named: the injection sentence itself must sit inside the delimiters and the answer must equal a route's without it and hold nothing it asked for (make test's answer model is the mock; the eval's injection cases test real models); a docs turn's reply must record a citation before its shape is checked (the turn's answer quotes the file); the reference RAG server runs as rag_ref (ADR-0242); a fixture server sends sampling, elicitation and roots requests on the call's stream and all three are refused while the call succeeds.
 - Consequences: A change to the checkpoint format or the history's reading of it fails a test against data the current code did not write.
+
+### ADR-0244: A caller's cancellation never decides the breaker
+- Date: 2026-10-19
+- Phase: 05 (narrow fix session on PR #10, review round 2, C1, owner decision 1; supersedes the cancellation part of ADR-0237)
+- Status: decided
+- Context: Review round 2: a status read's 2 s bound cancelled the breaker's half-open trial, and ADR-0237 reopened the breaker on any end but a success, a cancellation included. A server answering in 2.5 s within its 10 s timeout was kept open for another 30 s by one user's file list, and every other user's calls to it were refused.
+- Decision: A call cancelled by its caller (a status bound, a capability time limit, a client disconnect) releases the half-open trial without a verdict (`Breaker.release`): the breaker stays half open and the next call may be the trial. Only the server's own outcome decides: a success closes it; a server error or the call's own `timeout_s` reopens it (the rest of ADR-0237 stands: an answer past the cap, a ToolFailure, still reopens a trial; `tool_busy` leaves the breaker as it was). Tested (tests/integration/test_mcp_sessions.py): the reviewer's case with a server answering in 2.5 s, timeout 10 s, the breaker half open: user A's file list returns at its 2 s bound and the breaker is not reopened; A's read, no longer cancelled (ADR-0245), ends at 2.5 s and closes it, and user B's next call reaches the server; the same trial cancelled by its caller at 2 s is released and B's next call is the trial, reaches the server and closes it; a trial cancelled ten times in a row never reopens and never wedges; a trial past the server's `timeout_s` still reopens.
+- Consequences: A server is judged only by what it did. One trial at a time stays (ADR-0209): a call that arrives while a trial is still running, such as A's read between 2 s and 2.5 s, is refused `tool_unavailable` as before.
+
+### ADR-0245: A status read past its bound goes on in the background; one read per attachment
+- Date: 2026-10-19
+- Phase: 05 (narrow fix session on PR #10, review round 2, C1, owner decision 2; supersedes ADR-0233 on cancelling a read past the bound)
+- Status: decided
+- Context: Review round 2: a status read cancelled at its 2 s bound left its HTTP request running inside the SDK until the server's `timeout_s`, outside the per-server semaphore, so one user polling a list of files against a slow server filled the HTTP pool and other users' calls waited.
+- Decision: When the bound (`status_timeout_s`, 2 s) passes, the turn or the list shows the record's last known status, as ADR-0233 has it, and the read is not cancelled: it ends in the background, within its server's semaphore and `timeout_s` (it is an ordinary `broker.transport` call), and its result is kept on the record (`remember_status`). At most one read per attachment is in flight (AttachmentService keeps them by attachment id); a later list read, or a read of the one attachment, joins it. A read belongs to no caller: a caller that stops waiting, by its bound or its own cancellation, leaves it running. Tested: with a server answering status in 5 s, one user reading a 10-file list 20 times (two tabs, ten rounds) holds at most 10 requests at the server, each list returns within its bound, the reads' results update the cached statuses, and another user's general turn completes in its normal time.
+- Consequences: A read's audit entry goes where the read was started (the turn that started it, or the transport log); a turn that joins a read records none of its own. A slow backend's status reaches the list one poll later, as before.
+
+### ADR-0246: One MCP session per call in flight; server requests dropped unanswered
+- Date: 2026-10-19
+- Phase: 05 (narrow fix session on PR #10, review round 2, C2, owner decision 3; supersedes the shared session of ADR-0210 and ADR-0236 and the refusal of ADR-0203; I9 stands)
+- Status: decided
+- Context: Review round 2: every call to a server shared one MCP session. The SDK answers a server's request (sampling, elicitation, roots) with a POST it sends inline, from the one task that sends all of the session's messages, so a server holding that POST stalled every other user's call to it; and a call cancelled by its caller left its HTTP request open at the server, outside the semaphore.
+- Decision:
+  - Each server has a pool of up to `max_concurrency` sessions, each used by one call at a time. A call takes a session with its semaphore slot and returns both when its HTTP request has ended. A session lives in a task of its own (the SDK's contexts must be entered and left in one task); a call that ends with the server's answer (a result or a tool error) puts its session back in the pool.
+  - A call that is cancelled, times out or fails any other way closes its session: leaving the SDK's contexts cancels the request still open on it, which closes its HTTP connection, then the session is ended with a DELETE (bounded by `timeout_s`; the SDK's own DELETE, sent while requests still run, is switched off). Only then, after a fresh session has been opened in its place, is the slot returned, so requests open at a server never exceed `max_concurrency`.
+  - The first session of a generation pins the tools (I5). A call that finds the server unreachable, or not knowing its session (I9: the server restarted), ends the generation: the connection task opens and pins a new one, and in the second case the call is sent once more on it.
+  - Server-initiated requests (sampling, elicitation, roots) are dropped unanswered by the transport, on an SSE stream or as a JSON body (the latter ends the call's request `tool_unavailable`, since its answer never came), and logged with the code `server_request_dropped` only; their bytes still count toward the cap. The call stays bound by its own deadline.
+  - I9 stands: sessions carry no per-user state; every call carries all it needs.
+- Tested (tests/integration/test_mcp_sessions.py, a server in a thread of its own that counts the requests open at it): the reviewer's case, a server that sends a sampling request on user A's stream and holds A's answer 3 s: user B's quick call on the same server takes under 0.5 s, and nothing is answered; twelve calls in three waves on a server with `max_concurrency` 4, each holding the server 5 s and cancelled after 0.3 s (or cut by a 1 s `timeout_s`): requests open at the server never exceed 4 and none is left open once the calls have ended; the item 14 test now asserts sampling, elicitation and roots all go unanswered, are logged as dropped three times, and the call succeeds.
+- Consequences: A server may hold up to `max_concurrency` sessions; a cancelled or timed-out call costs one session's re-initialisation. A server that needs sampling, elicitation or roots to answer a call fails that call by its own deadline.
+
+### ADR-0247: Keyword candidacy stays for directions; routing for all capabilities is decided in phase 08
+- Date: 2026-10-19
+- Phase: 05 (owner decision of 2026-10-18, recorded in the narrow fix session on PR #10)
+- Status: decided
+- Context: Run make-eval-20261018T141208Z and run make-eval-20261018T150216Z measured the keyword-free directions set (ADR-0241) at 0/9: without a keyword, the router model sends every such question to general. Making the router model decide on every turn would raise that number and add the router's latency to every turn.
+- Decision: The `keyword_candidate` rule (ADR-0216) stays for directions as it is. Whether routing for all capabilities moves to the router model on every turn, or keeps keyword candidacy, is decided in phase 08 (kb), with the router's latency measured and the keyword-free coverage set (0/9 now) as the measure of what the keyword rule misses. docs/BACKLOG.md carries the item under phase 08.
+- Consequences: Directions questions that hold none of the keywords keep going to general until phase 08.
