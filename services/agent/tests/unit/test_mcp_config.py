@@ -232,8 +232,9 @@ def _event(message: dict) -> bytes:
 
 
 async def test_sse_events_reach_the_sdk_whole_even_when_split_across_chunks():
-    """The incremental parser (ADR-0236): a server's request on the stream is passed on, an event
-    split anywhere is passed whole, and the stream ends after the answer."""
+    """The incremental parser (ADR-0236): a server's request on the stream is dropped, its bytes
+    still counted (ADR-0246), an event split anywhere is passed whole, and the stream ends after
+    the answer."""
     sampling = _event({"jsonrpc": "2.0", "id": "s1", "method": "sampling/createMessage", "params": {}})
     answer = _event({"jsonrpc": "2.0", "id": 9, "result": {"ok": True}})
     after = _event({"jsonrpc": "2.0", "method": "notifications/progress", "params": {}})
@@ -242,7 +243,17 @@ async def test_sse_events_reach_the_sdk_whole_even_when_split_across_chunks():
     transport = CappedTransport(4096, inner=_Streaming(_Chunks(chunks)))
     response = await transport.handle_async_request(_post(9))
     received = await response.aread()
-    assert received == sampling + answer and transport.sizes["c1"].response_bytes == len(sampling + answer)
+    assert received == answer and transport.sizes["c1"].response_bytes == len(sampling + answer)
+
+
+async def test_a_server_request_in_place_of_the_answer_is_dropped_and_the_request_fails():
+    """A JSON body holding the server's own request, not the answer: dropped unanswered, logged by
+    its code only, and the call's request ends `tool_unavailable` (ADR-0246)."""
+    request = {"jsonrpc": "2.0", "id": "s1", "method": "roots/list", "params": {}}
+    transport = CappedTransport(4096, inner=_Upstream(json.dumps(request).encode()))
+    response = await transport.handle_async_request(_post(8))
+    await response.aread()
+    assert response.json()["error"]["message"] == "tool_unavailable"
 
 
 async def test_every_byte_counts_toward_the_cap_notifications_included():

@@ -15,11 +15,12 @@ the SDK sees a byte of it:
   incremental parser: each byte is scanned once, and only the event being received is buffered,
   never a copy of the body per chunk. The stream ends after the event that answers the request,
   so a server that keeps it open costs nothing more. A server's own requests on that stream
-  (sampling, elicitation, roots) reach the SDK, which refuses them (the session declares none of
-  those capabilities, I2), and the call goes on;
+  (sampling, elicitation, roots) are dropped unanswered, never handed to the SDK, and logged with
+  the code `server_request_dropped` only: an answer would be a request of its own, which the
+  server could hold (ADR-0246). The call goes on, bound by its own deadline;
 - every way a request can end without its answer (deadline, cap, a broken or closed stream) is
-  handed to the SDK as a JSON-RPC error for that request, so a waiting call always ends and the
-  session other calls share is never torn down by one (G7);
+  handed to the SDK as a JSON-RPC error for that request, so a waiting call always ends and its
+  session is never torn down from inside the SDK (G7);
 - responses are asked for, and must come, without content encoding: a compressed body could
   inflate far past what was counted;
 - the GET stream a server may use to send its own requests is never opened: the transport
@@ -30,16 +31,20 @@ span and audit entry, which carry sizes and never content (G8)."""
 
 import asyncio
 import json
+import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import httpx
 
+log = logging.getLogger(__name__)
+
 TOO_LARGE = "tool_result_too_large"
 TRANSPORT_TIMEOUT = "tool_timeout"
 TRANSPORT_FAILED = "tool_unavailable"
 CALL_META = "platform_call"
+REQUEST_DROPPED = "server_request_dropped"
 _ERROR_CODE = -32099
 # The protocol's own messages (initialize, tools/list) are bounded too, by a fixed limit: the
 # configured cap is a tool result's (I7).
@@ -70,21 +75,39 @@ def _request(request: httpx.Request) -> tuple[object, str | None, str | None]:
     return body.get("id"), call if isinstance(call, str) else None, body["method"]
 
 
-def _answers(event: bytes, request_id: object) -> bool:
-    """Whether one SSE event carries the response to `request_id`."""
+def _kind(message: object, request_id: object) -> str | None:
+    """`answer` for the response to `request_id`, `request` for a request the server sends (it
+    has a method and an id), None for anything else (a notification, another id)."""
+    if not isinstance(message, dict) or "id" not in message:
+        return None
+    if isinstance(message.get("method"), str):
+        return "request"
+    if message.get("id") == request_id and ("result" in message or "error" in message):
+        return "answer"
+    return None
+
+
+def _event_kind(event: bytes, request_id: object) -> str | None:
+    """`_kind` of the message one SSE event carries."""
     lines = event.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
     data = b"\n".join(line[5:].lstrip() for line in lines if line.startswith(b"data:"))
     if not data or b'"id"' not in data:
-        return False
+        return None
     try:
-        message = json.loads(data)
+        return _kind(json.loads(data), request_id)
     except (ValueError, UnicodeDecodeError):
-        return False
-    return (
-        isinstance(message, dict)
-        and message.get("id") == request_id
-        and ("result" in message or "error" in message)
-    )
+        return None
+
+
+def _json_kind(body: bytes, request_id: object) -> str | None:
+    try:
+        return _kind(json.loads(body), request_id)
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _dropped() -> None:
+    log.warning(REQUEST_DROPPED)
 
 
 def _error_message(request_id: object, message: str) -> bytes:
@@ -148,8 +171,12 @@ class _EventStream(httpx.AsyncByteStream):
                     del pending[:end]
                     start_total += end
                     scanned = 0
+                    kind = _event_kind(event, self._request_id)
+                    if kind == "request":
+                        _dropped()  # never answered: the SDK does not see it (ADR-0246)
+                        continue
                     complete.append(event)
-                    if _answers(event, self._request_id):
+                    if kind == "answer":
                         answered = True
                         break
                 # The sizes are kept before the SDK sees the answer: the call may end at once.
@@ -232,6 +259,9 @@ class CappedTransport(httpx.AsyncBaseTransport):
             return self._error(request, request_id, failure, failed=True)
         if sizes.too_large:
             return self._error(request, request_id, TOO_LARGE)
+        if request_id is not None and _json_kind(bytes(body), request_id) == "request":
+            _dropped()  # a request in place of the answer: dropped, and the answer never came
+            return self._error(request, request_id, TRANSPORT_FAILED, failed=True)
         return httpx.Response(response.status_code, headers=headers, content=bytes(body), request=request)
 
     @staticmethod

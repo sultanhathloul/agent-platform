@@ -10,8 +10,9 @@ official SDK. Its tools:
 - `mixed {}` → a text part, an image and an embedded resource;
 - `fails {}` → an error result;
 - `admin_secret {}` → a tool no allowlist names (D4);
-- `asks {}` → while it runs, asks the client for sampling, elicitation and its roots, and answers
-  which of the three were refused (I2: the platform refuses all three).
+- `asks {}` → while it runs, asks the client for sampling, elicitation and its roots, waiting up to
+  ASK_WAIT_S for each, and answers which were refused and which got no answer (I2: the platform
+  drops all three unanswered, ADR-0246).
 
 Every call is counted by tool name, so a test can prove a refused call never reached the server.
 `stop()` and `start()` take it down and up again on the same port (reconnect and session tests)."""
@@ -38,6 +39,9 @@ from mcp.types import (
 )
 from pydantic import BaseModel
 
+# How long `asks` waits for each of its requests to be answered.
+ASK_WAIT_S = 1.0
+
 
 class Echo(BaseModel):
     echo: str
@@ -45,6 +49,7 @@ class Echo(BaseModel):
 
 class Asked(BaseModel):
     refused: list[str]
+    unanswered: list[str]
     answer: str
 
 
@@ -130,7 +135,7 @@ class FixtureServer:
         async def asks(ctx: Context) -> Asked:
             """Asks the client for sampling, elicitation and roots."""
             calls["asks"] += 1
-            refused = []
+            refused, unanswered = [], []
             # On the call's own stream (related to this request): the only one the platform reads.
             related = ServerMessageMetadata(related_request_id=ctx.request_id)
             roots = ServerRequest(ListRootsRequest(method="roots/list"))
@@ -144,10 +149,12 @@ class FixtureServer:
             ]  # fmt: skip
             for kind, request in requests:
                 try:
-                    await asyncio.wait_for(request, 5)
+                    await asyncio.wait_for(request, ASK_WAIT_S)
                 except McpError:
                     refused.append(kind)
-            return Asked(refused=refused, answer="done")
+                except TimeoutError:
+                    unanswered.append(kind)
+            return Asked(refused=refused, unanswered=unanswered, answer="done")
 
         @mcp.tool()
         def admin_secret() -> str:
