@@ -53,6 +53,8 @@ Phase 05 status (2026-10-15): items 1–6, 9 and 10 → phase 05 (docs/PHASE-05-
 | Errors and limits | Error codes, max payload, timeouts, rate limits, expected latency |
 | Data handling | What the server stores, for how long, and where (sovereignty) |
 | Versioning | How tool changes are announced without breaking the platform |
+| Concurrency limit | The total concurrent calls the server accepts across all platform replicas |
+| Session affinity | A server behind a load balancer routes one Mcp-Session-Id to one instance |
 
 ### Owner's servers (after phase 05)
 - Wire each by URL in `.env` (`url_env`, a bearer token in `bearer_env` when it needs one), add its entry and tools to `config/mcp.yaml` with the hashes `make mcp-hashes` prints, run the DocumentBackend contract suite (a RAG server) and the evals; settle the ICD table above with its team first.
@@ -62,12 +64,21 @@ Phase 05 status (2026-10-15): items 1–6, 9 and 10 → phase 05 (docs/PHASE-05-
 
 ---
 
+## Before the phase 06 build (from PR #10 verification)
+
+- **Generation reset may count breaker failures against a healthy server** (suspected, not reproduced). The verifier of PR #10 suspects, from reading the code only, that when one call finds its MCP session gone while another call waits for a fresh session, the generation-reset path can count breaker failures against a healthy server (`services/agent/app/mcp/client.py`, ADR-0246). Reproduce it first; fix only if reproduced.
+
+---
+
 ## Skills → phase 06 (owner decision, 2026-10-14)
 
 Status: not started. Done-check in `CLAUDE.md` (phase 06).
 
 ### Tech debt: first item of phase 06, before any new eval suite (owner decision, PR #10 review round 2, 2026-10-19)
 - **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.
+
+### Tech debt: phase 06 (PR #10 fix session, smoke attempt 2)
+- **Smoke's G7 checks measure platform-side time**, outside model generation spans, not the whole turn, so provider slowness neither fails them nor hides a stall. Smoke attempt 2 of the narrow fix session (2026-10-19) failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the MCP server (`docs/PROGRESS.md`, phase 05, narrow fix session).
 
 ### What a skill is
 - A skill describes **how** to produce an output or carry out a task: the form, the template, worked examples. It never says **where** information comes from; that stays in capabilities. Example: the docs capability finds the facts in an uploaded file; the "official memo" skill says how the memo is laid out (heading, reference, body, closing, signature block).
@@ -154,6 +165,11 @@ From phase 04 (added from PROGRESS and the ADRs, 2026-10-14):
 
 From phase 05 (owner decision, fix session on PR #10, 2026-10-18; not implemented in phase 05):
 - **Scoped LiteLLM keys per internal service**: `mcp-rag-ref` receives `LITELLM_MASTER_KEY`, following the existing precedent (the agent and the ingest service hold it too). Give each internal service a scoped LiteLLM key limited to the aliases it needs (the RAG server: `embed`, and `rerank` when it is on).
+
+From phase 05 (resilience, `docs/RESILIENCE.md`, CLAUDE.md rule 12):
+- **Move connection-level upload protection to a reverse proxy** (nginx, Envoy or the entity's ingress: header and body timeouts, max body size, a generous connection cap). Per-user and per-tenant rules stay in the gateway (RESILIENCE trap 1).
+- **Move per-user and per-tenant limits to Bucket4j + Redis**, required before running more than one gateway (supersedes the in-memory counters of ADR-0185 and ADR-0190).
+- **Settle the four scaling traps of `docs/RESILIENCE.md`**: fail open for limits when Redis is down (recommended), with a local fallback cap per process and an immediate alert; a TTL on concurrency counters so a crashed replica cannot hold slots; MCP `max_concurrency` written as a total per server and shared between replicas (or agreed in the ICD); breakers stay per process.
 
 ## Management decisions pending (also in the phase summaries)
 - Production model hosting on the entity's servers, same families as development (ADR-0065).
