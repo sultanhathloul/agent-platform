@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import type { AttachmentLimits } from "@/lib/api/types";
-import { type ComposerFile, isDismissible, reasonKey, sizeInMb } from "@/lib/attachments";
+import { type ComposerFile, isDismissible, pagesWithoutText, reasonKey, sizeInMb } from "@/lib/attachments";
 import { resolveErrorMessage } from "@/lib/errors";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 
@@ -39,7 +39,10 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   const status = file.error ? "failed" : file.attachment?.status;
-  const percent = new Intl.NumberFormat(locale === "ar" ? "ar" : "en").format(file.progress);
+  const number = new Intl.NumberFormat(locale === "ar" ? "ar" : "en");
+  const percent = number.format(file.progress);
+  // An indexed PDF with pages it could not read says how many (D7, ADR-0201).
+  const unread = status === "indexed" ? pagesWithoutText(file.attachment) : 0;
   let detail: string | null = null;
   if (file.error) {
     detail = resolveErrorMessage(file.error, locale, (key) => t(key));
@@ -54,7 +57,9 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
         </bdi>
         {status ? (
           <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ring-1 ${badgeClass[status] ?? badgeClass.pending}`}>
-            {t(`attachments.status.${status}`)}
+            {unread > 0
+              ? t("attachments.indexedWithUnreadPages", { count: unread, shown: number.format(unread) })
+              : t(`attachments.status.${status}`)}
           </span>
         ) : (
           <span className="shrink-0 text-[11px] text-slate-500">{t("attachments.uploading", { percent })}</span>
@@ -83,6 +88,7 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
           {detail}
         </p>
       )}
+      {unread > 0 && <p className="text-xs text-amber-800">{t("attachments.unreadPagesNote")}</p>}
     </li>
   );
 }

@@ -3,25 +3,31 @@ documents. `register` takes a stored upload, `status` says whether it is pending
 failed (with a reason), `search` returns the best chunks for a query, and `fetch` returns
 chunk texts by reference.
 
-Every call is scoped: a `DocumentScope` names the tenant, the user and the conversation, and
-the broker builds it from the verified principal and the conversation in state, never from
-a model or a tool's arguments (S1). Every backend enforces it: nothing outside the scope is
-ever returned, whatever ids a call names.
+Every call is scoped: a `DocumentScope` names the tenant, the user and the collections a call may
+touch (I1, ADR-0202): the conversation's session collection and the knowledge bases the principal
+may read and the turn selected. The broker builds it from the verified principal and the turn,
+never from a model or a tool's arguments (S1). Every backend enforces it: nothing outside the
+scope is ever returned, whatever ids a call names. A session collection is one user's; a
+knowledge base collection is its tenant's.
 
 What a backend returns is untrusted data. It passes the same runtime path as any tool output
 (POST_TOOL with sanitize_untrusted first, then OUTPUT and DATA per principal); a backend
 applies no policy itself, and chunks are stored as extracted (ADR-0158).
 
-`InternalDocumentBackend` (app/rag/internal.py) is the pipeline of phase 04; a future backend
-(the owner's RAG/OCR service over MCP) implements this protocol and nothing else changes.
-`config/docs.yaml` `backend` selects one."""
+`InternalDocumentBackend` (app/rag/internal.py) is the pipeline of phase 04;
+`MCPDocumentBackend` (app/rag/mcp.py) reaches a RAG server over MCP through the platform's MCP
+client (I11). A capability's `config/<slug>.yaml` `backend` names the one its tools use.
+
+A status may carry warnings (D7, ADR-0201): an indexed PDF with pages under the text threshold
+says how many pages were not read."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.rag.collections import conversation_of, kind_of, session_collection
 from app.rag.types import AttachmentStatus, FailureReason, Owner
 
 
@@ -31,15 +37,39 @@ class _Strict(BaseModel):
 
 @dataclass(frozen=True)
 class DocumentScope:
-    """Whose documents a call may touch: one user's files in one conversation."""
+    """Whose documents a call may touch: the principal's tenant and user, and the collections
+    the broker allowed this turn (I1). An empty list of collections reaches nothing."""
 
     tenant_id: str
     user_id: str
-    conversation_id: str
+    collections: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        collections = tuple(self.collections)
+        for name in collections:
+            if kind_of(name) is None:
+                raise ValueError(f"unknown collection {name!r}")
+        object.__setattr__(self, "collections", tuple(dict.fromkeys(collections)))
+
+    @classmethod
+    def session(cls, *, tenant_id: str, user_id: str, conversation_id: str) -> "DocumentScope":
+        """One user's files in one conversation."""
+        return cls(tenant_id=tenant_id, user_id=user_id, collections=(session_collection(conversation_id),))
 
     @property
     def owner(self) -> Owner:
         return Owner(tenant_id=self.tenant_id, user_id=self.user_id)
+
+    @property
+    def conversations(self) -> tuple[str, ...]:
+        """The conversation ids of the scope's session collections."""
+        return tuple(c for name in self.collections if (c := conversation_of(name)))
+
+    def only(self, collection: str) -> "DocumentScope | None":
+        """This scope narrowed to one of its collections; None for a collection outside it."""
+        if collection not in self.collections:
+            return None
+        return DocumentScope(tenant_id=self.tenant_id, user_id=self.user_id, collections=(collection,))
 
 
 class StoredFile(_Strict):
@@ -49,6 +79,8 @@ class StoredFile(_Strict):
     conversation_id: str
     tenant_id: str
     user_id: str
+    # Where the backend indexes it: the conversation's session collection for an upload (I1).
+    collection: str
     name: str
     mime: str
     kind: str
@@ -56,16 +88,29 @@ class StoredFile(_Strict):
     object_key: str
 
 
+WarningCode = Literal["pages_without_text"]
+
+
+class DocumentWarning(_Strict):
+    """Something the user should know about a document that was indexed anyway (D7): `count`
+    pages of a PDF held too little text to read; OCR is v2."""
+
+    code: WarningCode
+    count: int = Field(ge=1)
+
+
 class DocumentStatus(_Strict):
     status: AttachmentStatus
     reason: FailureReason | None = None
     pages: int | None = Field(default=None, ge=0)
+    warnings: list[DocumentWarning] = []
 
 
 class SourceHit(_Strict):
     """One chunk a search found: its reference, its document, where it sits and its text."""
 
     ref: str = Field(description="Opaque chunk reference; `fetch` takes it back.")
+    collection: str = Field(description="The collection the chunk was found in, one of the scope's.")
     document_id: str
     file_name: str
     page: int | None = Field(default=None, ge=1)

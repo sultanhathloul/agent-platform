@@ -85,3 +85,13 @@ too_many_pages:
 storage_unavailable:
   ar: "تعذّر الوصول إلى مخزن الملفات. حاول مرة أخرى لاحقًا."
   en: "The file storage is unavailable. Please try again later."
+# MCP tools (phase 05, I8, ADR-0209): a capability states these in its findings; the turn goes on.
+tool_unavailable:
+  ar: "الخدمة المطلوبة غير متاحة الآن، فلم تكتمل هذه الخطوة. حاول مرة أخرى لاحقًا."
+  en: "The service this step needs is unavailable right now. Try again later."
+tool_timeout:
+  ar: "استغرقت الخدمة المطلوبة وقتًا أطول من المسموح به، فلم تكتمل هذه الخطوة."
+  en: "The service this step needs took longer than allowed, so the step did not complete."
+tool_result_too_large:
+  ar: "أعادت الخدمة المطلوبة نتيجة أكبر من الحد المسموح به، فلم تُستخدم."
+  en: "The service this step needs returned a result larger than allowed, so it was not used."

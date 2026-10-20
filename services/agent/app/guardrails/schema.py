@@ -62,6 +62,8 @@ ScopeKind = Literal["global", "tenant", "role", "kb", "tool"]
 # D2: narrow over wide.
 SCOPE_PRECEDENCE: dict[str, int] = {"global": 0, "tenant": 1, "role": 2, "kb": 3, "tool": 4}
 _SCOPE_VALUE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+# `tool:{server}.*`: every tool of an MCP server (I4, ADR-0205); the only wildcard a scope may hold.
+_SERVER_TOOLS = re.compile(r"^[a-z][a-z0-9_-]{0,62}\.\*$")
 # A role scope names a Keycloak realm role `policy:{name}` (ADR-0107); the name is a slug.
 ROLE_NAME_PATTERN = r"[a-z0-9][a-z0-9_-]{0,63}"
 _ROLE_NAME = re.compile(f"^{ROLE_NAME_PATTERN}$")
@@ -92,6 +94,8 @@ class Scope:
             )
         if kind == "role" and not _ROLE_NAME.match(value):
             raise ScopeError(f"scope {text!r}: a role name is a slug of [a-z0-9_-], up to 64 characters")
+        if kind == "tool" and _SERVER_TOOLS.match(value):
+            return cls(kind, value)  # type: ignore[arg-type]
         if not _SCOPE_VALUE.match(value):
             raise ScopeError(f"scope {text!r}: the value must be 1-128 characters of [A-Za-z0-9_.-]")
         return cls(kind, value)  # type: ignore[arg-type]
@@ -366,6 +370,8 @@ class GuardContext:
         scopes.update(f"role:{role.removeprefix(POLICY_ROLE_PREFIX)}" for role in principal.policy_roles)
         scopes.update(f"kb:{kb}" for kb in self.kbs)
         scopes.update(f"tool:{tool}" for tool in self.tools)
+        # An MCP tool `{server}.{tool}` is also in its server's scope `tool:{server}.*` (I4).
+        scopes.update(f"tool:{tool.split('.', 1)[0]}.*" for tool in self.tools if "." in tool)
         return scopes
 
 

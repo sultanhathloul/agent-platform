@@ -165,6 +165,15 @@
           "title": "Guard Audit",
           "type": "array"
         },
+        "tool_audit": {
+          "default": [],
+          "description": "Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. The gateway removes this field before relaying the event; a client never receives it.",
+          "items": {
+            "$ref": "#/$defs/ToolAuditData"
+          },
+          "title": "Tool Audit",
+          "type": "array"
+        },
         "state_digest": {
           "$ref": "#/$defs/StateDigest"
         },
@@ -280,6 +289,15 @@
             "$ref": "#/$defs/GuardAuditData"
           },
           "title": "Guard Audit",
+          "type": "array"
+        },
+        "tool_audit": {
+          "default": [],
+          "description": "Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. The gateway removes this field before relaying the event; a client never receives it.",
+          "items": {
+            "$ref": "#/$defs/ToolAuditData"
+          },
+          "title": "Tool Audit",
           "type": "array"
         }
       },
@@ -970,6 +988,116 @@
       "title": "TokenEvent",
       "type": "object"
     },
+    "ToolAuditData": {
+      "additionalProperties": false,
+      "description": "One tool call of the turn for the gateway's audit record (G8, ADR-0219): who called what,\nhow it ended, how long it took and how big it was, never its arguments or its result. It\ntravels in the terminal event's `tool_audit`, which the gateway removes before relaying.",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "caller": {
+          "description": "The capability that called it.",
+          "title": "Caller",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "denied",
+            "pending_approval"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A content-free code.",
+          "title": "Error"
+        },
+        "latency_ms": {
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "retries": {
+          "default": 0,
+          "title": "Retries",
+          "type": "integer"
+        },
+        "server": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MCP tools: the server id of config/mcp.yaml.",
+          "title": "Server"
+        },
+        "request_bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Bytes"
+        },
+        "response_bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Bytes"
+        },
+        "args_hmac": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MCP tools: HMAC-SHA256 of the arguments under CONTENT_HASH_KEY.",
+          "title": "Args Hmac"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "caller",
+        "status",
+        "latency_ms"
+      ],
+      "title": "ToolAuditData",
+      "type": "object"
+    },
     "ToolEndData": {
       "additionalProperties": false,
       "properties": {
@@ -1052,6 +1180,25 @@
       "title": "ToolEndEvent",
       "type": "object"
     },
+    "ToolLabel": {
+      "additionalProperties": false,
+      "properties": {
+        "ar": {
+          "title": "Ar",
+          "type": "string"
+        },
+        "en": {
+          "title": "En",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ar",
+        "en"
+      ],
+      "title": "ToolLabel",
+      "type": "object"
+    },
     "ToolStartData": {
       "additionalProperties": false,
       "properties": {
@@ -1066,6 +1213,18 @@
         "capability": {
           "title": "Capability",
           "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolLabel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the client shows while the tool runs, per locale (I13); absent: a generic string."
         }
       },
       "required": [

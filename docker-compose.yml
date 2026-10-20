@@ -65,6 +65,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    # `mcp`: the internal network the reference MCP servers live on (phase 05, ADR-0211).
+    networks: [default, mcp]
     healthcheck:
       <<: *healthcheck
       test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
@@ -88,6 +90,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - miniodata:/data
+    networks: [default, mcp]
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "mc", "ready", "local"]
@@ -96,6 +99,7 @@ services:
   # user per service with a policy of its own; every service then uses its own user.
   #   gateway-uploads  writes, reads and discards uploads   (uploads-write)
   #   ingest-uploads   reads uploads                        (uploads-read)
+  #   ragref-uploads   reads uploads (mcp-rag-ref, phase 05) (uploads-read)
   #   sweeper-uploads  lists uploads, removes an object     (uploads-sweep)
   #   langfuse-events  Langfuse's own bucket                (langfuse-bucket)
   minio-init:
@@ -110,6 +114,8 @@ services:
       MINIO_GATEWAY_SECRET_KEY: ${MINIO_GATEWAY_SECRET_KEY:?see .env.example}
       MINIO_INGEST_ACCESS_KEY: ${MINIO_INGEST_ACCESS_KEY:?see .env.example}
       MINIO_INGEST_SECRET_KEY: ${MINIO_INGEST_SECRET_KEY:?see .env.example}
+      MINIO_RAGREF_ACCESS_KEY: ${MINIO_RAGREF_ACCESS_KEY:?see .env.example}
+      MINIO_RAGREF_SECRET_KEY: ${MINIO_RAGREF_SECRET_KEY:?see .env.example}
       MINIO_SWEEPER_ACCESS_KEY: ${MINIO_SWEEPER_ACCESS_KEY:?see .env.example}
       MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY:?see .env.example}
       MINIO_LANGFUSE_ACCESS_KEY: ${MINIO_LANGFUSE_ACCESS_KEY:?see .env.example}
@@ -128,11 +134,13 @@ services:
         mc admin policy create local "$$policy" "/tmp/$$policy.json"; done;
         mc admin user add local "$$MINIO_GATEWAY_ACCESS_KEY" "$$MINIO_GATEWAY_SECRET_KEY";
         mc admin user add local "$$MINIO_INGEST_ACCESS_KEY" "$$MINIO_INGEST_SECRET_KEY";
+        mc admin user add local "$$MINIO_RAGREF_ACCESS_KEY" "$$MINIO_RAGREF_SECRET_KEY";
         mc admin user add local "$$MINIO_SWEEPER_ACCESS_KEY" "$$MINIO_SWEEPER_SECRET_KEY";
         mc admin user add local "$$MINIO_LANGFUSE_ACCESS_KEY" "$$MINIO_LANGFUSE_SECRET_KEY";
         attach() { mc admin policy attach local "$$1" --user "$$2" >/dev/null 2>&1 || mc admin user info local "$$2" | grep -q "$$1"; };
         attach uploads-write "$$MINIO_GATEWAY_ACCESS_KEY";
         attach uploads-read "$$MINIO_INGEST_ACCESS_KEY";
+        attach uploads-read "$$MINIO_RAGREF_ACCESS_KEY";
         attach uploads-sweep "$$MINIO_SWEEPER_ACCESS_KEY";
         attach langfuse-bucket "$$MINIO_LANGFUSE_ACCESS_KEY";
         echo "minio: buckets, users and policies ready"
@@ -217,6 +225,7 @@ services:
       - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks: [default, mcp]   # mcp-rag-ref embeds through it (phase 05)
     # No dependency on `rerank`: the stack starts without the reranker's weights (owner decision R1).
     healthcheck:
       <<: *healthcheck
@@ -348,8 +357,19 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: agent
+      # MCP (phase 05): the servers of config/mcp.yaml by URL, the RAG server's token, the
+      # profile this deployment runs and the external-server gate (D5, I16, ADR-0204). The agent
+      # does not wait for any server: one that is down is reported, never fatal (I8).
+      MCP_ROUTING_URL: ${MCP_ROUTING_URL:-http://mcp-routing-ref:8000/mcp}
+      MCP_RAG_URL: ${MCP_RAG_URL:-http://mcp-rag-ref:8000/mcp}
+      MCP_RAG_TOKEN: ${MCP_RAG_TOKEN:?see .env.example}
+      MCP_PROFILE: ${MCP_PROFILE:-default}
+      MCP_ALLOW_EXTERNAL: ${MCP_ALLOW_EXTERNAL:-false}
+      # The document backend of uploads and the docs capability: empty keeps config/docs.yaml (I11).
+      DOCS_BACKEND: ${DOCS_BACKEND:-}
     volumes:
       - ./config:/srv/config:ro
+    networks: [default, mcp, mcp-routing]
     depends_on:
       postgres:
         condition: service_healthy
@@ -366,6 +386,78 @@ services:
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health')"]
+
+  # ------------------------------------------------------------------ reference MCP servers (phase 05)
+  # Each in its own container on `mcp`, an internal network with no route out, never published to
+  # the host (I10, ADR-0211). The agent reaches them through its MCP client, behind the broker.
+  # MCP_REF_TEST_DELAY_S and MCP_REF_TEST_OVERSIZE_BYTES are test-only switches, off here.
+  mcp-routing-ref:
+    build:
+      context: ./infra/mcp-ref
+      additional_contexts:
+        agent: ./services/agent
+    command: ["python", "-m", "mcp_ref.routing"]
+    environment:
+      # The test-only switch (I10): off unless smoke's hung-server step sets it for one recreate.
+      MCP_REF_TEST_DELAY_S: ${MCP_REF_TEST_DELAY_S:-0}
+    # Least privilege (ADR-0242): a network it shares with the agent only, no postgres, minio or litellm.
+    networks: [mcp-routing]
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+
+  # The reference RAG server: the phase 04 pipeline over MCP, its own schema (rag_ref), database role
+  # and MinIO user (read uploads only); files parsed in limited child processes (ADR-0176).
+  mcp-rag-ref:
+    build:
+      context: ./infra/mcp-ref
+      additional_contexts:
+        agent: ./services/agent
+    command: ["python", "-m", "mcp_ref.rag"]
+    mem_limit: 2g
+    environment:
+      CONFIG_DIR: /srv/config
+      DATABASE_URL: postgresql://rag_ref:${RAG_REF_DB_PASSWORD}@postgres:5432/app
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_RAGREF_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_RAGREF_SECRET_KEY}
+      MCP_RAG_TOKEN: ${MCP_RAG_TOKEN:?see .env.example}
+      RERANK_ENABLED: ${RERANK_ENABLED:-false}
+      RERANK_CANDIDATES: ${RERANK_CANDIDATES:-16}
+      RERANK_MAX_CHARS: ${RERANK_MAX_CHARS:-1070}
+    volumes:
+      - ./config:/srv/config:ro
+    networks: [mcp]
+    depends_on:
+      postgres-roles:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+
+  # Database roles a new volume's init scripts cannot create on an existing one: the reference RAG
+  # server's role and schema, and CONNECT kept from PUBLIC (infra/postgres/roles, ADR-0242).
+  # Idempotent, on every `make up` and `make test-agent`.
+  postgres-roles:
+    image: pgvector/pgvector:0.8.6-pg16
+    entrypoint: ["bash", "-c", "bash /roles/rag-ref.sh && bash /roles/connect.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      RAG_REF_DB_PASSWORD: ${RAG_REF_DB_PASSWORD:?see .env.example}
+    volumes:
+      - ./infra/postgres/roles:/roles:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # Ingestion out of the agent's process (owner decision R4): the agent's image in a container of
   # its own with a hard memory limit; each file is parsed in a child process with CPU, memory and
@@ -484,6 +576,8 @@ services:
     build:
       context: ./services/agent
       target: test
+      additional_contexts:
+        mcpref: ./infra/mcp-ref
     command: ["uvicorn", "tests.fixtures.embed_service:app", "--host", "0.0.0.0", "--port", "8000"]
     # Only litellm-mock reaches it: a test network of its own, with no route out (owner decision S6).
     networks: [test]
@@ -516,12 +610,16 @@ services:
     build:
       context: ./services/agent
       target: test
+      additional_contexts:
+        mcpref: ./infra/mcp-ref
     environment:
       <<: *agent-env
       LITELLM_BASE_URL: http://litellm-mock:4000
       DOCS_DIR: /srv/docs
       # The test database from infra/postgres/init, as the app role; never the superuser (ADR-0070).
       AGENT_TEST_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/agent_test
+      # The reference RAG server under test runs as its own role on its own database (ADR-0242).
+      RAG_REF_TEST_DATABASE_URL: postgresql://rag_ref:${RAG_REF_DB_PASSWORD}@postgres:5432/rag_ref_test
       # Redis database 15 and a namespace of its own: tests never meet the stack's keys or channels.
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/15
       # Tests store uploads as the gateway does, and sweep as the ingest service does (S7).
@@ -566,6 +664,12 @@ networks:
   default: {}
   # The deterministic embed and rerank service of `make test` (ADR-0143) and its one client.
   test:
+    internal: true
+  # The reference MCP servers and what they reach (phase 05, ADR-0211): no route out.
+  mcp:
+    internal: true
+  # The reference routing server and its one client, the agent (ADR-0242): no route out.
+  mcp-routing:
     internal: true
 
 volumes:

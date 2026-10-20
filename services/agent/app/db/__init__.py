@@ -13,6 +13,8 @@ lifespan (or a test fixture) opens it."""
 
 import hashlib
 import logging
+import re
+import zlib
 from pathlib import Path
 
 from psycopg.rows import dict_row
@@ -43,8 +45,23 @@ def _statements(sql: str) -> list[str]:
 
 
 class Database:
-    def __init__(self, conninfo: str, *, max_size: int = 10, migrations_dir: Path = MIGRATIONS_DIR):
+    def __init__(
+        self,
+        conninfo: str,
+        *,
+        max_size: int = 10,
+        migrations_dir: Path = MIGRATIONS_DIR,
+        schema: str = SCHEMA,
+    ):
+        """`schema`: where the migrations are recorded and the search path starts; the agent's
+        `agent`, or another service's own (ADR-0211)."""
+        if not re.match(r"^[a-z_][a-z0-9_]{0,62}$", schema):
+            raise ValueError(f"invalid schema name {schema!r}")
         self._migrations_dir = migrations_dir
+        self.schema = schema
+        self._lock = (
+            _MIGRATION_LOCK if schema == SCHEMA else _MIGRATION_LOCK + zlib.crc32(schema.encode()) % 100_000
+        )
         self.pool = AsyncConnectionPool(
             conninfo,
             open=False,
@@ -55,7 +72,7 @@ class Database:
                 "autocommit": True,
                 "prepare_threshold": 0,
                 "row_factory": dict_row,
-                "options": f"-c search_path={SCHEMA},public",
+                "options": f"-c search_path={schema},public",
             },
         )
 
@@ -71,19 +88,25 @@ class Database:
 
     async def _migrate(self) -> None:
         async with self.pool.connection() as conn:
-            await conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_LOCK,))
+            await conn.execute("SELECT pg_advisory_lock(%s)", (self._lock,))
             try:
-                await conn.execute(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}")
+                # Created only when missing: a role that owns its schema but may not create one in the
+                # database (a reference server's, ADR-0211) still starts.
+                exists = await (
+                    await conn.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (self.schema,))
+                ).fetchone()
+                if exists is None:
+                    await conn.execute(f"CREATE SCHEMA {self.schema}")
                 await conn.execute(
-                    f"CREATE TABLE IF NOT EXISTS {SCHEMA}.schema_migrations ("
+                    f"CREATE TABLE IF NOT EXISTS {self.schema}.schema_migrations ("
                     "version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
                 )
                 # Databases migrated before checksums existed gain the column (ADR-0069).
                 await conn.execute(
-                    f"ALTER TABLE {SCHEMA}.schema_migrations ADD COLUMN IF NOT EXISTS checksum text"
+                    f"ALTER TABLE {self.schema}.schema_migrations ADD COLUMN IF NOT EXISTS checksum text"
                 )
                 rows = await (
-                    await conn.execute(f"SELECT version, checksum FROM {SCHEMA}.schema_migrations")
+                    await conn.execute(f"SELECT version, checksum FROM {self.schema}.schema_migrations")
                 ).fetchall()
                 applied = {row["version"]: row["checksum"] for row in rows}
                 for path in sorted(self._migrations_dir.glob("*.sql")):
@@ -94,7 +117,8 @@ class Database:
                         if recorded is None:
                             # Applied before checksums were recorded: the file as it is now is the baseline.
                             await conn.execute(
-                                f"UPDATE {SCHEMA}.schema_migrations SET checksum = %s WHERE version = %s",
+                                f"UPDATE {self.schema}.schema_migrations SET checksum = %s "
+                                "WHERE version = %s",
                                 (checksum, path.stem),
                             )
                         elif recorded != checksum:
@@ -108,9 +132,10 @@ class Database:
                         for statement in _statements(sql):
                             await conn.execute(statement)
                         await conn.execute(
-                            f"INSERT INTO {SCHEMA}.schema_migrations (version, checksum) VALUES (%s, %s)",
+                            f"INSERT INTO {self.schema}.schema_migrations (version, checksum) "
+                            "VALUES (%s, %s)",
                             (path.stem, checksum),
                         )
                     log.info("applied migration %s", path.name)
             finally:
-                await conn.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_LOCK,))
+                await conn.execute("SELECT pg_advisory_unlock(%s)", (self._lock,))

@@ -150,7 +150,7 @@ def harness(request, services, litellm) -> Harness:
 
 
 def _scope(principal: Principal, conversation: str) -> DocumentScope:
-    return DocumentScope(
+    return DocumentScope.session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
 

@@ -1338,34 +1338,226 @@ Results (rule 11):
 
 Files for human review: `services/agent/app/db/migrations/0011_conversation_list.sql`; `README.md` §13 amendment.
 
-## Phase 05: UC4 KB plugins (`kb` capability)
+## Phase 05: MCP integration
 
-- Branch: `phase/05-kb`
+- Branch: `phase/05-mcp`
+- Status: done-check passed on 2026-10-15; awaiting owner review (PR)
+- Done when (CLAUDE.md, phase 05 row): MCP client as a broker tool provider with the `config/mcp.yaml` allowlist; declarative MCP capability (manifest, prompts and evals, no Python); reference MCP servers in compose; a routing capability (slug `directions`, I14) on the reference routing server with zero core change; `MCPDocumentBackend` passes the `DocumentBackend` contract suite against the reference RAG MCP server and `rag.jsonl` runs on both backends; every MCP call guarded and audited through the broker; internal servers work under `smoke-airgap`; external servers disabled. Plus: `DocumentScope` generalised (BACKLOG MCP item 10) before any MCP code; D7 (partly scanned PDFs indexed with a warning); A2 (smoke flake); `make test`, `make eval` (general, guardrails, rag on both backends, routing, directions), `make smoke` and `make smoke-airgap` green.
+- Baseline on `main` at the start (2026-10-15, rule 11): agent 700, gateway 136, gateway-db 5, web 145, evals harness 6 (passed; 0 failed, 0 skipped); `make smoke` 119/119. No layer may end with fewer passing tests unless an ADR names each removed test and why.
+- Carried from phase 04 (PR #4 review round 2, finding 1): the evidence path reaches only the conversation's own files, so `kb` as specified would need core changes. Generalise `DocumentScope` beyond `(tenant, user, conversation)` to name a collection, including the `kb_{slug}` collections the principal's `kb:{slug}:read` roles allow, injected by the broker from the verified principal (never a tool argument, S1/ADR-0160); `graph/evidence.py` fetches each source's text through the backend and scope that found it, not one fixed conversation scope; and `RuntimeContext` can carry more than one backend (the internal pipeline plus the owner's KB/RAG service) so a capability's tool reaches the right one. This keeps S4 (no chunk text in state) and C6 (one backend interface) intact. Scheduled here as Part B1 (I1).
+
+Scope restated (session 2026-10-15):
+1. Core first, capability-agnostic: `DocumentScope` names tenant, user and collections (session plus permitted and selected `kb_{slug}`), intersected with the manifest's `documents.collections`; `Source` carries backend and collection internally; evidence fetched per source; D7 warnings on the status contract.
+2. MCP client as a broker tool provider: `config/mcp.yaml` allowlist (Streamable HTTP only, schema pinning, injected fields, read tools only, size caps, timeouts, per-server semaphore, circuit breaker, content-free spans and audit); external servers refused unless explicitly enabled and never under airgap.
+3. Two reference servers in compose on an internal network (`mcp-routing-ref`, `mcp-rag-ref`), and `MCPDocumentBackend` passing the full contract suite against `mcp-rag-ref`.
+4. A core declarative runner and the `directions` capability as manifest, prompts and evals only, with a generic `keyword_candidate` routing rule; tool labels in `tool_start`; API 2.2.0.
+5. Done = the done-check above, with every count recorded per rule 11 and G1, measurements per G3, and the files for human review listed.
+
+Phase 05 ground rules (from the phase prompt, verbatim):
+- G1. Counts per CLAUDE.md rule 11 after every green run, plus each eval suite's per-metric scores and its build/evals record path (ADR-0188).
+- G2. Contracts first: the config/mcp.yaml schema, the MCP tool spec in the broker, the generalised DocumentScope/ToolScope and Source, the declarative manifest section, the event label field; as types with tests before any client, server or capability code.
+- G3. Fake data only (ADR-0065): the routing fixture uses public landmark names of Riyadh with an invented road graph; documents are the generated ones of phase 04; no real or ministry data.
+- G4. Arabic first: geocoding matches through app/text/arabic.py (MSA, Gulf and English names of the same place); every new prompt in ar and en; Arabic and Gulf eval cases.
+- G5. Core changes allowed in this phase are only those of Part A2, B, C, D and the routing rule in E3, all capability-agnostic. No core file names `directions`, `routing` or any server. Anything else that seems to need a core change: stop and explain.
+- G6. Isolation is the first test of every new path: a user never reaches another user's or tenant's document through any backend, any collection, any chunk reference, over MCP or not (ADR-0059, ADR-0160 precedent).
+- G7. A slow, failing or dead MCP server never stops or slows another user's chat, and never ends the agent. Tested.
+- G8. MCP arguments and results never leave the platform through traces or audit: spans and audit records carry server, tool, status, latency, byte sizes and an HMAC of the arguments (CONTENT_HASH_KEY), never their text (ADR-0137 precedent).
+- G9. Conversation history (ADR-0192 to ADR-0194) keeps working: the history endpoint's message and citation shapes do not change, and conversations persisted before this phase reopen unchanged. Tested.
+
+Checklist:
+- [x] A1 PROGRESS future-phase headings follow the CLAUDE.md table (this edit).
+- [x] A2 smoke: poll Langfuse for the generation's usage (bounded 30 s) instead of reading once.
+- [x] ADRs for D1–D7 and I1–I16 (decided), and the assumptions of this session.
+- [x] B1 contracts: `DocumentScope` (tenant, user, collections), `ToolScope`, `Source.backend`/`collection`, manifest `documents.collections`, `config/<slug>.yaml` `backend`; types and tests.
+- [x] B1 broker builds the scope (session + permitted∩selected kb) ∩ manifest kinds; RuntimeContext carries backends by name; internal and fake backends take collections; evidence fetched per source's backend and collection; contract suite extended; G6 kb tests on the fake; G9 test (a conversation persisted before this change reopens with its citations).
+- [x] B2 D7: extraction counts pages without text; status `warnings [{code: pages_without_text, count}]` through backend, agent, gateway; contract suite on both backends; web badge.
+- [x] C1 contracts: `config/mcp.yaml` schema and validation (stdio refused, write refused, delete never, external rules, profiles), broker MCP tool spec, `tool_start` label, error codes; tests first.
+- [x] C1 client: official `mcp` SDK pinned; Streamable HTTP; pooled sessions; schema pinning (I5) and `make mcp-hashes`; injected fields (I6); result handling and byte cap while reading (I7); semaphore, timeout, circuit breaker, reconnect with backoff (I8); `/v1/health` lists servers and disabled tools; I16 external gate.
+- [x] C1 tests: unlisted remote tool never registered; schema drift disables one tool; injected fields; write refused at startup; size cap; timeout; breaker; G7 (20 delayed calls while another user's general turn completes in normal time); G8 (no argument or result text in spans or audit).
+- [x] D1 `mcp-routing-ref` and `mcp-rag-ref` in compose (healthchecks, internal network, never published; airgap overlay).
+- [x] D2 `MCPDocumentBackend`; the full contract suite against `mcp-rag-ref`, isolation first; `DOCS_BACKEND` override.
+- [x] E1 declarative runner (core) with a test-only fixture capability.
+- [x] E2 `capabilities/directions/` (manifest, prompts ar/en, ≥ 24 evals), `cap:directions` in the realm (analyst, evaluator); zero-core-change diff check.
+- [x] E3 `keyword_candidate` routing rule.
+- [x] F1 web: tool labels from `tool_start`, D7 badge, new error messages; ar.json and en.json.
+- [x] API 2.1.0 → 2.2.0 (agent, gateway, events schema); `make openapi`.
+- [x] G1 evals: routing.jsonl +20 cases; directions suite and thresholds; rag on both backends side by side; 429 backoff with retry counts.
+- [x] G2 smoke checks (directions, history, viewer, undeclared tool, server down and recovery, injection, MCP backend upload, partly scanned warning, airgap networks).
+- [x] G3 measurements (n=20, p50/p95, rerank off).
+- [x] H1 README amendments (§20.4, §6.2/§6.3, §18.2, §5.3), BACKLOG marks, CLAUDE.md phase 05 row names `directions`.
+- [x] `make test`, `make eval`, `make smoke`, `make smoke-airgap`; results per rule 11 and G1.
+
+What was built:
+- Core, capability-agnostic: `DocumentScope`/`ToolScope` name collections, built by the broker from the principal, the turn's selected KBs and the manifest's `documents.collections` (app/rag/collections.py); `Source.backend`/`collection`; evidence fetched per source; backends by name; D7 warnings (migrations 0012, 0013). MCP client `app/mcp/` (config, capped transport, pooled sessions, pinning, breaker, broker provider, `make mcp-hashes`); content-free `tool_audit` in the audit record; `tool:{server}.*` scopes; external-server gate. Declarative runner `app/capabilities/declarative.py`; `keyword_candidate` rule. `MCPDocumentBackend` (app/rag/mcp.py).
+- Reference servers `infra/mcp-ref` (mcp-routing-ref, mcp-rag-ref), compose services, `postgres-roles`, internal network `mcp`, airgap overlay.
+- `capabilities/directions/` (manifest, prompts ar/en, 27 evals), no Python; the commit that adds it (1109b7b) touches only the allowed paths (checked with `git diff --name-only`).
+- Gateway: `tool_audit` stripped and audited as `tool_calls`; attachment `warnings`; error codes; API 2.2.0. Web: tool labels, D7 badge. Smoke +39 checks; airgap check names the servers. Harness: rag@mcp, directions metrics, 429 backoff.
+
+Results (rule 11, G1):
+- `make test` (final, after the last change): agent 770 / 0 / 0, gateway 138 / 0 / 0, gateway-db 5 / 0 / 0, web 148 / 0 / 0, evals harness 10 / 0 / 0 (passed / failed / skipped). Every layer is above the baseline (700, 136, 5, 145, 6); no test was removed.
+- `make smoke`: 158/158 (119 earlier, 39 new). Two earlier runs this session failed: one on a smoke check of my own (a regex took the byte count 1207 for the distance 12.7; fixed to fixed strings), and one on "its tool call ended in error" in the server-down step. Corrected on 2026-10-18 (fix session, item 15): that first check read `.status` at the top of each `tool_end` event, a path events never carry (the status is `.data.status`), so it could never pass; it was a broken check, not an unexplained failure. The check was then rewritten to read `.data.status` and keep the events in build/smoke/; the fix session replaced it with the turn's error code from its audit row (`tool_unavailable`). Also one run failed "the answer gives the fixture's duration": the answer model gave only the distance asked for; directions.findings 1.1.0 asks for both (5/5 samples then gave both).
+- `make smoke-airgap`: 165/165 (7 airgap layout checks, including both reference servers on internal networks only and the agent on the airgap MCP profile, plus the 158 smoke checks).
+- `make eval`, run `make-eval-20261015T122036Z` (build/evals/make-eval-20261015T122036Z.json), rerank off, 0 provider retries in every suite:
+  - general 28/28; guardrails 142/142 (deterministic 1.00 on 89, judge accuracy 1.00 and FPR 0.00 on 53); routing 57/57.
+  - rag (internal) 53/53: hit@8 1.00, citation page accuracy 1.00, faithfulness 0.93, answer correctness 0.90, abstention 1.00; `rag.retrieve` p50 0.13 s, p95 0.15 s.
+  - rag@mcp 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.95, answer correctness 0.89, abstention 1.00; search p50 0.14 s, p95 0.15 s (the MCP backend's `rag.retrieve` span, server round trip). The two misses are twenty-pages citation pages (`twenty-past-truncation-p3`, `-p18`), the known long-document item.
+  - directions FAILED in that run: places resolved 0.88, distance and duration 0.88, unknown or ambiguous 0.57, injection 0.67. Four questions held none of I15's keywords and went to general; «الجامعة»/«الحديقة» were read as unknown, not ambiguous. Fixed in the capability folder (walking and travel-time keywords) and the reference geocoder (stem matching), then the two suites were rerun:
+- Rerun `make-eval-20261015T130421Z` (build/evals/make-eval-20261015T130421Z.json), directions and routing only: directions 26/27, places resolved 0.94, distance and duration 0.94, unknown or ambiguous 1.00, injection no effect 1.00, all ≥ threshold; routing 55/57 (0.96 ≥ 0.90; two turns ended `validation_failed`, the answer's script check, not routing). The one directions miss was `capability_failed` (the 45 s capability limit, on a slow extract call); the limit is now 60 s, as docs, and was not re-evaluated after that change.
+
+Measurements (G3, n=20, rerank off, OpenRouter development tiers):
+- directions answer: TTFT p50 2.86 s, p95 4.01 s; terminal event p50 3.59 s, p95 4.98 s.
+- MCP calls through the broker (tool_end latency, PRE_TOOL + Streamable HTTP + POST_TOOL; the reference server's own work is a graph lookup): routing.geocode p50 11 ms, p95 18 ms (n=40); routing.route p50 11 ms, p95 12 ms.
+- docs, internal backend: time to indexed (20-page PDF) p50 3.78 s, p95 3.83 s; retrieve p50 0.13 s, p95 0.15 s; answer TTFT p50 1.81 s, p95 3.38 s. This closes the BACKLOG item "docs latency not re-measured with rerank off".
+- docs, MCP backend: time to indexed p50 3.07 s, p95 3.16 s; search p50 0.14 s, p95 0.15 s; answer TTFT p50 1.53 s, p95 3.68 s.
+
+Left / for the owner:
+- ADR-0220 (directions declares `[window, findings]`, I14 said `[window]`) needs confirmation.
+- The I15 keyword list was extended in the manifest (walking, travel time, "how do I get", "get to"); the owner may prefer another list.
+- A full `make eval` after the last two directions changes was not run (eval cadence: once per session; three runs before merge).
+- The running Keycloak got `cap:directions` through kcadm; the realm export has it for a fresh volume (`make clean && make up`).
+
+Files for human review: config/mcp.yaml, config/docs.yaml, capabilities/directions/manifest.yaml and prompts/**, infra/mcp-ref/** (servers, fixture.yaml), docker-compose.yml, docker-compose.airgap.yml, infra/postgres/roles/rag-ref.sh, minio-init's new user, infra/keycloak/realm-export.json, evals/golden/routing.jsonl, capabilities/directions/evals/**, evals/thresholds.yaml, config/messages/errors.yaml, migrations 0012 and 0013, docs/openapi/*.json, docs/events.schema.json, .env.example.
+
+### Fix session: PR #10 review decisions (2026-10-18)
+
+Scope (the owner's decisions 1–16, nothing else; threat model ADR-0054): MCP transport through the broker; no capability reaches a backend or a connection; transport operations are their own class (supersedes ADR-0200); zero core change for capability evals; no docs-named setting in the core; the declarative runner names no result shape and the core delimits its results; G7 (event loop, deadline, breaker, status reads); a file searched on the backend that indexed it; G8 (loggers, error codes, structuredContent keys, directions template); honest routing evals; the weak tests; smoke G7; least privilege. Done = make test, make eval three times (general, guardrails, routing, rag on both backends, directions), make smoke twice, make smoke-airgap once, from `make clean && make models && make up`, recorded per rule 11.
+
+Checklist:
+- [x] 0. `pg-forward` removed (nothing referenced it).
+- [x] Status lines: ADR-0220 accepted; ADR-0200 superseded; the extended-keywords ADR (none existed: written new, with item 13).
+- [x] 3. `class: transport` in config/mcp.yaml; transport operations never broker tools; a manifest declaring one fails startup; new ADR (decided, D6).
+- [x] 1. `broker.transport(server, tool, args, scope)`: allowlist, injected fields, auth, timeouts, size caps, breaker, audit and span like a tool call; MCPDocumentBackend's four operations and evidence fetch through it; lint: no `ServerConnection.call` outside app/mcp; tests (one audit record and one span per operation).
+- [x] 2. `RuntimeContext.documents` removed; the broker hands a scope-bound facade (search, fetch, status) to tools of a capability declaring `documents.collections`; tests (directions, general: nothing reachable; docs: its backend only).
+- [x] 11. Attachment records keep their backend; docs_search and status use it, grouped per backend, merged by score; test across a DOCS_BACKEND switch.
+- [x] 10. Status reads concurrent through broker.transport under one 2 s bound (config/docs.yaml); last known status on timeout or open breaker; test with a hung rag server.
+- [x] 8. Incremental SSE parser, every byte counted, wall-clock deadline with cancellation; tests (1 MB notifications, a byte every 2 s; loop lag < 100 ms; other users' turns on time).
+- [x] 9. Breaker trial resolved in `finally`; semaphore wait past the deadline is `tool_busy`; the `_reset` race; tests (cancelled, failed, ToolFailure trials and a success after each; 50 busy timeouts; I9 restart).
+- [x] 12. mcp/httpx/httpcore loggers WARNING with a filter; error codes only in tool_calls, spans, audit; structuredContent keys checked at POST_TOOL; directions template type-checks and escapes; tests.
+- [x] 5. `docs_backend` out of settings and rag/setup.py; `<SLUG>_BACKEND` in the registry is the only override.
+- [x] 6. Declarative steps declare `result_list` and when empty or ambiguous; directions declares it; test with the fixture's other result shape.
+- [x] 7. The core renders step results inside untrusted delimiters (`context.tool_result`); test with a findings template without delimiters.
+- [x] 4. run_evals.py names no capability; `evals/metrics.yaml` per capability with generic scorers; directions scored before and after (both recorded).
+- [x] 13. routing.jsonl: ≥ 8 keyword negatives (general) and ≥ 8 keyword-free directions questions as a reported, ungated set; ADR on the geocoder change and run 122036Z.
+- [x] 14. The weak tests: directions injection, citation exists, a phase 04 checkpoint fixture (from 30302d2), rag_ref as its role, server requests refused.
+- [x] 15. Smoke: server-down asserts `tool_unavailable` and a time bound; hung-server step (`tool_timeout`); PROGRESS note corrected.
+- [x] 16. mcp-routing-ref on a network with the agent only; REVOKE CONNECT FROM PUBLIC on business, keycloak, langfuse, agent_test; rag_ref only its own; test.
+- [x] BACKLOG (phase 12): scoped LiteLLM keys per internal service.
+- [x] FINISH: make test; make eval ×3; make smoke ×2; make smoke-airgap ×1; rule 11 counts, record paths, loop lag and G7 timings; push.
+
+Results (rule 11), from `make clean && make models && make up` (`pg-forward` removed first):
+- `make test`: agent 805 / 0 / 0, gateway 138 / 0 / 0, gateway-db 5 / 0 / 0, web 148 / 0 / 0, evals harness 12 / 0 / 0 (passed / failed / skipped). Every layer is at or above the previous record (770, 138, 5, 148, 10); no test was removed.
+- G7 transport tests (item 8, `tests/integration/test_mcp_transport.py`, bound 100 ms): 1 MiB of notifications — event-loop lag max 3.1 ms, another user's call on the same server 5 ms (1 ms alone), a general turn 0.09 s (0.07 s normally), the call refused at the byte cap in 0.40 s; a byte every 2 s — lag max 6.7 ms, the call cancelled at its 4 s wall-clock deadline in 4.00 s, the stream closed on the server. Earlier runs this session: 2.3–2.5 ms and 4.0 ms.
+- `make smoke` ×2: 163/163 and 163/163. G7 timings (item 15): server stopped — the turn's audit row `tool_unavailable`, another user's general turn 2.73 s and 2.53 s (bounds median + 3 s: 5.61 s, 5.70 s); server hung 30 s past the 10 s deadline — audit row `tool_timeout`, a general turn sent meanwhile 2.52 s and 2.34 s (same bounds); the agent reconnected once the delay was removed.
+- `make smoke-airgap` ×1: 171/171 (airgap layout checks, including mcp-routing-ref on its own network with the agent only, plus the 163 smoke checks). G7: 2.72 s (stopped) and 2.46 s (hung), bound 5.65 s.
+- `make eval` ×3 (rerank off; every suite PASS in every run):
+
+  | run (build/evals/<run>.json) | guardrails | rag | rag@mcp | routing | directions | general |
+  |---|---|---|---|---|---|---|
+  | make-eval-20261018T131835Z | 142/142 | 44/53 | 47/53 | 67/67 | 27/27 | 28/28 |
+  | make-eval-20261018T141208Z | 142/142 | 52/53 | 53/53 | 66/67 | 27/27 | 28/28 |
+  | make-eval-20261018T150216Z | 142/142 | 52/53 | 50/53 | 67/67 | 27/27 | 28/28 |
+
+  - guardrails, all three: deterministic 1.00 (89), llm_judge accuracy 1.00, FPR 0.00 (53).
+  - rag (internal) per metric, runs 1/2/3: hit@8 1.00/1.00/1.00; citation page accuracy 0.93/1.00/0.97; faithfulness 0.93/0.94/0.91; answer correctness 0.90/0.87/0.89; abstention 1.00 ×3; rag.retrieve p50 0.13 s, p95 0.14–0.15 s.
+  - rag@mcp per metric, runs 1/2/3: hit@8 1.00 ×3; citation page accuracy 0.97/1.00/0.91; faithfulness 0.94/0.94/0.95; answer correctness 0.88/0.89/0.87; abstention 1.00 ×3; p50 0.14 s, p95 0.15–0.17 s.
+  - Not scored as answers: run 1 lost 7 rag and 5 rag@mcp cases to `agent_stream_interrupted` (provider 429s past the 60 s gateway timeout, the known BACKLOG item; rag@mcp logged 7 provider retries); run 2 lost 1 rag case the same way and 1 routing negative (`negative-msa-career-path`) to `validation_failed`. Runs 2 and 3: 0 provider retries in every suite. The other misses are the twenty-page truncation cases citing the neighbouring pages too.
+  - directions, all three: places_resolved 1.00 (17), distance_duration_correct 1.00 (17), unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3).
+  - routing keyword_free set (item 13, reported, not gated): 0/9 in runs 2 and 3 (every case routed to general). Routing's 10 new keyword negatives all pass.
+  - Directions rescoring (item 4): the generic scorers of evals/metrics.yaml rescored runs make-eval-20261015T122036Z and make-eval-20261015T130421Z identically to the old directions-specific code: 0.8824 / 0.8824 / 0.5714 / 0.6667 and 0.9412 / 0.9412 / 1.00 / 1.00, no per-case difference.
+
+Left / for the owner: the keyword_free directions questions route to general 0/9 — reported as decided (item 13), not fixed this session. Tech debt in docs/BACKLOG.md phase 12: mcp-rag-ref receives LITELLM_MASTER_KEY; scoped LiteLLM keys per internal service.
+
+Files for human review: config/mcp.yaml (`class: transport`), config/docs.yaml (`status_timeout_s`), capabilities/directions/manifest.yaml, prompts/** and evals/metrics.yaml, evals/golden/routing.jsonl, infra/postgres/roles/connect.sh and the init scripts, docker-compose.yml (mcp-routing network, MCP_REF_TEST_DELAY_S), docker-compose.airgap.yml, .env.example, scripts/smoke.sh.
+
+### Narrow fix session: PR #10 review round 2, C1 and C2 (2026-10-19)
+
+Scope: findings C1 and C2 of review round 2 (one user or one server stalls other users' chats) and the owner's decision of 2026-10-18 on keyword candidacy; nothing else. `docs/HANDOFF.md` untouched. Threat model ADR-0054. Done = make test, make eval three times (general, guardrails, routing, rag on both backends, directions), make smoke twice, make smoke-airgap once, from `make clean && make models && make up` with nothing started by hand, recorded per rule 11 with the timings of the tests of items 1–3.
+
+Checklist:
+- [x] 1. C1: a caller's cancellation releases the half-open trial without a verdict; only the server's outcome decides (success closes; a server error or the call's own timeout_s reopens). New ADR; Status note on ADR-0237. (ADR-0244.) Tests: (a) the reviewer's case (server 2.5 s, timeout 10 s, half open, A's with_status at its 2 s bound; not reopened; B's next call reaches the server and closes it); (b) a trial cancelled repeatedly never wedges and never reopens; (c) a trial past timeout_s still reopens.
+- [x] 2. C1: a status read past its 2 s bound is not cancelled; it completes in the background within the server's semaphore and timeout_s and updates the cached status; at most one read per attachment in flight, later list reads join it. New ADR; Status note on ADR-0233. (ADR-0245.) Test: a 5 s status server, a 10-file list read 20 times → at most 10 requests at the server; another user's general turn on time.
+- [x] 3. C2: a pool of max_concurrency sessions per server, one call per session; a cancelled or timed-out call closes its session (aborting its request) before its slot is returned, and the pool re-initialises one; server-initiated requests dropped unanswered, logged `server_request_dropped`; I9 stands. New ADR; Status notes on ADR-0236 (and ADR-0203, ADR-0210, which it also replaces in part). (ADR-0246.) Tests: (a) the reviewer's case (server holds the reply to A's call → B's quick call < 0.5 s); (b) cancelled calls leave no request open (fixture counts open requests, never above max_concurrency); (c) the item 14 refusal tests pass with requests dropped.
+- [x] 4. ADR (decided): keyword candidacy stays for directions; routing for all capabilities decided in phase 08 on measured router latency with the keyword-free set (0/9 now); BACKLOG phase 08. (ADR-0247.)
+- [x] BACKLOG tech debt: phase 06 first item (lost or interrupted cases count as failures in every metric); phase 08 (run_evals.py still names docs).
+- [x] FINISH: make test; make eval ×3; make smoke ×2; make smoke-airgap ×1; rule 11 with record paths and the item 1–3 test timings; push.
+
+Results (rule 11), from `make clean && make models && make up`, nothing started by hand:
+- `make test`: agent 814 / 0 / 0, gateway 138 / 0 / 0, gateway-db 5 / 0 / 0, web 148 / 0 / 0, evals harness 12 / 0 / 0 (passed / failed / skipped). Agent +9 on the previous record (805): 8 in the new `tests/integration/test_mcp_sessions.py`, 1 unit test (a server request in place of the answer). No test was removed; the resilience breaker test lost its "cancelled" case, which now belongs to ADR-0244 and is covered by items 1(a) and 1(b).
+- Item 1–3 tests (`tests/integration/test_mcp_sessions.py`, fixture `tests/fixtures/slow_mcp.py`; 8 passed in 36.4 s):
+  - 1(a), the reviewer's case (status server 2.5 s, timeout_s 10 s, breaker half open), as A's `with_status` at its 2 s bound: A returned in 2.00 s, breaker still half open; the background read then closed it; B's next call reached the server in 0.01 s, breaker closed.
+  - 1(a), A's call itself cancelled at 2 s: breaker still half open (trial released); B's call was the trial, reached the server in 0.06 s and closed it.
+  - 1(b): 10 trials cancelled in turn in 2.03 s; the breaker never reopened nor wedged; no request open at the server 0.02 s later; a trial after them closed it.
+  - 1(c): a trial past its timeout_s (1.0 s) ended `tool_timeout` at 1.00 s and reopened the breaker.
+  - 2: status 5 s, a 10-file list read 20 times: slowest read 2.00 s (bound 2.0 s, last known status shown); peak requests open at the server 10 (one per file); another user's general turn 0.08 s (0.07 s normally).
+  - 3(a): while the server held the reply to A's call (a dropped sampling request, the answer held 3 s), B's quick call took 19 ms (2 ms alone); A's call ended in 3.01 s; no reply was posted to the server (`server_request_dropped` logged).
+  - 3(b), cancelled: 12 calls in waves of 4 in 1.13 s; peak open requests 4 (max_concurrency 4); none open 0.09 s after a wave at worst; a quick call afterwards 8 ms.
+  - 3(b), timed out: 12 calls in 3.21 s; peak 4; none open 0.06 s after a wave at worst; a quick call afterwards 9 ms.
+  - 3(c): the item 14 refusal test (`test_sampling_elicitation_and_roots_requests_are_dropped_and_the_call_goes_on`) passes: the three requests unanswered, the call answered, three `server_request_dropped` log records.
+  - The new tests fail on the code before this session (5 of the 7 stack-free tests; the two timed-out cases pass on both).
+- `make eval` ×3 (rerank off; every suite PASS in every run; every case recorded in every suite, none lost):
+
+  | run (build/evals/<run>.json) | guardrails | rag | rag@mcp | routing | directions | general |
+  |---|---|---|---|---|---|---|
+  | make-eval-20261019T125706Z | 142/142 | 51/53 | 52/53 | 65/67 | 27/27 | 28/28 |
+  | make-eval-20261019T135251Z | 142/142 | 52/53 | 49/53 | 65/67 | 26/27 | 28/28 |
+  | make-eval-20261019T150722Z | 142/142 | 50/53 | 50/53 | 65/67 | 27/27 | 28/28 |
+
+  - guardrails, all three: deterministic 1.00 (89), llm_judge accuracy 1.00, FPR 0.00 (53).
+  - rag (internal) per metric, runs 1/2/3: hit@8 1.00 ×3; citation page accuracy 0.94/0.97/0.91; faithfulness 0.97/0.96/0.98; answer correctness 0.88/0.89/0.89; abstention 1.00 ×3; rag.retrieve p50 0.13–0.14 s, p95 0.14–0.15 s.
+  - rag@mcp per metric, runs 1/2/3: hit@8 1.00 ×3; citation page accuracy 0.97/0.89/0.91; faithfulness 0.94/0.96/0.95; answer correctness 0.91/0.87/0.90; abstention 1.00 ×3; p50 0.14–0.15 s, p95 0.15–0.16 s.
+  - directions, runs 1 and 3: places_resolved 1.00 (17), distance_duration_correct 1.00 (17), unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3). Run 2: 0.94 / 0.94 / 1.00 / 1.00; its one miss (`route-gulf-boulevard-from-kingdom`) ended `agent_stream_interrupted` at the 60 s gateway timeout: its trace shows the three MCP calls in 9–17 ms and the answer's model call still streaming at 60 s (the provider, the BACKLOG item).
+  - routing: the misses are negatives ending `validation_failed` (runs 1 and 2: `negative-msa-career-path`, `negative-msa-learning-path`; run 3: `negative-msa-learning-path`, `kw-negative-msa-english`). keyword_free set (reported, not gated, ADR-0247): 0/9 in all three runs, every case routed to general.
+  - rag and rag@mcp misses: only the twenty-page truncation cases citing neighbouring pages too (p3, p12, p15, p18).
+  - Provider retries: run 2 rag@mcp 2; run 3 rag 2, routing 1; all others 0.
+- `make smoke` ×2: 163/163 and 163/163 (attempts 3 and 4). G7 timings: server stopped — audit row `tool_unavailable`, another user's general turn 3.21 s and 3.79 s; server hung 30 s past the 10 s deadline — `tool_timeout`, a general turn sent meanwhile 4.90 s and 3.02 s (bounds median + 3 s: 6.53 s, 8.81 s).
+- `make smoke-airgap` ×1: 171/171 (attempt 2). G7: 3.20 s (stopped) and 3.18 s (hung), bound 6.22 s.
+- Failed attempts, not counted, all the model provider: smoke attempt 1 stopped at 62/63, "the turn after the switch passes" (the turn ended `model_unavailable` at 16:12:28, audit row); smoke attempt 2 stopped at 150/151, the hung-server general turn took 7.45 s against a 6.34 s bound (that run's own general turns: 3.21, 3.34, 5.10 s), while the directions turn's `tool_timeout` was asserted and passed; smoke-airgap attempt 1 stopped at 105/106, the document-injection turn ended `model_unavailable` at 16:19:40 after its `docs_search` call succeeded (audit row). None touched an MCP call.
+
+How to verify: `make clean && make models && make up`, then `make test`, `make eval`, `make smoke`, `make smoke-airgap`. The item 1–3 timings: `docker compose --profile test run --rm agent-tests pytest -s tests/integration/test_mcp_sessions.py`.
+
+Left / for the owner: nothing open in this scope. Recorded in docs/BACKLOG.md, not implemented: phase 06 first item (lost or interrupted eval cases count as failures in every metric); phase 08, routing for all capabilities (ADR-0247) and the eval harness still naming docs.
+
+Files for human review: no file under `config/` or `infra/` changed this session. docs/DECISIONS.md (ADR-0244 to ADR-0247; Status notes on ADR-0203, 0210, 0233, 0236, 0237), docs/BACKLOG.md, services/agent/tests/fixtures/slow_mcp.py and mcp_server.py.
+
+## Phase 06: Skills
+
+- Branch: `phase/06-skills`
+- Status: not started
+- Done when: `skills/<slug>/SKILL.md` registry (name and description in Arabic and English, when to use, the capabilities or MCP tools it needs, the Keycloak role that may use it); the router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block; text outputs only; no scripts; per-skill evals for format adherence plus routing cases; two reference skills (official memo, official letter); adding a third skill needs no core change.
+
+## Phase 07: Planner
+
+- Branch: `phase/07-planner`
+- Status: not started
+- Done when: compound requests produce a plan of steps (capability, MCP tool or skill), each step's inputs may reference earlier steps' outputs; simple requests keep single-step routing with no added latency; capabilities declare structured output schemas in their manifests; dependent steps run in order and independent ones in parallel, every step through the broker; step and time budgets; when a step fails, a partial answer that states what is missing; plan progress shown to the user; `planning.jsonl` ≥ threshold; reference compound case: docs → routing (reference MCP server) → official memo skill.
+
+## Phase 08: UC4 KB plugins (`kb` capability)
+
+- Branch: `phase/08-kb`
 - Status: not started
 - Done when: KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent.
-- Carried from PR #4 review round 2 (finding 1): the evidence path reaches only the conversation's own files, so `kb` as specified would need core changes. Generalise `DocumentScope` beyond `(tenant, user, conversation)` to name a collection, including the `kb_{slug}` collections the principal's `kb:{slug}:read` roles allow, injected by the broker from the verified principal (never a tool argument, S1/ADR-0160); `graph/evidence.py` fetches each source's text through the backend and scope that found it, not one fixed conversation scope; and `RuntimeContext` can carry more than one backend (the internal pipeline plus the owner's KB/RAG service) so a capability's tool reaches the right one. This keeps S4 (no chunk text in state) and C6 (one backend interface) intact.
 
-## Phase 06: UC2 web (`web` capability)
+## Phase 09: UC2 web (`web` capability)
 
-- Branch: `phase/06-web`
+- Branch: `phase/09-web`
 - Status: not started
 - Done when: SearXNG + fetch loop within limits; untrusted sanitization; citation validation fails on fabricated URL (test).
 
-## Phase 07: UC1 Text-to-SQL (`sql` capability)
+## Phase 10: UC1 Text-to-SQL (`sql` capability)
 
-- Branch: `phase/07-sql`
+- Branch: `phase/10-sql`
 - Status: not started
 - Done when: semantic layer indexed; sqlglot validation; EXPLAIN gate; `agent_ro` execution; self-correction ≤2; results table + CSV; `sql.jsonl` ≥ threshold.
 
-## Phase 08: Reflection, model routing, HITL
+## Phase 11: Reflection, tiers, HITL and artifact outputs
 
-- Branch: `phase/08-tiers-reflection-hitl`
+- Branch: `phase/11-reflection-hitl`
 - Status: not started
-- Done when: tier resolver with logged decisions; reflection rules; validation escalation; interrupt/resume path exercised by `smoke.sh`; `routing.jsonl` with `expected_tier`.
+- Done when: tier resolver with logged decisions; reflection rules; validation escalation; interrupt/resume path exercised by `smoke.sh`; `routing.jsonl` with `expected_tier`; artifact outputs (a capability or skill returns a file such as an HTML page, stored in MinIO, shown in a sandboxed preview, downloadable, its text through runtime DATA policies); long-running tool calls run as background jobs with progress shown to the user and resumable state (`docs/BACKLOG.md`, MCP items 7 and 8).
 
-## Phase 09: Evaluation & hardening
+## Phase 12: Evaluation & hardening
 
-- Branch: `phase/09-hardening`
+- Branch: `phase/12-hardening`
 - Status: not started
 - Done when: CI runs all suites with `evals/thresholds.yaml`; online judge sampling; `docs/RUNBOOK.md`; k6 load test 20 users; `email_proofreader` reference capability passes the zero-core-change check.
 

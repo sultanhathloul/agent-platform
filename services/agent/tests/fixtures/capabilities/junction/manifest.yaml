@@ -1,0 +1,55 @@
+# Test-only declarative capability (fix session 2026-10-18, ADR-0238, ADR-0239): a manifest and
+# prompts, no Python. Its first step's result keeps its list under `options.items`, not any key the
+# runner knows, and its findings template has no untrusted delimiters: the core adds them. No
+# core file names it.
+slug: junction
+version: 1.0.0
+name: {ar: "تقاطع الاختبار", en: "Test junction"}
+description:
+  ar: "قدرة اختبار تصريحية بشكل نتيجة آخر."
+  en: "Declarative test capability with another result shape."
+icon: "flask"
+enabled_by_default: true
+permission: "cap:junction"
+risk: read
+ui:
+  mode: auto
+  order: 61
+routing_hints:
+  description:
+    ar: "رسائل الاختبار التي تذكر تقاطع الاختبار."
+    en: "Test messages that mention the junction."
+  keywords: {ar: ["تقاطع-اختبار"], en: ["junction-capability"]}
+  rules:
+    - when: keyword
+model:
+  min_tier: standard
+  steps: {}
+  on_overflow: compress
+context:
+  needs: [findings]
+  max_input_tokens: 4000
+tools: [probe_find, probe_lookup]
+limits:
+  max_iterations: 1
+  timeout_s: 20
+state_namespace: "cap.junction"
+declarative:
+  extract:
+    role: extractor
+    prompt: junction.extract
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {type: [string, "null"]}
+      required: [query]
+  steps:
+    - id: find
+      tool: probe_find
+      args: {query: $.extract.query}
+      result_list: $.options.items
+      ambiguous_when: {more_than: 1}
+    - {id: use, tool: probe_lookup, args: {text: $.steps.find.result.chosen.name}}
+  findings:
+    prompt: junction.findings

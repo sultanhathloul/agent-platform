@@ -154,7 +154,7 @@ async def test_a_package_read_twice_is_assembled_once_and_copied_each_time(servi
 
 def test_runtime_context_is_the_narrow_interface():
     names = {field.name for field in dataclasses.fields(RuntimeContext)}
-    # `documents`: the DocumentBackend, reached by the capability's tools through the broker (C6).
+    # No document backend (ADR-0231): a capability's tools get a scope-bound facade from the broker.
     # `context`: the package, read on demand; `config`: the capability's own config/<slug>.yaml (C3).
     assert names == {
         "slug",
@@ -163,11 +163,19 @@ def test_runtime_context_is_the_narrow_interface():
         "call_model",
         "broker",
         "stream_writer",
-        "documents",
         "context",
         "config",
     }
-    for core in ("resolver", "models", "guard", "models_config", "services", "state"):
+    for core in (
+        "resolver",
+        "models",
+        "guard",
+        "models_config",
+        "services",
+        "state",
+        "documents",
+        "backends",
+    ):
         assert core not in names
 
 

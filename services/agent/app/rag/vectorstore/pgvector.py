@@ -26,9 +26,17 @@ def _documents(document_ids: Sequence[str] | None) -> tuple[str, dict]:
     return " AND attachment_id = ANY(%(documents)s::uuid[])", {"documents": list(document_ids)}
 
 
+_TABLE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$")
+
+
 class PgVectorStore:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, *, table: str = "agent.rag_chunks"):
+        """`table`: the agent's `agent.rag_chunks`, or another service's own chunk table, so two
+        backends never share rows (ADR-0211)."""
+        if not _TABLE.match(table):
+            raise ValueError(f"invalid chunk table {table!r}")
         self._db = db
+        self._table = table
 
     async def replace_document(
         self,
@@ -49,13 +57,13 @@ class PgVectorStore:
 
     async def _replace(self, conn, owner, collection, document_id, chunks, embeddings) -> int:
         await conn.execute(
-            "DELETE FROM agent.rag_chunks WHERE collection = %s AND tenant_id = %s AND user_id = %s "
+            f"DELETE FROM {self._table} WHERE collection = %s AND tenant_id = %s AND user_id = %s "
             "AND attachment_id = %s",
             (collection, owner.tenant_id, owner.user_id, document_id),
         )
         for chunk, embedding in zip(chunks, embeddings, strict=True):
             await conn.execute(
-                "INSERT INTO agent.rag_chunks (collection, attachment_id, user_id, tenant_id, page, section, "
+                f"INSERT INTO {self._table} (collection, attachment_id, user_id, tenant_id, page, section, "
                 "ord, text, text_norm, embedding) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector)",
                 (
@@ -94,7 +102,7 @@ class PgVectorStore:
         }
         async with self._db.connection() as conn:
             cursor = await conn.execute(
-                f"SELECT {_FIELDS}, 1 - (embedding <=> %(vector)s::vector) AS score FROM agent.rag_chunks "
+                f"SELECT {_FIELDS}, 1 - (embedding <=> %(vector)s::vector) AS score FROM {self._table} "
                 "WHERE collection = %(collection)s AND tenant_id = %(tenant_id)s AND user_id = %(user_id)s "
                 f"AND vector_dims(embedding) = %(dimensions)s{documents} "
                 "ORDER BY embedding <=> %(vector)s::vector, ord LIMIT %(limit)s",
@@ -135,7 +143,7 @@ class PgVectorStore:
         async with self._db.connection() as conn:
             cursor = await conn.execute(
                 f"SELECT {_FIELDS}, ts_rank_cd(tsv, to_tsquery('simple', %(query)s)) AS score "
-                "FROM agent.rag_chunks "
+                f"FROM {self._table} "
                 "WHERE collection = %(collection)s AND tenant_id = %(tenant_id)s AND user_id = %(user_id)s "
                 f"AND tsv @@ to_tsquery('simple', %(query)s){documents} "
                 "ORDER BY score DESC, ord LIMIT %(limit)s",
@@ -157,7 +165,7 @@ class PgVectorStore:
             return {}
         async with self._db.connection() as conn:
             cursor = await conn.execute(
-                "SELECT id::text AS id, text FROM agent.rag_chunks "
+                f"SELECT id::text AS id, text FROM {self._table} "
                 "WHERE collection = %s AND tenant_id = %s AND user_id = %s AND id = ANY(%s::uuid[])",
                 (collection, owner.tenant_id, owner.user_id, wanted),
             )

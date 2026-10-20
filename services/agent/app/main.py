@@ -50,6 +50,8 @@ from app.guardrails.config import load_guardrails_config
 from app.guardrails.engine import GuardEngine
 from app.guardrails.sanitize import Sanitizer
 from app.guardrails.store import PolicyStore
+from app.mcp.setup import build_mcp_client
+from app.mcp.tools import register_mcp_tools, transport_operations
 from app.memory.config import load_memory_config
 from app.memory.retriever import MemoryRetriever
 from app.memory.service import MemoryService
@@ -60,9 +62,12 @@ from app.models.embeddings import EmbeddingGateway
 from app.models.gateway import ModelGateway
 from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
+from app.observability.logs import quiet_libraries
 from app.observability.otel import setup_tracing, shutdown_tracing
+from app.rag.access import DocumentAccess
 from app.rag.citations import load_attribution_rule
 from app.rag.setup import build_documents
+from app.rag.types import Owner
 from app.settings import Settings, get_settings
 from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
@@ -78,18 +83,21 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.1.0"
+API_VERSION = "2.2.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
     """`extra_capabilities` adds (directory, import package) roots discovered beside
     app/capabilities, e.g. the test-only capabilities under tests/fixtures."""
     models_config = load_models_config(settings.config_dir)
-    registry = CapabilityRegistry.discover(models_config)
+    core_prompts = PromptLibrary.load(settings.config_dir / "prompts")
+    registry = CapabilityRegistry.discover(models_config, core_prompts=core_prompts)
     if extra_capabilities:
         loaded = registry.all()
         for root, package in extra_capabilities:
-            loaded += CapabilityRegistry.discover(models_config, root=root, package=package).all()
+            loaded += CapabilityRegistry.discover(
+                models_config, root=root, package=package, core_prompts=core_prompts
+            ).all()
         registry = CapabilityRegistry(loaded)
     for cap in registry.all():
         cap.config = load_capability_config(settings.config_dir, cap.slug)
@@ -131,12 +139,30 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     for cap in registry.all():
         for spec in cap.tools:
             tools.register(spec, cap.slug)
+    mcp = build_mcp_client(settings, API_VERSION)
+    register_mcp_tools(tools, mcp)
+    transport = transport_operations(mcp)
     for cap in registry.all():
+        declared = sorted(set(cap.manifest.tools) & transport)
+        if declared:
+            # Transport operations are a backend adapter's, never a capability's (ADR-0230).
+            raise ManifestError(
+                f"{cap.path}/manifest.yaml: tools {declared} are transport operations of config/mcp.yaml; "
+                "no capability may declare one"
+            )
         unknown = [name for name in cap.manifest.tools if not tools.has(name)]
         if unknown:
             raise ManifestError(
                 f"{cap.path}/manifest.yaml: tools {unknown} are not registered by any capability"
             )
+    # The broker holds the MCP client: no other core object reaches a connection (ADR-0230).
+    broker = ToolBroker(
+        tools,
+        guard,
+        {cap.slug: cap.manifest.tools for cap in registry.all()},
+        {cap.slug: cap.manifest.documents.collections for cap in registry.all()},
+        mcp=mcp,
+    )
 
     embeddings = EmbeddingGateway(settings, models_config)
     attachment_store = AttachmentStore(db)
@@ -156,6 +182,18 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         counter=counter,
         attachments=attachment_store,
         objects=objects,
+        uploads_backend=uploads_backend(registry),
+        broker=broker,
+    )
+    for cap in registry.all():
+        name = cap.config.get("backend")
+        if name and name not in documents.backends:
+            raise ManifestError(
+                f"config/{cap.slug}.yaml: backend {name!r} is not a document backend; "
+                f"known: {sorted(documents.backends)}"
+            )
+    broker = broker.with_documents(
+        document_access(registry, documents.backends, documents.backend, attachment_store)
     )
     attachments = AttachmentService(
         db=db,
@@ -163,6 +201,8 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         objects=objects,
         documents=documents.backend,
         limits=load_upload_limits(settings.config_dir),
+        backends=documents.backends,
+        status_timeout_s=documents.config.status_timeout_s,
     )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
@@ -182,7 +222,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         guard=guard,
         registry=registry,
         tools=tools,
-        broker=ToolBroker(tools, guard, {cap.slug: cap.manifest.tools for cap in registry.all()}),
+        broker=broker,
         messages=ErrorMessages.load(settings.config_dir),
         validation=load_validation_config(settings.config_dir),
         db=db,
@@ -196,6 +236,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         locks=TurnLocks(settings.database_url, size=settings.lock_pool_size),
         attachments=attachments,
         documents=documents.backend,
+        backends=documents.backends,
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
         redis=redis,
@@ -203,6 +244,42 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     )
     judge.bind(services)
     return services
+
+
+def uploads_backend(registry: CapabilityRegistry) -> str:
+    """The backend new uploads are registered with: the one the capabilities reading session
+    collections name in config/<slug>.yaml (`<SLUG>_BACKEND` overriding it), `internal` when none
+    does (ADR-0235). Two such capabilities naming different backends fail startup."""
+    names = {
+        str(cap.config.get("backend") or "internal")
+        for cap in registry.all()
+        if "session" in cap.manifest.documents.collections
+    }
+    if len(names) > 1:
+        raise ManifestError(
+            f"capabilities reading session collections name different backends: {sorted(names)}"
+        )
+    return names.pop() if names else "internal"
+
+
+def document_access(
+    registry: CapabilityRegistry, backends, default, store: AttachmentStore
+) -> DocumentAccess:
+    """The broker's document access (ADR-0231, ADR-0232): each capability's configured backend,
+    and the attachment records that say which backend holds each upload."""
+
+    async def records(tenant_id: str, user_id: str, conversation_id: str) -> list[tuple[str, str]]:
+        owner = Owner(tenant_id=tenant_id, user_id=user_id)
+        return [(r.id, r.backend) for r in await store.list_for(owner, conversation_id)]
+
+    return DocumentAccess(
+        backends,
+        configured={
+            cap.slug: str(cap.config["backend"]) for cap in registry.all() if cap.config.get("backend")
+        },
+        default=getattr(default, "name", None),
+        records=records,
+    )
 
 
 def _redis(settings: Settings):
@@ -232,10 +309,15 @@ async def start_services(services: Services) -> Services:
     await services.locks.open()
     await services.policies.seed(policy_roots(services.settings, services.registry))
     await services.policies.start()
+    if services.broker.mcp is not None:
+        # Connects in the background: a server that is down never stops the agent (I8).
+        services.broker.mcp.start()
     return dataclasses.replace(services, graph=build_graph(checkpointer))
 
 
 async def stop_services(services: Services) -> None:
+    if services.broker.mcp is not None:
+        await services.broker.mcp.stop()
     await services.policies.stop()
     for close in services.closers:
         await close()
@@ -247,6 +329,7 @@ async def stop_services(services: Services) -> None:
 
 def create_app(*, start_background: bool = True, services: Services | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    quiet_libraries()
     settings = services.settings if services else get_settings()
     services = services or build_services(settings)
 

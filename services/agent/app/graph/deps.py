@@ -1,7 +1,7 @@
 """What graph nodes can reach: long-lived services built at startup, and the
 per-turn runtime context passed to LangGraph (`context_schema`)."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,7 +56,7 @@ class Services:
     guard_config: GuardrailsConfig
     locks: TurnLocks
     attachments: AttachmentService
-    documents: DocumentBackend
+    documents: DocumentBackend  # the one uploads are registered with (I11)
     citations: AttributionRule
     router: RouterConfig
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
@@ -64,6 +64,13 @@ class Services:
     # The compiled main graph, set by app.main.start_services once the database is open:
     # the Postgres checkpointer binds to the running event loop (ADR-0055).
     graph: Any = None
+    # Every DocumentBackend by name (I1, ADR-0202); a capability's config/<slug>.yaml `backend`
+    # names the one its tools use, `documents` otherwise.
+    backends: Mapping[str, DocumentBackend] = field(default_factory=dict)
+
+    def backend_name(self, slug: str) -> str | None:
+        name = self.registry.get(slug).config.get("backend")
+        return str(name) if name else getattr(self.documents, "name", None)
 
 
 @dataclass
@@ -99,6 +106,9 @@ class TurnContext:
     # This turn's chunk texts by reference, fetched for the answer and checked at POST_TOOL;
     # page attribution reads them. Never written to state (owner decision S4).
     evidence: dict[str, str] = field(default_factory=dict)
+    # Every tool call of the turn, content-free, for the audit record (G8): the terminal event's
+    # tool_audit, which the gateway strips before relaying.
+    tool_audit: list[dict] = field(default_factory=list)
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

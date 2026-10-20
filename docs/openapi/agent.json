@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.1.0"
+    "version": "2.2.0"
   },
   "paths": {
     "/v1/health": {
@@ -3243,6 +3243,15 @@
             ],
             "title": "Chunks"
           },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AttachmentWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Indexed with something the user should know (D7, ADR-0201).",
+            "default": []
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3279,6 +3288,27 @@
           "object_key"
         ],
         "title": "AttachmentView"
+      },
+      "AttachmentWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "pages_without_text",
+            "title": "Code"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "count"
+        ],
+        "title": "AttachmentWarning",
+        "description": "D7 (ADR-0201): `count` pages of an indexed PDF held too little text and were not read."
       },
       "Citation": {
         "properties": {
@@ -3494,6 +3524,15 @@
             },
             "type": "array",
             "title": "Capabilities"
+          },
+          "mcp": {
+            "items": {
+              "$ref": "#/components/schemas/MCPServerHealth"
+            },
+            "type": "array",
+            "title": "Mcp",
+            "description": "MCP servers and their disabled tools (I8).",
+            "default": []
           }
         },
         "type": "object",
@@ -3591,6 +3630,91 @@
           "exception"
         ],
         "title": "InducedFlag"
+      },
+      "MCPDisabledTool": {
+        "properties": {
+          "tool": {
+            "type": "string",
+            "title": "Tool",
+            "description": "{server}.{tool}"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "not_connected | missing | schema_mismatch | server_<why the server is disabled>"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool",
+          "reason"
+        ],
+        "title": "MCPDisabledTool"
+      },
+      "MCPServerHealth": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "internal": {
+            "type": "boolean",
+            "title": "Internal"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Why disabled: profile, external_not_allowed, external_in_airgap, no_url, no_token."
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "circuit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "closed",
+                  "open",
+                  "half_open"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Circuit"
+          },
+          "disabled_tools": {
+            "items": {
+              "$ref": "#/components/schemas/MCPDisabledTool"
+            },
+            "type": "array",
+            "title": "Disabled Tools",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "internal",
+          "enabled",
+          "connected"
+        ],
+        "title": "MCPServerHealth",
+        "description": "One server of config/mcp.yaml as this environment runs it (I8): content-free, no URL or token."
       },
       "MemoryItemView": {
         "properties": {

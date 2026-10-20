@@ -72,6 +72,20 @@ def scanned_pdf_bytes(pages: int = 2) -> bytes:
     return buffer.getvalue()
 
 
+def partly_scanned_pdf_bytes(pages: Sequence[Sequence[str]], scanned: int) -> bytes:
+    """Text pages followed by `scanned` image-only pages (phase 05, D7): indexed from its text
+    pages, with a warning counting the others."""
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter()
+    for part in (pdf_bytes(pages, visual=True), scanned_pdf_bytes(scanned)):
+        for page in PdfReader(io.BytesIO(part)).pages:
+            writer.add_page(page)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
 def docx_bytes(blocks: Sequence[tuple[str, str | int]]) -> bytes:
     """(text, level) pairs: level 0 is the title, 1–3 headings, "p" a paragraph."""
     from docx import Document

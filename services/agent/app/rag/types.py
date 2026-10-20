@@ -60,6 +60,8 @@ class ExtractedDocument(_Strict):
     kind: DocumentKind
     pages: int | None = Field(default=None, ge=0, description="PDF pages, None for other kinds.")
     segments: list[Segment]
+    # PDF pages under extraction.min_text_chars_per_page: probably scanned, not read (D7, ADR-0201).
+    pages_without_text: int = Field(default=0, ge=0)
 
 
 class Chunk(_Strict):

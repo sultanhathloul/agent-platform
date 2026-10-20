@@ -100,8 +100,14 @@ class OrphanSweeper(_Strict):
 
 
 class DocsConfig(_Strict):
-    # Which DocumentBackend serves documents (C6): the phase 04 pipeline, `internal`, for now.
-    backend: Literal["internal"]
+    # Which DocumentBackend serves documents (C6, I11). The core reads it as the capability's own
+    # configuration (config/<slug>.yaml `backend`, `<SLUG>_BACKEND` overriding it, ADR-0235).
+    backend: Literal["internal", "mcp"]
+    # The server of config/mcp.yaml the `mcp` backend calls (I11); none: no `mcp` backend.
+    mcp_server: str | None = None
+    # One bound, in seconds, on reading all of a conversation's attachment statuses at once; past
+    # it, or when a backend cannot answer, the record's last known status is shown (ADR-0233).
+    status_timeout_s: float = Field(default=2.0, gt=0, le=30)
     limits: Limits
     chunking: Chunking
     extraction: Extraction

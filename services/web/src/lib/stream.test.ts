@@ -64,8 +64,36 @@ describe("applyEvent", () => {
       },
     ]);
     expect(m.chips).toEqual([
-      { kind: "tool", key: "tool-k1", callId: "k1", tool: "web_search", capability: "web", status: "ok", latencyMs: 812 },
+      {
+        kind: "tool",
+        key: "tool-k1",
+        callId: "k1",
+        tool: "web_search",
+        capability: "web",
+        status: "ok",
+        latencyMs: 812,
+        label: null,
+      },
     ]);
+  });
+
+  it("keeps the label tool_start brought when the tool ends (I13)", () => {
+    const label = { ar: "حساب المسار", en: "Calculating the route" };
+    const m = run([
+      {
+        ...meta,
+        seq: next(),
+        type: "tool_start",
+        data: { call_id: "k2", tool: "routing.route", capability: "directions", label },
+      },
+      {
+        ...meta,
+        seq: next(),
+        type: "tool_end",
+        data: { call_id: "k2", tool: "routing.route", capability: "directions", status: "ok", latency_ms: 40 },
+      },
+    ]);
+    expect(m.chips).toEqual([expect.objectContaining({ key: "tool-k2", status: "ok", label })]);
   });
 
   it("adds tier and guard chips", () => {

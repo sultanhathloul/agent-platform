@@ -18,3 +18,7 @@ extend-select = ["TID251"]
 "langgraph.types.Command".msg = "a capability returns a CapabilityOutput, never a Command (ADR-0053)"
 "langgraph.types.interrupt".msg = "HITL is raised by the core, not from a capability subgraph (ADR-0052, ADR-0053)"
 "langgraph.pregel".msg = "a capability never touches the pregel runtime (ADR-0053)"
+# Every MCP call goes through the broker (D3, ADR-0197): a capability declares MCP tools in its
+# manifest and calls them by name through runtime.context.broker, never the client.
+"app.mcp".msg = "MCP tools are called through the broker, never the MCP client (D3, ADR-0197)"
+"mcp".msg = "MCP tools are called through the broker, never an MCP SDK session (D3, ADR-0197)"

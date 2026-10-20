@@ -23,6 +23,26 @@ for id in $(docker compose ps -q); do
   done
 done
 ok "every container but litellm and edge is only on internal networks"
+# Phase 05 (G2): the reference MCP servers are internal servers, present in the airgap profile and
+# reachable only on internal networks; the agent runs the airgap profile, so no external server.
+for service in mcp-routing-ref mcp-rag-ref; do
+  id=$(docker compose ps -q "$service")
+  [[ -n $id ]] || fail "$service is not running in the airgap layout"
+  for network in $(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id"); do
+    [[ $(docker network inspect -f '{{.Internal}}' "$network") == true ]] || fail "$service is on $network, which has a route out"
+  done
+done
+ok "mcp-routing-ref and mcp-rag-ref run, on internal networks only"
+# Least privilege (ADR-0242): every network of the routing server is shared with the agent only.
+routing=$(docker compose ps -q mcp-routing-ref)
+for network in $(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$routing"); do
+  others=$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$network" | tr ' ' '\n' \
+    | grep -v -e '^$' -e 'mcp-routing-ref' -e '[-_]agent[-_][0-9]*$' || true)
+  [[ -z $others ]] || fail "mcp-routing-ref shares $network with $(echo $others | tr '\n' ' ')"
+done
+ok "mcp-routing-ref shares its network with the agent only"
+[[ $(docker compose exec -T agent printenv MCP_PROFILE) == airgap ]] && ok "the agent runs the airgap MCP profile" \
+  || fail "the agent does not run the airgap MCP profile"
 [[ $(docker network inspect -f '{{.Internal}}' "${project}_airgap") == true ]] && ok "${project}_airgap is internal" \
   || fail "${project}_airgap is not internal"
 

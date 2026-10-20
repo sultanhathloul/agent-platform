@@ -9,6 +9,8 @@ create_db() {
     -v db="$db" -v owner="$owner" -v password="$password" <<'SQL'
 SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'owner', :'password') \gexec
 SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'owner') \gexec
+SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'db') WHERE :'db' <> 'app' \gexec
+SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'db', :'owner') \gexec
 SQL
 }
 

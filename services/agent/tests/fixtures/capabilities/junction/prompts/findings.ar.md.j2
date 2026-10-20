@@ -1,0 +1,9 @@
+---
+id: junction.findings
+version: 1.0.0
+role: context
+locale: ar
+changelog:
+  - "1.0.0: test-only, no delimiters (fix session 2026-10-18)"
+---
+status={{ status }} stopped_at={{ stopped_at }} {% set listed = candidates if candidates is defined else [] %}candidates={{ listed | map(attribute="name") | join(",") }}

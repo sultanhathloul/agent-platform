@@ -147,3 +147,28 @@ describe("the citation line (ADR-0140)", () => {
     expect(text(renderIn("en", <CitationList citations={one} />))).toContain("page 3");
   });
 });
+
+describe("a partly scanned PDF (D7, ADR-0201)", () => {
+  function warned(count: number): ComposerFile {
+    const view = { ...attachment("indexed"), warnings: [{ code: "pages_without_text", count }] } as AttachmentView;
+    return file({ attachment: view });
+  }
+
+  it("says how many pages were not read, with the Arabic plural and the app's Arabic numbers", () => {
+    const ar = new Intl.NumberFormat("ar");
+    const shown = text(renderIn("ar", <AttachmentChip file={warned(5)} />));
+    expect(shown).toContain(`جاهز — ${ar.format(5)} صفحات صور لم تُقرأ`);
+    expect(shown).toContain("لم تُقرأ لأن قراءة الصور غير مدعومة بعد");
+    expect(hasMixedToken(shown.replace("لائحة الإجازات.pdf", ""))).toBe(false); // the file name is the user's
+    expect(text(renderIn("ar", <AttachmentChip file={warned(1)} />))).toContain("جاهز — صفحة صورة واحدة لم تُقرأ");
+    expect(text(renderIn("ar", <AttachmentChip file={warned(2)} />))).toContain("جاهز — صفحتا صور لم تُقرآ");
+    expect(text(renderIn("ar", <AttachmentChip file={warned(11)} />))).toContain(`جاهز — ${ar.format(11)} صفحة صور لم تُقرأ`);
+  });
+
+  it("says it in English too, and nothing for a file read whole", () => {
+    expect(text(renderIn("en", <AttachmentChip file={warned(5)} />))).toContain("Ready — 5 image pages not read");
+    const whole = text(renderIn("ar", <AttachmentChip file={file({ attachment: attachment("indexed") })} />));
+    expect(whole).toContain("جاهز");
+    expect(whole).not.toContain("لم تُقرأ");
+  });
+});

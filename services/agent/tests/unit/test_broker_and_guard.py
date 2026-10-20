@@ -32,10 +32,10 @@ async def _echo(args: EchoArgs, ctx) -> ToolOutput:
     return ToolOutput(content=args.text, sources=[{"id": "s1"}])
 
 
-def _broker(spec) -> ToolBroker:
+def _broker(spec, collections=None) -> ToolBroker:
     registry = ToolRegistry()
     registry.register(spec, capability="demo")
-    return ToolBroker(registry, GuardEngine(), {"demo": [spec.name], "other": []})
+    return ToolBroker(registry, GuardEngine(), {"demo": [spec.name], "other": []}, collections)
 
 
 ALLOWED = Principal(user_id="u", permissions=("cap:demo",))
@@ -87,7 +87,7 @@ async def test_missing_permission_is_denied_without_running():
 
 async def test_invalid_arguments_are_an_error():
     result = await _broker(_spec(_echo)).execute("echo", {"wrong": 1}, caller="demo", principal=ALLOWED)
-    assert result.status == "error" and "invalid arguments" in result.error
+    assert (result.status, result.error) == ("error", "invalid_arguments")
 
 
 async def test_timeout_retries_then_errors():
@@ -105,19 +105,36 @@ async def test_timeout_retries_then_errors():
     assert len(calls) == 2 and result.retries == 1
 
 
-async def test_the_scope_comes_from_the_principal_and_the_conversation_never_the_arguments():
+async def test_the_scope_comes_from_the_principal_and_the_turn_never_the_arguments():
+    """I1: the session collection, plus the knowledge bases both permitted and selected, kept to
+    the kinds the caller's manifest declares."""
     seen = []
 
     async def handler(args, ctx):
         seen.append(ctx.scope)
         return ToolOutput(content="x")
 
-    principal = Principal(user_id="u-scope", tenant_id="t-scope", permissions=("cap:demo",))
-    result = await _broker(_spec(handler)).execute(
-        "echo", {"text": "x"}, caller="demo", principal=principal, conversation_id="c-1"
+    principal = Principal(
+        user_id="u-scope", tenant_id="t-scope", permissions=("cap:demo", "kb:moe:read", "kb:hr:read")
     )
-    assert result.status == "ok"
-    assert [(s.tenant_id, s.user_id, s.conversation_id) for s in seen] == [("t-scope", "u-scope", "c-1")]
+    for kinds, expected in [
+        (["session", "kb"], ("sess_c-1", "kb_moe")),
+        (["session"], ("sess_c-1",)),
+        (["kb"], ("kb_moe",)),
+        ([], ()),
+    ]:
+        seen.clear()
+        broker = _broker(_spec(handler), collections={"demo": kinds})
+        result = await broker.execute(
+            "echo",
+            {"text": "x"},
+            caller="demo",
+            principal=principal,
+            conversation_id="c-1",
+            selected_kbs=("moe", "sales"),  # sales is selected but not permitted; hr permitted, not selected
+        )
+        assert result.status == "ok"
+        assert [(s.tenant_id, s.user_id, s.collections) for s in seen] == [("t-scope", "u-scope", expected)]
 
 
 async def test_a_tool_the_callers_manifest_does_not_declare_is_refused_and_audited():
@@ -159,3 +176,28 @@ async def test_duplicate_tool_registration_fails():
         assert "registered twice" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+async def test_an_audit_entry_carries_the_audit_fields_only_whatever_a_call_observed():
+    """A call's observed facts may hold more (queued, dropped parts); the audit entry keeps the
+    audit record's fields, so the terminal event's tool_audit always validates (G8)."""
+    from app.api.events import ToolAuditData
+
+    async def observed(args: EchoArgs, ctx) -> ToolOutput:
+        facts = {
+            "server": "fx",
+            "queued": True,
+            "dropped": "image",
+            "request_bytes": 3,
+            "args_hmac": "a" * 64,
+        }
+        return ToolOutput(content=args.text, observed=facts)
+
+    audit: list[dict] = []
+    result = await _broker(_spec(observed)).execute(
+        "echo", {"text": "x"}, caller="demo", principal=ALLOWED, on_audit=audit.append
+    )
+    assert result.status == "ok"
+    [entry] = audit
+    assert "queued" not in entry and "dropped" not in entry and entry["server"] == "fx"
+    ToolAuditData.model_validate(entry)

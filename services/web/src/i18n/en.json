@@ -134,7 +134,10 @@
     "too_many_pages": "The file has more pages than allowed.",
     "file_type_unsupported": "This file type is not supported. Supported types: PDF, Word, Excel, text and Markdown.",
     "storage_unavailable": "The file storage is unavailable. Please try again shortly.",
-    "unknown": "An unknown error occurred."
+    "unknown": "An unknown error occurred.",
+    "tool_unavailable": "The service this step needs is unavailable right now. Try again later.",
+    "tool_timeout": "The service this step needs took longer than allowed, so the step did not complete.",
+    "tool_result_too_large": "The service this step needs returned a result larger than allowed, so it was not used."
   },
   "policies": {
     "title": "Guard policies",
@@ -462,7 +465,9 @@
       "xlsx": "Excel",
       "txt": "text",
       "md": "Markdown"
-    }
+    },
+    "indexedWithUnreadPages": "Ready — {count, plural, one {{shown} image page not read} other {{shown} image pages not read}}",
+    "unreadPagesNote": "Some pages are scanned images without text and were not read, since reading images is not supported yet; answers come from the other pages only."
   },
   "conversations": {
     "title": "Conversations",

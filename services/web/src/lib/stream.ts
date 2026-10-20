@@ -14,7 +14,17 @@ export type Chip =
       action: string;
       target: string | null;
     }
-  | { kind: "tool"; key: string; callId: string; tool: string; capability: string; status: string; latencyMs: number | null };
+  | {
+      kind: "tool";
+      key: string;
+      callId: string;
+      tool: string;
+      capability: string;
+      status: string;
+      latencyMs: number | null;
+      // What the user reads while the tool runs, per locale (I13); null: a generic string.
+      label: { ar: string; en: string } | null;
+    };
 
 export type AssistantStatus = "streaming" | "done" | "error" | "aborted";
 
@@ -95,9 +105,12 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
           capability: event.data.capability,
           status: "running",
           latencyMs: null,
+          label: event.data.label ?? null,
         }),
       };
-    case "tool_end":
+    case "tool_end": {
+      // tool_end carries no label: the one tool_start brought stays.
+      const started = m.chips.find((c) => c.key === `tool-${event.data.call_id}`);
       return {
         ...m,
         chips: upsertChip(m.chips, {
@@ -108,8 +121,10 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
           capability: event.data.capability,
           status: event.data.status,
           latencyMs: event.data.latency_ms,
+          label: started && started.kind === "tool" ? started.label : null,
         }),
       };
+    }
     case "citation":
       return { ...m, citations: mergeCitations(m.citations, [event.data]) };
     case "done":

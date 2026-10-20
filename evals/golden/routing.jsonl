@@ -32,3 +32,45 @@
 {"id": "general-en-translate", "document": "summer-hours.txt", "message": "Translate good morning into Arabic.", "locale": "en", "expect": {"capabilities": ["general"]}}
 {"id": "general-en-planet", "document": "summer-hours.txt", "message": "Which planet is the largest in the solar system?", "locale": "en", "expect": {"capabilities": ["general"]}}
 {"id": "general-photosynthesis", "document": "summer-hours.txt", "message": "ما هي عملية البناء الضوئي؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "directions-msa-distance", "message": "كم المسافة من برج المملكة إلى مطار الملك خالد الدولي؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-msa-route", "message": "ما أقرب طريق من قصر المصمك إلى الدرعية؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-msa-how-far", "message": "كم يبعد المتحف الوطني عن واجهة الرياض؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-msa-path-walk", "message": "ما المسار مشيًا من قصر المربع إلى قصر المصمك؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-gulf-wadeeni", "message": "ودني البوليفارد من غرناطة مول", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-gulf-wasselni", "message": "وصلني للمطار من جامعة الملك سعود", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-gulf-kaif-arooh", "message": "كيف أروح كافد من برج الفيصلية؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-gulf-agrab-tareeg", "message": "وش أقرب طريق للدره من النخيل مول؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-en-directions", "message": "Directions from Riyadh Park to Diriyah, please.", "locale": "en", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-en-how-far", "message": "How far is Masmak Fortress from Riyadh Front?", "locale": "en", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-en-route", "message": "What is the fastest route from Kingdom Centre to the airport?", "locale": "en", "expect": {"capabilities": ["directions"]}}
+{"id": "negative-msa-path-to-success", "message": "ما الطريق إلى النجاح في العمل؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "negative-msa-career-path", "message": "ما خطوات بناء مسار وظيفي في التسويق الرقمي؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "negative-msa-coffee-method", "message": "ما طريقة تحضير القهوة العربية؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "negative-msa-earth-moon", "message": "ما المسافة بين الأرض والقمر؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "negative-msa-learning-path", "message": "اقترح مسار تعلم لمبتدئ في تحليل البيانات.", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "negative-en-moon", "message": "How far is the Moon from the Earth?", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "negative-en-career-route", "message": "What career route leads to becoming a data scientist?", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "negative-en-directions-recipe", "message": "Give me the directions for baking a simple sponge cake.", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "directions-with-files-msa", "document": "summer-hours.txt", "message": "كم يبعد برج المملكة عن بوليفارد رياض سيتي بالسيارة؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "directions-with-files-gulf", "document": "summer-hours.txt", "message": "ودني المطار من قصر المصمك", "locale": "ar", "expect": {"capabilities": ["directions"]}}
+{"id": "docs-with-path-word", "document": "summer-hours.txt", "message": "ما طريقة احتساب ساعات العمل الصيفية في التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
+{"id": "general-with-files-path", "document": "summer-hours.txt", "message": "ما الطريق إلى النجاح في الحياة؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-gulf-permit", "message": "كم ياخذ إصدار التصريح؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-en-refund", "message": "How do I get a refund for a cancelled flight?", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-en-point", "message": "Please get to the point: what is photosynthesis?", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-msa-english", "message": "كم يستغرق تعلم اللغة الإنجليزية؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-msa-walk-health", "message": "كم دقيقة أمشي في اليوم لصحة القلب؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-msa-moon", "message": "ما المسافة بين الأرض والقمر؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-en-moon", "message": "How far is the Moon from Earth?", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-gulf-coding", "message": "وش أقرب طريق لتعلم البرمجة؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-en-walking", "message": "Is walking every day good for your health?", "locale": "en", "expect": {"capabilities": ["general"]}}
+{"id": "kw-negative-gulf-passport", "message": "كم ياخذ الجواز الجديد عشان يطلع؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
+{"id": "kw-free-gulf-airport", "message": "أبي أروح للمطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-gulf-airport-kingdom", "message": "أبي أروح للمطار من برج المملكة", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-msa-diriyah-masmak", "message": "متى أوصل الدرعية لو طلعت من قصر المصمك؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-en-take-me", "message": "Take me from Kingdom Centre to the airport", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-en-drive", "message": "I need to drive from KAFD to Diriyah, which way is quickest?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-msa-minutes", "message": "من برج الفيصلية إلى المتحف الوطني بالسيارة، كم دقيقة؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-gulf-head", "message": "ابغى اتجه من البوليفارد الى المطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-gulf-fastest", "message": "وش أسرع شي يوديني الدرعية من المركز المالي؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "kw-free-en-roads", "message": "Which roads lead from Masmak Palace to the National Museum?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}

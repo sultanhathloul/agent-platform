@@ -17,7 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, "/app")
 
-from tests.fixtures.documents import docx_bytes, pdf_bytes, scanned_pdf_bytes, xlsx_bytes  # noqa: E402
+from tests.fixtures.documents import (  # noqa: E402
+    docx_bytes,
+    partly_scanned_pdf_bytes,
+    pdf_bytes,
+    scanned_pdf_bytes,
+    xlsx_bytes,
+)
 
 AUTHORITY = "هيئة الواحة للخدمات الرقمية"
 
@@ -156,6 +162,8 @@ def main(out: Path) -> None:
     (out / "scanned-memo.pdf").write_bytes(scanned_pdf_bytes(2))
     (out / "injected-circular.txt").write_text(INJECTED_TXT, encoding="utf-8")
     (out / "twenty-pages.pdf").write_bytes(pdf_bytes(twenty_pages(), visual=True))
+    # Phase 05 (D7): three text pages and two pages that are images only; smoke checks its warning.
+    (out / "partly-scanned.pdf").write_bytes(partly_scanned_pdf_bytes(LEAVE_PDF, 2))
 
     # Section paths as the DOCX extractor names them (title › heading).
     title = POLICY_DOCX[0][0]

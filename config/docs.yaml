@@ -1,10 +1,15 @@
 # Documents (UC3, README §9.3) and the shared retrieval library (app/rag/). Read by the
 # agent and, for `limits`, by the gateway, so both enforce the same values.
 
-# The DocumentBackend the docs capability talks to (C6): `internal` is this phase's pipeline
-# (extraction, chunking, pgvector, hybrid retrieval with rerank). A future backend (the owner's
-# RAG/OCR service) implements the same interface and is selected here.
+# The DocumentBackend the docs capability talks to and uploads are registered with (C6, I1, I11):
+# `internal` is the phase 04 pipeline (extraction, chunking, pgvector, hybrid retrieval);
+# `mcp` is the RAG server `rag` of config/mcp.yaml, reached through the platform's MCP client.
+# DOCS_BACKEND in .env overrides it per environment (ADR-0212).
 backend: internal
+mcp_server: rag                     # the server of config/mcp.yaml the `mcp` backend calls
+# One bound on reading all of a conversation's file statuses at once (a turn, the file list);
+# past it, or when a backend cannot answer, each file shows its last known status (ADR-0233).
+status_timeout_s: 2
 
 # Checked in the gateway before anything is stored, re-checked by the agent (ADR-0126, D2).
 limits:

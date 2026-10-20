@@ -23,7 +23,8 @@ import contextvars
 import copy
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.runnables.config import var_child_runnable_config
@@ -105,7 +106,7 @@ def _request_for(cap: LoadedCapability, state: AgentState, ctx: TurnContext) -> 
         tools=[
             spec.description_ar if locale == "ar" else spec.description_en
             for spec in cap.tools
-            if ctx.principal.has(spec.required_permission)
+            if spec.required_permission is None or ctx.principal.has(spec.required_permission)
         ],
         memory_scope=MemoryScope.of(ctx.principal) if "memory" in needs else None,
     )
@@ -162,9 +163,23 @@ def _model_caller(
     cap: LoadedCapability, ctx: TurnContext, base: AssemblyRequest, runtime: Runtime[TurnContext]
 ):
     async def call_model(
-        role: str, *, step: str | None = None, extra_blocks: Sequence[Block] = ()
+        role: str,
+        *,
+        step: str | None = None,
+        extra_blocks: Sequence[Block] = (),
+        prompt: str | None = None,
+        prompt_vars: Mapping[str, Any] | None = None,
     ) -> ModelResult:
         request = base.model_copy(update={"findings": _findings(cap, extra_blocks)})
+        if prompt is not None:
+            # Only the capability's own prompts, as the call's system block (I12).
+            if not prompt.startswith(f"{cap.slug}."):
+                raise CapabilityContractError(f"capability {cap.slug}: prompt {prompt!r} is not its own")
+            ctx.services.prompts.require(prompt)
+            needs = ["system", *(n for n in request.needs if n != "system")]
+            request = request.model_copy(
+                update={"system_prompt": prompt, "needs": needs, "prompt_vars": dict(prompt_vars or {})}
+            )
         # Assembled for the tier this (role, step) resolved to, so a step override
         # gets a package that fits it and passes the gateway's tier check.
         prepared = await _prepare(cap, request, ctx, role=role, step=step)
@@ -193,29 +208,37 @@ def _event_writer(runtime: Runtime[TurnContext], cap: LoadedCapability):
     return stream_writer
 
 
+@dataclass(frozen=True)
 class _Broker:
-    def __init__(self, ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState, slug: str):
-        self._ctx, self._runtime, self._state, self._slug = ctx, runtime, state, slug
+    """The broker as a capability sees it: one function, bound to this turn. It holds no turn
+    context, service, backend or connection as an attribute (ADR-0231)."""
 
-    async def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
-        # The scope comes from the verified principal and this conversation, never from the
-        # capability or a model (S1); the backend is the one the RuntimeContext carries (C6).
-        return await self._ctx.services.broker.execute(
+    execute: Callable[[str, dict[str, Any]], Awaitable[ToolResult]]
+
+
+def _broker_for(ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentState, slug: str) -> _Broker:
+    def on_guard(outcome: GuardOutcome) -> None:
+        ctx.report_guard(outcome.events)
+        if outcome.unavailable and ctx.guard_unavailable is None:
+            ctx.guard_unavailable = outcome.unavailable
+
+    async def execute(name: str, args: dict[str, Any]) -> ToolResult:
+        # The scope comes from the verified principal and this turn, never from the capability or
+        # a model (S1, I1); the broker hands the tool a scope-bound document facade (ADR-0231).
+        return await ctx.services.broker.execute(
             name,
             args,
-            caller=self._slug,
-            principal=self._ctx.principal,
-            conversation_id=self._state["conversation_id"],
-            documents=self._ctx.services.documents,
-            emit=lambda type_, data: emit(self._runtime, type_, data),
-            context=guard_context(self._state, self._ctx, tools=()),
-            on_guard=self._on_guard,
+            caller=slug,
+            principal=ctx.principal,
+            conversation_id=state["conversation_id"],
+            selected_kbs=tuple(state.get("selected_kbs") or ()),
+            emit=lambda type_, data: emit(runtime, type_, data),
+            context=guard_context(state, ctx, tools=()),
+            on_guard=on_guard,
+            on_audit=ctx.tool_audit.append,
         )
 
-    def _on_guard(self, outcome: GuardOutcome) -> None:
-        self._ctx.report_guard(outcome.events)
-        if outcome.unavailable and self._ctx.guard_unavailable is None:
-            self._ctx.guard_unavailable = outcome.unavailable
+    return _Broker(execute=execute)
 
 
 def _output(cap: LoadedCapability, payload: str) -> CapabilityOutput:
@@ -347,9 +370,8 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 call_model=_model_caller(cap, ctx, request, runtime),
-                broker=_Broker(ctx, runtime, state, slug),
+                broker=_broker_for(ctx, runtime, state, slug),
                 stream_writer=_event_writer(runtime, cap),
-                documents=services.documents,
                 context=_context_reader(cap, request, ctx),
                 config=copy.deepcopy(cap.config),
             )

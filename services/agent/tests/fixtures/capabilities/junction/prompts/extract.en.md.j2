@@ -1,0 +1,10 @@
+---
+id: junction.extract
+version: 1.0.0
+role: extractor
+locale: en
+changelog:
+  - "1.0.0: test-only (fix session 2026-10-18)"
+---
+Extract the query as JSON.{% if repair %} REPAIR {{ problems }}{% endif %}
+{{ schema }}

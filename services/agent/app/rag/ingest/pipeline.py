@@ -118,6 +118,12 @@ class IngestPipeline:
             raise Retry("embedding_unavailable") from exc
         span.set_attribute("ingest.pages", parsed.pages or 0)
         span.set_attribute("ingest.chunks", len(chunks))
+        span.set_attribute("ingest.pages_without_text", parsed.pages_without_text)
+        warnings = (
+            [{"code": "pages_without_text", "count": parsed.pages_without_text}]
+            if parsed.pages_without_text
+            else []
+        )
         async with self._db.connection() as conn, conn.transaction():
             await self._vectors.replace_document(
                 record.owner,
@@ -128,7 +134,7 @@ class IngestPipeline:
                 conn=conn,
             )
             if not await self._attachments.mark_indexed(
-                record.id, pages=parsed.pages, chunks=len(chunks), conn=conn
+                record.id, pages=parsed.pages, chunks=len(chunks), warnings=warnings, conn=conn
             ):
                 # Deleted or finished elsewhere while this job ran: keep nothing it wrote.
                 raise _Abandoned

@@ -1,9 +1,12 @@
-"""Builds the document side of the platform from config/docs.yaml (C6, owner decision C3): the
-DocumentBackend `backend` names, and for the internal backend its ingestion pipeline and worker.
-The core calls this and holds only the generic DocumentBackend; no docs-named configuration or
-type reaches it."""
+"""Builds the document side of the platform from config/docs.yaml (C6, owner decision C3): every
+DocumentBackend by name (I1), the internal pipeline's ingestion and worker, and the backend uploads
+are registered with, which the caller names (the backend the capabilities reading session
+collections are configured with, `<SLUG>_BACKEND` overriding it: app/capabilities/registry.py is
+the only override, ADR-0235). The core calls this and holds only generic DocumentBackends; no
+docs-named setting reaches it."""
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from app.attachments.objects import ObjectStore
 from app.attachments.store import AttachmentStore
@@ -17,6 +20,7 @@ from app.rag.ingest.pipeline import IngestPipeline
 from app.rag.ingest.queue import IngestQueue
 from app.rag.ingest.worker import IngestWorker
 from app.rag.internal import InternalDocumentBackend
+from app.rag.mcp import MCPDocumentBackend
 from app.rag.rerank import Reranker
 from app.rag.retrieve import HybridRetriever
 from app.rag.vectorstore import PgVectorStore
@@ -25,12 +29,13 @@ from app.settings import Settings
 
 @dataclass(frozen=True)
 class Documents:
-    backend: DocumentBackend
+    backend: DocumentBackend  # the one uploads are registered with
     config: DocsConfig
     # The internal backend's ingestion: the ingest service runs the worker; tests run the
     # pipeline in-process.
     pipeline: IngestPipeline | None = None
     worker: IngestWorker | None = None
+    backends: Mapping[str, DocumentBackend] = field(default_factory=dict)  # every backend, by name
 
 
 def build_documents(
@@ -43,10 +48,16 @@ def build_documents(
     counter: TokenCounter,
     attachments: AttachmentStore,
     objects: ObjectStore,
+    uploads_backend: str = "internal",
+    broker=None,
+    extra_backends: Mapping[str, DocumentBackend] | None = None,
 ) -> Documents:
+    """`uploads_backend`: the backend new uploads are registered with. `broker`: the tool broker;
+    when config/mcp.yaml lists the server `mcp_server` names with transport operations, the `mcp`
+    backend reaches it through `broker.transport` (I11, ADR-0230). `extra_backends`: more
+    backends by name (tests)."""
     config = load_docs_config(settings.config_dir)
-    if config.backend != "internal":
-        raise ValueError(f"unknown document backend {config.backend!r}")
+    selected = uploads_backend
     # The reranker is configured per environment, from .env, not config/docs.yaml (finding 3): the
     # development default is off, and a GPU deployment turns it on with 16 candidates on 1070 chars.
     rerank = Rerank(
@@ -54,9 +65,7 @@ def build_documents(
         candidates=settings.rerank_candidates,
         max_chars=settings.rerank_max_chars,
     )
-    config = config.model_copy(
-        update={"retrieval": config.retrieval.model_copy(update={"rerank": rerank})}
-    )
+    config = config.model_copy(update={"retrieval": config.retrieval.model_copy(update={"rerank": rerank})})
     vectors = PgVectorStore(db)
     queue = IngestQueue(redis, namespace=settings.redis_namespace)
     retriever = HybridRetriever(
@@ -75,4 +84,16 @@ def build_documents(
         attachments=attachments, vectors=vectors, retriever=retriever, queue=queue
     )
     worker = IngestWorker(pipeline, attachments, config, queue) if redis is not None else None
-    return Documents(backend=backend, config=config, pipeline=pipeline, worker=worker)
+    backends: dict[str, DocumentBackend] = {"internal": backend}
+    if (
+        broker is not None
+        and config.mcp_server is not None
+        and config.mcp_server in broker.transport_servers()
+    ):
+        backends["mcp"] = MCPDocumentBackend(broker.transport, config.mcp_server)
+    backends |= dict(extra_backends or {})
+    if selected not in backends:
+        raise ValueError(f"unknown document backend {selected!r}; known: {sorted(backends)}")
+    return Documents(
+        backend=backends[selected], config=config, pipeline=pipeline, worker=worker, backends=backends
+    )

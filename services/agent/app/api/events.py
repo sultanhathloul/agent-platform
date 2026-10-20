@@ -74,16 +74,51 @@ class GuardAuditData(GuardData):
     )
 
 
+class ToolAuditData(_Model):
+    """One tool call of the turn for the gateway's audit record (G8, ADR-0219): who called what,
+    how it ended, how long it took and how big it was, never its arguments or its result. It
+    travels in the terminal event's `tool_audit`, which the gateway removes before relaying."""
+
+    call_id: str
+    tool: str
+    caller: str = Field(description="The capability that called it.")
+    status: Literal["ok", "error", "denied", "pending_approval"]
+    error: str | None = Field(default=None, description="A content-free code.")
+    latency_ms: int
+    retries: int = 0
+    server: str | None = Field(default=None, description="MCP tools: the server id of config/mcp.yaml.")
+    request_bytes: int | None = None
+    response_bytes: int | None = None
+    args_hmac: str | None = Field(
+        default=None, description="MCP tools: HMAC-SHA256 of the arguments under CONTENT_HASH_KEY."
+    )
+
+
+_TOOL_AUDIT_DESCRIPTION = (
+    "Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. "
+    "The gateway removes this field before relaying the event; a client never receives it."
+)
+
+
 _GUARD_AUDIT_DESCRIPTION = (
     "Agent to gateway only (ADR-0116): every guard evaluation in full, for the audit record. "
     "The gateway removes this field before relaying the event; a client never receives it."
 )
 
 
+class ToolLabel(_Model):
+    ar: str
+    en: str
+
+
 class ToolStartData(_Model):
     call_id: str
     tool: str
     capability: str
+    label: ToolLabel | None = Field(
+        default=None,
+        description="What the client shows while the tool runs, per locale (I13); absent: a generic string.",
+    )
 
 
 class ToolEndData(_Model):
@@ -126,6 +161,7 @@ class DoneData(_Model):
     usage: Usage
     guard_events: list[GuardData] = []
     guard_audit: list[GuardAuditData] = Field(default=[], description=_GUARD_AUDIT_DESCRIPTION)
+    tool_audit: list[ToolAuditData] = Field(default=[], description=_TOOL_AUDIT_DESCRIPTION)
     state_digest: StateDigest
     trace_id: str | None = None
 
@@ -141,6 +177,7 @@ class ErrorData(_Model):
     )
     guard_events: list[GuardData] = Field(default=[], description="The turn's guard events up to the error.")
     guard_audit: list[GuardAuditData] = Field(default=[], description=_GUARD_AUDIT_DESCRIPTION)
+    tool_audit: list[ToolAuditData] = Field(default=[], description=_TOOL_AUDIT_DESCRIPTION)
 
 
 class RetractData(_Model):

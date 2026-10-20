@@ -173,3 +173,10 @@ export function uploadAttachment({
     request.send(form);
   });
 }
+
+/** Pages of an indexed PDF that held too little text to be read (D7, ADR-0201); 0 when none. */
+export function pagesWithoutText(view: AttachmentView | undefined): number {
+  return (view?.warnings ?? [])
+    .filter((w) => w.code === "pages_without_text")
+    .reduce((sum, w) => sum + w.count, 0);
+}

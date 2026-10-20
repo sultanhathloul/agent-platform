@@ -1,0 +1,11 @@
+---
+id: waypoint.findings
+version: 1.0.0
+role: context
+locale: en
+changelog:
+  - "1.0.0: test-only (phase 05, E1)"
+---
+status={{ status }}
+{% if status == "complete" %}first={{ steps.first.text | e }} second={{ steps.second.text | e }}{% endif %}
+{% if status == "missing" %}missing={{ missing | join(",") }}{% endif %}

@@ -3,6 +3,8 @@ with a manifest.yaml is loaded at startup. An invalid manifest or a missing
 build() fails fast, naming the offending file."""
 
 import importlib
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,8 +13,10 @@ from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import ValidationError
 
 from app.capabilities.contract import Manifest
+from app.capabilities.declarative import build_declarative
 from app.identity import Principal
 from app.models.config import ModelsConfig
+from app.models.prompts import PromptLibrary
 from app.models.routing import CapabilityModelSpec
 from app.tools.spec import ToolSpec
 
@@ -55,15 +59,22 @@ def _compile_capability(built: object, directory: Path) -> CompiledStateGraph:
     return built.compile()
 
 
-def load_capability_config(config_dir: Path, slug: str) -> dict:
-    """A capability's own configuration file, config/<slug>.yaml, or nothing (C3)."""
+def load_capability_config(config_dir: Path, slug: str, environ: Mapping[str, str] | None = None) -> dict:
+    """A capability's own configuration file, config/<slug>.yaml, or nothing (C3). The document
+    backend it names (`backend`, I1) may be overridden per environment by `<SLUG>_BACKEND` in
+    .env (I11: `DOCS_BACKEND` for config/docs.yaml), so a deployment switches backend without a
+    file edit."""
     path = config_dir / f"{slug}.yaml"
-    if not path.is_file():
-        return {}
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(loaded, dict):
-        raise ManifestError(f"{path}: a capability's configuration must be a mapping")
-    return loaded
+    loaded: object = {}
+    if path.is_file():
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ManifestError(f"{path}: a capability's configuration must be a mapping")
+    config = dict(loaded)  # type: ignore[arg-type]
+    override = (os.environ if environ is None else environ).get(f"{slug.upper()}_BACKEND", "").strip()
+    if override:
+        config["backend"] = override
+    return config
 
 
 def load_manifest(path: Path, models: ModelsConfig) -> Manifest:
@@ -85,19 +96,35 @@ class CapabilityRegistry:
 
     @classmethod
     def discover(
-        cls, models: ModelsConfig, root: Path = PACKAGE_DIR, package: str = PACKAGE
+        cls,
+        models: ModelsConfig,
+        root: Path = PACKAGE_DIR,
+        package: str = PACKAGE,
+        core_prompts: PromptLibrary | None = None,
     ) -> "CapabilityRegistry":
+        """`core_prompts`: the core's prompt library, which a declarative capability's runner
+        renders its step results with (`context.tool_result`, ADR-0239)."""
         loaded = []
         for directory in sorted(p for p in root.iterdir() if (p / "manifest.yaml").is_file()):
             manifest = load_manifest(directory / "manifest.yaml", models)
-            module = importlib.import_module(f"{package}.{directory.name}.graph")
-            build = getattr(module, "build", None)
-            if not callable(build):
-                raise ManifestError(f"{directory}/graph.py: missing build()")
             tools: list[ToolSpec] = []
-            if (directory / "tools.py").is_file():
-                tools = list(importlib.import_module(f"{package}.{directory.name}.tools").tools())
-            graph = _compile_capability(build(), directory)
+            if manifest.declarative is not None:
+                # A declarative capability is a manifest, prompts and evals: no Python (I12).
+                python = sorted(p.name for p in directory.glob("*.py") if p.name != "__init__.py")
+                if python:
+                    raise ManifestError(
+                        f"{directory}: a declarative capability has no Python file, found {python}"
+                    )
+                built = build_declarative(manifest, directory, core_prompts)
+            else:
+                module = importlib.import_module(f"{package}.{directory.name}.graph")
+                build = getattr(module, "build", None)
+                if not callable(build):
+                    raise ManifestError(f"{directory}/graph.py: missing build()")
+                if (directory / "tools.py").is_file():
+                    tools = list(importlib.import_module(f"{package}.{directory.name}.tools").tools())
+                built = build()
+            graph = _compile_capability(built, directory)
             loaded.append(LoadedCapability(manifest=manifest, graph=graph, path=directory, tools=tools))
         return cls(loaded)
 

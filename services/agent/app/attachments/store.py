@@ -10,16 +10,19 @@ reachable from a request."""
 
 import uuid
 from datetime import datetime
+from typing import Any
 
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.db import Database
+from app.rag.collections import session_collection
 from app.rag.types import AttachmentStatus, DocumentKind, FailureReason, Owner
 
 
 def collection_for(conversation_id: str) -> str:
     """A conversation's session-scoped collection (README §9.3, ADR-0131)."""
-    return f"sess_{conversation_id}"
+    return session_collection(conversation_id)
 
 
 def conversation_lock_key(conversation_id: str) -> int:
@@ -40,10 +43,13 @@ class AttachmentRecord(BaseModel):
     size: int
     object_key: str
     collection: str
+    backend: str = "internal"  # the DocumentBackend it was registered with (I11)
     status: AttachmentStatus
     reason: FailureReason | None = None
     pages: int | None = None
     chunks: int | None = None
+    # D7 (ADR-0201): [{code: pages_without_text, count}] on an indexed PDF with pages not read.
+    warnings: list[dict[str, Any]] = []
     attempts: int = 0
     created_at: datetime
     updated_at: datetime
@@ -60,8 +66,8 @@ class LimitReached(Exception):
 
 _COLUMNS = (
     "id::text AS id, conversation_id::text AS conversation_id, tenant_id, user_id, name, mime, kind, "
-    "size, object_key, collection, status, reason, pages, chunks, attempts, created_at, updated_at, "
-    "indexed_at"
+    "size, object_key, collection, backend, status, reason, pages, chunks, warnings, attempts, created_at, "
+    "updated_at, indexed_at"
 )
 
 
@@ -86,6 +92,7 @@ class AttachmentStore:
         size: int,
         object_key: str,
         max_files: int,
+        backend: str = "internal",
     ) -> AttachmentRecord:
         """Inserts a pending attachment, unless the conversation already holds `max_files`;
         the count and the insert run under the conversation's transaction lock, so two
@@ -101,8 +108,8 @@ class AttachmentStore:
                 raise LimitReached(conversation_id)
             cursor = await conn.execute(
                 "INSERT INTO agent.attachments (conversation_id, tenant_id, user_id, name, mime, kind, size, "
-                "object_key, collection) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "object_key, collection, backend) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 f"RETURNING {_COLUMNS}",
                 (
                     conversation_id,
@@ -114,6 +121,7 @@ class AttachmentStore:
                     size,
                     object_key,
                     collection_for(conversation_id),
+                    backend,
                 ),
             )
             return _record(await cursor.fetchone())
@@ -140,6 +148,43 @@ class AttachmentStore:
             row = await cursor.fetchone()
         return _record(row) if row else None
 
+    async def remember_status(
+        self,
+        owner: Owner,
+        attachment_id: str,
+        *,
+        status: AttachmentStatus,
+        reason: FailureReason | None,
+        pages: int | None,
+        warnings: list[dict[str, Any]],
+    ) -> None:
+        """Keeps the status another backend last reported on the owner's record, so a read that
+        cannot reach that backend shows it (ADR-0233). The internal backend's records are its
+        status already and are never written here."""
+        async with self._db.connection() as conn:
+            await conn.execute(
+                "UPDATE agent.attachments SET status = %s, reason = %s, pages = %s, warnings = %s, "
+                "indexed_at = CASE WHEN %s = 'indexed' THEN coalesce(indexed_at, now()) ELSE indexed_at END, "
+                "updated_at = now() "
+                "WHERE id = %s AND tenant_id = %s AND user_id = %s AND backend <> 'internal' "
+                "AND (status, coalesce(reason, ''), coalesce(pages, -1), warnings) "
+                "IS DISTINCT FROM (%s, coalesce(%s, ''), coalesce(%s, -1), %s)",
+                (
+                    status,
+                    reason,
+                    pages,
+                    Jsonb(warnings),
+                    status,
+                    attachment_id,
+                    owner.tenant_id,
+                    owner.user_id,
+                    status,
+                    reason,
+                    pages,
+                    Jsonb(warnings),
+                ),
+            )
+
     # ------------------------------------------------------------------ ingest service and sweeper only
 
     async def by_id(self, attachment_id: str) -> AttachmentRecord | None:
@@ -161,11 +206,19 @@ class AttachmentStore:
             row = await cursor.fetchone()
         return _record(row) if row else None
 
-    async def mark_indexed(self, attachment_id: str, *, pages: int | None, chunks: int, conn) -> bool:
+    async def mark_indexed(
+        self,
+        attachment_id: str,
+        *,
+        pages: int | None,
+        chunks: int,
+        conn,
+        warnings: list[dict[str, Any]] | None = None,
+    ) -> bool:
         cursor = await conn.execute(
             "UPDATE agent.attachments SET status = 'indexed', reason = NULL, pages = %s, chunks = %s, "
-            "indexed_at = now(), updated_at = now() WHERE id = %s AND status = 'pending'",
-            (pages, chunks, attachment_id),
+            "warnings = %s, indexed_at = now(), updated_at = now() WHERE id = %s AND status = 'pending'",
+            (pages, chunks, Jsonb(warnings or []), attachment_id),
         )
         return cursor.rowcount == 1
 
@@ -181,9 +234,12 @@ class AttachmentStore:
             return cursor.rowcount == 1
 
     async def pending_ids(self) -> list[str]:
+        """The internal backend's pending uploads; another backend's are its own to index (I11)."""
         async with self._db.connection() as conn:
             cursor = await conn.execute(
-                "SELECT id::text AS id FROM agent.attachments WHERE status = 'pending' ORDER BY created_at"
+                "SELECT id::text AS id FROM agent.attachments "
+                "WHERE status = 'pending' AND backend = 'internal' "
+                "ORDER BY created_at"
             )
             return [row["id"] for row in await cursor.fetchall()]
 

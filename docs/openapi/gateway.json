@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.1.0"
+    "version" : "2.2.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -1852,6 +1852,13 @@
           "status" : {
             "type" : "string",
             "enum" : [ "pending", "indexed", "failed" ]
+          },
+          "warnings" : {
+            "type" : "array",
+            "description" : "Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF.",
+            "items" : {
+              "$ref" : "#/components/schemas/Warning"
+            }
           }
         },
         "required" : [ "conversation_id", "created_at", "id", "kind", "mime", "name", "size", "status" ]
@@ -2614,6 +2621,21 @@
             "minLength" : 1
           }
         }
+      },
+      "Warning" : {
+        "description" : "Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF.",
+        "properties" : {
+          "code" : {
+            "type" : "string",
+            "enum" : [ "pages_without_text" ]
+          },
+          "count" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          }
+        },
+        "required" : [ "code", "count" ]
       }
     },
     "securitySchemes" : {

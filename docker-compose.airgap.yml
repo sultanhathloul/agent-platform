@@ -37,7 +37,9 @@ services:
   otel-collector:
     networks: !override [airgap]
   agent:
-    networks: !override [airgap]
+    networks: !override [airgap, mcp-routing]
+    environment:
+      MCP_PROFILE: airgap
   ingest:
     networks: !override [airgap]
   gateway:
@@ -48,6 +50,14 @@ services:
     ports: !reset []
   litellm:
     networks: !override [airgap, egress]
+  # Phase 05: the reference MCP servers are internal servers, allowed in the airgap profile (D5);
+  # the agent runs that profile, so no external server can be enabled whatever .env says (I16).
+  mcp-routing-ref:
+    networks: !override [mcp-routing]   # shared with the agent only (ADR-0242)
+  mcp-rag-ref:
+    networks: !override [airgap]
+  postgres-roles:
+    networks: !override [airgap]
   edge:
     image: nginx:1.27.5-alpine
     networks: [airgap, ingress]

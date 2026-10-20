@@ -1,0 +1,78 @@
+# MCP servers the platform may call, and the tools allowed from each (phase 05; D4, ADR-0198,
+# ADR-0204). Reviewed by PR like code. No URL and no secret here: `url_env` and `bearer_env` name
+# the .env variables that hold them. A tool a server lists but this file does not name is never
+# known to the platform; a pinned schema that no longer matches disables its tool (I5, ADR-0206):
+# `make mcp-hashes` prints the current hashes for review.
+#
+# Rules the agent enforces at startup (app/mcp/config.py): Streamable HTTP only, no stdio (I2);
+# model-callable tools (`class: tool`, the default) are read only, `risk: write` refused until
+# approvals exist, no delete tool ever (D6); `class: transport` marks a backend adapter's
+# operations, called only through broker.transport and never declared by a capability (ADR-0230);
+# injected fields come from the verified principal and the turn only (I6). A server is enabled in a
+# profile it lists; `internal: false` also needs MCP_ALLOW_EXTERNAL=true and is never enabled in
+# the airgap profile (D5, I16). This file ships no external server.
+servers:
+  # The reference routing server (I10): an invented road graph of public Riyadh landmarks. The
+  # owner's GraphHopper server replaces it here, with its own URL, tools and pins.
+  - id: routing
+    url_env: MCP_ROUTING_URL
+    auth: none
+    internal: true
+    profiles: [default, airgap]
+    timeout_s: 10
+    max_result_bytes: 262144
+    max_concurrency: 8
+    tools:
+      - name: geocode
+        remote_name: geocode
+        risk: read
+        label: {ar: "البحث عن الموقع", en: "Finding the place"}
+        input_schema_sha256: db451f7eb119a0591ae7896d2c906096ab826ae305bf3a6a5371c2c39535b2c9
+      - name: route
+        remote_name: route
+        risk: read
+        label: {ar: "حساب المسار", en: "Calculating the route"}
+        input_schema_sha256: 7ee479bf2ff2bd2b7b26df72d2d460a8ccd924a222a2472bc25b7eda27849385
+
+  # The reference RAG server (I10, I11): the phase 04 pipeline over MCP, the `mcp` document backend
+  # of config/docs.yaml. Its operations are transport (ADR-0230): only the backend calls them,
+  # through broker.transport, behind docs_search (ADR-0212); no capability can declare them, and
+  # startup fails if one does. `register` writes on the server (it starts indexing a file the
+  # platform already stored and authorized), so it is marked risk: write.
+  - id: rag
+    url_env: MCP_RAG_URL
+    auth: {bearer_env: MCP_RAG_TOKEN}
+    internal: true
+    profiles: [default, airgap]
+    timeout_s: 30
+    max_result_bytes: 1048576
+    max_concurrency: 8
+    tools:
+      - name: register
+        remote_name: register
+        class: transport
+        risk: write
+        label: {ar: "تسجيل الملف", en: "Registering the file"}
+        input_schema_sha256: 018b572169dde3316b5ffa627018bf573baad59222e1faee053a31965502f0bb
+        injected: {tenant: principal.tenant_id, user: principal.user_id, collections: scope.collections}
+      - name: status
+        remote_name: status
+        class: transport
+        risk: read
+        label: {ar: "حالة الملف", en: "File status"}
+        input_schema_sha256: 5a56b8ae5ce0b68d2c7eac89e4dca11f14d3aa16ffe9af818d2d729958291e65
+        injected: {tenant: principal.tenant_id, user: principal.user_id, collections: scope.collections}
+      - name: search
+        remote_name: search
+        class: transport
+        risk: read
+        label: {ar: "البحث في الملفات", en: "Searching the files"}
+        input_schema_sha256: 310d13e0798bd5a74a99d9f9d26056d2e5f995eca592dd980713fd76f1a87b59
+        injected: {tenant: principal.tenant_id, user: principal.user_id, collections: scope.collections}
+      - name: fetch
+        remote_name: fetch
+        class: transport
+        risk: read
+        label: {ar: "قراءة المقاطع", en: "Reading the passages"}
+        input_schema_sha256: 7f7ab8dc98136cf1a476bef0015db3e3da1c4a9e4e769d20578dc258a37ccfac
+        injected: {tenant: principal.tenant_id, user: principal.user_id, collections: scope.collections}

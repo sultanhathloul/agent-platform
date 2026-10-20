@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     rerank_enabled: bool = False
     rerank_candidates: int = Field(default=16, gt=0)
     rerank_max_chars: int | None = Field(default=1070, gt=0)
+    # MCP (phase 05): the allowlist file (default config/mcp.yaml), the profile this deployment runs
+    # (a server is enabled when it is in the server's `profiles`; `airgap` never enables an external
+    # server), and whether external servers may be enabled at all (I16, off by default).
+    mcp_config: Path | None = None
+    mcp_profile: str = "default"
+    mcp_allow_external: bool = False
 
 
 @lru_cache

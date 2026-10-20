@@ -10,8 +10,8 @@ import pytest
 
 from app.rag.backend import DocumentScope
 from app.rag.types import Owner
-from tests.fixtures.ingestion import ingestion
 from tests.fixtures.documents import LEAVE_REGULATION, docx_bytes, pdf_bytes, scanned_pdf_bytes, xlsx_bytes
+from tests.fixtures.ingestion import ingestion
 
 pytestmark = pytest.mark.integration
 
@@ -36,7 +36,9 @@ async def _upload(services, owner: Owner, conversation: str, name: str, data: by
 
 async def _search(services, owner, conversation, question):
     """The conversation's chunks through the DocumentBackend, as the docs tool reaches them (C6)."""
-    scope = DocumentScope(tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation)
+    scope = DocumentScope.session(
+        tenant_id=owner.tenant_id, user_id=owner.user_id, conversation_id=conversation
+    )
     return await services.documents.search(question, scope, 8)
 
 

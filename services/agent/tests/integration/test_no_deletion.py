@@ -8,15 +8,15 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from tests.fixtures.backends import Harness
-from tests.fixtures.documents import LEAVE_REGULATION
-from tests.fixtures.replace import replacing
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
 from app.attachments.sweeper import OrphanSweeper
 from app.identity import Principal
 from app.rag.backend import DocumentScope
+from tests.fixtures.backends import Harness
+from tests.fixtures.documents import LEAVE_REGULATION
+from tests.fixtures.replace import replacing
 
 pytestmark = pytest.mark.integration
 
@@ -25,7 +25,7 @@ async def test_a_context_package_names_the_attachments_its_chunks_came_from(debu
     harness = Harness("internal", debug_services)
     principal = Principal(user_id=f"u-s4-{uuid.uuid4().hex[:6]}", permissions=("cap:general", "cap:docs"))
     conversation = str(uuid.uuid4())
-    scope = DocumentScope(
+    scope = DocumentScope.session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
     )
     document = await harness.upload(scope, "لائحة.pdf", ["\n".join(page) for page in LEAVE_REGULATION])

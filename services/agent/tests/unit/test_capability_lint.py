@@ -28,6 +28,11 @@ BANNED = [
     "from langgraph.types import interrupt",
     "import langgraph.pregel",
     "from langgraph.pregel.main import Pregel",
+    # Every MCP call goes through the broker (D3, ADR-0197).
+    "from app.mcp.client import MCPClient",
+    "import app.mcp.client",
+    "from mcp import ClientSession",
+    "from mcp.client.streamable_http import streamablehttp_client",
 ]
 
 

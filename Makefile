@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed test test-agent test-gateway test-gateway-db test-web test-evals eval smoke smoke-airgap logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals eval smoke smoke-airgap logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -37,6 +37,8 @@ test-agent: .env
 	$(COMPOSE) run --rm minio-init
 	@# The test database and its owner come from infra/postgres/init; idempotent on an existing volume (ADR-0070).
 	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/10-agent-test.sh
+	@# The reference RAG server's role and its test database; CONNECT kept from PUBLIC (ADR-0242).
+	$(COMPOSE) run --rm postgres-roles
 	$(COMPOSE) --profile test up -d --wait litellm-mock
 	$(COMPOSE) --profile test run --rm --build agent-tests
 
@@ -82,6 +84,9 @@ smoke-airgap: .env ## Smoke with egress blocked for every container except litel
 
 purge-pre-guard: ## One-time purge of memory and summaries stored before the DATA guard (D4); DRY_RUN=1 only counts
 	$(COMPOSE) exec -T agent python -m app.guardrails.purge $(if $(DRY_RUN),--dry-run,)
+
+mcp-hashes: ## Print each MCP server's tool schema hashes beside config/mcp.yaml's pins (I5)
+	$(COMPOSE) exec -T agent python -m app.mcp.hashes
 
 logs: ## Tail logs, e.g. make logs s=agent
 	$(COMPOSE) logs -f --tail=200 $(s)

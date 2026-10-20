@@ -8,9 +8,6 @@ import logging
 import uuid
 
 import pytest
-from tests.fixtures.ingestion import ingestion
-from tests.fixtures.backends import Harness
-from tests.fixtures.replace import replacing
 
 from app.api.runner import TurnRunner
 from app.api.schemas import TurnRequest
@@ -18,6 +15,9 @@ from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import Policy
 from app.identity import Principal
 from app.rag.backend import DocumentScope
+from tests.fixtures.backends import Harness
+from tests.fixtures.ingestion import ingestion
+from tests.fixtures.replace import replacing
 
 pytestmark = pytest.mark.integration
 
@@ -60,7 +60,7 @@ async def test_a_judge_at_post_tool_is_content_free_and_records_no_package(debug
             policy_roles=(f"policy:{role}",),
         )
         conversation = str(uuid.uuid4())
-        scope = DocumentScope(
+        scope = DocumentScope.session(
             tenant_id=principal.tenant_id, user_id=principal.user_id, conversation_id=conversation
         )
         document = await harness.upload(scope, "تعميم.md", [PAGE], sections=["ساعات العمل"])
@@ -122,7 +122,7 @@ async def test_an_extraction_error_is_reported_by_type_and_code_only(
 
     monkeypatch.setattr(pipeline_module, "run_sandboxed", explode)
     harness = Harness("internal", services)
-    scope = DocumentScope(
+    scope = DocumentScope.session(
         tenant_id="default", user_id=f"u-s5-{uuid.uuid4().hex[:6]}", conversation_id=str(uuid.uuid4())
     )
     document = await harness.upload(scope, "ملف.md", ["نص"], sections=["عنوان"])

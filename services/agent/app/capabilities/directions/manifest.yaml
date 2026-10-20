@@ -1,0 +1,74 @@
+# The reference routing capability (phase 05, I14, ADR-0215): declarative (I12, ADR-0213), so it is
+# this manifest, its prompts and its evals, and no Python. It reaches the routing MCP server of
+# config/mcp.yaml through the broker only (D3), with the two tools it declares.
+slug: directions
+version: 1.1.0
+name: {ar: "الاتجاهات والمسارات", en: "Directions and routes"}
+description:
+  ar: "المسافة ومدة الوصول وأهم خطوات الطريق بين مكانين في الرياض، بالسيارة أو مشيًا."
+  en: "Distance, travel time and the main steps of the route between two places in Riyadh, by car or on foot."
+icon: "map"
+enabled_by_default: true
+permission: "cap:directions"
+risk: read
+ui:
+  mode: auto                       # chosen by the router model, never toggled
+  order: 30
+routing_hints:
+  description:
+    ar: "طلبات الطريق أو المسار أو المسافة أو مدة الوصول من مكان إلى آخر داخل الرياض، بالسيارة أو مشيًا."
+    en: "Requests for the way, route, distance or travel time from one place to another in Riyadh, by car or on foot."
+  keywords:
+    # I15's list, with walking and travel-time phrasings the eval found missing (2026-10-15).
+    ar: ["طريق", "مسار", "ودّني", "ودني", "وصّلني", "وصلني", "كم يبعد", "المسافة", "أقرب طريق", "كيف أروح", "كيف اروح",
+         "أمشي", "امشي", "مشيًا", "مشيا", "كم ياخذ", "كم يستغرق"]
+    en: ["directions", "route", "how far", "how do i get", "get to", "walk from", "walking"]
+  rules:
+    - when: keyword_candidate      # a keyword makes it a router candidate, never selects it (I15)
+model:
+  min_tier: standard
+  steps: {}
+  on_overflow: compress
+context:
+  # The window for a follow-up ("وكم تستغرق مشيًا؟") and the findings it produces, which the answer
+  # synthesizes from (ADR-0161): I14's [window], with the block that carries its result (ADR-0220).
+  needs: [window, findings]
+  max_input_tokens: 4000
+documents:
+  collections: []                  # reads no document (I1)
+tools: [routing.geocode, routing.route]
+limits:
+  max_iterations: 1
+  timeout_s: 60                     # the extract call on a hosted model can take tens of seconds (eval, 2026-10-15)
+state_namespace: "cap.directions"
+declarative:
+  extract:
+    role: extractor
+    prompt: directions.extract
+    on_missing: ask
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        origin: {type: [string, "null"], maxLength: 200}
+        destination: {type: [string, "null"], maxLength: 200}
+        profile: {type: [string, "null"], enum: [car, foot, null]}
+      required: [origin, destination]
+  steps:
+    # A geocode result's list is `matches` (ADR-0238): none is a place not found; when `best` is
+    # missing, more than one match is a name to choose between, and the matches are the candidates.
+    - id: from
+      tool: routing.geocode
+      args: {query: $.extract.origin}
+      result_list: $.matches
+      ambiguous_when: {more_than: 1}
+    - id: to
+      tool: routing.geocode
+      args: {query: $.extract.destination}
+      result_list: $.matches
+      ambiguous_when: {more_than: 1}
+    - id: route
+      tool: routing.route
+      args: {from: $.steps.from.result.best.id, to: $.steps.to.result.best.id, profile: $.extract.profile}
+  findings:
+    prompt: directions.findings

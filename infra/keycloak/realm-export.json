@@ -35,6 +35,7 @@
       { "name": "cap:sql", "description": "Capability: text-to-SQL over business data" },
       { "name": "cap:web", "description": "Capability: web search" },
       { "name": "cap:docs", "description": "Capability: chat with uploaded documents" },
+      { "name": "cap:directions", "description": "Capability: directions and routes over the routing MCP server (phase 05)" },
       { "name": "cap:kb", "description": "Capability: knowledge-base plugins" },
       { "name": "kb:moe:read", "description": "Knowledge base moe (Ministry of Education): read" },
       { "name": "policy:pii-exempt", "description": "Policy role (ADR-0107): selects role-scoped guard policies; grants nothing" }
@@ -140,7 +141,7 @@
       "lastName": "المحللة",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "analyst", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs"],
+      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs", "cap:directions"],
       "groups": ["/moe-analysts"]
     },
     {
@@ -163,7 +164,7 @@
       "lastName": "الاختبارات",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "evaluator", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "cap:docs"]
+      "realmRoles": ["default-roles-agent", "cap:docs", "cap:directions"]
     }
   ],
   "components": {
