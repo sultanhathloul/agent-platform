@@ -52,6 +52,7 @@ From phase 04:
   - Integrations are standardised behind interfaces: `DocumentBackend` (ADR-0159); MCP only through the broker (`docs/BACKLOG.md`).
 - **Verification starts from `make clean && make models && make up`**, with nothing started by hand.
 - **Eval cadence:** build sessions and intermediate fix sessions run `make eval` once; the last session before merge runs it three times. Each run's results are kept in `build/evals/` (ADR-0188), because `make clean` wipes Langfuse.
+  - Superseded in part by CLAUDE.md rule 13 (evals by what changed), from phase 06.
 
 From phase 05:
 - **Resilience rule (CLAUDE.md rule 12, `docs/RESILIENCE.md`).** No shared resource (pool, event loop, session, counter, breaker) lets one party stall others: limits per user, tenant and platform; one deadline per call; linear, size-capped parsing; shared state changed only by the remote side's outcome; tests with a hung, a trickling and a flooding dependency while another user's request runs. New code follows it from phase 06.

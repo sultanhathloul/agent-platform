@@ -68,6 +68,15 @@ Phase 05 status (2026-10-15): items 1–6, 9 and 10 → phase 05 (docs/PHASE-05-
 
 - **Generation reset may count breaker failures against a healthy server** (suspected, not reproduced). The verifier of PR #10 suspects, from reading the code only, that when one call finds its MCP session gone while another call waits for a fresh session, the generation-reset path can count breaker failures against a healthy server (`services/agent/app/mcp/client.py`, ADR-0246). Reproduce it first; fix only if reproduced.
 
+Timeout budget findings (`docs/RESILIENCE.md`, timeout budget table), most severe first:
+- **High: sandbox children can OOM-kill the document containers.** ingest and mcp-rag-ref each allow two sandbox children of 1 GiB in a 2 GiB container; two hostile files at once can get the whole container OOM-killed, stopping document reading for every user (CLAUDE.md rule 12). The children's combined cap plus the parent's own memory must stay under the container limit.
+- **High: MCP upload registration outlasts the gateway.** An MCP upload registration can take up to 62 s against the gateway's 60 s; the user sees a failed upload while the file is registered behind it. The registration's bound must be shorter than the gateway's.
+- **High: no end-to-end bound on a chat turn.** The gateway's 60 s covers response headers only; the SSE stream and the agent's turn are unbounded. Add a whole-turn deadline that releases the conversation lock and every resource the turn holds.
+- **Medium: inner timeouts longer than the ones enclosing them.** Model calls 300 s inside capability limits of 30 or 60 s; LiteLLM's retry up to 2 × 300 s inside the agent's 300 s; embeddings 300 s and rerank 60 s inside docs_search's 45 s; an MCP call up to 22 s inside the broker's 15 s when a server's queue is full. Each inner bound shorter than its outer one, and a cancelled outer call aborts the inner request.
+- **Low: MCP transport deadline and SDK read timeout race.** Both are `timeout_s`; set the SDK read timeout above the transport deadline so the deadline always decides.
+- **Low: keep-alive mismatch.** The gateway keeps idle connections to the agent 30 s while the agent closes them after 5 s; the gateway's idle time must be shorter than the agent's, which may also explain some intermittent failures attributed to the model provider.
+- **Recommendation (pending the owner's choice):** one standalone infrastructure PR before phase 06 covering the breaker item and these six, verified with `make test` and `make smoke` (CLAUDE.md rule 13: infrastructure only, no eval).
+
 ---
 
 ## Skills → phase 06 (owner decision, 2026-10-14)
