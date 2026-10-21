@@ -2,7 +2,13 @@
 hand-over to the document backend, and owner-scoped reads with the status the backend
 reports. The agent indexes nothing itself: the ingest service does (owner decision R4).
 Capability-agnostic. The product deletes no file (owner decision S4): files stay for as long
-as the platform keeps them, and deleting one is an operations task."""
+as the platform keeps them, and deleting one is an operations task.
+
+An upload answers within `register_response_s` whatever the backend does (I5, ADR-0254): the
+hand-over runs as work of its own, at most one per attachment, and past that bound the upload
+answers with the file `pending` while the hand-over goes on in the background, within the
+backend's own bounds (an MCP server's semaphore and timeout_s). Its outcome is kept on the record:
+a failure ends the file `failed` with `register_failed`, which is final."""
 
 import asyncio
 import logging
@@ -14,11 +20,14 @@ from app.attachments.store import AttachmentRecord, AttachmentStore
 from app.db import Database
 from app.rag.backend import DocumentBackend, DocumentScope, StoredFile
 from app.rag.types import Owner
+from app.resilience.deadline import detached_context
 from app.tools.broker import auditing
 
 log = logging.getLogger(__name__)
 # The bound on one read of a conversation's statuses when the configuration names none.
 DEFAULT_STATUS_TIMEOUT_S = 2.0
+# How long an upload waits for its backend to take the file when the configuration names none.
+DEFAULT_REGISTER_RESPONSE_S = 20.0
 
 
 class UnsupportedType(Exception):
@@ -36,10 +45,12 @@ class AttachmentService:
         limits: UploadLimits,
         backends: Mapping[str, DocumentBackend] | None = None,
         status_timeout_s: float = DEFAULT_STATUS_TIMEOUT_S,
+        register_response_s: float = DEFAULT_REGISTER_RESPONSE_S,
     ):
         """`documents`: the backend new uploads are registered with; `backends`: every backend by
         name, so an upload's status is read from the one it was registered with (I11).
-        `status_timeout_s`: one bound for reading all of a conversation's statuses (ADR-0233)."""
+        `status_timeout_s`: one bound for reading all of a conversation's statuses (ADR-0233).
+        `register_response_s`: how long an upload waits for its backend to take the file (ADR-0254)."""
         self.db = db
         self.store = store
         self.objects = objects
@@ -47,14 +58,19 @@ class AttachmentService:
         self.limits = limits
         self.backends = dict(backends or {})
         self.status_timeout_s = status_timeout_s
+        self.register_response_s = register_response_s
         # Status reads in flight, by attachment id: at most one each; a later read joins it (ADR-0245).
         self._reads: dict[str, asyncio.Task[AttachmentRecord]] = {}
+        # Hand-overs to a backend in flight, by attachment id: at most one each (ADR-0254).
+        self._registrations: dict[str, asyncio.Task[None]] = {}
 
     async def register(
         self, owner: Owner, conversation_id: str, *, name: str, mime: str, size: int, object_key: str
     ) -> AttachmentRecord:
         """Raises UnsupportedType or LimitReached; hands the stored file to the document
-        backend, which indexes it in the background (C6)."""
+        backend, which indexes it in the background (C6). Answers within `register_response_s`:
+        the record `pending` while the hand-over goes on, `failed` with `register_failed` when it
+        failed in that time (ADR-0254)."""
         kind = self.limits.kind_of(name)
         if kind is None:
             raise UnsupportedType(name)
@@ -69,21 +85,55 @@ class AttachmentService:
             max_files=self.limits.max_files_per_conversation,
             backend=getattr(self.documents, "name", "internal"),
         )
-        await self.documents.register(
-            StoredFile(
-                id=record.id,
-                conversation_id=record.conversation_id,
-                tenant_id=record.tenant_id,
-                user_id=record.user_id,
-                collection=record.collection,
-                name=record.name,
-                mime=record.mime,
-                kind=record.kind,
-                size=record.size,
-                object_key=record.object_key,
+        handover = self._register(record)
+        done, _ = await asyncio.wait([handover], timeout=self.register_response_s)
+        if handover not in done:
+            log.warning(
+                "attachment registration past %.1f s: answered pending, it goes on in the background",
+                self.register_response_s,
             )
-        )
+            return record
+        if handover.cancelled() or handover.exception() is not None:
+            return record.model_copy(update={"status": "failed", "reason": "register_failed"})
         return record
+
+    def _register(self, record: AttachmentRecord) -> asyncio.Task[None]:
+        """The hand-over of `record` in flight, or a new one. It belongs to no caller: it runs in a
+        context without the caller's deadline, and an upload that stops waiting leaves it running."""
+        handover = self._registrations.get(record.id)
+        if handover is None:
+            handover = asyncio.get_running_loop().create_task(
+                self._handover(record), context=detached_context()
+            )
+            self._registrations[record.id] = handover
+            handover.add_done_callback(lambda _: self._registrations.pop(record.id, None))
+        return handover
+
+    async def _handover(self, record: AttachmentRecord) -> None:
+        """Hands the stored file to the backend; a failure ends the record `register_failed`."""
+        try:
+            await self.documents.register(
+                StoredFile(
+                    id=record.id,
+                    conversation_id=record.conversation_id,
+                    tenant_id=record.tenant_id,
+                    user_id=record.user_id,
+                    collection=record.collection,
+                    name=record.name,
+                    mime=record.mime,
+                    kind=record.kind,
+                    size=record.size,
+                    object_key=record.object_key,
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning(
+                "attachment registration with backend %s failed (%s)", record.backend, type(exc).__name__
+            )
+            await self.store.mark_register_failed(record.id)
+            raise
 
     async def with_status(
         self, owner: Owner, conversation_id: str, *, on_audit=None
@@ -133,7 +183,10 @@ class AttachmentService:
         that stops waiting (its bound, its own cancellation) leaves it running."""
         read = self._reads.get(record.id)
         if read is None:
-            read = asyncio.ensure_future(self._with_status(record, scope))
+            # Without the caller's deadline: a turn that ends must not cut a read it does not own.
+            read = asyncio.get_running_loop().create_task(
+                self._with_status(record, scope), context=detached_context()
+            )
             self._reads[record.id] = read
             read.add_done_callback(lambda done: self._read_ended(record, done))
         return read
@@ -147,6 +200,8 @@ class AttachmentService:
             )
 
     async def _with_status(self, record: AttachmentRecord, scope: DocumentScope) -> AttachmentRecord:
+        if record.reason == "register_failed":
+            return record  # final: the backend is not asked (ADR-0254)
         backend = self.backends.get(record.backend, self.documents)
         status = await backend.status(record.id, scope)
         if status is None:

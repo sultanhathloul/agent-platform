@@ -27,6 +27,9 @@ FailureReason = Literal[
     "text_too_long",  # more extracted text than the limit
     "too_many_chunks",
     "extraction_aborted",  # the parser ran out of time or memory and was stopped
+    # The document backend did not take the file (it failed, or went past its own bounds); final:
+    # no later status read changes it, and search never returns its chunks (ADR-0254).
+    "register_failed",
 ]
 
 DocumentKind = Literal["pdf", "docx", "xlsx", "txt", "md"]

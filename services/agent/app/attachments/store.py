@@ -167,6 +167,8 @@ class AttachmentStore:
                 "indexed_at = CASE WHEN %s = 'indexed' THEN coalesce(indexed_at, now()) ELSE indexed_at END, "
                 "updated_at = now() "
                 "WHERE id = %s AND tenant_id = %s AND user_id = %s AND backend <> 'internal' "
+                # A failed registration is final (ADR-0254): what the backend says later never undoes it.
+                "AND reason IS DISTINCT FROM 'register_failed' "
                 "AND (status, coalesce(reason, ''), coalesce(pages, -1), warnings) "
                 "IS DISTINCT FROM (%s, coalesce(%s, ''), coalesce(%s, -1), %s)",
                 (
@@ -221,6 +223,16 @@ class AttachmentStore:
             (pages, chunks, Jsonb(warnings or []), attachment_id),
         )
         return cursor.rowcount == 1
+
+    async def mark_register_failed(self, attachment_id: str) -> None:
+        """The backend did not take the file (ADR-0254). Final, also over a status another backend
+        reported meanwhile (it may have indexed the file and then failed the call)."""
+        async with self._db.connection() as conn:
+            await conn.execute(
+                "UPDATE agent.attachments SET status = 'failed', reason = 'register_failed', "
+                "updated_at = now() WHERE id = %s AND (status = 'pending' OR backend <> 'internal')",
+                (attachment_id,),
+            )
 
     async def mark_failed(
         self, attachment_id: str, reason: FailureReason, *, pages: int | None = None

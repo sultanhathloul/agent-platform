@@ -111,6 +111,9 @@ class DocsConfig(_Strict):
     # One bound, in seconds, on reading all of a conversation's attachment statuses at once; past
     # it, or when a backend cannot answer, the record's last known status is shown (ADR-0233).
     status_timeout_s: float = Field(default=2.0, gt=0, le=30)
+    # How long an upload waits for the backend to take the file before it answers `pending` and the
+    # registration goes on in the background (I5, ADR-0254); under the gateway's 60 s for the call.
+    register_response_s: float = Field(default=20.0, gt=0, le=55)
     limits: Limits
     chunking: Chunking
     extraction: Extraction

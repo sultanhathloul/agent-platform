@@ -88,7 +88,13 @@ async def _iteration(server, connection, rng: random.Random, calls: int, *, duri
 @pytest.mark.parametrize(
     ("calls", "during_initialize"),
     [(1, False), (4, False), (MAX_CONCURRENCY, False), (2 * MAX_CONCURRENCY, False), (MAX_CONCURRENCY, True)],
-    ids=["one-call", "four-calls", "max-concurrency-calls", "calls-queued-for-a-slot", "reset-during-initialize"],
+    ids=[
+        "one-call",
+        "four-calls",
+        "max-concurrency-calls",
+        "calls-queued-for-a-slot",
+        "reset-during-initialize",
+    ],
 )
 async def test_a_healthy_servers_restart_never_counts_a_breaker_failure(restarting, calls, during_initialize):
     server, connection = restarting
@@ -109,7 +115,11 @@ async def test_a_healthy_servers_restart_never_counts_a_breaker_failure(restarti
         outcomes = await _iteration(server, connection, rng, calls, during_initialize=during_initialize)
         failures = [o for o in outcomes if isinstance(o, BaseException)]
         failed_calls += len(failures)
-        assert not counted, (iteration, len(counted), [getattr(f, "code", type(f).__name__) for f in failures])
+        assert not counted, (
+            iteration,
+            len(counted),
+            [getattr(f, "code", type(f).__name__) for f in failures],
+        )
         assert connection.breaker.failures == 0, (iteration, connection.breaker.failures, failures)
         assert connection.breaker.state == "closed", (iteration, connection.breaker.state)
         # The next iteration starts on a connected server, as a later user's call would.
@@ -117,5 +127,6 @@ async def test_a_healthy_servers_restart_never_counts_a_breaker_failure(restarti
     print(
         f"scope A {calls} call(s), during_initialize={during_initialize}: {ITERATIONS} iterations in "
         f"{time.monotonic() - started:.1f} s, {server.restarts} restarts, {server.not_found} 404s, "
-        f"{connection.sessions} sessions; failed calls {failed_calls}, breaker failures counted {len(counted)}"
+        f"{connection.sessions} sessions; failed calls {failed_calls}, "
+        f"breaker failures counted {len(counted)}"
     )

@@ -457,6 +457,7 @@
       "text_too_long": "The file's text is longer than the allowed limit.",
       "too_many_chunks": "The file is too large to be indexed whole.",
       "extraction_aborted": "Reading the file took more time or memory than allowed, so it was stopped.",
+      "register_failed": "The document service did not take the file, so it will not be searched. Please upload it again.",
       "unknown": "The file could not be read."
     },
     "types": {

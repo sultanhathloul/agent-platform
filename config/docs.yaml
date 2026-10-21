@@ -10,6 +10,11 @@ mcp_server: rag                     # the server of config/mcp.yaml the `mcp` ba
 # One bound on reading all of a conversation's file statuses at once (a turn, the file list);
 # past it, or when a backend cannot answer, each file shows its last known status (ADR-0233).
 status_timeout_s: 2
+# How long an upload waits for the document backend to take the file (I5, ADR-0254). Past it the
+# upload answers with the file `pending` and the registration goes on in the background, within the
+# server's semaphore and timeout_s; if it fails, the file ends failed with register_failed. Under the
+# gateway's 60 s bound on the agent call (application.yml gateway.agent.response-timeout).
+register_response_s: 20
 
 # Checked in the gateway before anything is stored, re-checked by the agent (ADR-0126, D2).
 limits:

@@ -31,7 +31,7 @@ from app.graph.nodes import capabilities as capability_node
 from app.identity import Principal
 from app.mcp.client import MCPClient, ServerConnection
 from app.mcp.config import MCPConfig, resolve
-from app.rag.access import DocumentAccess, DocumentFacade
+from app.rag.access import DocumentAccess, DocumentFacade, Held
 from app.rag.backend import DocumentScope, StoredFile
 from app.rag.mcp import MCPDocumentBackend
 from app.tools.broker import ToolBroker, auditing
@@ -244,7 +244,7 @@ class _Spy(FakeDocumentBackend):
 
 async def test_docs_searches_its_configured_backend_and_the_backends_its_files_name():
     configured, other, unused = _Spy("configured"), _Spy("other"), _Spy("unused")
-    records: dict[str, list[tuple[str, str]]] = {}
+    records: dict[str, list[Held]] = {}
 
     async def lookup(tenant_id, user_id, conversation_id):
         return records.get(conversation_id, [])
@@ -261,7 +261,7 @@ async def test_docs_searches_its_configured_backend_and_the_backends_its_files_n
     scope = ToolScope(tenant_id="default", user_id="u-spy", collections=(f"sess_{conversation}",))
     await access.facade("docs", scope).search("سؤال", 8)
     assert (configured.searched, other.searched, unused.searched) == ([scope.collections], [], [])
-    records[conversation] = [("d1", "other")]
+    records[conversation] = [Held("d1", "other")]
     await access.facade("docs", scope).search("سؤال", 8)
     assert other.searched == [scope.collections] and unused.searched == []
 

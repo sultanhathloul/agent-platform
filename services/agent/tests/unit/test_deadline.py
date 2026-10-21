@@ -27,9 +27,8 @@ async def test_an_inner_bound_is_never_past_the_enclosing_one():
 
 async def test_a_hung_call_ends_at_its_own_ceiling_and_says_so():
     started = asyncio.get_running_loop().time()
-    with pytest.raises(deadline.DeadlineExceeded) as raised:
-        with deadline.within(0.3):
-            await asyncio.Event().wait()
+    with pytest.raises(deadline.DeadlineExceeded) as raised, deadline.within(0.3):
+        await asyncio.Event().wait()
     assert not raised.value.inherited
     assert isinstance(raised.value, TimeoutError)  # existing `except TimeoutError` handlers still apply
     assert asyncio.get_running_loop().time() - started == pytest.approx(0.3, abs=0.1)
@@ -37,13 +36,11 @@ async def test_a_hung_call_ends_at_its_own_ceiling_and_says_so():
 
 async def test_the_enclosing_deadline_ends_an_inner_call_with_a_longer_ceiling():
     started = asyncio.get_running_loop().time()
-    with pytest.raises(deadline.DeadlineExceeded):
-        with deadline.within(0.3):
-            with pytest.raises(deadline.DeadlineExceeded) as inner:
-                with deadline.within(60.0):
-                    await asyncio.Event().wait()
-            assert inner.value.inherited
-            raise inner.value
+    with pytest.raises(deadline.DeadlineExceeded), deadline.within(0.3):
+        with pytest.raises(deadline.DeadlineExceeded) as inner, deadline.within(60.0):
+            await asyncio.Event().wait()
+        assert inner.value.inherited
+        raise inner.value
     assert asyncio.get_running_loop().time() - started == pytest.approx(0.3, abs=0.1)
 
 
@@ -52,9 +49,8 @@ async def test_no_time_left_cancels_at_the_first_await():
         assert deadline.bounded(20.0, margin_s=10.0) < 0
         with deadline.within(20.0, margin_s=10.0) as budget:
             assert budget.expired and budget.inherited
-        with pytest.raises(deadline.DeadlineExceeded):
-            with deadline.within(20.0, margin_s=10.0):
-                await asyncio.sleep(0)
+        with pytest.raises(deadline.DeadlineExceeded), deadline.within(20.0, margin_s=10.0):
+            await asyncio.sleep(0)
 
 
 async def test_a_task_created_inside_a_scope_inherits_its_end():

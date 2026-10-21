@@ -64,7 +64,7 @@ from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.logs import quiet_libraries
 from app.observability.otel import setup_tracing, shutdown_tracing
-from app.rag.access import DocumentAccess
+from app.rag.access import DocumentAccess, Held
 from app.rag.citations import load_attribution_rule
 from app.rag.setup import build_documents
 from app.rag.types import Owner
@@ -203,6 +203,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         limits=load_upload_limits(settings.config_dir),
         backends=documents.backends,
         status_timeout_s=documents.config.status_timeout_s,
+        register_response_s=documents.config.register_response_s,
     )
     store = MemoryStore(db, memory_config)
     memory = MemoryService(
@@ -268,9 +269,12 @@ def document_access(
     """The broker's document access (ADR-0231, ADR-0232): each capability's configured backend,
     and the attachment records that say which backend holds each upload."""
 
-    async def records(tenant_id: str, user_id: str, conversation_id: str) -> list[tuple[str, str]]:
+    async def records(tenant_id: str, user_id: str, conversation_id: str) -> list[Held]:
         owner = Owner(tenant_id=tenant_id, user_id=user_id)
-        return [(r.id, r.backend) for r in await store.list_for(owner, conversation_id)]
+        return [
+            Held(r.id, r.backend, r.reason == "register_failed")
+            for r in await store.list_for(owner, conversation_id)
+        ]
 
     return DocumentAccess(
         backends,

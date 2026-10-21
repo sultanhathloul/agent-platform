@@ -103,6 +103,14 @@ describe("the status badge (I10)", () => {
     expect(hasMixedToken(text(html).replace("لائحة الإجازات.pdf", ""))).toBe(false);
   });
 
+  it("shows a failed registration's own message, in Arabic and English (ADR-0254)", () => {
+    const failed = file({ attachment: attachment("failed", "register_failed") });
+    const ar = text(renderIn("ar", <AttachmentChip file={failed} />));
+    expect(ar).toContain("لم تستلم خدمة المستندات الملف");
+    expect(hasMixedToken(ar.replace("لائحة الإجازات.pdf", ""))).toBe(false);
+    expect(text(renderIn("en", <AttachmentChip file={failed} />))).toContain("The document service did not take the file");
+  });
+
   it("shows upload progress before the file is registered", () => {
     const html = renderIn("ar", <AttachmentChip file={file({ progress: 40 })} />);
     expect(html).toContain("جارٍ الرفع 40٪");

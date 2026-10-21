@@ -14,8 +14,12 @@ context variable, which a task copies when it is created; the earlier of the two
 deadline (ADR-0251). Outside every scope the deadline is infinite and a call takes its own ceiling.
 
 `bounded(ceiling_s, margin_s)` is the same arithmetic without a scope: the bound to hand a library
-that takes a timeout of its own (an HTTP client, a semaphore wait)."""
+that takes a timeout of its own (an HTTP client, a semaphore wait). `detached_context()` is the
+context for work that belongs to no caller (a status read that outlives its bound, ADR-0245; a
+registration that outlives the upload's answer, ADR-0254): a copy of the current one without
+the deadline, so that work is bound by its own ceilings only."""
 
+import contextvars
 import math
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -68,6 +72,13 @@ def remaining() -> float:
 def bounded(ceiling_s: float, margin_s: float = 0.0) -> float:
     """min(ceiling, what remains of the enclosing deadline − margin); may be ≤ 0: no time left."""
     return min(ceiling_s, remaining() - margin_s)
+
+
+def detached_context() -> contextvars.Context:
+    """The current context without any enclosing deadline, for asyncio.create_task(context=...)."""
+    context = contextvars.copy_context()
+    context.run(_END.set, math.inf)
+    return context
 
 
 @contextmanager
