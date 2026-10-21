@@ -21,6 +21,7 @@ from app.db import Database
 from app.rag.backend import DocumentBackend, DocumentScope, StoredFile
 from app.rag.types import Owner
 from app.resilience.deadline import detached_context
+from app.resilience.limits import Slot
 from app.tools.broker import auditing
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,19 @@ log = logging.getLogger(__name__)
 DEFAULT_STATUS_TIMEOUT_S = 2.0
 # How long an upload waits for its backend to take the file when the configuration names none.
 DEFAULT_REGISTER_RESPONSE_S = 20.0
+
+
+class TooManyUploads(Exception):
+    """The user's, its tenant's or the platform's registrations in flight are at their limit
+    (429 too_many_uploads, ADR-0265)."""
+
+
+class _RegisterFailed(Exception):
+    """A hand-over the backend did not take, with the record as stored after it (ADR-0254, ADR-0265)."""
+
+    def __init__(self, stored: AttachmentRecord | None):
+        super().__init__("register_failed")
+        self.stored = stored
 
 
 class UnsupportedType(Exception):
@@ -63,29 +77,41 @@ class AttachmentService:
         self._reads: dict[str, asyncio.Task[AttachmentRecord]] = {}
         # Hand-overs to a backend in flight, by attachment id: at most one each (ADR-0254).
         self._registrations: dict[str, asyncio.Task[None]] = {}
+        # Each counts toward its user's uploads in flight until it ends (ADR-0265); none without
+        # limits (a service that only reads statuses).
+        self.in_flight = limits.registrations() if limits is not None else None
 
     async def register(
         self, owner: Owner, conversation_id: str, *, name: str, mime: str, size: int, object_key: str
     ) -> AttachmentRecord:
-        """Raises UnsupportedType or LimitReached; hands the stored file to the document
-        backend, which indexes it in the background (C6). Answers within `register_response_s`:
-        the record `pending` while the hand-over goes on, `failed` with `register_failed` when it
-        failed in that time (ADR-0254)."""
+        """Raises UnsupportedType, TooManyUploads or LimitReached; hands the stored file to the
+        document backend, which indexes it in the background (C6). Answers within
+        `register_response_s`: the record `pending` while the hand-over goes on; when it failed in
+        that time, the record as stored after it (`failed` with `register_failed`, or what the
+        backend made of it meanwhile, ADR-0265). The registration counts toward the user's uploads
+        in flight until it ends, here or in the background."""
         kind = self.limits.kind_of(name)
         if kind is None:
             raise UnsupportedType(name)
-        record = await self.store.register(
-            owner,
-            conversation_id,
-            name=name,
-            mime=mime,
-            kind=kind,
-            size=size,
-            object_key=object_key,
-            max_files=self.limits.max_files_per_conversation,
-            backend=getattr(self.documents, "name", "internal"),
-        )
-        handover = self._register(record)
+        slot = self.in_flight.try_acquire(owner.tenant_id, owner.user_id)
+        if isinstance(slot, str):
+            raise TooManyUploads(slot)
+        try:
+            record = await self.store.register(
+                owner,
+                conversation_id,
+                name=name,
+                mime=mime,
+                kind=kind,
+                size=size,
+                object_key=object_key,
+                max_files=self.limits.max_files_per_conversation,
+                backend=getattr(self.documents, "name", "internal"),
+            )
+        except BaseException:
+            slot.release()
+            raise
+        handover = self._register(record, slot)
         done, _ = await asyncio.wait([handover], timeout=self.register_response_s)
         if handover not in done:
             log.warning(
@@ -93,20 +119,32 @@ class AttachmentService:
                 self.register_response_s,
             )
             return record
-        if handover.cancelled() or handover.exception() is not None:
-            return record.model_copy(update={"status": "failed", "reason": "register_failed"})
+        if handover.cancelled():
+            return record
+        failure = handover.exception()
+        if isinstance(failure, _RegisterFailed):
+            failed = record.model_copy(update={"status": "failed", "reason": "register_failed"})
+            return failure.stored or failed
         return record
 
-    def _register(self, record: AttachmentRecord) -> asyncio.Task[None]:
-        """The hand-over of `record` in flight, or a new one. It belongs to no caller: it runs in a
-        context without the caller's deadline, and an upload that stops waiting leaves it running."""
+    def _register(self, record: AttachmentRecord, slot: Slot) -> asyncio.Task[None]:
+        """The hand-over of `record` in flight, or a new one, which holds `slot` until it ends. It
+        belongs to no caller: it runs in a context without the caller's deadline, and an upload
+        that stops waiting leaves it running."""
         handover = self._registrations.get(record.id)
-        if handover is None:
-            handover = asyncio.get_running_loop().create_task(
-                self._handover(record), context=detached_context()
-            )
-            self._registrations[record.id] = handover
-            handover.add_done_callback(lambda _: self._registrations.pop(record.id, None))
+        if handover is not None:
+            slot.release()  # joined: the hand-over in flight holds its own
+            return handover
+        handover = asyncio.get_running_loop().create_task(self._handover(record), context=detached_context())
+        self._registrations[record.id] = handover
+
+        def ended(done: asyncio.Task) -> None:
+            self._registrations.pop(record.id, None)
+            slot.release()
+            if not done.cancelled():
+                done.exception()  # retrieved: a background failure is logged and kept on the record
+
+        handover.add_done_callback(ended)
         return handover
 
     async def _handover(self, record: AttachmentRecord) -> None:
@@ -132,8 +170,12 @@ class AttachmentService:
             log.warning(
                 "attachment registration with backend %s failed (%s)", record.backend, type(exc).__name__
             )
-            await self.store.mark_register_failed(record.id)
-            raise
+            stored = await self.store.mark_register_failed(record.id)
+            if stored is None:
+                # No row matched: the backend moved the record on meanwhile (the internal worker
+                # indexed what the push queued before the call failed); its state is the answer.
+                stored = await self.store.by_id(record.id)
+            raise _RegisterFailed(stored) from exc
 
     async def with_status(
         self, owner: Owner, conversation_id: str, *, on_audit=None

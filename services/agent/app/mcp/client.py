@@ -23,6 +23,10 @@ the broker: no capability imports this module (ADR-0197).
   `max_concurrency`. Sessions carry no per-user state (I9): every call carries what it needs; when
   the server no longer knows a session, the tools are pinned again on a new one and the call is
   tried once more.
+- Background work (ADR-0265): a call in a detached context (a registration past the upload's
+  answer, a status read past its bound) takes one of the server's background slots, at most half
+  of max_concurrency, before a slot, so callers always find some; its slot wait and its attempt
+  share one deadline of timeout_s (the wait at most half of it), and its own timeout still counts.
 - Bounds (I6, ADR-0259), each cut to what remains of the caller's deadline (app/resilience/
   deadline.py): the wait for a slot is at most min(timeout_s, remaining − timeout_s − 1), so the
   call still has its timeout_s once it has one; when no wait is left and no slot is free the call
@@ -262,6 +266,7 @@ class _Lease:
 
     pooled: _Session | None = None
     clean: bool = False
+    background: bool = False  # it holds one of the server's background slots too (ADR-0265)
 
 
 class ServerConnection:
@@ -273,6 +278,9 @@ class ServerConnection:
         self._hash_key = hash_key
         self.version = client_version
         self._semaphore = asyncio.Semaphore(self.entry.max_concurrency)
+        # Background work (a registration past the upload's answer, a status read past its bound)
+        # takes at most half of the slots, so callers always find some (ADR-0265).
+        self._background = asyncio.Semaphore(max(1, self.entry.max_concurrency // 2))
         self.breaker = Breaker()
         # The pool (ADR-0246): sessions of the current generation that no call holds. With the
         # sessions calls hold, never more than max_concurrency: a call takes one with its slot.
@@ -428,17 +436,22 @@ class ServerConnection:
         returned: requests open at a server never exceed max_concurrency (ADR-0246)."""
         pooled = lease.pooled
         if pooled is None:
-            self._semaphore.release()
+            self._release_slot(lease)
         elif lease.clean:
             if pooled.generation == self._generation and pooled.session is not None:
                 self._idle.append(pooled)
             else:
                 self._spawn(pooled.close())
-            self._semaphore.release()
+            self._release_slot(lease)
         else:
-            self._spawn(self._replace(pooled))
+            self._spawn(self._replace(pooled, lease))
 
-    async def _replace(self, pooled: _Session) -> None:
+    def _release_slot(self, lease: _Lease) -> None:
+        self._semaphore.release()
+        if lease.background:
+            self._background.release()
+
+    async def _replace(self, pooled: _Session, lease: _Lease) -> None:
         """Closes a session a call left, then, within the call's slot, opens a fresh one in its
         place when its generation is still current; the slot is returned last."""
         try:
@@ -454,7 +467,7 @@ class ServerConnection:
                 else:
                     await fresh.close()
         finally:
-            self._semaphore.release()
+            self._release_slot(lease)
 
     # ------------------------------------------------------------------ calls
 
@@ -496,20 +509,13 @@ class ServerConnection:
             raise ToolFailure(UNAVAILABLE)
         if self.breaker.state == "open":
             raise ToolFailure(UNAVAILABLE)
-        if self._semaphore.locked():
-            observed["queued"] = True
-            # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
-            wait_s = deadline.bounded(self.entry.timeout_s, margin_s=self.entry.timeout_s + 1.0)
-            if wait_s <= 0:
-                raise ToolFailure(BUSY)  # the breaker is untouched: nothing reached the server
-            try:
-                async with asyncio.timeout(wait_s):
-                    await self._semaphore.acquire()
-            except TimeoutError:
-                raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
-        else:
-            await self._semaphore.acquire()  # a slot is free: taken at once
-        lease = _Lease()
+        background = deadline.detached()
+        started = deadline.now()
+        lease = _Lease(background=background)
+        await self._slot(lease, observed)
+        # Background work has one deadline, timeout_s from its start, for the slot and the attempt
+        # (ADR-0265); a caller's call keeps its own timeout_s once it has a slot (ADR-0259).
+        ceiling = self.entry.timeout_s - (deadline.now() - started) if background else self.entry.timeout_s
         try:
             admitted = self.breaker.admit()
             if admitted is None:
@@ -517,7 +523,7 @@ class ServerConnection:
             trial = admitted == "trial"
             decided = False
             try:
-                result = await self._attempt(tool, arguments, observed, lease)
+                result = await self._attempt(tool, arguments, observed, lease, ceiling)
                 decided = True
                 self.breaker.success()
                 return result
@@ -541,19 +547,57 @@ class ServerConnection:
         finally:
             self._finish(lease)
 
+    async def _slot(self, lease: _Lease, observed: dict[str, str | int | bool]) -> None:
+        """Takes a slot for the call; raises ToolFailure(BUSY), the breaker untouched (nothing
+        reached the server), when none frees up in time. A caller's call waits only as long as
+        leaves it its own timeout_s (I6); a free slot is taken at once. Background work takes one
+        of the background slots first, and waits up to half its one deadline, so its attempt keeps
+        the other half (ADR-0265)."""
+        timeout_s = self.entry.timeout_s
+        if lease.background:
+            wait_s = timeout_s / 2
+            if self._semaphore.locked() or self._background.locked():
+                observed["queued"] = True
+        elif self._semaphore.locked():
+            observed["queued"] = True
+            # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
+            wait_s = deadline.bounded(timeout_s, margin_s=timeout_s + 1.0)
+            if wait_s <= 0:
+                raise ToolFailure(BUSY)  # the breaker is untouched: nothing reached the server
+        else:
+            await self._semaphore.acquire()  # a slot is free: taken at once
+            return
+        held_background = False
+        try:
+            async with asyncio.timeout(wait_s):
+                if lease.background:
+                    await self._background.acquire()
+                    held_background = True
+                await self._semaphore.acquire()
+        except TimeoutError:
+            if held_background:
+                self._background.release()
+            raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
+        except BaseException:
+            if held_background:
+                self._background.release()
+            raise
+
     async def _attempt(
         self,
         tool: ToolEntry,
         arguments: dict[str, Any],
         observed: dict[str, str | int | bool],
         lease: _Lease,
+        ceiling: float,
     ) -> CallResult:
         """One call on a session of the pool, re-sent once on a new generation's session when the
-        server no longer knows this one (I9). Raises _Failed with a content-free code."""
+        server no longer knows this one (I9), within `ceiling` (timeout_s, or what a background
+        call's one deadline leaves). Raises _Failed with a content-free code."""
         waiting = False  # waiting for the next generation: a timeout then is no verdict (ADR-0249)
         try:
             # One deadline for the attempt: the session, the request and the I9 re-send (I6).
-            with deadline.within(self.entry.timeout_s, margin_s=_ATTEMPT_MARGIN_S):
+            with deadline.within(ceiling, margin_s=_ATTEMPT_MARGIN_S):
                 await self._take(lease)
                 try:
                     result = await self._send(lease.pooled, tool, arguments, observed)

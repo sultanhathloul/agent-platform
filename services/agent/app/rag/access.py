@@ -10,7 +10,8 @@ were registered with, grouped per backend, and the results are merged by score. 
 collection is searched on the backend the calling capability's `config/<slug>.yaml` names (with
 its `<SLUG>_BACKEND` override, ADR-0224). Switching that backend changes new uploads only.
 A file whose registration failed is never searched: a backend may hold its chunks (it indexed the
-file and failed the call), and they are dropped from what it returns (ADR-0254).
+file and failed the call), and they are dropped from what it returns (ADR-0254); `fetch` drops the
+text of a chunk this facade found in such a file too (ADR-0265).
 Capability-agnostic: no capability, backend or server is named here."""
 
 import asyncio
@@ -92,6 +93,10 @@ class DocumentAccess:
         def scoped(names: Sequence[str]) -> DocumentScope:
             return DocumentScope(tenant_id=tenant_id, user_id=user_id, collections=tuple(names))
 
+        # The document of every chunk this facade's searches returned, by reference: fetch reads
+        # it to drop what belongs to a file whose registration failed (ADR-0265).
+        found_in: dict[str, str] = {}
+
         async def placed() -> tuple[dict[str, list[str]], set[str]]:
             """The scope's collections per backend (a session collection on its files' backends),
             and the files whose registration failed."""
@@ -131,13 +136,16 @@ class DocumentAccess:
                 raise first if isinstance(first, ToolFailure) else ToolFailure("tool_unavailable")
             # Backends rank alike (the same fusion of the same pipeline): merged by score, best first.
             found.sort(key=lambda chunk: chunk.hit.score, reverse=True)
+            found_in.update({chunk.hit.ref: chunk.hit.document_id for chunk in found})
             return found[:k]
 
         async def fetch(refs: Sequence[str], *, backend: str | None = None) -> dict[str, str]:
             chosen = self.backends.get(backend or name)
             if chosen is None:
                 return {}
-            return await chosen.fetch(refs, scoped(collections))
+            texts = await chosen.fetch(refs, scoped(collections))
+            _, failed = await placed()
+            return {ref: text for ref, text in texts.items() if found_in.get(ref) not in failed}
 
         async def status(document_id: str) -> DocumentStatus | None:
             for collection in collections:

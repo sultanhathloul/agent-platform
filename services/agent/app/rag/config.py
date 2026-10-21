@@ -26,8 +26,12 @@ class Limits(_Strict):
     max_files_per_conversation: int = Field(gt=0)
     max_pdf_pages: int = Field(gt=0)
     uploads_per_minute: int = Field(gt=0)  # baseline for the gateway's per-user rate limit (R3)
-    max_concurrent_uploads: int = Field(default=2, gt=0)  # per-user in-flight cap, gateway only (finding 2)
-    max_concurrent_uploads_total: int = Field(default=50, gt=0)  # gateway-wide in-flight cap, gateway only
+    # Per user in flight: bodies in the gateway (finding 2), registrations in the agent (ADR-0265).
+    max_concurrent_uploads: int = Field(default=2, gt=0)
+    max_concurrent_uploads_total: int = Field(default=50, gt=0)  # gateway-wide; the agent's registrations too
+    # A tenant's registrations in flight (ADR-0265): none of its own by default, overrides by tenant id.
+    max_concurrent_uploads_per_tenant: int | None = Field(default=None, gt=0)
+    tenant_concurrent_uploads: dict[str, int] = Field(default_factory=dict)
     upload_deadline_seconds: int = Field(default=120, gt=0)  # to receive one upload's body, gateway only
     types: dict[DocumentKind, FileType]
 

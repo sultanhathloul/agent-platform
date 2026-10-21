@@ -224,15 +224,19 @@ class AttachmentStore:
         )
         return cursor.rowcount == 1
 
-    async def mark_register_failed(self, attachment_id: str) -> None:
+    async def mark_register_failed(self, attachment_id: str) -> AttachmentRecord | None:
         """The backend did not take the file (ADR-0254). Final, also over a status another backend
-        reported meanwhile (it may have indexed the file and then failed the call)."""
+        reported meanwhile (it may have indexed the file and then failed the call). The record as
+        updated, or None when no row matched: the internal worker had already moved it on."""
         async with self._db.connection() as conn:
-            await conn.execute(
+            cursor = await conn.execute(
                 "UPDATE agent.attachments SET status = 'failed', reason = 'register_failed', "
-                "updated_at = now() WHERE id = %s AND (status = 'pending' OR backend <> 'internal')",
+                "updated_at = now() WHERE id = %s AND (status = 'pending' OR backend <> 'internal') "
+                f"RETURNING {_COLUMNS}",
                 (attachment_id,),
             )
+            row = await cursor.fetchone()
+        return _record(row) if row else None
 
     async def mark_failed(
         self, attachment_id: str, reason: FailureReason, *, pages: int | None = None

@@ -24,8 +24,13 @@ limits:
   uploads_per_minute: 20            # per user, in the gateway; more is 429 upload_rate_limited (R3).
                                     # GATEWAY_UPLOADS_PER_MINUTE (from .env) overrides this per
                                     # environment (review round 2, finding 4); this is the baseline.
-  max_concurrent_uploads: 2         # per user, in flight at once; more is 429 too_many_uploads (finding 2)
+  max_concurrent_uploads: 2         # per user, in flight at once; more is 429 too_many_uploads (finding 2).
+                                    # In the agent a registration counts until it ends, in the
+                                    # background too (ADR-0265)
   max_concurrent_uploads_total: 50  # the whole gateway, in flight at once; more is 429 too_many_uploads
+  max_concurrent_uploads_per_tenant: null   # a tenant's registrations in flight; null: no tenant
+                                    # limit of its own (the total applies)
+  tenant_concurrent_uploads: {}     # tenant id: its own limit, for a multi-tenant deployment
   upload_deadline_seconds: 120      # to receive one upload's body; past it, 408 upload_timeout
   types:
     pdf:  {extensions: [pdf],  mimes: [application/pdf]}
