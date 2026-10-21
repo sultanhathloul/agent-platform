@@ -25,9 +25,11 @@ import sa.ncai.agent.gateway.memory.MemorySettings;
  *
  * <p>Spring's JDK request factory applies its read timeout to the whole exchange: past it, the
  * response body is closed, wherever the reading is (established by test, ADR-0256). So a turn
- * stream has a client of its own whose bound is {@link TurnLimits#relayBound()} (135 s), and every
- * other call keeps {@code gateway.agent.response-timeout} (60 s). Closing the body at the bound
- * closes the connection to the agent, which ends the turn there.
+ * stream has a client of its own with two bounds, the agent's response headers within
+ * {@link TurnLimits#headers()} (15 s) and the whole stream within {@link TurnLimits#relayBound()}
+ * (135 s) ({@link TurnStreamRequestFactory}, ADR-0264), and every other call keeps
+ * {@code gateway.agent.response-timeout} (60 s). Closing the body at the bound closes the
+ * connection to the agent, which ends the turn there.
  */
 @Component
 public class AgentClient {
@@ -64,7 +66,7 @@ public class AgentClient {
         this.relayBound = turn.relayBound();
         this.streamClient = builder.clone()
                 .baseUrl(agent.baseUrl())
-                .requestFactory(factory(http, relayBound))
+                .requestFactory(new TurnStreamRequestFactory(http, turn.headers(), relayBound))
                 .build();
         this.internalToken = agent.internalToken();
     }

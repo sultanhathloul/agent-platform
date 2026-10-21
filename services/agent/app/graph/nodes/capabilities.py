@@ -333,7 +333,7 @@ async def _invoke_isolated(
                 # the scope above recognises its own; the subgraph is then cancelled and drained.
                 await asyncio.wait([task])
             except asyncio.CancelledError:
-                await deadline.drain(task)
+                await deadline.drain(task, name=f"run_capabilities:{cap.slug}")
                 raise
             ok, text = task.result()
     except deadline.DeadlineExceeded as exc:

@@ -27,6 +27,7 @@ from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.rag.backend import DocumentBackend
 from app.rag.citations import AttributionRule
+from app.resilience.limits import ConcurrencyLimiter
 from app.resilience.turn import TurnConfig
 from app.settings import Settings
 from app.text.script import ValidationConfig
@@ -61,6 +62,8 @@ class Services:
     citations: AttributionRule
     router: RouterConfig
     turn: TurnConfig  # the whole-turn deadline and its reserves (config/turn.yaml, I2, ADR-0255)
+    # Turns in flight per user, per tenant and platform-wide (config/turn.yaml, ADR-0262).
+    turn_limits: ConcurrencyLimiter
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
     # The compiled main graph, set by app.main.start_services once the database is open:
@@ -111,6 +114,9 @@ class TurnContext:
     # Every tool call of the turn, content-free, for the audit record (G8): the terminal event's
     # tool_audit, which the gateway strips before relaying.
     tool_audit: list[dict] = field(default_factory=list)
+    # The answer's last token was sent (streaming: the answer node's end; buffered: release_answer):
+    # from then on the turn never ends turn_timeout (ADR-0263).
+    answer_sent: bool = False
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

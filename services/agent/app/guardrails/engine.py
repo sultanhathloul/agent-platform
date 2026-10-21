@@ -34,6 +34,7 @@ trace and the audit delta.
 
 import asyncio
 import json
+import math
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
@@ -56,6 +57,7 @@ from app.guardrails.schema import (
 )
 from app.identity import Principal
 from app.observability.otel import tracer
+from app.resilience import deadline
 
 NO_CONTEXT = GuardContext()
 _SEVERITY = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -246,7 +248,10 @@ class GuardEngine:
             )
             try:
                 checker = self.checkers[policy.checker]
-                result: CheckResult | None = await checker.check(subject, policy.typed_config(), ctx)
+                # Ends by the enclosing deadline in this check's own task, so a check cut there
+                # follows its policy's on_error instead of being cancelled (ADR-0263).
+                with deadline.within(math.inf):
+                    result: CheckResult | None = await checker.check(subject, policy.typed_config(), ctx)
                 error = None
             except Exception as exc:  # any failure is the policy's on_error, never a crash
                 result, error = None, type(exc).__name__

@@ -14,7 +14,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.api.admin import router as admin_router
 from app.api.attachments import router as attachments_router
@@ -35,6 +34,7 @@ from app.context.log import ContextLog
 from app.context.tokens import default_counter
 from app.db import Database
 from app.graph.build import build_graph
+from app.graph.checkpointer import BoundedSaver
 from app.graph.deps import Services
 from app.graph.judge import GraphJudge
 from app.graph.router_config import load_router_config
@@ -84,7 +84,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.2.0"
+API_VERSION = "2.3.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -207,6 +207,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         register_response_s=documents.config.register_response_s,
     )
     store = MemoryStore(db, memory_config)
+    turn = load_turn_config(settings.config_dir)
     memory = MemoryService(
         config=memory_config,
         store=store,
@@ -241,7 +242,8 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         backends=documents.backends,
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
-        turn=load_turn_config(settings.config_dir),
+        turn=turn,
+        turn_limits=turn.limiter(settings.lock_pool_size),
         redis=redis,
         closers=(presidio.close,),
     )
@@ -310,7 +312,7 @@ async def start_services(services: Services) -> Services:
     if not services.settings.content_hash_key:
         raise RuntimeError("CONTENT_HASH_KEY is not set (.env, ADR-0110): traces would carry unkeyed hashes")
     await services.db.open()
-    checkpointer = AsyncPostgresSaver(services.db.pool)
+    checkpointer = BoundedSaver(services.db.pool, persist_s=services.turn.persist_s)
     await checkpointer.setup()
     await services.locks.open()
     await services.policies.seed(policy_roots(services.settings, services.registry))

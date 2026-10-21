@@ -48,6 +48,12 @@ turn_in_flight:
 turn_timeout:
   ar: "استغرقت الإجابة وقتًا أطول من المسموح به، فأُوقفت. حاول مرة أخرى."
   en: "The answer took longer than allowed, so it was stopped. Please try again."
+too_many_turns:
+  ar: "بلغت الطلبات الجارية الحد المسموح به الآن. انتظر حتى يكتمل أحدها ثم أعد المحاولة."
+  en: "Too many requests are in progress right now. Wait for one to finish, then try again."
+too_many_uploads:
+  ar: "عدد عمليات الرفع المتزامنة كبير. انتظر حتى تنتهي العمليات الحالية ثم أعد المحاولة."
+  en: "Too many uploads at once. Wait for the current ones to finish, then try again."
 service_busy:
   ar: "الخدمة مشغولة الآن بطلبات أخرى. أعد المحاولة بعد لحظات."
   en: "The service is busy with other requests right now. Try again in a moment."

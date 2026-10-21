@@ -9,6 +9,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -29,7 +32,10 @@ import sa.ncai.agent.gateway.audit.AuditEvent;
  * body included; at the timeout it closes the body, and a relayed stream ended there as
  * {@code agent_stream_interrupted}. That, not a header timeout, is what ended phase 05's turns at
  * the 60 s gateway timeout. A turn stream now has the relay's bound instead, and it ends with
- * {@code turn_timeout}.
+ * {@code turn_timeout}. Its response headers have a bound of their own (1 s here, 15 s shipped,
+ * past the agent's admission bound; the PR #12 review, decision 5, ADR-0264): an agent that never
+ * answers them is agent_unavailable at that bound. Each bound holds while another user's turn runs
+ * on the same gateway at its normal time (decision 10).
  */
 @TestPropertySource(properties = {
     "gateway.agent.response-timeout=1s",
@@ -59,11 +65,15 @@ class StreamBoundTest extends GatewayTestSupport {
     private record Relayed(List<JsonNode> events, long millis) {}
 
     private Relayed chatTurn() throws Exception {
+        return chatTurn(token(), CONVERSATION_ID);
+    }
+
+    private Relayed chatTurn(String bearer, String conversationId) throws Exception {
         long started = System.nanoTime();
         MvcResult result = mvc.perform(post("/v1/chat/turns")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"conversation_id\":\"" + CONVERSATION_ID + "\",\"message\":\"سؤال\",\"locale\":\"ar\"}"))
+                        .content("{\"conversation_id\":\"" + conversationId + "\",\"message\":\"سؤال\",\"locale\":\"ar\"}"))
                 .andReturn();
         long millis = (System.nanoTime() - started) / 1_000_000;
         List<JsonNode> events = new ArrayList<>();
@@ -126,6 +136,67 @@ class StreamBoundTest extends GatewayTestSupport {
         assertThat(after.getSequenceNumber()).isZero();
         System.out.printf("I3 silent agent: ended turn_timeout at %d ms (bound %d ms); the next turn on a new connection%n",
                 relayed.millis(), BOUND_MS);
+    }
+
+    private static final String OTHER_CONVERSATION_ID = "6f1d2e3c-4b5a-4c7d-8e9f-0a1b2c3d4e5f";
+    private static final long OTHER_BOUND_MS = 1000; // another user's turn: a done stream at once
+
+    private static String done() {
+        return tokens(1) + "event: done\nid: 9\ndata: {\"type\":\"done\",\"request_id\":\"r\",\"turn_id\":\"t\",\"seq\":9,"
+                + "\"data\":{\"answer\":\"ك\",\"citations\":[],\"usage\":{\"tokens_in\":1,\"tokens_out\":1,\"cost_usd\":0.0},"
+                + "\"guard_events\":[],\"state_digest\":{},\"trace_id\":\"4bf92f3577b34da6a3ce929d0e0e4736\"}}\n\n";
+    }
+
+    private static String otherUser() {
+        return token(claims -> claims.subject("user-456").claim("preferred_username", "other"));
+    }
+
+    /** User A's turn in a thread of its own once its request reached the agent; then user B's. */
+    private Relayed[] withAnotherUser(MockResponse held) throws Exception {
+        AGENT.enqueue(held);
+        AGENT.enqueue(new MockResponse().setHeader("Content-Type", "text/event-stream").setBody(done()));
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Relayed> mine = pool.submit(() -> chatTurn());
+            assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS)).isNotNull(); // A's request is at the agent
+            Relayed other = chatTurn(otherUser(), OTHER_CONVERSATION_ID);
+            return new Relayed[] {mine.get(10, TimeUnit.SECONDS), other};
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void anotherUsersTurnRunsOnTimeWhileOneStreamIsHeldToItsBound() throws Exception {
+        Relayed[] relayed = withAnotherUser(new MockResponse().setHeader("Content-Type", "text/event-stream")
+                .setBody(tokens(1)).setBodyDelay(30, TimeUnit.SECONDS));
+        Relayed held = relayed[0];
+        Relayed other = relayed[1];
+        assertThat(other.events().getLast().path("type").asText()).isEqualTo("done");
+        assertThat(other.millis()).isLessThan(OTHER_BOUND_MS);
+        assertThat(held.millis()).isBetween(BOUND_MS, BOUND_MS + 1000);
+        assertThat(held.events().getLast().path("data").path("code").asText()).isEqualTo("turn_timeout");
+        System.out.printf("10 relay bound with another user alongside: held stream turn_timeout at %d ms (bound %d ms); "
+                + "another user's turn %d ms%n", held.millis(), BOUND_MS, other.millis());
+    }
+
+    @Test
+    void anAgentThatNeverAnswersItsHeadersIsUnavailableAtTheHeaderBound() throws Exception {
+        long headersMs = 1000; // src/test/resources/turn-test.yaml gateway_headers_s
+        assertThat(agentClient.relayBound().toMillis()).isEqualTo(BOUND_MS);
+        long started = System.nanoTime();
+        Relayed[] relayed = withAnotherUser(new MockResponse().setHeader("Content-Type", "text/event-stream")
+                .setBody(done()).setHeadersDelay(5, TimeUnit.SECONDS));
+        Relayed other = relayed[1];
+        long heldMs = (System.nanoTime() - started) / 1_000_000;
+        assertThat(other.events().getLast().path("type").asText()).isEqualTo("done");
+        assertThat(other.millis()).isLessThan(OTHER_BOUND_MS);
+        assertThat(heldMs).isBetween(headersMs, headersMs + 1000);
+        AuditEvent audited = auditLog().events().stream()
+                .filter(e -> "agent_unavailable".equals(e.detail().get("error_code"))).findFirst().orElseThrow();
+        assertThat(audited.detail()).containsEntry("error_code", "agent_unavailable");
+        System.out.printf("5 header bound with another user alongside: no headers, agent_unavailable at %d ms "
+                + "(bound %d ms); another user's turn %d ms%n", heldMs, headersMs, other.millis());
     }
 
     @Test

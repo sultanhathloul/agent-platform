@@ -18,7 +18,6 @@ reported per sentence; when nothing matched, one `allow` record stands for the
 whole answer."""
 
 import asyncio
-import contextlib
 from collections.abc import Sequence
 
 from app.errors import TurnError
@@ -27,6 +26,7 @@ from app.graph.guarding import blocked, guard_context
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import DataPayload, GuardContext, GuardEventRecord
+from app.resilience import deadline
 
 # While streaming, OUTPUT runs per sentence for its redact policies only (ADR-0106).
 SENTENCE_OUTPUT_ACTIONS = frozenset({"redact"})
@@ -138,7 +138,14 @@ class DataStream:
         """Releases what is left and returns the released text; raises the TurnError of a
         DATA block or an unavailable policy."""
         self._queue.put_nowait(_END)
-        await self._task
+        try:
+            # asyncio.wait, not `await self._task`: a cancellation of this task stays this task's,
+            # so the answer's scope recognises its own (ADR-0255, ADR-0263).
+            await asyncio.wait([self._task])
+        except asyncio.CancelledError:
+            await deadline.drain(self._task, name="answer:stream")
+            raise
+        self._task.result()
         if not self._matched:
             self._ctx.report_guard(
                 [
@@ -153,9 +160,7 @@ class DataStream:
         return self.released
 
     async def abort(self) -> None:
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await self._task
+        await deadline.drain(self._task, name="answer:stream")
 
     async def _run(self) -> None:
         while (item := await self._queue.get()) is not _END:

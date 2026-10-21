@@ -24,6 +24,7 @@ export const KNOWN_ERROR_CODES = [
   "memory_not_found",
   "turn_in_flight",
   "turn_timeout",
+  "too_many_turns",
   "service_busy",
   "input_blocked",
   "guard_unavailable",

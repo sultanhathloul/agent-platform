@@ -1,10 +1,30 @@
-# The whole-turn deadline (CLAUDE.md rule 12c; timeout budget PR, I2 and I3, ADR-0255, ADR-0256).
-# Read by the agent (app/resilience/turn.py) and, for the relay's bound, by the gateway
+# The whole-turn deadline (CLAUDE.md rule 12c; timeout budget PR, I2 and I3, ADR-0255, ADR-0256) and
+# the turn limits (rule 12a; PR #12 review, ADR-0262 to ADR-0264).
+# Read by the agent (app/resilience/turn.py) and, for the relay's bounds, by the gateway
 # (GATEWAY_TURN_CONFIG). Every bound inside a turn is cut to what remains of it.
-deadline_s: 120         # a turn, from its start in the agent to its terminal event; past it: turn_timeout
-answer_reserve_s: 45    # kept for the answer: each capability runs under min(its manifest's
-                        # limits.timeout_s, what remains − this), the evidence fetch likewise
+deadline_s: 120         # a turn, from its request's arrival at the agent to its terminal event;
+                        # past it: turn_timeout (never once the answer's last token was sent)
+admission_s: 10         # ownership and the conversation's lock, inside the deadline; past it:
+                        # 503 service_busy
+answer_reserve_s: 45    # kept for the answer and what follows it: each capability runs under
+                        # min(its manifest's limits.timeout_s, what remains − this), the evidence
+                        # fetch likewise
+post_answer_reserve_s: 30   # kept after the answer: the answer runs under min(its ceiling, what
+                        # remains − this); the guards on the whole answer, persistence, the summary
+                        # and memory run inside it
+persist_s: 10           # each write of the turn's checkpoint; the guards on the whole answer end
+                        # this long before the deadline, so the exchange is always persisted
 evidence_fetch_s: 10    # fetching the text of the capabilities' sources; past it, those sources
                         # stay without text (the existing failure path) and the answer goes on
+gateway_headers_s: 15   # the gateway waits this long for the agent's response headers (after
+                        # admission), then answers agent_unavailable
 gateway_margin_s: 15    # the gateway's relay ends a stream at deadline_s + this (135 s), so the
                         # agent's own turn_timeout always reaches the user first
+
+# Turns in flight at once (refused at once past a limit: 429 too_many_turns). The platform's
+# capacity is LOCK_POOL_SIZE (.env, 20 in development), sized per deployment: production capacity
+# is a resource decision measured by the phase 12 load test (docs/BACKLOG.md).
+per_user_max: 2
+per_tenant_max: null    # null: the platform capacity (no tenant restriction of its own, as in a
+                        # single-entity deployment); a number: each tenant's share
+per_tenant_overrides: {}    # tenant id: its own share, for a multi-tenant deployment
