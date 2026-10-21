@@ -64,6 +64,9 @@ class Sandbox(_Strict):
     cpu_seconds: int = Field(gt=0)
     memory_mb: int = Field(gt=0)
     timeout_seconds: float = Field(gt=0)
+    # The service's own memory beside its children: workers × memory_mb + this must fit the
+    # container's limit, checked at startup (I7, ADR-0252).
+    parent_reserve_mb: int = Field(gt=0)
 
 
 class Ingest(_Strict):
