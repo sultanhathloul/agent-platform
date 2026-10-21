@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals eval smoke smoke-airgap logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals test-budget eval smoke smoke-airgap logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -30,7 +30,7 @@ clean: ## Stop the stack and delete every volume
 seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot)
 	$(COMPOSE) run --rm minio-init
 
-test: test-agent test-gateway test-gateway-db test-web test-evals ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
+test: test-agent test-gateway test-gateway-db test-web test-evals test-budget ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
 	$(COMPOSE) up -d --wait postgres redis presidio-analyzer minio
@@ -64,6 +64,12 @@ test-web:
 test-evals:
 	uv run --no-project --with pytest --with httpx --with pyyaml --with ragas==0.2.15 \
 		--with 'langchain-openai>=0.2,<0.4' pytest -q evals/tests
+
+# The timeout budget (I9, ADR-0261): every nested bound of docs/RESILIENCE.md shorter than the one
+# around it, read from the files that set them; the self-test proves each check catches a violation.
+test-budget:
+	uv run -q scripts/check_timeout_budget.py --self-test
+	uv run -q scripts/check_timeout_budget.py
 
 eval: .env ## Golden suites against the live stack (real models)
 	RAGAS_DO_NOT_TRACK=true uv run evals/run_evals.py $(s)
