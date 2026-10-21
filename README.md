@@ -261,6 +261,7 @@ POST /v1/kb/{slug}/ingest   body: {object_key, metadata}      ← admin ingestio
 GET  /v1/health
 ```
 > **Amendment 2026-10-15 (phase 05, ADR-0209, ADR-0214, ADR-0219).** Agent and gateway API version 2.2.0, additive: `tool_start` carries the tool's `label {ar, en}`; an attachment carries `warnings` (`[{code: pages_without_text, count}]`, ADR-0201); the terminal `done` and `error` events carry `tool_audit`, every tool call of the turn without content, from the agent to the gateway only (the gateway writes it into the audit record as `tool_calls` and removes it, like `guard_audit`); `GET /v1/health` lists each MCP server and each disabled tool, content-free.
+> **Amendment 2026-10-21 (fix session on the PR #12 review, ADR-0262, ADR-0265).** Agent and gateway API version 2.3.0, additive: `POST /v1/turns` (agent) and `POST /v1/chat/turns` (gateway) may answer 429 `too_many_turns` before any stream; the agent's attachment registration may answer 429 `too_many_uploads`, which the gateway's upload already documented. The events schema is unchanged.
 
 ### 6.3 API standards
 
@@ -779,7 +780,11 @@ Rules:
 | gateway `application.yml` | `gateway.agent.keep-alive` (30 s), `gateway.turn.config` | The JDK HttpClient's idle keep-alive, under the agent's uvicorn `--timeout-keep-alive 75` (ADR-0260); the path of config/turn.yaml |
 | `docker-compose.yml` | `memswap_limit: 2g` on ingest and mcp-rag-ref | No swap, so the container's memory limit is the one the startup check reads (ADR-0253) |
 
-`scripts/check_timeout_budget.py`, run by `make test`, checks that every nested bound these keys set is shorter than the one around it (ADR-0261).
+| `config/turn.yaml` (PR #12 review) | `admission_s` (10), `post_answer_reserve_s` (30), `persist_s` (10), `gateway_headers_s` (15) | The turn's deadline opens on arrival; ownership and the lock within `admission_s`; the answer under min(its ceiling, what remains − `post_answer_reserve_s`), the guards on the whole answer, persistence (each checkpoint write ≤ `persist_s`), the summary and memory inside that reserve, never `turn_timeout` once the answer is sent; the gateway waits `gateway_headers_s` for the agent's headers (ADR-0263, ADR-0264) |
+| | `per_user_max` (2), `per_tenant_max` (null: the platform's capacity), `per_tenant_overrides` | Turns in flight per user and per tenant, under LOCK_POOL_SIZE; past one, 429 `too_many_turns` at once (ADR-0262) |
+| `config/docs.yaml` (PR #12 review) | `limits.max_concurrent_uploads_per_tenant` (null), `limits.tenant_concurrent_uploads` | A registration counts toward its user's `max_concurrent_uploads` until it ends, in the background too; a tenant's share is optional; past one, 429 `too_many_uploads` (ADR-0265) |
+
+`scripts/check_timeout_budget.py`, run by `make test`, checks that every nested bound these keys set is shorter than the one around it, with its rules in services/agent/app/resilience/budget.py (ADR-0261, ADR-0269).
 
 ## 21. Getting started on a new machine
 

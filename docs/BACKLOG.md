@@ -66,7 +66,7 @@ Phase 05 status (2026-10-15): items 1–6, 9 and 10 → phase 05 (docs/PHASE-05-
 
 ## Before the phase 06 build (from PR #10 verification)
 
-Status (2026-10-21): the owner chose the standalone PR (D1, ADR-0248); all seven items → done in fix/timeout-budget (docs/TIMEOUT-BUDGET-PROMPT.md, ADR-0248 to ADR-0261, docs/PROGRESS.md "Timeout budget").
+Status (2026-10-21): the owner chose the standalone PR (D1, ADR-0248); all seven items → done in fix/timeout-budget (docs/TIMEOUT-BUDGET-PROMPT.md, ADR-0248 to ADR-0261, docs/PROGRESS.md "Timeout budget"), with the PR #12 review's decisions (ADR-0262 to ADR-0270).
 
 - **Generation reset may count breaker failures against a healthy server** (suspected, not reproduced). The verifier of PR #10 suspects, from reading the code only, that when one call finds its MCP session gone while another call waits for a fresh session, the generation-reset path can count breaker failures against a healthy server (`services/agent/app/mcp/client.py`, ADR-0246). Reproduce it first; fix only if reproduced. → done in fix/timeout-budget: reproduced (a call queued for a slot during another call's I9 reset counted four failures against a healthy server in 50 iterations) and fixed (ADR-0249).
 
@@ -187,6 +187,13 @@ From the timeout budget PR (fix/timeout-budget, 2026-10-21; T1: listed, not fixe
 - **LiteLLM relays a flooding stream on its own event loop**: another user's call through LiteLLM waited 4.02 s while one provider sent 20 000 one-character chunks, and 0.56 s while one sent a 2 MiB embedding; the agent's own loop stayed under 50 ms (ADR-0257). Measure under the k6 load test and decide on LiteLLM workers or replicas.
 - **A healthy MCP server's restart fails calls at once**: a call that arrives or gets its slot while the next generation is being opened fails `tool_unavailable` instead of waiting the few milliseconds for it (scope A runs: up to 139 of 400 calls in the worst scenario; no breaker failure, ADR-0249). Waiting for the next generation within the attempt deadline would fix it; it changes how a dead server fails (later rather than at once).
 - **A cut agent read maps to 500 in the memory proxy**: a non-stream agent call whose body outlasts the gateway's 60 s is answered 500 `internal_error`, not 502 `agent_unavailable` (StreamBoundTest, ADR-0256).
+
+From the fix session on the PR #12 review (fix/timeout-budget, 2026-10-21):
+- **In-process limit counters to Redis**: the turn limits (config/turn.yaml `per_user_max`, `per_tenant_max`) and the registrations in flight (config/docs.yaml `max_concurrent_uploads`, `max_concurrent_uploads_per_tenant`) count in the agent's process, one replica in v1 (ADR-0262, ADR-0265). Move them to Redis with the other limits (the gateway's upload rate and concurrency, RESILIENCE.md trap 2) before a second agent replica runs.
+- **Production turn capacity is a resource decision**: LOCK_POOL_SIZE (20 in development) is the platform's turns at once; size it per deployment from the k6 load test's measurements (lock and database connections, model throughput), with `per_tenant_max` set for a multi-tenant deployment (ADR-0262).
+- **LiteLLM turns a large provider error into its own on its own loop**: about 5 s per MiB before the agent sees a byte (10.57 s for 2 MiB); another user's call through LiteLLM waited 10.3 s meanwhile. The agent refuses the answer unparsed (ADR-0266). Measure with the flood item above; decide on LiteLLM workers, replicas or a proxy cap in front of the provider.
+- **Tech debt: a hung rag server never trips the breaker through evidence fetches**: the evidence step's bound (10 s) is always shorter than the server's `timeout_s` (30 s), so every fetch ends by its caller's deadline, which is no verdict (ADR-0244, ADR-0259); only docs_search's calls count.
+- **Tech debt: LangGraph's unbounded `asyncio.wait` on exit**: when a graph run ends its executor waits for its node tasks without a bound; the turn's scope cancels it again, but a node task that ignores its cancellation is left running (ADR-0268, with process isolation of capabilities above).
 
 ## Management decisions pending (also in the phase summaries)
 - Production model hosting on the entity's servers, same families as development (ADR-0065).
