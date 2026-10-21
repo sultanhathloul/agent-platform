@@ -6,16 +6,19 @@ Bounds (I4, ADR-0257): `embed` is a query (`timeouts.embedding.query`, 15 s) and
 batch of document chunks (`timeouts.embedding.ingest`, 60 s), each cut to what remains of the call
 around it, with the model gateway's per-request timeouts and its one retry. The answer is read
 incrementally and refused past MAX_BYTES_PER_INPUT per text before it is parsed (rule 12d): a
-provider that floods never costs the event loop more than a capped parse."""
+provider that floods never costs the event loop more than a capped parse. An error answer is
+capped at 1 MiB under the SDK, before it reads or parses it (app/models/transport.py, ADR-0266)."""
 
 import json
+import random
 from typing import Literal
 
 import httpx
-from openai import APIError, AsyncOpenAI
+from openai import APIError, AsyncOpenAI, DefaultAsyncHttpxClient
 
 from app.models.config import ModelsConfig
 from app.models.gateway import DEADLINE_EDGE_S, ModelUnavailable, backoff, request_bounds, retryable
+from app.models.transport import AnswerTooLarge, CappedTransport
 from app.observability.otel import tracer
 from app.resilience import deadline
 from app.settings import Settings
@@ -36,15 +39,26 @@ async def read_capped(response: httpx.Response, cap: int, what: str) -> bytes:
 
 
 class EmbeddingGateway:
-    def __init__(self, settings: Settings, config: ModelsConfig, *, alias: str | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        config: ModelsConfig,
+        *,
+        alias: str | None = None,
+        rng: random.Random | None = None,
+    ):
+        # An error answer is byte-capped while it is read (app/models/transport.py); a 2xx answer
+        # is capped per input text below, before it is parsed.
         self._client = AsyncOpenAI(
             base_url=settings.litellm_base_url,
             api_key=settings.litellm_api_key or "unset",
             timeout=settings.model_timeout_s,
             max_retries=0,
+            http_client=DefaultAsyncHttpxClient(transport=CappedTransport(cap_success=False)),
         )
         self._alias = alias or config.embedding["alias"]
         self._config = config
+        self._rng = rng or random.Random()  # the retry's jitter (I4); injectable for a seeded test
 
     async def embed(self, text: str) -> list[float]:
         """A question or a memory item, matched now: the query bound."""
@@ -73,10 +87,13 @@ class EmbeddingGateway:
                                 cap = MAX_BYTES_PER_INPUT * len(texts)
                                 body = await read_capped(answer.http_response, cap, "embedding")
                             break
+                        except AnswerTooLarge as exc:  # refused unparsed: never retried
+                            raise ModelUnavailable(f"LiteLLM embedding answer refused: {exc}") from None
                         except APIError as exc:
                             if budget.remaining <= DEADLINE_EDGE_S:
                                 raise deadline.DeadlineExceeded(budget.inherited) from None
-                            if not retryable(exc) or not await backoff(self._config, budget, attempt):
+                            retry = retryable(exc) and await backoff(self._config, budget, attempt, self._rng)
+                            if not retry:
                                 raise ModelUnavailable(
                                     f"LiteLLM embedding failed: {type(exc).__name__}"
                                 ) from exc

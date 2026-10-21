@@ -21,13 +21,21 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import anyio
-from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError, AsyncOpenAI
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    DefaultAsyncHttpxClient,
+)
 from pydantic import BaseModel
 
 from app.context.package import ContextPackage
 from app.context.tokens import TokenCounter
 from app.models.config import ModelsConfig
 from app.models.routing import TierDecision
+from app.models.transport import AnswerTooLarge, CappedTransport
 from app.observability.langfuse import set_generation, set_metadata
 from app.observability.otel import tracer
 from app.observability.redaction import content_hash, is_content_free, messages_digest, observable_messages
@@ -67,13 +75,13 @@ def retryable(exc: BaseException) -> bool:
     return isinstance(exc, APIConnectionError) and not isinstance(exc, APITimeoutError)
 
 
-async def backoff(config: ModelsConfig, budget: deadline.Budget, attempt: int) -> bool:
+async def backoff(config: ModelsConfig, budget: deadline.Budget, attempt: int, rng: random.Random) -> bool:
     """Waits before the one retry and says whether to make it: only after the first attempt and
-    only when at least `retry.min_remaining_s` remain (I4)."""
+    only when at least `retry.min_remaining_s` remain (I4). `rng` draws the jitter; a test seeds it."""
     retry = config.timeouts.retry
     if attempt > 0 or budget.remaining < retry.min_remaining_s:
         return False
-    await asyncio.sleep(random.uniform(*retry.backoff_s))
+    await asyncio.sleep(rng.uniform(*retry.backoff_s))
     return True
 
 
@@ -95,17 +103,27 @@ class ModelResult(BaseModel):
 
 
 class ModelGateway:
-    def __init__(self, settings: Settings, config: ModelsConfig, counter: TokenCounter):
+    def __init__(
+        self,
+        settings: Settings,
+        config: ModelsConfig,
+        counter: TokenCounter,
+        *,
+        rng: random.Random | None = None,
+    ):
         # Each request sets its own timeouts from its deadline (`request_bounds`); this default
         # applies to none of them.
+        # Every answer is byte-capped while it is read, any status (app/models/transport.py).
         self._client = AsyncOpenAI(
             base_url=settings.litellm_base_url,
             api_key=settings.litellm_api_key or "unset",
             timeout=settings.model_timeout_s,
             max_retries=0,
+            http_client=DefaultAsyncHttpxClient(transport=CappedTransport()),
         )
         self._config = config
         self._counter = counter
+        self._rng = rng or random.Random()  # the retry's jitter (I4); injectable for a seeded test
         self._capture = settings.observability_capture_content
         # Checked at startup (app.main.start_services), so the spec export can build without it.
         self._hash_key = settings.content_hash_key
@@ -152,13 +170,15 @@ class ModelGateway:
                         try:
                             await self._stream(tier, messages, temperature, budget, streamed, on_token)
                             break
+                        except AnswerTooLarge as exc:  # refused unparsed: never retried
+                            raise ModelUnavailable(f"LiteLLM answer refused: {exc}") from None
                         except APIError as exc:  # a status, a connection error, an error mid-stream
                             if budget.remaining <= DEADLINE_EDGE_S:
                                 raise deadline.DeadlineExceeded(budget.inherited) from None
                             if (
                                 streamed.first_token
                                 or not retryable(exc)
-                                or not await backoff(self._config, budget, attempt)
+                                or not await backoff(self._config, budget, attempt, self._rng)
                             ):
                                 raise _unavailable(exc) from exc
                             retries += 1
