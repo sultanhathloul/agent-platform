@@ -1616,6 +1616,27 @@ Left / for the owner:
 
 Files for human review: config/turn.yaml (new), config/models.yaml (`timeouts`), config/docs.yaml (`register_response_s`, `ingest.sandbox.memory_mb` 640, `parent_reserve_mb`), config/messages/errors.yaml (`turn_timeout`), infra/litellm/config.yaml (`request_timeout` 85, `num_retries` 0), infra/litellm/config.mock.yaml (test-only `slow-*` aliases), docker-compose.yml (`memswap_limit`, the gateway's GATEWAY_TURN_CONFIG and turn.yaml mount), docker-compose.memtest.yml (new, test only), docker-compose.dev.yml, services/gateway/src/main/resources/application.yml (`gateway.agent.keep-alive`, `gateway.turn.config`), services/agent/Dockerfile (`--timeout-keep-alive 75`), services/gateway/Dockerfile (turn.yaml in the test stage), Makefile (`--use-aliases`, `test-budget`, `openapi` mount), scripts/smoke.sh. No new migration.
 
+### Fix session: PR #12 review decisions (2026-10-21)
+
+Scope: the owner's decisions 1–12 on the review of PR #12 and the two tech-debt lines, nothing else. Threat model ADR-0054. Rule 13: infrastructure only, no `make eval`. `docs/HANDOFF.md` untouched. New ADRs from ADR-0262. Done = make test, make smoke twice and make smoke-airgap once from `make clean && make models && make up`, nothing started by hand, recorded per rule 11 with run ids.
+
+Checklist:
+- [x] Status lines: ADR-0251, ADR-0253, ADR-0258, ADR-0259 "Accepted on 2026-10-21".
+- [ ] 1. Turn limits in the agent: config/turn.yaml `per_user_max` 2, `per_tenant_max` (null = the platform capacity, LOCK_POOL_SIZE; per-tenant overrides); 429 `too_many_turns` at once; messages (errors.yaml, gateway catalogs, ar.json, en.json); in-process counters; BACKLOG lines (Redis; production capacity by the phase 12 load test); ADR; tests (A's 3rd of 20 hung turns refused at once, B starts within 1 s and completes; tenant X at 10 of per_tenant_max 10, a second tenant unaffected; the default lets one tenant use the whole pool).
+- [ ] 2. Post-answer reserve: `post_answer_reserve_s` 30; the answer under min(ceiling, remaining − reserve); OUTPUT/DATA guards bounded by their checkers, a timed-out check follows its policy's on_error; persist_state 10 s; fold_summary and write_memory only with remaining ≥ their ceiling, else `summary_skipped` / `memory_skipped`; no turn_timeout once the answer's last token is sent; ADR; tests.
+- [ ] 3. Byte cap on every model and embedding response, any status: an httpx transport wrapper in the agent's model and embedding clients; chat non-stream and error bodies 1 MiB, embeddings as now; ADR; tests (2 MiB 500 and 429 bodies: failed by code < 1 s, loop lag < 100 ms, another user on time).
+- [ ] 4. Registrations count toward the user's in-flight upload cap (2) until they end; optional tenant cap; 429 `too_many_uploads`; background transport operations take at most half a server's slots; one deadline for a background registration (slot wait + attempt ≤ timeout_s); ADR; tests (the review's (4)3 setup; a 3rd upload refused; trickling and flooding register; a failure after `pending`).
+- [ ] 5. The turn deadline opens on arrival, before claim and lock; claim and lock bounded 10 s; gateway turn stream: headers within 15 s, total 135 s; ADR; tests (hung claim read → 503 within bound; the gateway header bound with another user's turn alongside).
+- [ ] 6. register returns the stored state after the update (re-read when no row matched); facade.fetch drops failed records; test the internal RPUSH-then-raise race.
+- [ ] 7. `_record_guard_events` and `TurnLease.release` bounded 5 s; on timeout log and close the connection; test with a hung DB.
+- [ ] 8. A task that ignores cancellation: `task_abandoned` log with the node name and a metric; RESILIENCE residual.
+- [ ] 9. check_timeout_budget: pair rules in one importable module; no "0 < constant" pairs (code-use checks instead); a mutation per pair asserting its own pair fails; expected pair names; sandbox memory pair (docker-compose.yml), broker bound vs slot wait + attempt, docker-compose.dev.yml keep-alive.
+- [ ] 10. Missing and weak tests: evidence-fetch bound (hung, trickling, flooding, another user); ingest embedding path; StreamBoundTest with another user's request; D with answer_reserve_s > 0; the other user's turn overlapping expiry, cancellation and drain. Flaky: bounded polling for fixed sleeps; injectable RNG for the retry backoff; no wall-clock assertion under 0.2 s without a same-test baseline.
+- [ ] 11. T2 evidence: ADR-0249's test against main's client.py in a worktree; failing output recorded here.
+- [ ] 12. Every timing figure carries its run (commit, timestamp); ADR figures are from earlier runs, this table is authoritative.
+- [ ] BACKLOG phase 12 tech debt: a hung rag server never trips the breaker through evidence fetches; LangGraph's unbounded asyncio.wait on exit.
+- [ ] FINISH: `make clean && make models && make up`; make test; make smoke ×2; make smoke-airgap ×1; rule 11 counts, timing table with run ids; push.
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`
