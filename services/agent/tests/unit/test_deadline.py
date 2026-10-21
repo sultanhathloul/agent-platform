@@ -91,7 +91,9 @@ async def test_a_scope_extended_in_its_own_task_ends_later():
         budget.extend(deadline.now() + 0.6)
         assert deadline.remaining() == pytest.approx(0.6, abs=0.05)
         await asyncio.sleep(0.4)  # past the first end: not cancelled
-    assert asyncio.get_running_loop().time() - started >= 0.4
+    # Past the scope's first end (0.2 s) and not cancelled there; the loop may wake a fraction of
+    # a millisecond early, so the bound is the first end, not the sleep's length.
+    assert asyncio.get_running_loop().time() - started > 0.3
     with pytest.raises(deadline.DeadlineExceeded), deadline.within(0.2) as budget:
         budget.extend(deadline.now() + 0.1)  # earlier: no change
         await asyncio.sleep(1.0)
