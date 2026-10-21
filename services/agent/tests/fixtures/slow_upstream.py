@@ -11,7 +11,11 @@ What it does is chosen by the upstream model name LiteLLM sends (the alias's `op
 - `flood`: a stream of FLOOD_CHUNKS one-character tokens as fast as it can, then the end;
 - `ok`: a short streamed answer at once;
 - `drop`: one token, then the connection is dropped (an error after the first token);
-- `status429`, `status500`: that status at once.
+- `status429`, `status500`: that status at once, its body `status_body_bytes` long when set (the
+  PR #12 review, decision 3: a 2 MiB error body).
+
+`ok_pace_s`, when set, spaces the words of the `ok` answer by that many seconds: an answer that
+takes a known time and then ends (the PR #12 review, decision 2). Both are reset by `reset`.
 
 Embeddings (`/v1/embeddings`) and rerank (`/rerank`, Infinity's shape) answer `hung`, `ok` and
 the status models the same way; `trickle` sends their JSON one byte every TRICKLE_S, and `flood`
@@ -58,11 +62,15 @@ class SlowUpstream:
         self.arrived: Counter[str] = Counter()
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
+        self.ok_pace_s = 0.0
+        self.status_body_bytes = 0
 
     def reset(self) -> None:
         for counter in (self.peak, self.served, self.abandoned, self.arrived):
             counter.clear()
         self.peak.update(self.open)
+        self.ok_pace_s = 0.0
+        self.status_body_bytes = 0
 
     def open_total(self) -> int:
         return sum(self.open.values())
@@ -106,12 +114,15 @@ class SlowUpstream:
             await disconnected
             return False
         if model.startswith("status"):
-            await self._json(send, int(model.removeprefix("status")), {"error": {"message": "slow upstream"}})
+            message = "slow upstream" + " " * self.status_body_bytes
+            await self._json(send, int(model.removeprefix("status")), {"error": {"message": message}})
             return True
         if path.endswith("/embeddings") or path.endswith("/rerank"):
             if path.endswith("/embeddings"):
                 inputs = request.get("input") or [""]
-                vector = [0.1, 0.2, 0.3, 0.4] * (FLOOD_BYTES // 20 if model == "flood" else 1)
+                # A flood is FLOOD_BYTES in all, however many inputs: the fixture's own JSON work runs
+                # in this process, so it is kept to that size (the PR #12 review, decision 10).
+                vector = [0.1, 0.2, 0.3, 0.4] * (FLOOD_BYTES // (20 * len(inputs)) if model == "flood" else 1)
                 data = [{"object": "embedding", "index": i, "embedding": vector} for i in range(len(inputs))]
                 payload = {
                     "object": "list",
@@ -177,6 +188,10 @@ class SlowUpstream:
         else:  # ok
             for word in OK_TEXT.split(" "):
                 await send({"type": "http.response.body", "body": _chunk(word + " "), "more_body": True})
+                if self.ok_pace_s:
+                    done, _ = await asyncio.wait([disconnected], timeout=self.ok_pace_s)
+                    if done:
+                        return False
         tail = _chunk(None, finish="stop") + _chunk(None, usage=True) + b"data: [DONE]\n\n"
         await send({"type": "http.response.body", "body": tail})
         return True

@@ -20,6 +20,7 @@ duration."""
 
 import asyncio
 import dataclasses
+import random
 import time
 import uuid
 
@@ -43,6 +44,7 @@ pytestmark = pytest.mark.integration
 LAG_BOUND_S = 0.1
 OTHER_MARGIN_S = 1.0  # another user's call may take this much longer than alone, at most
 EDGE_S = 0.5  # how far past its deadline a call may end
+SEED = 20261021  # the retry's jitter, drawn from a seeded generator (the PR #12 review, decision 10)
 
 
 @pytest.fixture(scope="module")
@@ -63,16 +65,17 @@ def _config(services, *, alias: str | None = None, reasoning_s: float | None = N
         bounds = bounds.model_copy(update={"roles": {**bounds.roles, "reasoning": reasoning_s}})
     if "query_s" in timeouts:
         bounds = bounds.model_copy(update={"embedding": {**bounds.embedding, "query": timeouts["query_s"]}})
+    if "ingest_s" in timeouts:
+        bounds = bounds.model_copy(update={"embedding": {**bounds.embedding, "ingest": timeouts["ingest_s"]}})
     if "rerank_s" in timeouts:
         bounds = bounds.model_copy(update={"rerank": timeouts["rerank_s"]})
     return config.model_copy(update={"tiers": tiers, "timeouts": bounds})
 
 
-def _on(services, alias: str, reasoning_s: float):
+def _on(services, alias: str, reasoning_s: float, *, rng: random.Random | None = None):
     config = _config(services, alias=alias, reasoning_s=reasoning_s)
-    return dataclasses.replace(
-        services, models_config=config, gateway=ModelGateway(services.settings, config, default_counter())
-    )
+    gateway = ModelGateway(services.settings, config, default_counter(), rng=rng)
+    return dataclasses.replace(services, models_config=config, gateway=gateway)
 
 
 async def _call(services, *, on_token=None):
@@ -178,14 +181,66 @@ async def test_the_whole_call_fallback_included_ends_by_its_deadline(services, l
 @pytest.mark.parametrize("status", ["429", "500"])
 async def test_one_retry_before_the_first_token_only_with_time_left(services, litellm, upstream, status):
     upstream.reset()
-    outcome, took = await _call(_on(services, f"slow-{status}", reasoning_s=20.0))
+    backoff_s = random.Random(SEED).uniform(*services.models_config.timeouts.retry.backoff_s)
+    outcome, took = await _call(_on(services, f"slow-{status}", reasoning_s=20.0, rng=random.Random(SEED)))
     assert isinstance(outcome, ModelUnavailable), outcome
     assert upstream.arrived[f"status{status}"] == 2  # the call and one retry
-    assert 0.5 <= took <= 1.5 + EDGE_S, took  # one backoff of 0.5–1.5 s
+    assert backoff_s <= took <= backoff_s + EDGE_S, (took, backoff_s)  # the seeded backoff, once
     upstream.reset()
     outcome, _ = await _call(_on(services, f"slow-{status}", reasoning_s=8.0))  # under 10 s left: no retry
     assert isinstance(outcome, ModelUnavailable) and upstream.arrived[f"status{status}"] == 1
-    print(f"E model {status}: one retry after {took:.2f} s with 20 s left; none with 8 s left")
+    print(f"E model {status}: one retry after {took:.2f} s (seeded backoff {backoff_s:.2f} s) "
+          "with 20 s left; "
+          "none with 8 s left")  # fmt: skip
+
+
+class _Arrival:
+    """Wraps the capped transport's inner transport to note when LiteLLM's answer arrived."""
+
+    def __init__(self, inner):
+        self.inner, self.at = inner, None
+
+    async def handle_async_request(self, request):
+        response = await self.inner.handle_async_request(request)
+        self.at = time.monotonic()
+        return response
+
+    async def aclose(self):
+        await self.inner.aclose()
+
+
+@pytest.mark.parametrize("status", ["500", "429"])
+async def test_a_2_mib_error_body_is_refused_unread_by_code(services, litellm, upstream, status):
+    """Decision 3 (ADR-0266): the SDK reads and parses an error body whole; the agent's transport
+    refuses it past 1 MiB before the SDK reads it (its Content-Length says so), and the call fails
+    ModelUnavailable, unretried, at once after the answer arrives. Measured residual: LiteLLM itself
+    spends about 5 s per MiB turning the provider's error into its own before the agent sees a byte
+    (docs/RESILIENCE.md), on its own loop, as with a flood; the agent's loop does not lag."""
+    upstream.reset()
+    upstream.status_body_bytes = 2 * 1024 * 1024
+    slow = _on(services, f"slow-{status}", reasoning_s=20.0)
+    capped = slow.gateway._client._client._transport
+    arrival = capped._inner = _Arrival(capped._inner)
+    ended: list[float] = []
+
+    async def refused():
+        result = await _call(slow)
+        ended.append(time.monotonic())
+        return result
+
+    try:
+        outcome, took, other_took, alone, lag = await _with_another_user(services, refused())
+    finally:
+        upstream.status_body_bytes = 0
+    assert isinstance(outcome, ModelUnavailable) and "refused" in str(outcome), outcome
+    assert upstream.arrived[f"status{status}"] == 1  # never retried
+    refused_after = ended[0] - arrival.at
+    assert refused_after < 1.0, refused_after
+    assert lag < LAG_BOUND_S, lag  # the agent's loop
+    assert other_took < took + OTHER_MARGIN_S, (other_took, took)  # LiteLLM's loop, as with a flood
+    print(f"3 model {status} with a 2 MiB body: {outcome}, {refused_after * 1000:.0f} ms after LiteLLM's "
+          f"answer arrived ({took:.2f} s in all, LiteLLM's own); another user's call {other_took:.2f} s "
+          f"({alone:.2f} s alone); loop lag max {lag * 1000:.1f} ms")  # fmt: skip
 
 
 async def test_no_retry_after_the_first_token(services, litellm, upstream):
@@ -208,8 +263,12 @@ async def test_a_cancelled_call_leaves_no_provider_request_past_its_deadline(
     upstream.reset()
     sent = time.monotonic()
     task = asyncio.create_task(_call(slow))
-    await asyncio.sleep(1.0)
+    for _ in range(150):  # bounded polling: until the request is open at the provider
+        if upstream.open[kind] == 1:
+            break
+        await asyncio.sleep(0.02)
     assert upstream.open[kind] == 1
+    await asyncio.sleep(max(0.0, 1.0 - (time.monotonic() - sent)))  # cancelled 1 s after send, as before
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -253,6 +312,37 @@ async def test_a_query_embedding_ends_by_its_ceiling(services, litellm, upstream
         _checked(other_took, alone, lag)
     print(f"E embedding {kind}: {type(outcome).__name__} at {took:.2f} s (ceiling {ceiling:.0f} s); another "
           f"user's call {other_took:.2f} s ({alone:.2f} s alone); "
+          f"loop lag max {lag * 1000:.1f} ms")  # fmt: skip
+
+
+@pytest.mark.parametrize("kind", ["hung", "trickle", "flood"])
+async def test_an_ingest_batch_embedding_ends_by_its_ceiling(services, litellm, upstream, kind):
+    """The ingest path (embed_many, `timeouts.embedding.ingest`, 60 s; here 3 s): a batch of 16
+    chunks, as config/docs.yaml embed_batch sends (the PR #12 review, decision 10)."""
+    ceiling = 3.0
+    embeddings = EmbeddingGateway(
+        services.settings, _config(services, ingest_s=ceiling), alias=f"slow-embed-{kind}"
+    )
+    upstream.reset()
+
+    async def batch():
+        started = time.monotonic()
+        try:
+            outcome = await embeddings.embed_many([f"مقطع {i}" for i in range(16)])
+        except Exception as exc:  # noqa: BLE001
+            outcome = exc
+        return outcome, time.monotonic() - started
+
+    outcome, took, other_took, alone, lag = await _with_another_user(services, batch())
+    assert isinstance(outcome, ModelUnavailable), outcome  # a flood is refused at its byte cap, unparsed
+    assert took <= ceiling + EDGE_S, took
+    if kind == "flood":
+        assert lag < LAG_BOUND_S, lag
+        assert other_took < took + OTHER_MARGIN_S, (other_took, took)  # LiteLLM's loop, as above
+    else:
+        _checked(other_took, alone, lag)
+    print(f"10 ingest embedding {kind}: {type(outcome).__name__} at {took:.2f} s (ceiling {ceiling:.0f} s); "
+          f"another user's call {other_took:.2f} s ({alone:.2f} s alone); "
           f"loop lag max {lag * 1000:.1f} ms")  # fmt: skip
 
 

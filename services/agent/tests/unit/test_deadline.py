@@ -82,3 +82,71 @@ async def test_a_task_created_outside_a_scope_is_not_bound_by_it():
     with deadline.within(0.3):
         await task
     assert seen == [math.inf]
+
+
+async def test_a_scope_extended_in_its_own_task_ends_later():
+    """The turn keeps its post-answer reserve once the answer is sent (ADR-0263)."""
+    started = asyncio.get_running_loop().time()
+    with deadline.within(0.2) as budget:
+        budget.extend(deadline.now() + 0.6)
+        assert deadline.remaining() == pytest.approx(0.6, abs=0.05)
+        await asyncio.sleep(0.4)  # past the first end: not cancelled
+    assert asyncio.get_running_loop().time() - started >= 0.4
+    with pytest.raises(deadline.DeadlineExceeded), deadline.within(0.2) as budget:
+        budget.extend(deadline.now() + 0.1)  # earlier: no change
+        await asyncio.sleep(1.0)
+
+
+async def test_a_horizon_bounds_what_starts_inside_it_without_cancelling_its_own_task():
+    """The guards on the whole answer: a check cut at the horizon ends on its own terms (ADR-0263)."""
+    results = []
+
+    async def check():
+        try:
+            with deadline.within(math.inf):
+                await asyncio.sleep(5)
+        except deadline.DeadlineExceeded as exc:
+            results.append(("cut", exc.inherited))
+
+    with deadline.within(1.0):
+        with deadline.horizon(0.8):
+            assert deadline.remaining() == pytest.approx(0.2, abs=0.05)
+            await asyncio.gather(check())
+        await asyncio.sleep(0.3)  # the task's own scope is not at the horizon: not cancelled
+        assert deadline.remaining() == pytest.approx(0.5, abs=0.1)
+    assert results == [("cut", True)]
+
+
+async def test_a_task_that_ignores_its_cancellation_is_abandoned_counted_and_logged(caplog):
+    """Decision 8 of the PR #12 review (ADR-0268): drain gives up after its grace."""
+
+    async def stubborn():
+        end = asyncio.get_running_loop().time() + 1.0
+        while (left := end - asyncio.get_running_loop().time()) > 0:
+            try:
+                await asyncio.sleep(left)
+            except asyncio.CancelledError:
+                continue
+
+    before = deadline.ABANDONED["test:node"]
+    task = asyncio.create_task(stubborn())
+    await asyncio.sleep(0)
+    started = asyncio.get_running_loop().time()
+    await deadline.drain(task, 0.2, name="test:node")
+    assert asyncio.get_running_loop().time() - started == pytest.approx(0.2, abs=0.1)
+    assert deadline.ABANDONED["test:node"] == before + 1
+    assert "task_abandoned" in caplog.text and "test:node" in caplog.text
+    await asyncio.wait([task], timeout=2)  # it ends on its own
+
+
+async def test_work_in_a_detached_context_is_background_work():
+    seen = []
+
+    async def work():
+        seen.append((deadline.detached(), deadline.remaining()))
+
+    with deadline.within(0.5):
+        await asyncio.get_running_loop().create_task(work(), context=deadline.detached_context())
+        await asyncio.create_task(work())
+    assert seen[0] == (True, math.inf)
+    assert seen[1][0] is False and seen[1][1] < 1

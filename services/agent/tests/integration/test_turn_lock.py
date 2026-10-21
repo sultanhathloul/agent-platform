@@ -286,3 +286,73 @@ async def test_a_non_owner_gets_403_and_never_takes_the_lock(services, litellm):
     async with await _client(services) as client:
         again = await client.post("/v1/turns", json=other, headers={"X-Internal-Token": TOKEN})
     assert again.status_code == 403
+
+
+# ------------------------------------------------------------------ a hung database (PR #12 review, 7)
+
+
+async def test_a_hung_unlock_closes_its_connection_and_the_lock_is_free(services, monkeypatch):
+    """The unlock is bounded (RELEASE_TIMEOUT_S, here 1 s): the database holds the statement, the
+    lease closes its connection at the bound, which ends the session and with it the lock, and the
+    pool discards the connection (ADR-0267)."""
+    from app.api import locks as locks_module
+
+    monkeypatch.setattr(locks_module, "RELEASE_TIMEOUT_S", 1.0)
+    conversation = str(uuid.uuid4())
+    lease = await services.locks.acquire(conversation)
+    assert lease is not None
+    connection = lease._conn
+    execute = connection.execute
+
+    async def hung(query, *args, **kwargs):
+        if "pg_advisory_unlock" in str(query):
+            return await execute("SELECT pg_sleep(30)")  # the database holds the unlock
+        return await execute(query, *args, **kwargs)
+
+    monkeypatch.setattr(connection, "execute", hung)
+    started = time.monotonic()
+    await lease.release()
+    took = time.monotonic() - started
+    assert 0.9 <= took <= 1.5, took
+    assert connection.closed
+    assert await _released(services, conversation)
+    print(f"7 hung unlock: released by closing the connection at {took:.2f} s (bound 1 s); the lock is free")
+
+
+async def test_hung_guard_event_writes_never_hold_the_turn_or_its_lock(services, litellm, monkeypatch):
+    """Recording the turn's guard matches after the graph is bounded (BOOKKEEPING_TIMEOUT_S, here
+    1 s): the database holds the write, the turn's stream still ends at the bound, its lock is free
+    and the pool takes the connection back."""
+    monkeypatch.setattr(runner_module, "BOOKKEEPING_TIMEOUT_S", 1.0)
+
+    class HungPolicies:
+        def __init__(self, inner, db):
+            self._inner, self._db = inner, db
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def record_events(self, *args, **kwargs):
+            async with self._db.connection() as conn:
+                await conn.execute("SELECT pg_sleep(30)")
+
+    hung = dataclasses.replace(services, policies=HungPolicies(services.policies, services.db))
+    request = TurnRequest(
+        conversation_id=str(uuid.uuid4()), principal=Principal(**PRINCIPAL), message="سؤال", locale="ar"
+    )
+    _, normal = await _timed_turn(services, request.model_copy(update={"conversation_id": str(uuid.uuid4())}))
+    events, took = await _timed_turn(hung, request)
+    assert events[-1].type == "done", events[-1]
+    assert took <= normal + 1.0 + 0.5, (took, normal)
+    assert await _released(services, request.conversation_id)
+    stats = services.db.pool.get_stats()
+    assert stats.get("requests_waiting", 0) == 0, stats
+    print(
+        f"7 hung guard-event write: the turn ended at {took:.2f} s ({normal:.2f} s normally), its lock free"
+    )
+
+
+async def _timed_turn(services, request: TurnRequest) -> tuple[list, float]:
+    started = time.monotonic()
+    events = [e async for e in TurnRunner(services).stream(request, f"req-{uuid.uuid4().hex[:6]}")]
+    return events, time.monotonic() - started

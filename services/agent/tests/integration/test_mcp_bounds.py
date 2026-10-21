@@ -92,6 +92,14 @@ def _counting(connection) -> list[int]:
     return counted
 
 
+async def _open(server, count: int, within_s: float = 3.0) -> None:
+    """Bounded polling: until `count` requests are open at the server (the PR #12 review, decision 10)."""
+    started = time.monotonic()
+    while getattr(server, "open_requests", 0) < count:
+        assert time.monotonic() - started < within_s, server.open_requests
+        await asyncio.sleep(0.02)
+
+
 async def _settled(server, within_s: float = 2.0) -> float:
     started = time.monotonic()
     while getattr(server, "open_requests", 0) or getattr(server, "open_streams", 0):
@@ -140,7 +148,11 @@ async def test_a_call_ends_by_its_callers_deadline_and_never_decides_the_breaker
 
         with LagProbe() as probe:
             mine = asyncio.create_task(bounded())
-            await asyncio.sleep(0.3)
+            if kind == "hung":
+                await _open(server, 1)
+            else:
+                while not server.open_streams:  # bounded by the test's own 1.5 s: the stream opens first
+                    await asyncio.sleep(0.02)
             other, other_took = await _call(broker, "quick", "user-b")
             result, took = await mine
         assert (result.status, result.error) == ("error", "tool_timeout"), result
@@ -165,18 +177,20 @@ async def test_a_full_queue_is_busy_at_once_when_no_wait_is_left(slow_server):
     counted = _counting(connection)
     broker = _broker(client)
     try:
+        _, alone = await _call(broker, "quick", "user-b")  # the baseline: a call that takes its slot at once
         holder = asyncio.create_task(_call(broker, "slow", "user-a", {"seconds": 3}))
-        await asyncio.sleep(0.3)
+        await _open(slow_server, 1)
         with deadline.within(5.0):
             busy, busy_took = await _call(broker, "quick", "user-b")
         assert (busy.status, busy.error) == ("error", "tool_busy"), busy
-        assert busy_took < 0.05, busy_took
+        assert busy_took < alone + 0.2, (busy_took, alone)  # refused at once, as fast as a free call
         with deadline.within(30.0):
             waited, waited_took = await _call(broker, "quick", "user-c")
         assert waited.status == "ok" and 2.0 <= waited_took <= 3.5, (waited, waited_took)
         assert (await holder)[0].status == "ok"
         assert not counted and connection.breaker.state == "closed"
-        print(f"I6 full queue: tool_busy in {busy_took * 1000:.1f} ms with no wait left; "
+        print(f"I6 full queue: tool_busy in {busy_took * 1000:.1f} ms ({alone * 1000:.1f} ms a free call) "
+              "with no wait left; "
               f"with 30 s left the call waited {waited_took:.2f} s for the slot")  # fmt: skip
     finally:
         await client.stop()
@@ -217,5 +231,48 @@ async def test_the_sdks_read_timeout_is_past_the_transports_deadline(slow_server
         for session in sessions:
             assert session._session_read_timeout_seconds == timedelta(seconds=4.0)
         assert client.servers["fx"]._idle[0].transport.timeout_s == 3.0
+    finally:
+        await client.stop()
+
+
+async def test_background_work_takes_at_most_half_the_slots_and_one_deadline(slow_server):
+    """Decision 4 (ADR-0265): calls in a detached context (registrations past the upload's answer,
+    status reads past their bound) take one of max_concurrency // 2 background slots first, so a
+    caller's call always finds a slot; a background call's slot wait and attempt share one
+    deadline of timeout_s, and its own timeout still counts."""
+    client = await _client(slow_server.url, SCHEMAS, timeout_s=4.0, max_concurrency=4)
+    connection = client.servers["fx"]
+    counted = _counting(connection)
+    broker = _broker(client)
+    loop = asyncio.get_running_loop()
+
+    def background(seconds: float):
+        return loop.create_task(
+            _call(broker, "slow", f"user-bg-{seconds}", {"seconds": seconds}),
+            context=deadline.detached_context(),
+        )
+
+    try:
+        _, alone = await _call(broker, "quick", "user-c")
+        slow_server.reset_peak()
+        held = [background(30) for _ in range(6)]  # hung: each ends at its one deadline
+        await _open(slow_server, 2)
+        peak_background = slow_server.peak
+        with deadline.within(20.0):
+            mine, mine_took = await _call(broker, "quick", "user-c")
+        outcomes = await asyncio.gather(*held)
+        assert peak_background == 2, peak_background  # max_concurrency 4 // 2
+        assert mine.status == "ok" and mine_took < alone + 0.5, (mine_took, alone)
+        # Two took a slot at once and timed out at timeout_s (4 s); the others waited up to half of it
+        # (2 s) for a background slot and were busy: slot wait + attempt never past timeout_s.
+        busy = [r for r, _ in outcomes if r.error == "tool_busy"]
+        timed_out = [(r, took) for r, took in outcomes if r.error == "tool_timeout"]
+        assert len(timed_out) == 2 and len(busy) == 4, [r.error for r, _ in outcomes]
+        assert all(took <= 4.0 + EDGE_S for _, took in outcomes), [took for _, took in outcomes]
+        assert all(took <= 2.0 + EDGE_S for r, took in outcomes if r.error == "tool_busy")
+        assert len(counted) == 2  # a background call's own timeout is the server's outcome
+        print(f"4 background slots: peak {peak_background} of 4 at the server, a caller's call "
+              f"{mine_took * 1000:.0f} ms ({alone * 1000:.0f} ms alone); background calls ended by "
+              f"{max(t for _, t in outcomes):.2f} s (timeout_s 4)")  # fmt: skip
     finally:
         await client.stop()

@@ -21,6 +21,7 @@ import uuid
 import pytest
 import uvicorn
 
+from app.attachments.service import TooManyUploads
 from app.guardrails.engine import GuardEngine
 from app.mcp.client import MCPClient
 from app.mcp.config import load_mcp_config, resolve
@@ -29,6 +30,7 @@ from app.rag.mcp import MCPDocumentBackend
 from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
 from app.tools.spec import ToolScope
+from tests.fixtures.doc_ops_mcp import DocumentOpsMCPServer, connected
 from tests.fixtures.documents import pdf_bytes
 from tests.fixtures.fake_backend import with_backend
 from tests.fixtures.mcp_server import free_port
@@ -50,10 +52,11 @@ async def rag(settings, litellm):
     from mcp_ref.rag.server import build_app, build_pipeline
 
     pipeline = build_pipeline(settings, rag_ref_database_url())
-    mode: dict[str, object] = {"held_s": 0.0, "fail_after_index": False}
+    mode: dict[str, object] = {"held_s": 0.0, "fail_after_index": False, "entered": threading.Event()}
     register = pipeline.documents.register
 
     async def controlled(fields):
+        mode["entered"].set()  # the server's own thread: a threading.Event
         await asyncio.sleep(float(mode["held_s"]))
         await register(fields)
         if mode["fail_after_index"]:
@@ -116,6 +119,25 @@ async def _upload(services, user: str):
     return scope, record, time.monotonic() - started
 
 
+async def _entered(mode, within_s: float = 10.0) -> None:
+    """Bounded polling: until the server's `register` has the call (the PR #12 review, decision 10)."""
+    end = time.monotonic() + within_s
+    while not mode["entered"].is_set():
+        assert time.monotonic() < end, "the server never received the registration"
+        await asyncio.sleep(0.02)
+
+
+async def _record(services, record_id: str, *, until: str, within_s: float):
+    """Bounded polling on the agent's own record."""
+    end = time.monotonic() + within_s
+    while time.monotonic() < end:
+        stored = await services.attachments.store.by_id(record_id)
+        if stored.status == until:
+            return stored
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"the record {record_id} did not reach {until} in {within_s} s")
+
+
 async def _server_status(backend, scope, document_id, *, until: str, within_s: float) -> str:
     deadline = time.monotonic() + within_s
     while time.monotonic() < deadline:
@@ -136,9 +158,10 @@ async def test_a_slow_registration_answers_pending_within_the_bound_and_the_file
     _, quick, quick_alone = await _upload(switched, f"u-reg-q-{uuid.uuid4().hex[:6]}")
     assert quick.status == "pending"
     mode["held_s"] = REGISTER_HELD_S
+    mode["entered"].clear()
     with LagProbe() as probe:
         slow = asyncio.create_task(_upload(switched, f"u-reg-a-{uuid.uuid4().hex[:6]}"))
-        await asyncio.sleep(1.0)
+        await _entered(mode)
         mode["held_s"] = 0.0  # held for A's call only: B's goes straight through
         _, other, other_took = await _upload(switched, f"u-reg-b-{uuid.uuid4().hex[:6]}")
         scope, record, took = await slow
@@ -186,4 +209,224 @@ async def test_a_failed_registration_ends_failed_and_its_chunks_are_never_return
         scope.owner, record.id, status="indexed", reason=None, pages=1, warnings=[]
     )
     assert (await switched.attachments.store.by_id(record.id)).reason == "register_failed"
-    print(f"I5 failed register: upload answered failed register_failed in {took:.2f} s; chunks never returned")  # noqa: E501
+    print(
+        f"I5 failed register: upload answered failed register_failed in {took:.2f} s; chunks never returned"
+    )  # noqa: E501
+
+
+# ------------------------------------------------------------------ the PR #12 review, decisions 4, 6, 10
+
+
+def _search_as(services, user: str):
+    """A docs_search as the docs capability's tool makes it: the facade for `user`'s own new
+    conversation (no files), through the broker's transport to the server."""
+    scope = DocumentScope.session(tenant_id="default", user_id=user, conversation_id=str(uuid.uuid4()))
+    facade = services.broker.documents.facade(
+        "docs", ToolScope(tenant_id="default", user_id=user, collections=scope.collections)
+    )
+
+    async def search() -> tuple[list, float]:
+        started = time.monotonic()
+        found = await facade.search("إجازة الأمومة", 8)
+        return found, time.monotonic() - started
+
+    return search
+
+
+async def test_two_users_uploading_against_a_slow_register_leave_another_users_search_its_slots(
+    services, rag
+):
+    """The review's (4)3 setup: two users upload two files every 20 s against a server that holds
+    `register` 25 s. Each registration counts toward its user's uploads in flight (2) until it ends,
+    in the background too, so each user's third upload is refused at once, and background work
+    takes at most half the server's slots: a third user's docs_search keeps finding a slot and
+    answers in its normal time throughout."""
+    mode, backend = rag
+    switched = with_backend(services, backend)
+    a, b, c = (f"u-reg-{who}-{uuid.uuid4().hex[:6]}" for who in "abc")
+    search = _search_as(switched, c)
+    _, alone = await search()
+    mode["held_s"] = REGISTER_HELD_S
+    searches: list[float] = []
+    refused: list[str] = []
+    started = time.monotonic()
+
+    async def uploader(user: str) -> None:
+        for _ in range(2):  # at 0 s and at 20 s
+            begun = time.monotonic()
+            outcomes = await asyncio.gather(
+                *(_upload(switched, user) for _ in range(2)), return_exceptions=True
+            )
+            refused.extend(type(o).__name__ for o in outcomes if isinstance(o, BaseException))
+            await asyncio.sleep(max(0.0, 20.0 - (time.monotonic() - begun)))
+
+    try:
+        with LagProbe() as probe:
+            uploads = [asyncio.create_task(uploader(user)) for user in (a, b)]
+            while not all(task.done() for task in uploads):
+                found, took = await search()
+                assert found == [], found
+                searches.append(took)
+                await asyncio.sleep(1.0)
+            await asyncio.gather(*uploads)
+    finally:
+        mode["held_s"] = 0.0
+    # At 20 s each user still had two registrations in flight (held 25 s): both uploads refused.
+    assert refused.count("TooManyUploads") == 4, refused
+    assert len(searches) >= 30 and max(searches) < alone + 1.0, (max(searches), alone)
+    assert probe.worst < LAG_BOUND_S, probe.worst
+    print(
+        f"4 two users uploading every 20 s, register held {REGISTER_HELD_S:.0f} s: their second rounds "
+        f"refused too_many_uploads ({len(refused)}); a third user's {len(searches)} searches over "
+        f"{time.monotonic() - started:.0f} s, slowest {max(searches):.2f} s ({alone:.2f} s alone); loop "
+        f"lag max {probe.worst * 1000:.1f} ms"
+    )
+
+
+async def test_a_users_third_concurrent_upload_is_refused_until_a_registration_ends(services, rag):
+    mode, backend = rag
+    switched = with_backend(services, backend)
+    switched.attachments.register_response_s = 1.0
+    user, other = f"u-reg-cap-{uuid.uuid4().hex[:6]}", f"u-reg-cap-o-{uuid.uuid4().hex[:6]}"
+    mode["held_s"] = 4.0
+    try:
+        first = await asyncio.gather(_upload(switched, user), _upload(switched, user))
+        assert [r.status for _, r, _ in first] == [
+            "pending",
+            "pending",
+        ]  # answered, going on in the background
+        started = time.monotonic()
+        with pytest.raises(TooManyUploads):
+            await _upload(switched, user)
+        refused_s = time.monotonic() - started
+        _, other_record, _ = await _upload(switched, other)  # another user is not refused
+        assert other_record.status == "pending"
+        end = time.monotonic() + 30  # bounded polling: the slots are released when the registrations end
+        while switched.attachments.in_flight.in_flight("default", user) and time.monotonic() < end:
+            await asyncio.sleep(0.05)
+        assert switched.attachments.in_flight.in_flight("default", user) == 0
+        for _, record, _ in first:  # they ended registered
+            await _server_status(backend, DocumentScope.session(tenant_id="default", user_id=user,
+                                                                conversation_id=record.conversation_id),
+                                 record.id, until="indexed", within_s=60)  # fmt: skip
+        mode["held_s"] = 0.0
+        _, again, _ = await _upload(switched, user)
+    finally:
+        mode["held_s"] = 0.0
+    assert refused_s < 0.5, refused_s
+    assert again.status in ("pending", "indexed")
+    print(f"4 a user's third concurrent upload refused too_many_uploads in {refused_s * 1000:.0f} ms; "
+          "accepted again "
+          "once its registrations ended")  # fmt: skip
+
+
+async def test_a_failure_after_the_upload_answered_pending_ends_failed_and_returns_no_chunk(services, rag):
+    mode, backend = rag
+    switched = with_backend(services, backend)
+    switched.attachments.register_response_s = 0.5
+    mode["held_s"], mode["fail_after_index"] = 2.0, True
+    try:
+        scope, record, took = await _upload(switched, f"u-reg-late-{uuid.uuid4().hex[:6]}")
+        assert record.status == "pending" and took < 1.5, (record, took)
+        failed = await _record(switched, record.id, until="failed", within_s=30)
+    finally:
+        mode["held_s"], mode["fail_after_index"] = 0.0, False
+    assert failed.reason == "register_failed"
+    await _server_status(backend, scope, record.id, until="indexed", within_s=60)
+    assert any(hit.document_id == record.id for hit in await backend.search("إجازة الأمومة", scope, 8))
+    facade = switched.broker.documents.facade(
+        "docs", ToolScope(tenant_id="default", user_id=scope.user_id, collections=scope.collections)
+    )
+    assert [c for c in await facade.search("إجازة الأمومة", 8) if c.hit.document_id == record.id] == []
+    print(f"10 a registration failing after its upload answered pending ({took:.2f} s): "
+          "failed register_failed, "
+          "its chunks never returned")  # fmt: skip
+
+
+@pytest.fixture
+async def ops_server(settings):
+    """A document server that trickles or floods `register` on demand (tests/fixtures/doc_ops_mcp.py),
+    timeout_s 3, max_concurrency 4, a 256 KiB result cap."""
+    server = DocumentOpsMCPServer()
+    server.start()
+    client, backend = await connected(
+        server, hash_key=settings.content_hash_key, timeout_s=3.0, max_concurrency=4
+    )
+    yield server, backend
+    await client.stop()
+    server.stop()
+
+
+@pytest.mark.parametrize("kind", ["trickle", "flood"])
+async def test_a_trickling_or_flooding_register_ends_failed_within_its_one_deadline(
+    services, ops_server, kind
+):
+    """A background registration has one deadline, timeout_s (3 s) for its slot wait and its attempt;
+    a trickling register is cut there, a flooding one at its byte cap; either ends the file failed
+    register_failed, while another user's search on the same server answers in its normal time."""
+    server, backend = ops_server
+    switched = with_backend(services, backend)
+    switched.attachments.register_response_s = 1.0
+    search = _search_as(switched, f"u-reg-ops-o-{uuid.uuid4().hex[:6]}")
+    _, alone = await search()
+    server.mode["register"] = kind
+    try:
+        with LagProbe() as probe:
+            upload = asyncio.create_task(_upload(switched, f"u-reg-ops-{uuid.uuid4().hex[:6]}"))
+            while not server.calls["register"]:  # bounded by the upload's own 1 s answer
+                await asyncio.sleep(0.02)
+            _, other_took = await search()
+            _, record, took = await upload
+            ended = time.monotonic()
+            failed = await _record(switched, record.id, until="failed", within_s=10)
+            failed_s = took + (time.monotonic() - ended)
+    finally:
+        server.mode["register"] = "ok"
+    assert failed.reason == "register_failed"
+    if kind == "trickle":
+        assert record.status == "pending" and 0.9 <= took <= 1.5, (record, took)
+        assert failed_s <= 3.0 + 1.0, failed_s  # one deadline of timeout_s, and the record's poll
+    else:
+        assert record.status == "failed" and took < 1.0, (record, took)  # refused at its byte cap, unparsed
+    assert other_took < alone + 1.0, (other_took, alone)
+    assert probe.worst < LAG_BOUND_S, probe.worst
+    print(f"10 register {kind}: upload answered {record.status} in {took:.2f} s, failed register_failed by "
+          f"{failed_s:.2f} s (timeout_s 3); another user's search {other_took:.2f} s ({alone:.2f} s alone); "
+          f"loop lag max {probe.worst * 1000:.1f} ms")  # fmt: skip
+
+
+async def test_on_the_internal_backend_the_upload_answers_what_the_record_holds(services):
+    """Decision 6 (ADR-0265): the internal backend's push lands and then its call fails. Whichever
+    side wins the race, the upload answers the record as stored after it, and a file whose
+    registration failed is never returned by search or fetch."""
+    internal = services.backends["internal"]
+
+    class PushThenFail:
+        name = "internal"
+
+        def __init__(self, indexed_first: bool):
+            self.indexed_first = indexed_first
+
+        async def register(self, stored):
+            await internal.register(stored)  # the RPUSH lands
+            if self.indexed_first:  # the worker moves the record on before the failure is marked
+                async with services.db.connection() as conn:
+                    assert await services.attachments.store.mark_indexed(
+                        stored.id, pages=1, chunks=0, conn=conn
+                    )
+            raise RuntimeError("connection reset after the push")
+
+        def __getattr__(self, name):
+            return getattr(internal, name)
+
+    won = with_backend(services, PushThenFail(indexed_first=True))
+    _, record, _ = await _upload(won, f"u-reg-race-a-{uuid.uuid4().hex[:6]}")
+    assert record.status == "indexed" and record.reason is None, record  # the stored state, not "failed"
+    assert (await services.attachments.store.by_id(record.id)).status == "indexed"
+
+    lost = with_backend(services, PushThenFail(indexed_first=False))
+    scope, record, _ = await _upload(lost, f"u-reg-race-b-{uuid.uuid4().hex[:6]}")
+    assert (record.status, record.reason) == ("failed", "register_failed"), record
+    async with services.db.connection() as conn:  # the worker comes later: the record stays failed
+        assert not await services.attachments.store.mark_indexed(record.id, pages=1, chunks=0, conn=conn)
+    assert (await services.attachments.store.by_id(record.id)).reason == "register_failed"

@@ -301,7 +301,9 @@ async def test_repeated_list_reads_join_one_read_per_file_and_never_stall_anothe
     results update the cached status, and another user's general turn completes in its normal
     time."""
     baseline = min([await _general_turn_s(services) for _ in range(2)])
-    client = await _client(slow_server, timeout_s=10.0, max_concurrency=16)
+    # Background reads take at most half the server's slots (ADR-0265): 20 leaves the ten files'
+    # reads ten background slots, as this test's 16 did before.
+    client = await _client(slow_server, timeout_s=10.0, max_concurrency=20)
     broker = ToolBroker(ToolRegistry(), GuardEngine(), mcp=client)
     owner = Owner(tenant_id="default", user_id="user-a")
     records = Records(owner, 10)
