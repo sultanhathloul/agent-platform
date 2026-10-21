@@ -306,7 +306,7 @@ async def test_a_hung_unlock_closes_its_connection_and_the_lock_is_free(services
 
     async def hung(query, *args, **kwargs):
         if "pg_advisory_unlock" in str(query):
-            return await execute("SELECT pg_sleep(30)")  # the database holds the unlock
+            return await execute("SELECT pg_sleep(8)")  # the database holds the unlock
         return await execute(query, *args, **kwargs)
 
     monkeypatch.setattr(connection, "execute", hung)
@@ -334,7 +334,7 @@ async def test_hung_guard_event_writes_never_hold_the_turn_or_its_lock(services,
 
         async def record_events(self, *args, **kwargs):
             async with self._db.connection() as conn:
-                await conn.execute("SELECT pg_sleep(30)")
+                await conn.execute("SELECT pg_sleep(8)")
 
     hung = dataclasses.replace(services, policies=HungPolicies(services.policies, services.db))
     request = TurnRequest(

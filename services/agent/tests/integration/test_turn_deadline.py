@@ -232,7 +232,7 @@ class _HungOwners:
 
     async def bind_or_get(self, *args, **kwargs):
         async with self._db.connection() as conn:
-            await conn.execute("SELECT pg_sleep(30)")
+            await conn.execute("SELECT pg_sleep(8)")
         return await self._owners.bind_or_get(*args, **kwargs)
 
 

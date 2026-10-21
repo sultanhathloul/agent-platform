@@ -19,6 +19,7 @@ import uuid
 import httpx
 import pytest
 
+from app.api.locks import TurnLocks
 from app.api.runner import TurnRefused, TurnRunner
 from app.api.schemas import TurnRequest
 from app.context.tokens import default_counter
@@ -47,6 +48,16 @@ def upstream():
     server.start()
     yield server
     server.stop()
+
+
+@pytest.fixture
+async def pooled(services):
+    """The session's services with a lock pool of their own, closed after the test: twenty held
+    turns open twenty lock connections, which must not stay open for the tests that follow."""
+    locks = TurnLocks(services.settings.database_url, size=services.settings.lock_pool_size)
+    await locks.open()
+    yield dataclasses.replace(services, locks=locks)
+    await locks.close()
 
 
 def _hung(services, limiter: ConcurrencyLimiter):
@@ -88,8 +99,9 @@ async def _turn(services, principal: Principal) -> tuple[str, str, float, float]
 
 
 async def test_a_users_third_turn_is_refused_at_once_and_another_user_runs_meanwhile(
-    services, upstream, litellm
+    pooled, upstream, litellm
 ):
+    services = pooled
     limiter = services.turn.limiter(services.settings.lock_pool_size)
     held = _hung(services, limiter)
     shared = dataclasses.replace(services, turn_limits=limiter)
@@ -118,7 +130,8 @@ async def test_a_users_third_turn_is_refused_at_once_and_another_user_runs_meanw
     )
 
 
-async def test_a_tenant_at_its_share_leaves_another_tenant_unaffected(services, upstream, litellm):
+async def test_a_tenant_at_its_share_leaves_another_tenant_unaffected(pooled, upstream, litellm):
+    services = pooled
     limiter = ConcurrencyLimiter(Caps(per_user=2, per_tenant=10, platform=services.settings.lock_pool_size))
     held = _hung(services, limiter)
     shared = dataclasses.replace(services, turn_limits=limiter)
@@ -143,7 +156,8 @@ async def test_a_tenant_at_its_share_leaves_another_tenant_unaffected(services, 
     )
 
 
-async def test_by_default_one_tenant_may_use_the_whole_pool(services, upstream, litellm):
+async def test_by_default_one_tenant_may_use_the_whole_pool(pooled, upstream, litellm):
+    services = pooled
     capacity = services.settings.lock_pool_size
     limiter = services.turn.limiter(capacity)
     assert limiter.caps.per_tenant is None  # config/turn.yaml: per_tenant_max null
