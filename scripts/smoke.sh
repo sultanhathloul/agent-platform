@@ -76,6 +76,7 @@ fail() { printf '  FAIL  %s\n' "$1" >&2; exit 1; }
 check() { local label=$1; shift; "$@" >/dev/null 2>&1 && ok "$label" || fail "$label"; }
 status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 token_for() { uv run -q scripts/get_token.py "$1" "$2"; }
+source scripts/refused_unread.sh  # the R3 upload check (ADR-0271)
 
 # Every container with a healthcheck healthy, waiting up to $1 seconds (F3): a restarted or
 # still-starting container fails the run only when it stays unhealthy.
@@ -546,10 +547,10 @@ code=$(upload "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$TMP/oversize.pdf")
 [[ $code == 413 ]] && ok "an oversize PDF → 413" || fail "an oversize PDF returned $code"
 check "file_too_large with its Arabic message" jq -e '.error.code == "file_too_large" and .error.message_ar == "حجم الملف أكبر من الحد المسموح به."' "$TMP/upload.json"
 { printf '%%PDF-1.7\n'; head -c 31457280 /dev/zero; } > "$TMP/far-oversize.pdf"
-code=$(upload "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$TMP/far-oversize.pdf")
-[[ $code == 413 ]] && jq -e '.error.code == "file_too_large"' "$TMP/upload.json" >/dev/null \
-  && ok "a 30 MB file → the JSON 413 file_too_large, refused before its body is read, no reset (R3)" \
-  || fail "a 30 MB file returned $code: $(head -c 200 "$TMP/upload.json")"
+far=$(refused_unread "$GW/v1/conversations/$(uuidgen | tr 'A-Z' 'a-z')/attachments" "$VIEWER" \
+  "$TMP/far-oversize.pdf" "$TMP/upload.json") || fail "a 30 MB file: ${far#fail }"
+read -r _ far_sent far_size <<< "$far"
+ok "a 30 MB file → the JSON 413 file_too_large, refused before its body is read ($far_sent of $far_size bytes sent), no reset (R3)"
 
 step "phase 04: an instruction inside a document has no effect on the answer (ADR-0136)"
 INJ_CONV=$(uuidgen | tr 'A-Z' 'a-z')

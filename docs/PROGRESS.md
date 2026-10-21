@@ -1702,6 +1702,29 @@ Left / for the owner:
 
 Files for human review: config/turn.yaml (`admission_s`, `post_answer_reserve_s`, `persist_s`, `gateway_headers_s`, `per_user_max`, `per_tenant_max`, `per_tenant_overrides`), config/docs.yaml (`max_concurrent_uploads_per_tenant`, `tenant_concurrent_uploads`), config/messages/errors.yaml (`too_many_turns`, `too_many_uploads`), services/gateway/src/main/resources/messages_ar.properties and messages_en.properties, services/agent/pyproject.toml and uv.lock (httpx2), docs/openapi/*.json (2.3.0).
 
+### Narrow session: the smoke-airgap upload check (2026-10-21)
+
+Scope: the R3 check that failed the three smoke-airgap attempts above, nothing else. Threat model ADR-0054. `docs/HANDOFF.md` untouched. Status line: ADR-0270 accepted.
+
+Checklist:
+- [x] ADR-0270 "Accepted on 2026-10-21".
+- [x] 1. Regression or not: the check alone, 30 times under the airgap overlay from a fresh `make up`, the first upload right after startup, on main (worktree, compose project `agent-platform-main`) and on this branch.
+- [x] 2. Not a regression: the airgap relay fixed (`proxy_half_close on`), ADR-0271.
+- [x] 3. The check stays strict, shown failing each way it should.
+- [ ] FINISH (see Results).
+
+The check alone (`curl -s --expect100-timeout 10 -F file=@far-oversize.pdf`, 30 MB, the viewer's token), one upload every 3.2 s so the gateway's 20 uploads per minute never answers 429:
+
+| Run | Uploads | curl exit codes | Resets | Answers |
+|---|---|---|---|---|
+| main a371373, 2026-10-21T16:01:36Z | 30 | 0 ×25, 56 ×5 (uploads 1, 3, 5, 20, 22) | 5 | JSON 413 `file_too_large` ×30 |
+| this branch d155407, 2026-10-21T16:06:02Z | 30 | 0 ×29, 56 ×1 (upload 9) | 1 | JSON 413 `file_too_large` ×30 |
+| this branch with `proxy_half_close on`, 2026-10-21T16:14:12Z | 30 | 0 ×30 | 0 | JSON 413 `file_too_large` ×30 |
+
+A first, unpaced run on main (15:58:38Z) is not counted: uploads 21 to 30 met the rate limit (429 `upload_rate_limited`, one of them reset). For the third run `make up` failed on a port held by the airgap `edge` container left from the earlier runs (`make clean` does not load the airgap overlay); the airgap `up` that followed started every service on the cleaned volumes, and the run started right after it.
+
+The check's strictness (scripts/refused_unread.sh, the function smoke now sources), run 2026-10-21T16:15Z against the gateway behind the relay and three fake endpoints: the gateway passes (1 542 328 of 31 457 289 bytes sent before the answer); an endpoint that reads the whole body and then answers the JSON 413 fails ("the whole body was sent, 31 457 491 of 31 457 289 bytes, before the answer"); one that answers 413 without JSON fails; one that resets fails (curl exit 56).
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`
