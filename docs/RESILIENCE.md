@@ -12,6 +12,10 @@ Every request is handled separately, but requests share limited things: a thread
 | 05 | One MCP server's long response froze every user's chat | Quadratic parsing on the agent's single event loop | Incremental parsing, size cap over the whole response (round 1 fix) |
 | 05 | One user's 2 s status bound shut a server off for everyone | Shared state (breaker) changed by a caller's cancellation | Cancellation never decides the breaker (ADR-0244) |
 | 05 | One held reply blocked every call to that server | One shared session with a single writer (MCP SDK) | One pooled session per in-flight call (ADR-0246) |
+| Timeout budget PR | Two hostile files at once could get a document container OOM-killed | Shared memory: children's limits summed past the container's | Children sized from measurements, a startup check, no swap (ADR-0252) |
+| Timeout budget PR | A slow MCP registration answered the user as failed while the file was registered behind it | An inner bound (62 s) past the outer one (60 s) | The upload answers within 20 s; the registration goes on in the background (ADR-0254) |
+| Timeout budget PR | Nothing bounded a turn; the gateway's 60 s cut every turn, body included | No end-to-end deadline; a total timeout read as a header one | One deadline per turn, the relay's own bound, every inner bound nested (ADR-0255 to ADR-0259) |
+| Timeout budget PR | A healthy server's restart could count breaker failures | A wait for the next generation counted as the server's outcome | Only an attempt's own outcome decides (ADR-0249) |
 
 Patterns and names follow the standard literature: Michael Nygard, *Release It!* (timeouts, circuit breaker, bulkhead); Google, *Site Reliability Engineering*, "Handling Overload" and "Addressing Cascading Failures" (load shedding, retry budgets); Amazon Builders' Library, "Timeouts, retries, and backoff with jitter".
 
@@ -25,6 +29,8 @@ Patterns and names follow the standard literature: Michael Nygard, *Release It!*
 | Timeouts and connection limits | httpx pool limits and timeouts | Agent | httpx itself | Already standard |
 | MCP session pool, response size cap, server-request handling | Custom implementation | Agent | None: the official MCP SDK offers neither pooling nor a response size cap | Keep custom until the SDK provides them (ADR-0246) |
 | CPU work off the event loop | Incremental parsing; heavy parsing in a separate process | Agent, ingest service | No library solves this; it is a coding discipline (run_in_executor, process pools) | Keep as rule 12d |
+| Nested deadlines (one per call, inner never past outer) | `deadline.within` / `bounded` on anyio cancel scopes and `anyio.current_effective_deadline()`; one context variable carries a scope's end into tasks it creates | Agent (app/resilience/deadline.py) | anyio itself (cancel scopes); `asyncio.timeout` (no effective-deadline lookup across nesting); a custom context-variable stack | Keep anyio as the mechanism (ADR-0250); the context variable only carries the end across `asyncio.create_task`, which anyio does not (ADR-0251) |
+| Timeout budget check | scripts/check_timeout_budget.py in `make test`: every nested pair of the table below whose values are configured | Repository | None for a project's own configuration | Keep (ADR-0261) |
 
 ## Traps when scaling out (more than one gateway or agent replica)
 
@@ -39,69 +45,74 @@ MCP sessions carry Mcp-Session-Id: a server behind its own load balancer must ro
 
 ## Timeout budget (current values)
 
-Values as of the merge of PR #10 (main at aee98d3). "Library default" means the repository sets nothing and the value is the library's own. Read a row's "Enclosed by" as the bound around it on the same request; "Inner ≥ outer" flags a row whose bound is not shorter than the one enclosing it. Shortened paths continue the full path above them: gateway Java files are under services/gateway/src/main/java/sa/ncai/agent/gateway/, agent files under services/agent/app/, web files under services/web/src/.
+Values as of the timeout budget PR (`fix/timeout-budget`, 2026-10-21, ADR-0248 to ADR-0261). "Library default" means the repository sets nothing and the value is the library's own. Read a row's "Enclosed by" as the bound around it on the same request; "Inner ≥ outer" flags a row whose bound is not shorter than the one enclosing it. An inner bound written "min(X, remaining)" is nested by construction: it is opened with `deadline.within(X)` (services/agent/app/resilience/deadline.py, ADR-0250), so it never runs past what remains of the one enclosing it, whatever X is. `scripts/check_timeout_budget.py` checks, in `make test`, every nested pair below whose two values are configured (ADR-0261). Shortened paths continue the full path above them: gateway Java files are under services/gateway/src/main/java/sa/ncai/agent/gateway/, agent files under services/agent/app/, web files under services/web/src/.
+
+**The I3 finding (ADR-0256).** The table used to say `gateway.agent.response-timeout` bounded the agent's response headers only. A test established otherwise before anything changed: Spring's `JdkClientHttpRequestFactory` applies its read timeout to the whole exchange from the request, and at the timeout it closes the response body wherever the reading is. A turn stream was therefore cut at 60 s total and the relay appended `agent_stream_interrupted`; that is what lost phase 05's eval cases at "the 60 s gateway timeout". A turn stream now has a client of its own bounded by the relay's 135 s; every other agent call keeps 60 s, which covers its body too (StreamBoundTest).
 
 **Chat turn** (web → gateway → agent → LiteLLM → provider)
 
 | Layer | Setting | Value | Source file | Enclosed by | Encloses | Inner ≥ outer |
 |---|---|---|---|---|---|---|
-| web | Chat request | No timer; the user's stop only | services/web/src/components/Chat.tsx:197 | — | Gateway agent call | Unbounded |
+| web | Chat request | No timer; the user's stop only | services/web/src/components/Chat.tsx:197 | — | Gateway relay 135 s | Unbounded at the web (phase 12 backlog, T1); the gateway ends the stream at 135 s |
 | gateway | Tomcat max-connections / accept-count | 8192 / 100 | services/gateway/src/main/resources/application.yml:33-34 | — | Every request | |
-| gateway | `gateway.agent.connect-timeout` | 5 s | application.yml:63; proxy/AgentClient.java:49 | — | — | |
-| gateway | `gateway.agent.response-timeout` | 60 s, response headers only; the SSE body is unbounded | application.yml:64; proxy/AgentClient.java:52-53 | — | Agent turn | Unbounded body |
-| gateway | SSE relay | 8192 B buffer, no idle timeout | proxy/SseRelay.java:57 | Headers-only 60 s | Agent turn | Unbounded |
-| gateway ↔ agent | Keep-alive idle: uvicorn server / JDK HttpClient | 5 s (library default) / 30 s (JDK default, not verified in the repo) | services/agent/Dockerfile:40; proxy/AgentClient.java:47 | — | — | Client idle 30 s ≥ server idle 5 s: the gateway may reuse a connection the agent closed (not tested) |
+| gateway | `gateway.agent.connect-timeout` | 5 s | application.yml:63; proxy/AgentClient.java:56-59 | — | — | |
+| gateway | Turn stream: one total bound, request to last byte | `deadline_s` + `gateway_margin_s` = 135 s; past it the stream ends `turn_timeout` and the agent connection is closed | config/turn.yaml:4,9; proxy/TurnLimits.java; proxy/AgentClient.java:64-67; proxy/SseRelay.java:126; chat/ChatController.java | — | Agent turn 120 s | |
+| gateway | `gateway.agent.response-timeout`, every other agent call | 60 s, request to the body's end (Spring closes the body at the bound) | application.yml:67; proxy/AgentClient.java:60-63 | — | Agent register (20 s), status, memory, admin, history calls | |
+| gateway | SSE relay | 8192 B buffer; ends at the turn stream's bound | proxy/SseRelay.java:57,126 | Turn stream 135 s | Agent turn | |
+| gateway ↔ agent | Keep-alive idle: uvicorn server / JDK HttpClient | 75 s / 30 s (set from `gateway.agent.keep-alive`; JDK 21.0.12's own default, checked, is also 30 s) | services/agent/Dockerfile:43; application.yml:71; HttpClientKeepAlive.java | — | — | Client idle 30 s < server idle 75 s (ADR-0260) |
 | gateway | Hikari pool / connectionTimeout | 10 / 30 s (library default) | application.yml:16 | — | — | |
 | agent | Turn lock pool `LOCK_POOL_SIZE` | 20 turns at once | services/agent/app/settings.py:44; docker-compose.yml:47; .env.example:117 | — | — | |
-| agent | Lock `getconn` | 5 s, then 503 `service_busy` | services/agent/app/api/locks.py:80,103 | Gateway 60 s | — | |
-| agent | Wait for a conversation's turn lock | 0 s, then 409 `turn_in_flight` | services/agent/app/api/runner.py:161; locks.py:97 | Gateway 60 s | — | |
-| agent | Retract lock wait | 10 s (+ 5 s getconn) | runner.py:67,114 | Gateway 60 s | Lock getconn | |
-| agent | Whole-turn deadline | None | runner.py:190-240 | Gateway (headers only) | Every agent row below | Unbounded |
-| agent | Main DB pool | max 10, getconn 30 s (library default) | services/agent/app/db/__init__.py:52,68-69 | Turn (none) | — | 20 turns share 10 connections |
-| agent | Attachment status bound in a turn | 2 s; the read goes on in the background (ADR-0245) | config/docs.yaml:12; services/agent/app/graph/nodes/attachments.py:26 | Turn (none) | rag `status` MCP call (≤ 62 s) | Inner ≥ outer by design (ADR-0233, ADR-0245) |
-| agent | Capabilities per turn | ≤ 3, one after another | services/agent/app/graph/nodes/route.py:25; graph/nodes/capabilities.py:355 | Turn (none) | Capability `timeout_s` | |
-| agent | Capability `limits.timeout_s`: default / general / docs / directions | 30 s / 30 s / 60 s / 60 s | services/agent/app/capabilities/contract.py:82; capabilities/{general,docs,directions}/manifest.yaml (30, 34, 42) | Turn (none) | Model calls, broker tools | |
-| agent | Tier escalations per turn | 2 (up to 3 answer calls) | config/models.yaml:39 | Turn (none) | Model calls | |
-| agent | `MODEL_TIMEOUT_S`, OpenAI client, `max_retries` 0 | 300 s per operation (between stream chunks, not total) | settings.py:30; services/agent/app/models/gateway.py:45-46 | Capability 30 / 60 s | LiteLLM `request_timeout` | 300 s ≥ capability 30 / 60 s |
-| agent | directions extractor calls | Up to 2 model calls (repair), then 3 routing calls at ≤ 15 s each | services/agent/app/capabilities/declarative.py:157-158 | directions 60 s | Model 300 s; broker 15 s | 2 × 300 s + 45 s ≥ 60 s |
-| agent | `docs_search` broker timeout, retries | 45 s, 0 | services/agent/app/capabilities/docs/tools.py:54-55 | docs 60 s | Embedding, rerank or rag `search` | |
-| agent | Embeddings client, `max_retries` 0 | 300 s | services/agent/app/models/embeddings.py:18-19 | `docs_search` 45 s | LiteLLM | 300 s ≥ 45 s |
-| agent | Reranker httpx (off in dev) | 60 s | services/agent/app/rag/rerank.py:39,53 | `docs_search` 45 s | LiteLLM | 60 s ≥ 45 s |
-| agent | Evidence fetch after the capabilities | No bound of its own | services/agent/app/graph/evidence.py:79 | Turn (none) | rag `fetch` MCP call | Unbounded outer |
-| agent | Presidio checker httpx | 5 s | services/agent/app/guardrails/checkers/presidio.py:20-21 | Turn (none) | — | |
-| agent | `llm_judge` checker | No bound of its own; model client 300 s; checks run in parallel | services/agent/app/guardrails/engine.py:200 | Turn (none) | Model call | |
+| agent | Lock `getconn` | 5 s, then 503 `service_busy` | services/agent/app/api/locks.py:80,103 | Gateway turn stream 135 s | — | |
+| agent | Wait for a conversation's turn lock | 0 s, then 409 `turn_in_flight` | services/agent/app/api/runner.py; locks.py:97 | Gateway turn stream 135 s | — | |
+| agent | Retract lock wait | 10 s (+ 5 s getconn) | runner.py:76,123 | Gateway response-timeout 60 s | Lock getconn | |
+| agent | Whole-turn deadline | 120 s; at it `turn_timeout`, the graph and every task it owns cancelled, the lock released | config/turn.yaml:4; services/agent/app/api/runner.py:262; resilience/turn.py | Gateway turn stream 135 s | Every agent row below | |
+| agent | Main DB pool | max 10, getconn 30 s (library default) | services/agent/app/db/__init__.py:52,68-69 | Turn 120 s | — | 20 turns share 10 connections |
+| agent | Attachment status bound in a turn | 2 s; the read goes on in the background, detached from the turn's deadline (ADR-0245, ADR-0251) | config/docs.yaml:12; services/agent/app/graph/nodes/attachments.py:26; attachments/service.py:188 | Turn 120 s | rag `status` MCP call, background (≤ 2 × 30 + 2 s) | The read outlives the bound by design: it belongs to no caller |
+| agent | Capabilities per turn | ≤ 3, one after another | services/agent/app/graph/nodes/route.py:25; graph/nodes/capabilities.py | Turn 120 s | Capability bound | |
+| agent | Capability bound | min(manifest `limits.timeout_s`, remaining − `answer_reserve_s` 45 s): default / general / docs / directions 30 / 30 / 60 / 60 s, within the 75 s before the answer; its own limit is `capability_failed`, the reserve `turn_timeout` | services/agent/app/capabilities/contract.py:82; capabilities/{general,docs,directions}/manifest.yaml (30, 34, 42); config/turn.yaml:5; graph/nodes/capabilities.py:327 | Turn 120 s | Model calls, broker tools | |
+| agent | Tier escalations per turn | 2 (up to 3 answer calls) | config/models.yaml:39 | Turn 120 s | Model calls | |
+| agent | Model call deadline, send to last chunk | min(role ceiling, remaining): router, summarizer, judge, extractor 20 s; reasoning, reflection 90 s. Client per-operation timeout remaining + 1 s; LiteLLM per-request `timeout` remaining − 1 s; one retry, only before the first token, on 429, 5xx or a connection error, with ≥ 10 s left | config/models.yaml:57-74; services/agent/app/models/gateway.py:57,148,219 | Capability bound or turn | LiteLLM per-request timeout | |
+| agent | directions extractor calls | Up to 2 model calls (repair), then 3 routing calls; each min(its ceiling, remaining) | services/agent/app/capabilities/declarative.py:157-158 | directions 60 s | Model calls; broker routing 22 s | |
+| agent | `docs_search` broker bound, retries | min(45 s, remaining), 0 | services/agent/app/capabilities/docs/tools.py:54-55; tools/broker.py:359 | docs 60 s | Embedding 15 s + rerank 20 s, or rag `search` 30 s | |
+| agent | Embeddings: query / ingest batch | min(15 s / 60 s, remaining); per-request timeouts as model calls; one retry; the answer refused past 48 KiB per text before it is parsed | config/models.yaml:65-67; services/agent/app/models/embeddings.py:25,62 | `docs_search` 45 s, memory, or an ingest job | LiteLLM | |
+| agent | Reranker (off in dev) | min(20 s, remaining); httpx remaining + 1 s, LiteLLM remaining − 1 s; the answer refused past 16 KiB + 256 B per document | config/models.yaml:68; services/agent/app/rag/rerank.py:22,64 | `docs_search` 45 s | LiteLLM | |
+| agent | Evidence fetch after the capabilities | min(10 s, remaining − 45 s), one bound for the step; past it the sources not fetched stay without text | config/turn.yaml:7; services/agent/app/graph/evidence.py:116 | Turn 120 s | rag `fetch` MCP call | |
+| agent | Presidio checker httpx | 5 s | services/agent/app/guardrails/checkers/presidio.py:20-21 | Turn 120 s | — | |
+| agent | `llm_judge` checker | The judge role's model call: min(20 s, remaining); checks run in parallel | config/models.yaml:61; services/agent/app/guardrails/engine.py:200 | Turn 120 s | Model call | |
 | agent | Answer validation retry | 0 (off) | config/validation.yaml:19 | — | — | |
-| LiteLLM | `request_timeout` | 300 s | infra/litellm/config.yaml:69 | Agent model client 300 s | Provider call | 300 s = 300 s (equal) |
-| LiteLLM | `num_retries` | 1 (up to 2 × 300 s) | infra/litellm/config.yaml:70 | Agent model client 300 s | Provider call | 600 s ≥ 300 s |
-| LiteLLM | Fallback heavy → standard | 1 hop | infra/litellm/config.yaml:62-65 | Agent model client 300 s | Another provider call | ≥ 300 s |
+| LiteLLM | Per-request `timeout` from the agent | The call's remaining − 1 s | services/agent/app/models/gateway.py:57 | Agent model call | Provider call | |
+| LiteLLM | `request_timeout` | 85 s, a backstop under the agent's longest ceiling (90 s) | infra/litellm/config.yaml:73 | Agent model call | Provider call | |
+| LiteLLM | `num_retries` | 0; the agent retries | infra/litellm/config.yaml:74 | Agent model call | — | |
+| LiteLLM | Fallback heavy → standard | 1 hop, inside the agent's call deadline (tested: ends by it) | infra/litellm/config.yaml:62-65 | Agent model call | Another provider call | |
 | LiteLLM | rpm / tpm / max_parallel_requests | Not set | infra/litellm/config.yaml | — | — | No limit |
 
 **Upload** (web → gateway → MinIO → agent register → ingest; status reads)
 
 | Layer | Setting | Value | Source file | Enclosed by | Encloses | Inner ≥ outer |
 |---|---|---|---|---|---|---|
-| web | Status poll interval | 2000 ms, pending files read one after another in one callback | services/web/src/lib/attachments.ts:8; Chat.tsx:110-121 | — | Gateway status read (agent bound 2 s) | Poll period 2 s ≤ the 2 s read it waits on: ticks can overlap |
-| gateway | Uploads per user per minute | 20 baseline; 60 with `.env.example` | config/docs.yaml:19; attachments/UploadRateLimiter.java:33; docker-compose.yml:526; .env.example:122 | — | — | |
+| web | Status poll interval | 2000 ms, pending files read one after another in one callback | services/web/src/lib/attachments.ts:8; Chat.tsx:110-121 | — | Gateway status read (agent bound 2 s) | Ticks can overlap (phase 12 backlog, T1) |
+| gateway | Uploads per user per minute | 20 baseline; 60 with `.env.example` | config/docs.yaml:24; attachments/UploadRateLimiter.java:33; docker-compose.yml:526; .env.example:122 | — | — | |
 | gateway | Declared request size | 20 MiB + 2 MiB, 413 before the body is read | attachments/DocsLimits.java:49,53; AttachmentGate.java:132 | — | — | |
 | gateway | Multipart max-file-size / max-request-size | 21 MiB / 22 MiB | attachments/AttachmentsConfig.java:40-41 | — | — | |
-| gateway | Concurrent uploads per user / gateway-wide | 2 / 50, then 429 `too_many_uploads` | config/docs.yaml:22-23; DocsLimits.java:37-38; AttachmentGate.java:136 | Tomcat 8192 connections | Body read, MinIO put, agent register | |
-| gateway | `upload_deadline_seconds`, whole body | 120 s, then 408; checked per read, so up to about 150 s with a blocked read | config/docs.yaml:24; DocsLimits.java:39; AttachmentGate.java:140-141; DeadlineUploadRequest.java:30-32 | Upload slot | Tomcat `connection-upload-timeout` | |
+| gateway | Concurrent uploads per user / gateway-wide | 2 / 50, then 429 `too_many_uploads` | config/docs.yaml:27-28; DocsLimits.java:37-38; AttachmentGate.java:136 | Tomcat 8192 connections | Body read, MinIO put, agent register | |
+| gateway | `upload_deadline_seconds`, whole body | 120 s, then 408; checked per read, so up to about 150 s with a blocked read | config/docs.yaml:29; DocsLimits.java:39; AttachmentGate.java:140-141; DeadlineUploadRequest.java:30-32 | Upload slot | Tomcat `connection-upload-timeout` | |
 | gateway | `connection-upload-timeout` / `max-swallow-size` | 30 s / 0 | application.yml:39,42 | Upload deadline 120 s | — | |
-| gateway | MinIO Java client | Library default (5 min, not verified in the repo) | attachments/MinioObjectStorage.java:22-25 | Upload slot (no deadline after the body) | MinIO put | Unbounded at the gateway |
-| gateway | Agent register call | `response-timeout` 60 s | attachments/AttachmentController.java:222 | Upload slot | Agent register | |
-| agent | Register, `mcp` backend → rag `register` | Semaphore ≤ 30 s + attempt ≤ 32 s = ≤ 62 s | services/agent/app/rag/mcp.py:40-55; attachments/service.py:73 | Gateway 60 s | rag MCP call | 62 s ≥ 60 s when the semaphore is full |
-| agent | Register, `internal` backend | Redis RPUSH | services/agent/app/rag/internal.py:36-37 | Gateway 60 s | — | |
-| agent | Files per conversation / PDF pages | 10 / 300 | config/docs.yaml:17-18 | — | — | |
-| agent | Status bound, list and single | 2 s, the read goes on in the background, one per attachment | config/docs.yaml:12; attachments/service.py:21,106,126 | Gateway 60 s | rag `status` (≤ 62 s) | Inner ≥ outer by design (ADR-0245) |
-| ingest | Workers | 2 | config/docs.yaml:54 | — | Sandbox, embeddings | |
+| gateway | MinIO Java client | Library default (5 min, not verified in the repo) | attachments/MinioObjectStorage.java:22-25 | Upload slot (no deadline after the body) | MinIO put | Unbounded at the gateway (phase 12 backlog, T1) |
+| gateway | Agent register call | `response-timeout` 60 s, request to the body's end | attachments/AttachmentController.java:222; proxy/AgentClient.java:60-63 | Upload slot | Agent register 20 s | |
+| agent | Register: the upload's answer | Within `register_response_s` 20 s: `pending` past it, the hand-over going on in the background, one per attachment, detached; a failure ends the file `failed` `register_failed` (ADR-0254) | config/docs.yaml:17; services/agent/app/attachments/service.py:89,106 | Gateway 60 s | Backend hand-over | |
+| agent | Register, `mcp` backend → rag `register`, in the background | Slot wait ≤ min(30 s, remaining − 31 s) + attempt ≤ 30 s, under the transport bound 2 × 30 + 2 = 62 s | services/agent/app/rag/mcp.py:40-55; app/mcp/tools.py:186 | None: belongs to no caller | rag MCP call | |
+| agent | Register, `internal` backend | Redis RPUSH | services/agent/app/rag/internal.py:36-37 | Register 20 s | — | |
+| agent | Files per conversation / PDF pages | 10 / 300 | config/docs.yaml:22-23 | — | — | |
+| agent | Status bound, list and single | 2 s, the read goes on in the background, detached, one per attachment | config/docs.yaml:12; attachments/service.py:21,119,188 | Gateway 60 s | rag `status` (≤ 62 s) | The read outlives the bound by design (ADR-0245) |
+| ingest | Workers | 2 | config/docs.yaml:59 | — | Sandbox, embeddings | |
 | ingest | Redis BLPOP | 2 s | services/agent/app/rag/ingest/worker.py:19,53; ingest/queue.py:29 | Redis socket_timeout (library default) | — | |
-| ingest | `max_attempts` / backoff | 3 / min(2^n, 30) s | config/docs.yaml:56; worker.py:75-78 | — | Pipeline run | |
-| ingest | Per-job deadline | None; up to 125 embedding calls at 300 s each | config/docs.yaml:36,55; ingest/pipeline.py | — | Embeddings 300 s | Unbounded |
-| ingest | Sandbox CPU / wall / join grace | 60 s / 120 s / 5 s, then kill | config/docs.yaml:60,62; ingest/sandbox.py:75,99,105 | Job (none) | Parser | |
-| ingest | Sandbox memory per child × workers vs container | 1024 MB × 2 vs `mem_limit` 2g | config/docs.yaml:61; sandbox.py:76-77; docker-compose.yml:470 | Container 2 GiB | Child | 2 × 1 GiB ≥ 2 GiB (RLIMIT_AS is virtual memory) |
-| ingest | DB pool | max 4 | services/agent/app/rag/ingest/service.py:42 | — | — | |
-| ingest | Extraction and archive caps | 1 000 000 chars; 50 MB; 1000 entries; 100 MB; ratio 200 | config/docs.yaml:43-51 | — | — | |
-| mcp-rag-ref | Index workers / DB pool / container memory | 2 / 8 / 2g, same sandbox limits | infra/mcp-ref/mcp_ref/rag/server.py:56,173; docker-compose.yml:417 | Container 2 GiB | Sandbox 2 × 1 GiB | 2 × 1 GiB ≥ 2 GiB |
+| ingest | `max_attempts` / backoff | 3 / min(2^n, 30) s | config/docs.yaml:61; worker.py:75-78 | — | Pipeline run | |
+| ingest | Per-job deadline | None; up to 125 embedding batches (2000 chunks / 16), 60 s each now | config/docs.yaml:41,60; ingest/pipeline.py | — | Embeddings 60 s | Unbounded (phase 12 backlog, T1) |
+| ingest | Sandbox CPU / wall / join grace | 60 s / 120 s / 5 s, then kill | config/docs.yaml:71,73; ingest/sandbox.py | Job (none) | Parser | |
+| ingest | Sandbox memory per child × workers + reserve vs container | 640 MiB × 2 + 512 MiB = 1792 MiB ≤ `mem_limit` 2g, no swap (`memswap_limit` 2g); the service refuses to start otherwise (ADR-0252) | config/docs.yaml:72,74; ingest/sandbox.py:91,112; ingest/service.py; docker-compose.yml:474-475 | Container 2 GiB | Child | |
+| ingest | DB pool | max 4 | services/agent/app/rag/ingest/service.py | — | — | |
+| ingest | Extraction and archive caps | 1 000 000 chars; 50 MB; 1000 entries; 100 MB; ratio 200 | config/docs.yaml:48-56 | — | — | |
+| mcp-rag-ref | Index workers / DB pool / container memory | 2 / 8 / 2g, no swap, the same sandbox limits and the same startup check | infra/mcp-ref/mcp_ref/rag/server.py:56,173; docker-compose.yml:418-419 | Container 2 GiB | Sandbox 2 × 640 MiB + 512 MiB | |
 
 **MCP call** (broker → app/mcp/client.py → app/mcp/transport.py → server)
 
@@ -110,27 +121,27 @@ Values as of the merge of PR #10 (main at aee98d3). "Library default" means the 
 | config | Defaults: `timeout_s` / `max_result_bytes` / `max_concurrency` | 10 s (≤ 120) / 256 KiB (≤ 16 MiB) / 8 | services/agent/app/mcp/config.py:92-94 | — | — | |
 | config | routing: `timeout_s` / `max_result_bytes` / `max_concurrency` | 10 s / 256 KiB / 8 | config/mcp.yaml:22-24 | — | — | |
 | config | rag: `timeout_s` / `max_result_bytes` / `max_concurrency` | 30 s / 1 MiB / 8 | config/mcp.yaml:47-49 | — | — | |
-| broker | MCP tool bound `timeout_s` + 5, retries 0 | routing 15 s (rag is transport, no tool) | services/agent/app/mcp/tools.py:31,122-123; app/tools/broker.py:355 | Capability (directions 60 s) | Semaphore wait + attempt (routing ≤ 22 s) | 22 s ≥ 15 s when the semaphore is full: the broker's `tool_timeout` fires before the client's `tool_busy` |
-| broker | `broker.transport` (rag operations) | No bound of its own | app/tools/broker.py:156 | `docs_search` 45 s, status 2 s, or none | Client call (≤ 62 s) | |
-| client | Semaphore wait | ≤ `timeout_s`, then `tool_busy`, breaker untouched | client.py:258,484-487 | Broker bound | — | |
-| client | Attempt backstop | `timeout_s` + 2 (routing 12 s, rag 32 s) | client.py:69,527 | Broker bound | Session open + send | Opening a session (≤ `timeout_s`) then sending (≤ `timeout_s`) is 2 × `timeout_s` ≥ backstop |
-| client | Session `initialize` | `timeout_s` | client.py:215 | Attempt backstop | — | |
-| client | Transport wall-clock deadline, send to last byte | `timeout_s` | app/mcp/transport.py:216,225,245; client.py:186 | Attempt backstop | httpx | |
-| client | SDK `read_timeout_seconds` | `timeout_s` | client.py:210 | Attempt backstop | — | Equal to the transport deadline: which fires first is a race |
-| client | httpx timeout, per operation | `timeout_s` + 1 | client.py:193 | Transport deadline | — | Outer by intent |
+| broker | MCP tool bound, retries 0 | min(2 × `timeout_s` + 2, remaining): routing 22 s | services/agent/app/mcp/tools.py:33,124; app/tools/broker.py:359 | Capability (directions 60 s) | Slot wait + attempt | |
+| broker | `broker.transport` (rag operations) | min(2 × `timeout_s` + 2, remaining): rag 62 s | app/mcp/tools.py:186 | `docs_search` 45 s, evidence 10 s, status 2 s (outlived by design), or none (background) | Slot wait + attempt | |
+| client | Slot wait (no slot free) | ≤ min(`timeout_s`, remaining − `timeout_s` − 1); none left: `tool_busy` at once, breaker untouched; a free slot is taken at once | client.py:502 | Broker bound | — | |
+| client | Attempt deadline | min(`timeout_s`, remaining − 0.5 s), covering the session, the request and the I9 re-send; the caller's deadline ending it is no verdict (ADR-0259) | client.py:78,556 | Broker bound | Session open + send + re-send | |
+| client | Session `initialize` | `timeout_s`, in the session's own task | client.py:232 | Attempt deadline (for a call waiting on it) | — | |
+| client | Transport wall-clock deadline, send to last byte | `timeout_s` | app/mcp/transport.py; client.py:201 | Attempt deadline | httpx | |
+| client | SDK `read_timeout_seconds` | `timeout_s` + 1 s | client.py:79,227 | Attempt deadline | — | Outer by intent: the transport's deadline always decides |
+| client | httpx timeout, per operation | `timeout_s` + 1 | client.py:208 | Transport deadline | — | Outer by intent |
 | client | Protocol message cap (initialize, tools/list) | 1 MiB | transport.py:51 | — | — | |
-| client | tools/list at connect / session DELETE on close | `timeout_s` / `timeout_s` | client.py:324,237 | — | — | |
-| client | Session pool | ≤ `max_concurrency` per server | client.py:19-23,261 | Semaphore | — | |
-| client | Breaker | 5 consecutive failures, open 30 s, one trial | client.py:64-65,103,133 | — | — | |
-| client | Reconnect backoff | min(30, 0.5 × 2^(n−1)) s × jitter 0.8–1.2 | client.py:66,314 | — | — | |
-| client | Re-send after an unknown session (I9) | Once, with an unbounded `connected.wait()` inside | client.py:532-541 | Attempt backstop | — | Bounded by the backstop only |
-| mcp-rag-ref | Server-side search: embedding / rerank | 300 s / 60 s | infra/mcp-ref/mcp_ref/rag/server.py:175-177 | Client rag 30 s | — | The client cuts at 30 s; the server's work may go on |
+| client | tools/list at connect / session DELETE on close | `timeout_s` / `timeout_s` | client.py | — | — | |
+| client | Session pool | ≤ `max_concurrency` per server | client.py | Semaphore | — | |
+| client | Breaker | 5 consecutive failures, open 30 s, one trial; a wait for the next generation never counts (ADR-0249) | client.py:64-65 | — | — | |
+| client | Reconnect backoff | min(30, 0.5 × 2^(n−1)) s × jitter 0.8–1.2 | client.py | — | — | |
+| client | Re-send after an unknown session (I9) | Once, its wait for the next generation inside the attempt deadline | client.py:556 | Attempt deadline | — | |
+| mcp-rag-ref | Server-side search: embedding / rerank | 15 s / 20 s (config/models.yaml, the same gateways) | infra/mcp-ref/mcp_ref/rag/server.py:175-177 | Client rag 30 s | — | The client cuts at 30 s; the server's work may go on, within these |
 
 **Shared**
 
 | Layer | Setting | Value | Source file | Enclosed by | Encloses | Inner ≥ outer |
 |---|---|---|---|---|---|---|
-| agent | Redis client | No timeout set; socket_timeout 5 s in installed redis-py 8.1.0, none in older versions the `>=5.2` pin allows | services/agent/app/main.py:288-290 | — | — | Possibly unbounded |
+| agent | Redis client | No timeout set; socket_timeout 5 s in installed redis-py 8.1.0, none in older versions the `>=5.2` pin allows | services/agent/app/main.py | — | — | Possibly unbounded (phase 12 backlog, T1) |
 | agent | MinIO (Python) | 300 s, pool 10, 5 retries (library default) | services/agent/app/attachments/objects.py:20 | — | — | |
 | agent | DB open at startup | 60 s | services/agent/app/db/__init__.py:79 | — | — | |
 | collector | OpenTelemetry batch timeout / memory limit | 2 s / 256 MiB, off the turn path | infra/otel/collector.yaml:21,23 | — | Langfuse export | |
@@ -138,5 +149,9 @@ Values as of the merge of PR #10 (main at aee98d3). "Library default" means the 
 
 ## Known residuals
 
-- A background status read lives up to about 2 × timeout_s + 2 s (62 s for rag): waiting for a slot, then the read. It stays within the server's max_concurrency and stalls no one (verification of PR #10, Q3).
-- Model provider slowness and 429s in development reach users (the 60 s gateway timeout); phase 12 backlog.
+- A background status read lives up to about 2 × timeout_s + 2 s (62 s for rag): waiting for a slot, then the read. It stays within the server's max_concurrency and stalls no one (verification of PR #10, Q3); it runs without the turn's deadline (ADR-0251).
+- A registration answered `pending` goes on in the background within the server's bounds (62 s for rag); if the agent stops meanwhile, the file stays `pending` (ADR-0254).
+- LiteLLM does not close the provider's request when the agent cancels before the first byte, or an embedding: it holds it until the request's own timeout, which the agent sets 1 s before the call's deadline. Bound: never past the call's deadline; LiteLLM's `request_timeout` (85 s) for any caller. Measured: a call cancelled at 1 s with a 6 s deadline, closed 5.03 s after send; once streaming, it closes at once (0.05 s) (ADR-0257).
+- LiteLLM relays a flooding stream on its own event loop: another user's call through LiteLLM waited 4.02 s while 20 000 one-character chunks were relayed, and 0.56 s while a 2 MiB embedding was; the agent's own loop lag stayed 32 ms and 43 ms (ADR-0257). Phase 12 backlog.
+- A hung or trickling answer ends `turn_timeout` up to 1 s before the turn's deadline, when LiteLLM gives up as told (ADR-0258).
+- Model provider slowness and 429s in development now reach users as `turn_timeout` (120 s) or `model_unavailable` after the agent's one retry, no longer at a 60 s gateway cut.

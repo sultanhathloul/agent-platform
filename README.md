@@ -767,6 +767,20 @@ Rules:
 
 > **Amendment 2026-10-15 (phase 05, ADR-0211).** Compose gains `mcp-routing-ref` and `mcp-rag-ref`, the reference MCP servers (infra/mcp-ref), on `mcp`, an internal network with no route out, never published; `postgres-roles`, a one-shot job creating the RAG server's database role and schema; and `make mcp-hashes`. The agent does not wait for any MCP server: one that is down is reported in `/v1/health`, and the capabilities that need it say so in their answers.
 
+### 20.5 Configuration keys added before phase 06 (timeout budget PR, owner decision 2026-10-21)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/turn.yaml` (new) | `deadline_s` (120), `answer_reserve_s` (45), `evidence_fetch_s` (10), `gateway_margin_s` (15) | One deadline per chat turn; past it the turn ends `turn_timeout`. Each capability runs under min(its `limits.timeout_s`, what remains − `answer_reserve_s`), the evidence fetch under min(`evidence_fetch_s`, what remains − `answer_reserve_s`), the answer under what remains; the gateway relays a turn for at most `deadline_s + gateway_margin_s` (ADR-0255, ADR-0256). Read by the agent and the gateway (`gateway.turn.config`, GATEWAY_TURN_CONFIG) |
+| `config/models.yaml` | `timeouts.roles.<role>`, `timeouts.embedding.query` / `.ingest`, `timeouts.rerank`, `timeouts.retry.min_remaining_s` / `.backoff_s` | Each model, embedding and rerank call's ceiling, cut to what remains of the call around it; the agent's one retry before the first token (ADR-0257) |
+| `config/docs.yaml` | `register_response_s` (20) | How long an upload waits for its document backend to take the file before it answers `pending` and the registration goes on in the background (ADR-0254) |
+| | `ingest.sandbox.parent_reserve_mb` (512); `ingest.sandbox.memory_mb` now 640 | The document service's own memory beside its sandbox children; workers × `memory_mb` + this must fit the container, or the service refuses to start (ADR-0252) |
+| `infra/litellm/config.yaml` | `litellm_settings.request_timeout` 85, `num_retries` 0 | LiteLLM's backstop under the agent's longest call; retries are the agent's (ADR-0257) |
+| gateway `application.yml` | `gateway.agent.keep-alive` (30 s), `gateway.turn.config` | The JDK HttpClient's idle keep-alive, under the agent's uvicorn `--timeout-keep-alive 75` (ADR-0260); the path of config/turn.yaml |
+| `docker-compose.yml` | `memswap_limit: 2g` on ingest and mcp-rag-ref | No swap, so the container's memory limit is the one the startup check reads (ADR-0253) |
+
+`scripts/check_timeout_budget.py`, run by `make test`, checks that every nested bound these keys set is shorter than the one around it (ADR-0261).
+
 ## 21. Getting started on a new machine
 
 > **Amendment 2026-10-05 (ADR-0066).** Models are no longer named in `infra/litellm/config.yaml` but in `.env`: `make models` and `scripts/preflight.sh` read `FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE` and `EMBED_API_BASE` from `.env` (no shell variables). The defaults in `.env.example` are the offline profile. §21.4 below is superseded by the amendment at its top.
