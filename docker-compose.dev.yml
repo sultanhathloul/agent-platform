@@ -19,7 +19,7 @@ services:
       - ./services/agent/app:/app/app:ro
       - ./config:/srv/config:ro
     command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
-              "--reload", "--reload-dir", "/app/app"]
+              "--timeout-keep-alive", "75", "--reload", "--reload-dir", "/app/app"]
   ingest:
     volumes:
       - ./services/agent/app:/app/app:ro

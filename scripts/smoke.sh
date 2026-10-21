@@ -40,14 +40,16 @@
 #             is indexed and cited; a partly scanned PDF is indexed with its warning on both backends.
 #   timeout budget (standalone PR before phase 06): two users' files that allocate up to their
 #             sandbox memory limit at once both end failed while a third user's file is indexed, and
-#             neither document service is OOM-killed or restarted (I7); at the end, ingest and
-#             mcp-rag-ref were never OOM-killed during the run.
+#             neither document service is OOM-killed or restarted (I7); two turns 10 s apart on one
+#             gateway both complete, and the gateway logged no connection reset during the run (I8);
+#             at the end, ingest and mcp-rag-ref were never OOM-killed during the run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 
 GW=$GATEWAY_PUBLIC_URL KC=$KEYCLOAK_PUBLIC_URL LF=$LANGFUSE_PUBLIC_URL WEB=$WEB_PUBLIC_URL
 TMP=$(mktemp -d)
+SMOKE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # the gateway's log is read from here (I8)
 # Smoke's temporary policies: whatever happens, the run ends with every one of them off.
 # ttft-buffered-output belongs to scripts/measure_ttft.py, which smoke runs below.
 SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt ttft-buffered-output)
@@ -895,6 +897,17 @@ memtest mcp-rag-ref
 for _ in $(seq 1 45); do connected rag && break; sleep 2; done
 docker compose up -d --no-deps --force-recreate --wait agent >/dev/null || fail "the agent did not come back on the internal backend"
 RESTORE_BACKEND=""
+
+step "timeout budget: two turns 10 s apart on one gateway, past the agent's old 5 s keep-alive (I8)"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+KA_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+chat "$ANALYST" "$KA_CONV" "ما عاصمة المملكة العربية السعودية؟" "$TMP/keepalive-1.jsonl"
+check "the first turn completes" jq -se 'last.type == "done"' "$TMP/keepalive-1.jsonl"
+sleep 10
+chat "$ANALYST" "$KA_CONV" "وما عاصمة الإمارات؟" "$TMP/keepalive-2.jsonl"
+check "the turn 10 s later completes" jq -se 'last.type == "done"' "$TMP/keepalive-2.jsonl"
+check "the gateway logged no connection reset or closed connection during the run" bash -c \
+  "! docker compose logs --no-log-prefix --since '$SMOKE_STARTED' gateway | grep -Eiq 'connection reset|received no bytes|connection (was )?closed by|EOFException'"
 
 step "timeout budget: no document service was OOM-killed during the run (I7)"
 check "ingest was never OOM-killed or restarted" not_oom_killed ingest
