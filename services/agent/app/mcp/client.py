@@ -23,6 +23,14 @@ the broker: no capability imports this module (ADR-0197).
   `max_concurrency`. Sessions carry no per-user state (I9): every call carries what it needs; when
   the server no longer knows a session, the tools are pinned again on a new one and the call is
   tried once more.
+- Bounds (I6, ADR-0259), each cut to what remains of the caller's deadline (app/resilience/
+  deadline.py): the wait for a slot is at most min(timeout_s, remaining − timeout_s − 1), so the
+  call still has its timeout_s once it has one; when no wait is left and no slot is free the call
+  fails `tool_busy` at once, the breaker untouched. One attempt deadline, min(timeout_s,
+  remaining − 0.5), covers opening a session and the request, the I9 re-send and its wait for the
+  next generation included; it ending by the caller's deadline is no verdict (as a cancellation,
+  ADR-0244). The transport's wall-clock deadline is timeout_s from send (transport.py) and the
+  SDK's own read timeout timeout_s + 1, so the SDK never decides.
 - Results (I7): the structured content when present, else the text parts; images, audio and
   resource links are dropped with a note; the body is capped while it is read (transport.py).
 - Observability (G8): the `mcp.call` span carries the server, the tool, the status, the latency,
@@ -53,6 +61,7 @@ from app.mcp.config import Resolved, ServerEntry, ToolEntry
 from app.mcp.transport import CALL_META, TOO_LARGE, TRANSPORT_FAILED, TRANSPORT_TIMEOUT, CappedTransport
 from app.observability.otel import tracer
 from app.observability.redaction import content_hash
+from app.resilience import deadline
 from app.tools.spec import ToolFailure
 
 log = logging.getLogger(__name__)
@@ -64,9 +73,10 @@ BUSY = "tool_busy"
 BREAKER_FAILURES = 5
 BREAKER_OPEN_S = 30.0
 _BACKOFF_MAX_S = 30.0
-# Past the transport's own deadline, so a call ends by the transport's tool_timeout first; this only
-# bounds what the transport cannot see (a re-initialisation, the SDK's own queue).
-_BACKSTOP_S = 2.0
+# I6: what an attempt leaves of its caller's deadline, and the SDK's read timeout past the
+# transport's deadline (timeout_s), so the transport decides.
+_ATTEMPT_MARGIN_S = 0.5
+_SDK_READ_MARGIN_S = 1.0
 # What the SDK reports when the server no longer knows the session (HTTP 404 on a request).
 _SESSION_GONE = "Session terminated"
 
@@ -214,7 +224,7 @@ class _Session:
                         ClientSession(
                             read,
                             write,
-                            read_timeout_seconds=timedelta(seconds=entry.timeout_s),
+                            read_timeout_seconds=timedelta(seconds=entry.timeout_s + _SDK_READ_MARGIN_S),
                             client_info=client_info,
                             message_handler=_ignore_server_messages,
                         ) as session,
@@ -488,11 +498,17 @@ class ServerConnection:
             raise ToolFailure(UNAVAILABLE)
         if self._semaphore.locked():
             observed["queued"] = True
-        try:
-            async with asyncio.timeout(self.entry.timeout_s):
-                await self._semaphore.acquire()
-        except TimeoutError:
-            raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
+            # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
+            wait_s = deadline.bounded(self.entry.timeout_s, margin_s=self.entry.timeout_s + 1.0)
+            if wait_s <= 0:
+                raise ToolFailure(BUSY)  # the breaker is untouched: nothing reached the server
+            try:
+                async with asyncio.timeout(wait_s):
+                    await self._semaphore.acquire()
+            except TimeoutError:
+                raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
+        else:
+            await self._semaphore.acquire()  # a slot is free: taken at once
         lease = _Lease()
         try:
             admitted = self.breaker.admit()
@@ -536,7 +552,8 @@ class ServerConnection:
         server no longer knows this one (I9). Raises _Failed with a content-free code."""
         waiting = False  # waiting for the next generation: a timeout then is no verdict (ADR-0249)
         try:
-            async with asyncio.timeout(self.entry.timeout_s + _BACKSTOP_S):
+            # One deadline for the attempt: the session, the request and the I9 re-send (I6).
+            with deadline.within(self.entry.timeout_s, margin_s=_ATTEMPT_MARGIN_S):
                 await self._take(lease)
                 try:
                     result = await self._send(lease.pooled, tool, arguments, observed)
@@ -555,6 +572,10 @@ class ServerConnection:
                     result = await self._send(lease.pooled, tool, arguments, observed)
                 lease.clean = True
                 return result
+        except deadline.DeadlineExceeded as exc:
+            # Its own timeout_s is the server's outcome; the caller's deadline, or a wait for the
+            # next generation, says nothing of the server (ADR-0244, ADR-0249).
+            raise _Failed(TIMEOUT, None if exc.inherited or waiting else True) from None
         except TimeoutError:
             raise _Failed(TIMEOUT, None if waiting else True) from None
         except _NoGeneration:

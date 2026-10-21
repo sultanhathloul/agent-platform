@@ -186,4 +186,4 @@ async def test_a_failed_registration_ends_failed_and_its_chunks_are_never_return
         scope.owner, record.id, status="indexed", reason=None, pages=1, warnings=[]
     )
     assert (await switched.attachments.store.by_id(record.id)).reason == "register_failed"
-    print(f"I5 failed register: upload answered failed register_failed in {took:.2f} s; chunks never returned")
+    print(f"I5 failed register: upload answered failed register_failed in {took:.2f} s; chunks never returned")  # noqa: E501

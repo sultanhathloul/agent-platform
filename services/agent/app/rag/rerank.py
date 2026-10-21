@@ -4,15 +4,23 @@ call, so it has no ContextPackage (ADR-0058 precedent); its inputs are the quest
 the candidate chunks. A response that does not score every document exactly once with a
 finite number is `RerankMalformed` (owner decision R2): it is never read as zeros."""
 
+import json
 import math
 from collections.abc import Sequence
 
 import httpx
 
 from app.models.config import ModelsConfig
-from app.models.gateway import ModelUnavailable
+from app.models.embeddings import read_capped
+from app.models.gateway import DEADLINE_EDGE_S, ModelUnavailable, request_bounds
 from app.observability.otel import tracer
+from app.resilience import deadline
 from app.settings import Settings
+
+# The largest answer accepted: a fixed allowance plus one result per document (Infinity's shape is
+# about 60 bytes a result).
+MAX_ANSWER_BYTES = 16 * 1024
+MAX_BYTES_PER_DOCUMENT = 256
 
 
 class RerankMalformed(ValueError):
@@ -36,11 +44,14 @@ def parse_scores(body: object, count: int) -> list[float]:
 
 
 class Reranker:
-    def __init__(self, settings: Settings, config: ModelsConfig, *, timeout_s: float = 60.0):
+    """Bounded by `timeouts.rerank` (20 s), cut to what remains of the call around it, with
+    httpx's own timeout 1 s past that and LiteLLM's 1 s before it (I4, ADR-0257). No retry."""
+
+    def __init__(self, settings: Settings, config: ModelsConfig, *, alias: str | None = None):
         self._url = settings.litellm_base_url.rstrip("/") + "/rerank"
         self._key = settings.litellm_api_key or "unset"
-        self._alias = config.rerank["alias"]
-        self._timeout = timeout_s
+        self._alias = alias or config.rerank["alias"]
+        self._ceiling = config.timeouts.rerank
 
     async def rerank(self, query: str, documents: Sequence[str]) -> list[float]:
         """One relevance score per document, in the documents' order."""
@@ -50,18 +61,42 @@ class Reranker:
             span.set_attribute("model.alias", self._alias)
             span.set_attribute("rerank.documents", len(documents))
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    response = await client.post(
-                        self._url,
-                        headers={"Authorization": f"Bearer {self._key}"},
-                        json={"model": self._alias, "query": query, "documents": list(documents)},
-                    )
-            except httpx.HTTPError as exc:
-                raise ModelUnavailable(f"LiteLLM rerank unreachable: {type(exc).__name__}") from exc
-            if response.status_code != 200:
-                raise ModelUnavailable(f"LiteLLM rerank returned {response.status_code}")
+                with deadline.within(self._ceiling) as budget:
+                    client_timeout, litellm_timeout = request_bounds(budget)
+                    try:
+                        async with (
+                            httpx.AsyncClient(timeout=client_timeout) as client,
+                            client.stream(
+                                "POST",
+                                self._url,
+                                headers={"Authorization": f"Bearer {self._key}"},
+                                json={
+                                    "model": self._alias,
+                                    "query": query,
+                                    "documents": list(documents),
+                                    "timeout": litellm_timeout,
+                                },
+                            ) as response,
+                        ):
+                            status = response.status_code
+                            # Refused unread past its cap (rule 12d): scores for these documents only.
+                            cap = MAX_ANSWER_BYTES + MAX_BYTES_PER_DOCUMENT * len(documents)
+                            body = await read_capped(response, cap, "rerank")
+                    except httpx.HTTPError as exc:
+                        if budget.remaining <= DEADLINE_EDGE_S:
+                            raise deadline.DeadlineExceeded(budget.inherited) from None
+                        raise ModelUnavailable(f"LiteLLM rerank unreachable: {type(exc).__name__}") from exc
+                    if status != 200 and budget.remaining <= DEADLINE_EDGE_S:
+                        raise deadline.DeadlineExceeded(budget.inherited)  # LiteLLM gave up, as told
+            except deadline.DeadlineExceeded as exc:
+                span.set_attribute("model.timed_out", True)
+                if exc.inherited:
+                    raise
+                raise ModelUnavailable(f"rerank past its {self._ceiling:.0f} s bound") from None
+            if status != 200:
+                raise ModelUnavailable(f"LiteLLM rerank returned {status}")
             try:
-                body = response.json()
+                answer = json.loads(body)
             except ValueError as exc:
                 raise RerankMalformed("not JSON") from exc
-            return parse_scores(body, len(documents))
+            return parse_scores(answer, len(documents))

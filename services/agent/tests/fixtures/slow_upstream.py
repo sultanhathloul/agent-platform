@@ -10,12 +10,14 @@ What it does is chosen by the upstream model name LiteLLM sends (the alias's `op
 - `trickle`: a stream that sends one token every TRICKLE_S and never ends;
 - `flood`: a stream of FLOOD_CHUNKS one-character tokens as fast as it can, then the end;
 - `ok`: a short streamed answer at once;
+- `drop`: one token, then the connection is dropped (an error after the first token);
 - `status429`, `status500`: that status at once.
 
-Embeddings (`/v1/embeddings`) and rerank (`/rerank`, Infinity's shape) answer `hung` and `ok` the
-same way. A request is open from the moment it arrives until its response is complete or its
-client has gone: `open` counts them now, `peak` at worst since `reset`, `served` and `abandoned`
-how they ended, per model name."""
+Embeddings (`/v1/embeddings`) and rerank (`/rerank`, Infinity's shape) answer `hung`, `ok` and
+the status models the same way; `trickle` sends their JSON one byte every TRICKLE_S, and `flood`
+sends an answer of FLOOD_BYTES in tiny pieces. A request is open from the moment it arrives until
+its response is complete or its client has gone: `open` counts them now, `peak` at worst since
+`reset`, `served` and `abandoned` how they ended, per model name."""
 
 import asyncio
 import json
@@ -28,6 +30,7 @@ import uvicorn
 PORT = 8765
 TRICKLE_S = 2.0
 FLOOD_CHUNKS = 20000
+FLOOD_BYTES = 2 * 1024 * 1024
 OK_TEXT = "هذه إجابة من المزود البطيء."
 
 
@@ -105,23 +108,65 @@ class SlowUpstream:
         if model.startswith("status"):
             await self._json(send, int(model.removeprefix("status")), {"error": {"message": "slow upstream"}})
             return True
-        if path.endswith("/embeddings"):
-            inputs = request.get("input") or [""]
-            data = [{"object": "embedding", "index": i, "embedding": [0.1, 0.2, 0.3, 0.4]} for i in range(len(inputs))]
-            await self._json(send, 200, {"object": "list", "data": data, "model": model, "usage": {"prompt_tokens": 1, "total_tokens": 1}})
+        if path.endswith("/embeddings") or path.endswith("/rerank"):
+            if path.endswith("/embeddings"):
+                inputs = request.get("input") or [""]
+                vector = [0.1, 0.2, 0.3, 0.4] * (FLOOD_BYTES // 20 if model == "flood" else 1)
+                data = [{"object": "embedding", "index": i, "embedding": vector} for i in range(len(inputs))]
+                payload = {
+                    "object": "list",
+                    "data": data,
+                    "model": model,
+                    "usage": {"prompt_tokens": 1, "total_tokens": 1},
+                }
+            else:
+                documents = request.get("documents") or []
+                results = [{"index": i, "relevance_score": 1.0 / (i + 1)} for i in range(len(documents))]
+                payload = {"results": results, "model": model, "usage": {"total_tokens": 1}}
+                if model == "flood":
+                    payload["padding"] = " " * FLOOD_BYTES
+            body = json.dumps(payload).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            if model == "trickle":
+                for i in range(len(body)):
+                    await send({"type": "http.response.body", "body": body[i : i + 1], "more_body": True})
+                    done, _ = await asyncio.wait([disconnected], timeout=TRICKLE_S)
+                    if done:
+                        return False
+            elif model == "flood":
+                for i in range(0, len(body), 64):
+                    if disconnected.done():
+                        return False
+                    await send({"type": "http.response.body", "body": body[i : i + 64], "more_body": True})
+                    if i % (64 * 500) == 0:
+                        await asyncio.sleep(0)
+            else:
+                await send({"type": "http.response.body", "body": body, "more_body": True})
+            await send({"type": "http.response.body", "body": b""})
             return True
-        if path.endswith("/rerank"):
-            documents = request.get("documents") or []
-            results = [{"index": i, "relevance_score": 1.0 / (i + 1)} for i in range(len(documents))]
-            await self._json(send, 200, {"results": results, "model": model, "usage": {"total_tokens": 1}})
-            return True
-        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"text/event-stream")]})
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/event-stream")],
+            }
+        )
         if model == "trickle":
             while True:
                 await send({"type": "http.response.body", "body": _chunk("ك"), "more_body": True})
                 done, _ = await asyncio.wait([disconnected], timeout=TRICKLE_S)
                 if done:
                     return False
+        if model == "drop":
+            await send({"type": "http.response.body", "body": _chunk("ك"), "more_body": True})
+            await asyncio.sleep(0.5)  # the token reaches the agent first
+            raise RuntimeError("dropped")  # uvicorn closes the connection mid-response
         if model == "flood":
             for i in range(FLOOD_CHUNKS):
                 if disconnected.done():
@@ -137,7 +182,13 @@ class SlowUpstream:
         return True
 
     async def _json(self, send, status: int, payload: dict) -> None:
-        await send({"type": "http.response.start", "status": status, "headers": [(b"content-type", b"application/json")]})
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
         await send({"type": "http.response.body", "body": json.dumps(payload).encode()})
 
     def start(self) -> None:

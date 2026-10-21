@@ -50,6 +50,7 @@ from app.mcp.tools import INVALID_ARGUMENTS, call_transport, transport_servers
 from app.observability.otel import tracer
 from app.rag.access import DocumentAccess
 from app.rag.collections import turn_collections
+from app.resilience import deadline
 from app.tools.registry import ToolRegistry
 from app.tools.spec import PROVIDER_OWNER, ToolContext, ToolFailure, ToolOutput, ToolResult, ToolScope
 
@@ -70,6 +71,7 @@ AUDIT_OBSERVED = ("server", "request_bytes", "response_bytes", "args_hmac")
 
 def _audited(observed: Mapping[str, str | int | bool]) -> dict[str, str | int | bool]:
     return {key: observed[key] for key in AUDIT_OBSERVED if key in observed}
+
 
 audit_log = logging.getLogger("audit.transport")
 # Who a transport call is for and where its audit entry goes: set around a tool's handler by the
@@ -352,7 +354,10 @@ class ToolBroker:
         attempt = 0
         for attempt in range(spec.max_retries + 1):  # noqa: B007 (attempt is reported)
             try:
-                output = await asyncio.wait_for(spec.handler(parsed, tool_context), timeout=spec.timeout_s)
+                # The tool's bound, cut to what remains of its caller's (I4, I6, ADR-0257): the calls
+                # inside it (an embedding, a rerank, an MCP request) see it and are cut to it.
+                with deadline.within(spec.timeout_s):
+                    output = await spec.handler(parsed, tool_context)
                 break
             except TimeoutError:
                 error = TOOL_TIMEOUT

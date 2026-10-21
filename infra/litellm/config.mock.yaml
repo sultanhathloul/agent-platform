@@ -59,6 +59,8 @@ model_list:
     litellm_params: {model: openai/flood, api_base: "http://agent-tests:8765/v1", api_key: mock}
   - model_name: slow-ok
     litellm_params: {model: openai/ok, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-drop
+    litellm_params: {model: openai/drop, api_base: "http://agent-tests:8765/v1", api_key: mock}
   - model_name: slow-429
     litellm_params: {model: openai/status429, api_base: "http://agent-tests:8765/v1", api_key: mock}
   - model_name: slow-500
@@ -70,8 +72,32 @@ model_list:
     litellm_params: {model: openai/hung, api_base: "http://agent-tests:8765/v1", api_key: mock}
     model_info:
       mode: embedding
+  - model_name: slow-embed-trickle
+    litellm_params: {model: openai/trickle, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
+  - model_name: slow-embed-flood
+    litellm_params: {model: openai/flood, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
+  - model_name: slow-embed-ok
+    litellm_params: {model: openai/ok, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
   - model_name: slow-rerank-hung
     litellm_params: {model: infinity/hung, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+  - model_name: slow-rerank-trickle
+    litellm_params: {model: infinity/trickle, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+  - model_name: slow-rerank-flood
+    litellm_params: {model: infinity/flood, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+  - model_name: slow-rerank-ok
+    litellm_params: {model: infinity/ok, api_base: "http://agent-tests:8765", api_key: mock}
     model_info:
       mode: rerank
 
