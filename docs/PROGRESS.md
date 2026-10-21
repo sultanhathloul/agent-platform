@@ -1622,20 +1622,85 @@ Scope: the owner's decisions 1–12 on the review of PR #12 and the two tech-deb
 
 Checklist:
 - [x] Status lines: ADR-0251, ADR-0253, ADR-0258, ADR-0259 "Accepted on 2026-10-21".
-- [ ] 1. Turn limits in the agent: config/turn.yaml `per_user_max` 2, `per_tenant_max` (null = the platform capacity, LOCK_POOL_SIZE; per-tenant overrides); 429 `too_many_turns` at once; messages (errors.yaml, gateway catalogs, ar.json, en.json); in-process counters; BACKLOG lines (Redis; production capacity by the phase 12 load test); ADR; tests (A's 3rd of 20 hung turns refused at once, B starts within 1 s and completes; tenant X at 10 of per_tenant_max 10, a second tenant unaffected; the default lets one tenant use the whole pool).
-- [ ] 2. Post-answer reserve: `post_answer_reserve_s` 30; the answer under min(ceiling, remaining − reserve); OUTPUT/DATA guards bounded by their checkers, a timed-out check follows its policy's on_error; persist_state 10 s; fold_summary and write_memory only with remaining ≥ their ceiling, else `summary_skipped` / `memory_skipped`; no turn_timeout once the answer's last token is sent; ADR; tests.
-- [ ] 3. Byte cap on every model and embedding response, any status: an httpx transport wrapper in the agent's model and embedding clients; chat non-stream and error bodies 1 MiB, embeddings as now; ADR; tests (2 MiB 500 and 429 bodies: failed by code < 1 s, loop lag < 100 ms, another user on time).
-- [ ] 4. Registrations count toward the user's in-flight upload cap (2) until they end; optional tenant cap; 429 `too_many_uploads`; background transport operations take at most half a server's slots; one deadline for a background registration (slot wait + attempt ≤ timeout_s); ADR; tests (the review's (4)3 setup; a 3rd upload refused; trickling and flooding register; a failure after `pending`).
-- [ ] 5. The turn deadline opens on arrival, before claim and lock; claim and lock bounded 10 s; gateway turn stream: headers within 15 s, total 135 s; ADR; tests (hung claim read → 503 within bound; the gateway header bound with another user's turn alongside).
-- [ ] 6. register returns the stored state after the update (re-read when no row matched); facade.fetch drops failed records; test the internal RPUSH-then-raise race.
-- [ ] 7. `_record_guard_events` and `TurnLease.release` bounded 5 s; on timeout log and close the connection; test with a hung DB.
-- [ ] 8. A task that ignores cancellation: `task_abandoned` log with the node name and a metric; RESILIENCE residual.
-- [ ] 9. check_timeout_budget: pair rules in one importable module; no "0 < constant" pairs (code-use checks instead); a mutation per pair asserting its own pair fails; expected pair names; sandbox memory pair (docker-compose.yml), broker bound vs slot wait + attempt, docker-compose.dev.yml keep-alive.
-- [ ] 10. Missing and weak tests: evidence-fetch bound (hung, trickling, flooding, another user); ingest embedding path; StreamBoundTest with another user's request; D with answer_reserve_s > 0; the other user's turn overlapping expiry, cancellation and drain. Flaky: bounded polling for fixed sleeps; injectable RNG for the retry backoff; no wall-clock assertion under 0.2 s without a same-test baseline.
-- [ ] 11. T2 evidence: ADR-0249's test against main's client.py in a worktree; failing output recorded here.
-- [ ] 12. Every timing figure carries its run (commit, timestamp); ADR figures are from earlier runs, this table is authoritative.
-- [ ] BACKLOG phase 12 tech debt: a hung rag server never trips the breaker through evidence fetches; LangGraph's unbounded asyncio.wait on exit.
-- [ ] FINISH: `make clean && make models && make up`; make test; make smoke ×2; make smoke-airgap ×1; rule 11 counts, timing table with run ids; push.
+- [x] 1. Turn limits in the agent: config/turn.yaml `per_user_max` 2, `per_tenant_max` (null = the platform capacity, LOCK_POOL_SIZE; per-tenant overrides); 429 `too_many_turns` at once; messages (errors.yaml, gateway catalogs, ar.json, en.json); in-process counters; BACKLOG lines (Redis; production capacity by the phase 12 load test); ADR; tests (A's 3rd of 20 hung turns refused at once, B starts within 1 s and completes; tenant X at 10 of per_tenant_max 10, a second tenant unaffected; the default lets one tenant use the whole pool).
+- [x] 2. Post-answer reserve: `post_answer_reserve_s` 30; the answer under min(ceiling, remaining − reserve); OUTPUT/DATA guards bounded by their checkers, a timed-out check follows its policy's on_error; persist_state 10 s; fold_summary and write_memory only with remaining ≥ their ceiling, else `summary_skipped` / `memory_skipped`; no turn_timeout once the answer's last token is sent; ADR; tests.
+- [x] 3. Byte cap on every model and embedding response, any status: an httpx transport wrapper in the agent's model and embedding clients; chat non-stream and error bodies 1 MiB, embeddings as now; ADR; tests (2 MiB 500 and 429 bodies: failed by code < 1 s, loop lag < 100 ms, another user on time).
+- [x] 4. Registrations count toward the user's in-flight upload cap (2) until they end; optional tenant cap; 429 `too_many_uploads`; background transport operations take at most half a server's slots; one deadline for a background registration (slot wait + attempt ≤ timeout_s); ADR; tests (the review's (4)3 setup; a 3rd upload refused; trickling and flooding register; a failure after `pending`).
+- [x] 5. The turn deadline opens on arrival, before claim and lock; claim and lock bounded 10 s; gateway turn stream: headers within 15 s, total 135 s; ADR; tests (hung claim read → 503 within bound; the gateway header bound with another user's turn alongside).
+- [x] 6. register returns the stored state after the update (re-read when no row matched); facade.fetch drops failed records; test the internal RPUSH-then-raise race.
+- [x] 7. `_record_guard_events` and `TurnLease.release` bounded 5 s; on timeout log and close the connection; test with a hung DB.
+- [x] 8. A task that ignores cancellation: `task_abandoned` log with the node name and a metric; RESILIENCE residual.
+- [x] 9. check_timeout_budget: pair rules in one importable module; no "0 < constant" pairs (code-use checks instead); a mutation per pair asserting its own pair fails; expected pair names; sandbox memory pair (docker-compose.yml), broker bound vs slot wait + attempt, docker-compose.dev.yml keep-alive.
+- [x] 10. Missing and weak tests: evidence-fetch bound (hung, trickling, flooding, another user); ingest embedding path; StreamBoundTest with another user's request; D with answer_reserve_s > 0; the other user's turn overlapping expiry, cancellation and drain. Flaky: bounded polling for fixed sleeps; injectable RNG for the retry backoff; no wall-clock assertion under 0.2 s without a same-test baseline.
+- [x] 11. T2 evidence: ADR-0249's test against main's client.py in a worktree; failing output recorded here.
+- [x] 12. Every timing figure carries its run (commit, timestamp); ADR figures are from earlier runs, this table is authoritative.
+- [x] BACKLOG phase 12 tech debt: a hung rag server never trips the breaker through evidence fetches; LangGraph's unbounded asyncio.wait on exit.
+- [ ] FINISH (smoke-airgap not green, see below): `make clean && make models && make up`; make test; make smoke ×2; make smoke-airgap ×1; rule 11 counts, timing table with run ids; push.
+
+Status: done except smoke-airgap: `make test` green and `make smoke` twice green from `make clean && make models && make up`; `make smoke-airgap` failed three times at the same check (below). Awaiting the owner. `make eval` not run (rule 13: infrastructure only).
+
+Run ids: a run is named by its commit and its UTC start; every figure below names its run. The ADRs' figures (ADR-0249 to ADR-0270) are from earlier runs at their own commits, as measured while each was written; this section's tables are authoritative. The earlier session's timing table above (in "Timeout budget") is superseded by the table below, re-measured at d9a3d6d.
+
+T2 evidence (item 11), run a371373 (main) 2026-10-21T13:22Z: tests/integration/test_mcp_generation_reset.py copied into a worktree at main and run against main's app/mcp/client.py: `calls-queued-for-a-slot` FAILED at iteration 4, `AssertionError: (4, 2, ['tool_unavailable' ×6])`: two breaker failures counted against a healthy server; the other four scenarios passed; 1 failed, 4 passed in 65.71 s. The same test passes on this branch (the table below).
+
+Results (rule 11), from `make clean && make models && make up` at b613100 (2026-10-21T14:26Z), nothing started by hand:
+- `make test` attempt 1, b613100, 14:26:21Z–14:35:23Z: FAILED, agent 888 passed / 5 failed / 5 errors (gateway and the rest not reached). Evidence: Postgres refused new connections ("FATAL: remaining connection slots are reserved", test_turn_lock.py, 4 failures), the reference RAG server could not start (test_upload_registration.py, 5 errors), and one loop lag of 110 ms in test_model_bounds.py's hung query embedding. Cause: test_turn_limits.py's twenty held turns left twenty idle lock connections in the session's pool. Fixed in d9a3d6d (the tests close a lock pool of their own; database holds 8 s instead of 30 s); `make test-agent` at d9a3d6d: 898 / 0 / 0.
+- `make test` attempt 2, d9a3d6d, 14:44:33Z–14:53:51Z: agent 898 / 0 / 0, gateway 146 / 0 / 0, gateway-db 5 / 0 / 0, web 149 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 31 / 0 / 0 (self-test 31 / 0 / 0) (passed / failed / skipped). Every layer is at or above the previous record (859, 144, 5, 149, 12; budget 21); no test was removed.
+- `make smoke` ×2, d9a3d6d: 14:54:06Z 178/178; 14:59:30Z 178/178. G7: server stopped — audit row `tool_unavailable`, another user's general turn 4.37 s and 3.46 s (bounds 6.70 s, 6.81 s); server hung — `tool_timeout`, a general turn sent meanwhile 3.60 s and 3.24 s.
+- `make smoke-airgap`, d9a3d6d: three attempts, each FAILED at the same check after 104 passed checks, "phase 04: a 30 MB file → the JSON 413 file_too_large, refused before its body is read, no reset (R3)": curl exit 56 (connection reset receiving data) under `set -e`. Attempts 15:05Z–15:09:16Z, 15:10Z–15:14:46Z, 15:18Z–15:22:31Z. Evidence: by hand through the airgap `edge` relay (nginx stream, infra/airgap/nginx.conf), the 413 JSON arrives whole and the reset follows it: 1 reset in 4 uploads right after the airgap stack started, 0 in 20 and 0 in 10 rounds of smoke's own sequence (20 MiB then 30 MB) later; the gateway logged nothing for it. Nothing in the upload gate changed in this session (AttachmentGate, DeadlineUploadRequest, UploadConcurrency untouched); the earlier session's airgap run passed this check. Not fixed: outside this session's scope; for the owner (below).
+- No `make eval` (rule 13).
+
+Timing tests, run d9a3d6d 2026-10-21T15:25:58Z (agent: `docker compose --profile test run --rm --use-aliases agent-tests pytest -s <files>`, the image `make test` built; 73 passed) and run d9a3d6d 2026-10-21T15:31:37Z (gateway StreamBoundTest). Event-loop lag bound 100 ms.
+
+| Test | Bound | Measured | Another user meanwhile (alone) | Loop lag |
+|---|---|---|---|---|
+| 1 turn limits: A starts 20 hung turns | 2 run, the rest refused at once; B admitted < 1 s | 2 `turn_timeout`, 18 `too_many_turns` (slowest 0 ms); B admitted 0.01 s | B done 0.10 s (0.83 s alone) | 6.2 ms |
+| 1 tenant share 10, tenant X at 10 | X's 11th refused; Y unaffected | X's 11th refused in 0 ms | Y done 0.37 s (0.08 s) | — |
+| 1 default tenant | one tenant may use all 20 | 20 held; the 21st `service_busy` | — | — |
+| 2 post-answer: capabilities to the reserve, answer near its bound (deadline 8 s) | done, persisted, retract possible, no `turn_timeout` | answer 1.83 s; done at 5.18 s; retracted and re-sent redacted; persisted; memory skipped | — | — |
+| 2 judge hung at OUTPUT: ceiling/open, ceiling/closed, horizon/open | on_error applied; never `turn_timeout` | done 4.37 s; `guard_unavailable` 4.36 s; `guard_unavailable` 7.51 s (horizon 7.5 s) | — | — |
+| 2 no time for summary and memory | skipped, logged | `summary_skipped`, `memory_skipped`; done 4.74 s | — | — |
+| 3 model 500 / 429 with a 2 MiB body | refused by code, unretried, < 1 s after the answer arrives | 1 ms / 1 ms after LiteLLM's answer; 7.95 / 7.77 s in all (LiteLLM's own, residual) | 7.66 / 7.48 s (0.01 s): LiteLLM's loop | 5.6 / 4.7 ms |
+| 4 two users uploading every 20 s, register held 25 s | C's searches on time | second rounds refused `too_many_uploads` (4) | 40 searches, slowest 0.03 s (0.01 s) | 23.3 ms |
+| 4 a user's third concurrent upload | refused at once | 4 ms; accepted again after | — | — |
+| 4 background calls, max_concurrency 4 | ≤ 2 at the server; one deadline 4 s | peak 2; all ended by 4.00 s | caller's call 21 ms (2 ms) | — |
+| 5 hung ownership read, admission 1 s | 503 within the bound | `service_busy` at 1.01 s | — | — |
+| 5 gateway headers never sent (bound 1 s) | `agent_unavailable` at the bound | 1010 ms | another user's turn 4 ms | — |
+| 7 hung unlock (bound 1 s) | released, lock free | 1.00 s, connection closed | — | — |
+| 7 hung guard-event write (bound 1 s) | turn ends, lock free | 1.07 s (0.08 s normally) | — | — |
+| 8 capability ignoring its cancellation (deadline 3 s) | ends, abandoned, counted | `turn_timeout` 3.00 s; counted once | 37 turns 0.06–0.09 s (0.07 s) | 6.0 ms |
+| 10 evidence fetch hung / trickle / flood (bound 1 s) | ends by the bound | 0.50 / 0.50 / 0.11 s (the attempt's 0.5 s margin) | search 16 / 17 / 22 ms (1–2 ms) | 4.5 / 6.0 / 9.8 ms |
+| 10 ingest embedding hung / trickle / flood (ceiling 3 s) | ≤ 3.5 s | 3.01 / 3.00 / 0.81 s | 0.01 / 0.01 / 0.52 s (0.01–0.02 s) | 6.1 / 3.5 / 41.2 ms |
+| 10 register trickle / flood (timeout_s 3) | pending ≤ 1 s, failed by 3 s / failed at once | pending 1.00 s, failed by 3.05 s / failed 0.11 s | search 0.02 / 0.03 s (0.00 s) | 11.8 / 7.9 ms |
+| 10 failure after `pending` | failed, no chunk | pending 0.50 s, then failed `register_failed` | — | — |
+| 10 relay bound, another user alongside (bound 2 s) | `turn_timeout` at 2 s | 2010 ms | another user's turn 3 ms | — |
+| D hung capability / hung answer / trickling answer (deadline 3 s) | 2.5–3.5 s; 1.5–3.5 s | 3.00 / 2.03 / 2.03 s; next turn 0.07 / 0.14 / 0.07 s | 29 / 30 / 29 turns across expiry and drain, 0.06–0.11 s (0.07–0.08 s) | 3.9 / 4.7 / 5.8 ms |
+| D capability cut by a 1.5 s answer reserve (deadline 4 s) | 2.5 ± 0.5 s | 2.52 s | — | — |
+| D gateway: stream still sending / silent agent (bound 2 s) | 2 s | 2004 / 2037 ms; new connection after | — | — |
+| D finding: non-stream call, 1 s response timeout | cut at 1 s | 1209 ms (HTTP 500) | — | — |
+| E model hung / trickle (ceiling 3 s) | ≤ 3.5 s | 2.03 / 2.02 s; provider closed 0.00 / 0.05 s after | 0.01 / 0.01 s (0.01 s) | 2.6 / 4.4 ms |
+| E model flood, 20 000 chunks | loop lag | 4.27 s, whole | 3.97 s (0.01 s): LiteLLM's loop (residual) | 33.1 ms |
+| E call inside a 2 s caller, ceiling 90 s | ≤ 2.5 s | 1.03 s | — | — |
+| E fallback hop, ceiling 3 s | ≤ 3.5 s | 3.00 s; closed 1.07 s after | — | — |
+| E 429 / 500 retry, seeded backoff 1.05 s | one retry with ≥ 10 s left, none with 8 s | after 1.10 / 1.10 s; none with 8 s | — | — |
+| E cancelled at 1 s, deadline 6 s, hung / trickle | ≤ 5.5 s after send / ≤ 0.5 s after cancel | 5.04 / 1.06 s after send | — | — |
+| E query embedding hung / trickle / flood (ceiling 3 s) | ≤ 3.5 s | 3.00 / 3.00 / 0.83 s | 0.01 / 0.01 / 0.55 s (0.01–0.02 s) | 5.8 / 3.6 / 49.2 ms |
+| E rerank hung / trickle / flood (ceiling 3 s) | ≤ 3.5 s | 2.04 / 2.03 / 0.05 s | 0.03 / 0.01 / 0.01 s (0.01 s) | 4.9 / 5.7 / 6.0 ms |
+| E broker tool 1.5 s with a 15 s embedding inside | ≤ 2.0 s | 1.50 s `tool_timeout` | — | — |
+| E MCP hung / trickle inside a 1.5 s caller | ≤ 1.5 s, no verdict | 1.00 / 1.00 s; closed 0.02 s after | 20 / 24 ms (1 / 2 ms) | 6.3 / 18.4 ms |
+| E MCP full queue, 5 s / 30 s left | busy at once / waits | `tool_busy` in 0.6 ms (a free call 1.2 ms) / waited 2.98 s | — | — |
+| E MCP re-send, initialize held 5 s, timeout_s 2 | ≤ 2.5 s, no verdict | 2.00 s `tool_timeout` | — | — |
+| A restart, 1 / 4 / 8 / 16 calls, reset during initialize; 50 iterations each | 0 breaker failures | 0 / 0 / 0 / 0 / 0; failed calls 0 / 14 / 40 / 122 / 126 | — | — |
+| C MCP register held 25 s | upload answers ≤ 20.5 s | `pending` at 20.00 s, then indexed | upload 0.03 s (0.01 s) | 8.5 ms |
+| C register indexes then fails | `failed`, chunks never returned | 0.01 s | — | — |
+
+Left / for the owner:
+- `make smoke-airgap` is not green (above). The owner decides: a fix of the airgap relay or of the R3 check (outside this session's scope), or a further run.
+- Measured, not fixable in the agent: LiteLLM spends about 5 s per MiB turning a large provider error into its own (ADR-0266); another user's call through it waited 7.5–10.3 s meanwhile. docs/BACKLOG.md phase 12.
+- Assumed, for confirmation: ADR-0270 (a full platform is 503 `service_busy`; the registration cap at the agent's `register`, after the body; the status reads as background work; `facade.fetch` drops what the facade found; the persist bound on every checkpoint write; the metric without a meter provider; httpx2 declared).
+- API 2.2.0 → 2.3.0 (agent and gateway, additive 429s); the events schema unchanged. No migration.
+
+Files for human review: config/turn.yaml (`admission_s`, `post_answer_reserve_s`, `persist_s`, `gateway_headers_s`, `per_user_max`, `per_tenant_max`, `per_tenant_overrides`), config/docs.yaml (`max_concurrent_uploads_per_tenant`, `tenant_concurrent_uploads`), config/messages/errors.yaml (`too_many_turns`, `too_many_uploads`), services/gateway/src/main/resources/messages_ar.properties and messages_en.properties, services/agent/pyproject.toml and uv.lock (httpx2), docs/openapi/*.json (2.3.0).
 
 ## Phase 06: Skills
 
