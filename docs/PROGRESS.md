@@ -1711,7 +1711,7 @@ Checklist:
 - [x] 1. Regression or not: the check alone, 30 times under the airgap overlay from a fresh `make up`, the first upload right after startup, on main (worktree, compose project `agent-platform-main`) and on this branch.
 - [x] 2. Not a regression: the airgap relay fixed (`proxy_half_close on`), ADR-0271.
 - [x] 3. The check stays strict, shown failing each way it should.
-- [ ] FINISH (see Results).
+- [x] FINISH (see Results).
 
 The check alone (`curl -s --expect100-timeout 10 -F file=@far-oversize.pdf`, 30 MB, the viewer's token), one upload every 3.2 s so the gateway's 20 uploads per minute never answers 429:
 
@@ -1724,6 +1724,16 @@ The check alone (`curl -s --expect100-timeout 10 -F file=@far-oversize.pdf`, 30 
 A first, unpaced run on main (15:58:38Z) is not counted: uploads 21 to 30 met the rate limit (429 `upload_rate_limited`, one of them reset). For the third run `make up` failed on a port held by the airgap `edge` container left from the earlier runs (`make clean` does not load the airgap overlay); the airgap `up` that followed started every service on the cleaned volumes, and the run started right after it.
 
 The check's strictness (scripts/refused_unread.sh, the function smoke now sources), run 2026-10-21T16:15Z against the gateway behind the relay and three fake endpoints: the gateway passes (1 542 328 of 31 457 289 bytes sent before the answer); an endpoint that reads the whole body and then answers the JSON 413 fails ("the whole body was sent, 31 457 491 of 31 457 289 bytes, before the answer"); one that answers 413 without JSON fails; one that resets fails (curl exit 56).
+
+Results (rule 11), from `make clean && make models && make up`, nothing started by hand:
+- `make test` attempt 1, f9d855b, 2026-10-21T16:18:42Z–16:26:09Z: FAILED, agent 897 passed / 1 failed: tests/integration/test_mcp_generation_reset.py `four-calls`, iteration 5, `AssertionError: (5, 1, ['tool_unavailable', 'tool_unavailable'])`: one breaker failure counted against a healthy server during its restart. The same file then passed three times alone (750 iterations); a rare race in the scope A path, outside this session: docs/BACKLOG.md phase 12, not fixed.
+- `make test` attempt 2, f9d855b, 16:31:59Z–16:39:18Z: FAILED, agent 897 passed / 1 failed: tests/unit/test_deadline.py `test_a_scope_extended_in_its_own_task_ends_later`, `0.3997 >= 0.4` (a 0.4 s sleep woke a fraction of a millisecond early on the loop's clock). The test's own flaw (this PR's): fixed in 031fafb, it asserts past the scope's first end (> 0.3 s) rather than the sleep's length.
+- From a new `make clean && make models && make up` at 031fafb: `make test` 16:41:10Z–16:51:00Z: agent 898 / 0 / 0, gateway 146 / 0 / 0, gateway-db 5 / 0 / 0, web 149 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 31 / 0 / 0 (self-test 31 / 0 / 0). No layer lower; no test removed.
+- `make smoke` ×1, 031fafb, 16:51:12Z: 178/178. R3: 1 501 784 of 31 457 289 bytes sent before the JSON 413, no reset. G7: server stopped — another user's general turn 3.04 s (bound 6.28 s); server hung — 3.33 s.
+- `make smoke-airgap` ×2, 031fafb: 16:56:31Z 186/186 (R3: 1 441 792 bytes sent; G7 3.08 s and 2.82 s, bound 7.14 s); 17:05:14Z 186/186 (R3: 2 291 816 bytes sent; G7 3.07 s and 4.06 s, bound 6.34 s).
+- No `make eval` (rule 13: infrastructure only).
+
+Files for human review: infra/airgap/nginx.conf (`proxy_half_close on`), scripts/refused_unread.sh (new) and scripts/smoke.sh.
 
 ## Phase 06: Skills
 
