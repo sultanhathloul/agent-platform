@@ -1521,6 +1521,7 @@ Files for human review: no file under `config/` or `infra/` changed this session
 
 ## Timeout budget (standalone PR before phase 06, owner decision 2026-10-21)
 
+- Status: done (2026-10-21); awaiting the owner's review (merge request). Not a phase; no phase number changes.
 - Branch: `fix/timeout-budget` (from `main` at a371373, PR #10 and PR #11 merged; not a phase, no phase number changes). The session prompt is kept verbatim in `docs/TIMEOUT-BUDGET-PROMPT.md`.
 - Why: docs/BACKLOG.md "Before the phase 06 build": the breaker suspicion of the PR #10 verification and the six timeout budget findings of docs/RESILIENCE.md (sandbox memory, MCP upload registration, no whole-turn bound, inner bounds longer than outer ones, SDK read timeout race, keep-alive mismatch).
 - Baseline on `main` (rule 11, from the narrow fix session of 2026-10-19): agent 814, gateway 138, gateway-db 5, web 148, evals harness 12 (passed; 0 failed, 0 skipped); `make smoke` 163/163; `make smoke-airgap` 171/171. No layer may end lower unless an ADR names each removed test and why.
@@ -1545,20 +1546,75 @@ Ground rules (from the session prompt, verbatim):
 - T9. A failed smoke attempt is recorded with its evidence (trace id, audit row), never silently rerun.
 
 Checklist:
-- [ ] 0. First commit: the prompt verbatim (docs/TIMEOUT-BUDGET-PROMPT.md) and this section.
-- [ ] ADRs (decided): D1, I1–I9; and the assumptions of this session.
-- [ ] A. Breaker suspicion: tests with tests/fixtures/slow_mcp.py (1, 4 and max_concurrency calls across an I9 restart; a reset during initialize; 50 seeded iterations each), failure count 0 and closed; reproduced → fix + ADR, else ADR "not reproduced"; the test stays.
-- [ ] I1. app/resilience/deadline.py (anyio cancel scopes, `bounded(ceiling_s)`), its tests; RESILIENCE "What we built" row.
-- [ ] B. I7 sandbox memory: measure child peak RSS (phase 04 corpus) and parent peak under two jobs; set the child limit and mem_limit by the rule; startup check against cgroup memory.max (ingest and mcp-rag-ref); test: two children allocating to their limit at once → both resource_limit, no OOM kill, restart count unchanged, another user's file indexed meanwhile.
-- [ ] C. I5 MCP registration: `register_response_s` 20; `pending` past it; background registration, one per attachment, idempotent on the id; `failed` + `register_failed`; search drops hits of a failed record; tests (25 s server → pending ≤ 20.5 s then indexed; failing server → failed, chunks never returned).
-- [ ] D. I2 whole-turn deadline (config/turn.yaml; capability, evidence and answer bounds; `turn_timeout` through the terminal-error path; lock released; owned tasks cancelled) and I3 gateway relay total bound (135 s), after a test establishing what ends a stream at 60 s today; tests at a 3 s test deadline (hung capability, hung answer, trickling answer; next turn not 409; another user on time; loop lag < 100 ms; the relay ends a silent stream).
-- [ ] E. I4 model call bounds (config/models.yaml `timeouts`; OpenAI/httpx 1 s above; LiteLLM num_retries 0, request_timeout 85; per-request timeout; one agent-side retry) with a slow OpenAI-compatible upstream fixture behind a test-only alias (hung, trickling, flooding; open upstream requests counted); I6 MCP call bounds (broker, semaphore wait, one attempt deadline, I9 re-send inside it); rule 12h tests per path.
-- [ ] F. I6 SDK read timeout = timeout_s + 1; I8 keep-alive (uvicorn 75 s; JDK client 30 s, checked in the image); smoke check (two turns 10 s apart; no connection reset in the gateway log).
-- [ ] G. I9 scripts/check_timeout_budget.py, run by make test, reported as "timeout budget N / 0 / 0".
-- [ ] H. docs/RESILIENCE.md rows, helper row, I3 finding, residuals; README §20 amendment; docs/BACKLOG.md marks and T1 leftovers under phase 12.
-- [ ] I. Smoke: ingest and mcp-rag-ref never OOM-killed.
-- [ ] API 2.2.0 → 2.3.0 if an OpenAPI document or the events schema changes (`turn_timeout`, `register_failed`); messages in errors.yaml, ar.json, en.json.
-- [ ] FINISH: `make clean && make models && make up`; make test; make smoke ×2; make smoke-airgap ×1; rule 11 counts with the timing-test table; files for human review; push; open the merge request.
+- [x] 0. First commit: the prompt verbatim (docs/TIMEOUT-BUDGET-PROMPT.md) and this section.
+- [x] ADRs (decided): D1, I1–I9; and the assumptions of this session.
+- [x] A. Breaker suspicion: tests with tests/fixtures/slow_mcp.py (1, 4 and max_concurrency calls across an I9 restart; a reset during initialize; 50 seeded iterations each), failure count 0 and closed; reproduced → fix + ADR, else ADR "not reproduced"; the test stays.
+- [x] I1. app/resilience/deadline.py (anyio cancel scopes, `bounded(ceiling_s)`), its tests; RESILIENCE "What we built" row.
+- [x] B. I7 sandbox memory: measure child peak RSS (phase 04 corpus) and parent peak under two jobs; set the child limit and mem_limit by the rule; startup check against cgroup memory.max (ingest and mcp-rag-ref); test: two children allocating to their limit at once → both resource_limit, no OOM kill, restart count unchanged, another user's file indexed meanwhile.
+- [x] C. I5 MCP registration: `register_response_s` 20; `pending` past it; background registration, one per attachment, idempotent on the id; `failed` + `register_failed`; search drops hits of a failed record; tests (25 s server → pending ≤ 20.5 s then indexed; failing server → failed, chunks never returned).
+- [x] D. I2 whole-turn deadline (config/turn.yaml; capability, evidence and answer bounds; `turn_timeout` through the terminal-error path; lock released; owned tasks cancelled) and I3 gateway relay total bound (135 s), after a test establishing what ends a stream at 60 s today; tests at a 3 s test deadline (hung capability, hung answer, trickling answer; next turn not 409; another user on time; loop lag < 100 ms; the relay ends a silent stream).
+- [x] E. I4 model call bounds (config/models.yaml `timeouts`; OpenAI/httpx 1 s above; LiteLLM num_retries 0, request_timeout 85; per-request timeout; one agent-side retry) with a slow OpenAI-compatible upstream fixture behind a test-only alias (hung, trickling, flooding; open upstream requests counted); I6 MCP call bounds (broker, semaphore wait, one attempt deadline, I9 re-send inside it); rule 12h tests per path.
+- [x] F. I6 SDK read timeout = timeout_s + 1; I8 keep-alive (uvicorn 75 s; JDK client 30 s, checked in the image); smoke check (two turns 10 s apart; no connection reset in the gateway log).
+- [x] G. I9 scripts/check_timeout_budget.py, run by make test, reported as "timeout budget N / 0 / 0".
+- [x] H. docs/RESILIENCE.md rows, helper row, I3 finding, residuals; README §20 amendment; docs/BACKLOG.md marks and T1 leftovers under phase 12.
+- [x] I. Smoke: ingest and mcp-rag-ref never OOM-killed.
+- [x] API 2.2.0 → 2.3.0 if an OpenAPI document or the events schema changes (`turn_timeout`, `register_failed`); messages in errors.yaml, ar.json, en.json.
+- [x] FINISH: `make clean && make models && make up`; make test; make smoke ×2; make smoke-airgap ×1; rule 11 counts with the timing-test table; files for human review; push; open the merge request.
+
+What was built:
+- Scope A (ADR-0249): `tests/fixtures/slow_mcp.py` `RestartingMCPServer` (real sessions, 404 for a forgotten one, initialize held on demand) and `tests/integration/test_mcp_generation_reset.py` (five scenarios × 50 seeded iterations, every `Breaker.failure` counted). Reproduced on main's code (the queued scenario: four failures at iteration 49; iteration 1 in a probed rerun) and fixed in app/mcp/client.py: a call that finds no connected generation fails `tool_unavailable` with no verdict (`_NoGeneration`) and resets nothing; the I9 re-send's wait for the next generation is no verdict either.
+- I1 (ADR-0250, ADR-0251): app/resilience/deadline.py (`within`, `bounded`, `drain`, `detached_context`), anyio declared.
+- B, I7 (ADR-0252, ADR-0253): `scripts/measure_sandbox.py`; config/docs.yaml child 640 MiB, `parent_reserve_mb` 512; `check_memory_budget` at startup in ingest and mcp-rag-ref; `memswap_limit: 2g`; `docker-compose.memtest.yml` and `tests/fixtures/memtest.py` (test-only parser); smoke steps.
+- C, I5 (ADR-0254): `register_response_s` 20; background registration, one per attachment, detached; `register_failed` (final; search and status honour it); status reads detached too; web strings.
+- D, I2 and I3 (ADR-0255, ADR-0256, ADR-0258): config/turn.yaml and app/resilience/turn.py; the runner's turn scope and `turn_timeout`; capabilities under the reserve; one evidence bound; gateway `TurnLimits`, a turn-stream client bounded at 135 s, relay outcome `TIMED_OUT`; `turn_timeout` in errors.yaml, the gateway catalogs, ar.json and en.json.
+- E, I4 and I6 (ADR-0257, ADR-0259): config/models.yaml `timeouts`; the model gateway's deadline, per-request timeouts, one retry, closed streams, `APIError` handled; embeddings (query/ingest) and rerank bounded and byte-capped before parsing; the broker runs handlers under `deadline.within`; LiteLLM `num_retries` 0, `request_timeout` 85; MCP slot wait, attempt deadline, I9 re-send inside it, SDK read timeout timeout_s + 1, transport operations bounded; `tests/fixtures/slow_upstream.py` and the `slow-*` aliases of config.mock.yaml; `make test-agent` runs with `--use-aliases`.
+- F, I8 (ADR-0260): uvicorn `--timeout-keep-alive 75`; `gateway.agent.keep-alive: 30s` set by `HttpClientKeepAlive` before any client exists; smoke step.
+- G, I9 (ADR-0261): scripts/check_timeout_budget.py and `make test-budget` (in `make test`).
+- H: docs/RESILIENCE.md (every changed row, the deadline helper and budget check rows, the I3 finding, residuals); README §20.5; docs/BACKLOG.md marks and phase 12 leftovers. I: smoke's final OOM check.
+- No OpenAPI document or the events schema changed (`turn_timeout` is an SSE error code, `register_failed` a free-string reason), so the API stays 2.2.0 (T8). No migration.
+
+Measurements (I7, scripts/measure_sandbox.py): one sandbox child on the phase 04 corpus (evals/docs, nine files) peaks at 137.6 MiB resident and 157.2 MiB of address space at worst (internal-policies.docx); the service process with two files parsed at once (twenty-pages.pdf, leave-regulation.pdf; three rounds) peaks at 202.1 MiB (ingest) and 197.6 MiB (mcp-rag-ref). 2 × 137.6 ≤ 640, so the child limit is 640 MiB and `mem_limit` stays 2g; reserve max(1.5 × 202.1, 512) = 512 MiB; budget 1792 MiB ≤ 2048 MiB. Reproduced on main's code with swap off: two children of 1 GiB got ingest `OOMKilled=true` (`oom_kill 1`); with swap (Docker's default) the cgroup hit its limit 262 times and swapped. With 640 MiB children the cgroup peaked at 1364 MiB (ingest) and 1368 MiB (mcp-rag-ref), no `max` event. Docker Desktop memory figure unchanged: 12 GB (README §21.1).
+
+Results (rule 11), from `make clean && make models && make up`, nothing started by hand:
+- `make test`: agent 859 / 0 / 0, gateway 144 / 0 / 0, gateway-db 5 / 0 / 0, web 149 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 21 / 0 / 0 (self-test 9 / 0 / 0) (passed / failed / skipped). Every layer is above the baseline (814, 138, 5, 148, 12); no test was removed.
+- `make smoke` ×2: 178/178 and 178/178 (163 earlier checks, 15 new). G7 timings: server stopped — audit row `tool_unavailable`, another user's general turn 2.20 s and 5.55 s (bounds 6.11 s, 6.47 s); server hung — `tool_timeout`, a general turn sent meanwhile 2.83 s and 2.27 s.
+- `make smoke-airgap` ×1: 186/186 (171 earlier, 15 new). G7: 4.94 s (stopped) and 2.77 s (hung), bound 6.06 s.
+- No smoke or smoke-airgap attempt failed. `make eval` not run (rule 13: infrastructure only).
+
+Timing tests (final code; `docker compose --profile test run --rm --use-aliases agent-tests pytest -s <file>`; event-loop lag bound 100 ms):
+
+| Test | Bound | Measured | Another user meanwhile (alone) | Loop lag |
+|---|---|---|---|---|
+| A: restart, 1 / 4 / 8 / 16 (queued) calls, reset during initialize; 50 iterations each | 0 breaker failures | 0 / 0 / 0 / 0 / 0 failures; failed calls 0 / 24 / 45 / 114 / 127 (phase 12 item) | — | — |
+| C: MCP register held 25 s | upload answers ≤ 20.5 s | `pending` at 20.00 s, then indexed | upload 0.03 s (0.01 s) | 67.6 ms |
+| C: register indexes then fails | `failed` `register_failed`, chunks never returned | 0.01 s; facade 0 hits (server returned them) | — | — |
+| D: hung capability, 3 s turn | 3 ± 0.5 s | 3.01 s `turn_timeout`; next turn 0.09 s | turn 0.08 s (0.43 s) | 4.3 ms |
+| D: hung answer | 1.5–3.5 s (ADR-0258) | 2.05 s `turn_timeout`; next turn 0.07 s | turn 0.08 s (0.07 s) | 3.1 ms |
+| D: trickling answer (a token every 2 s) | 1.5–3.5 s | 2.05 s `turn_timeout`; next turn 0.07 s | turn 0.10 s (0.07 s) | 2.6 ms |
+| D: gateway relay, stream still sending / silent agent (bound 2 s) | 2 s | 2006 ms / 2019 ms `turn_timeout`; new connection after | — | — |
+| D: finding, non-stream call, 1 s response timeout | body cut at 1 s | 1030 ms (HTTP 500) | — | — |
+| E: model call hung / trickling, ceiling 3 s | ≤ 3.5 s | 2.03 s / 3.00 s; provider closed 0.00 / 0.05 s after | 0.01 s / 0.03 s (0.01 s) | 2.5 / 3.1 ms |
+| E: model call flooding, 20 000 chunks | loop lag | 4.36 s, whole | 4.04 s (0.02 s): LiteLLM's loop (residual) | 32.9 ms |
+| E: call inside a 2 s caller, ceiling 90 s | ≤ 2.5 s | 1.04 s, the caller's deadline | — | — |
+| E: fallback hop, ceiling 3 s | ≤ 3.5 s | 3.01 s; provider closed 1.07 s after | — | — |
+| E: 429 / 500 retry | one retry with ≥ 10 s left, none with 8 s | after 0.91 s / 1.11 s; none with 8 s | — | — |
+| E: cancelled at 1 s, deadline 6 s, hung / trickling | ≤ 5.5 s after send / ≤ 0.5 s after cancel | 5.05 s / 1.05 s after send | — | — |
+| E: query embedding hung / trickling / flooding, ceiling 3 s | ≤ 3.5 s | 3.00 / 3.00 / 0.86 s (refused at its cap) | 0.03 / 0.01 / 0.57 s (0.01–0.02 s) | 3.4 / 3.5 / 50.5 ms |
+| E: rerank hung / trickling / flooding, ceiling 3 s | ≤ 3.5 s | 2.04 / 2.03 / 0.06 s | 0.02 / 0.01 / 0.02 s (0.01 s) | 4.8 / 4.4 / 8.9 ms |
+| E: broker tool 1.5 s with a 15 s embedding inside | ≤ 2.0 s | 1.50 s `tool_timeout` | — | — |
+| E: MCP hung / trickling, timeout_s 10, caller 1.5 s | ≤ 1.5 s, no verdict | 1.00 s / 1.00 s; closed 0.03 / 0.02 s after | 44 / 43 ms (1 ms) | 25.5 / 28.6 ms |
+| E: MCP full queue, 5 s left / 30 s left | busy at once / waits | `tool_busy` in 0.7 ms / waited 2.71 s, ok | — | — |
+| E: MCP re-send, initialize held 5 s, timeout_s 2 | ≤ 2.5 s, no verdict | 2.00 s `tool_timeout` | — | — |
+| B: two files at the memory limit (smoke, ×3 runs, both services) | not OOM-killed | both `extraction_aborted`, third user's file indexed, `OOMKilled false`, restarts 0 | — | — |
+| F: two turns 10 s apart (smoke, ×3 runs) | both done, no reset logged | both done; no reset line | — | — |
+
+How to verify: `make clean && make models && make up`, then `make test`, `make smoke`, `make smoke-airgap`. The timings: the command above the table on each new test file; the gateway's with `docker run … gradle cleanTest test --tests '*StreamBoundTest*'` (see Makefile `openapi` for the mounts) and its JUnit XML.
+
+Left / for the owner:
+- Assumed, for confirmation: ADR-0251 (the deadline crosses a task boundary in one context variable), ADR-0253 (no swap; "resource_limit" read as the existing `extraction_aborted`; the memory test as a smoke step), ADR-0258 (a hung or trickling answer ends up to LiteLLM's 1 s margin before the deadline; the answer cases' lower tolerance widened by it), and in ADR-0259 the reading that a free slot is taken whatever time is left (busy only when the call would have to wait).
+- New items in docs/BACKLOG.md phase 12: the T1 leftovers (ingest per-job deadline, agent Redis client, gateway MinIO client, web chat request, overlapping status polls); LiteLLM relaying a flood on its own loop; a healthy MCP server's restart failing calls at once; a cut agent read mapped to 500 by the memory proxy.
+
+Files for human review: config/turn.yaml (new), config/models.yaml (`timeouts`), config/docs.yaml (`register_response_s`, `ingest.sandbox.memory_mb` 640, `parent_reserve_mb`), config/messages/errors.yaml (`turn_timeout`), infra/litellm/config.yaml (`request_timeout` 85, `num_retries` 0), infra/litellm/config.mock.yaml (test-only `slow-*` aliases), docker-compose.yml (`memswap_limit`, the gateway's GATEWAY_TURN_CONFIG and turn.yaml mount), docker-compose.memtest.yml (new, test only), docker-compose.dev.yml, services/gateway/src/main/resources/application.yml (`gateway.agent.keep-alive`, `gateway.turn.config`), services/agent/Dockerfile (`--timeout-keep-alive 75`), services/gateway/Dockerfile (turn.yaml in the test stage), Makefile (`--use-aliases`, `test-budget`, `openapi` mount), scripts/smoke.sh. No new migration.
 
 ## Phase 06: Skills
 
