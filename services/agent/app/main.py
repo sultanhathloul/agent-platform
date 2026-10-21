@@ -65,6 +65,7 @@ from app.models.routing import TierResolver
 from app.observability.logs import quiet_libraries
 from app.observability.otel import setup_tracing, shutdown_tracing
 from app.rag.access import DocumentAccess, Held
+from app.resilience.turn import load_turn_config
 from app.rag.citations import load_attribution_rule
 from app.rag.setup import build_documents
 from app.rag.types import Owner
@@ -240,6 +241,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         backends=documents.backends,
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
+        turn=load_turn_config(settings.config_dir),
         redis=redis,
         closers=(presidio.close,),
     )

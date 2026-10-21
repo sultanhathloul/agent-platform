@@ -40,7 +40,8 @@ test-agent: .env
 	@# The reference RAG server's role and its test database; CONNECT kept from PUBLIC (ADR-0242).
 	$(COMPOSE) run --rm postgres-roles
 	$(COMPOSE) --profile test up -d --wait litellm-mock
-	$(COMPOSE) --profile test run --rm --build agent-tests
+	@# --use-aliases: litellm-mock reaches the slow model provider the tests run, at agent-tests:8765 (ADR-0255).
+	$(COMPOSE) --profile test run --rm --build --use-aliases agent-tests
 
 # --no-cache-filter test: the test stage runs on every call, never from a cached layer (ADR-0043).
 # --build-context docs: the contract drift test compares docs/openapi/gateway.json (ADR-0044).
@@ -99,6 +100,7 @@ openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web'
 	docker run --rm -v "$(CURDIR)/services/gateway":/w -v gateway-gradle-cache:/home/gradle/.gradle -w /w \
 		-v "$(CURDIR)/config/models.yaml":/config/models.yaml:ro -e GATEWAY_MODELS_CONFIG=/config/models.yaml \
 		-v "$(CURDIR)/config/docs.yaml":/config/docs.yaml:ro -e GATEWAY_DOCS_CONFIG=/config/docs.yaml \
+		-v "$(CURDIR)/config/turn.yaml":/config/turn.yaml:ro -e GATEWAY_TURN_CONFIG=/config/turn.yaml \
 		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api

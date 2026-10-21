@@ -1,0 +1,2 @@
+# The JDK HttpClient's keep-alive, set before any client exists (timeout budget PR, I8).
+org.springframework.boot.env.EnvironmentPostProcessor=sa.ncai.agent.gateway.HttpClientKeepAlive

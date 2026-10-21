@@ -49,3 +49,25 @@ embedding:
 # `rerank` alias in infra/litellm/config.yaml.
 rerank:
   alias: rerank
+
+# Bounds on model calls (timeout budget PR, I4, ADR-0257). Each is a wall-clock deadline from send
+# to the last chunk, cut to what remains of the call around it (the turn, a capability, a tool):
+# an inner bound is never past its outer one. The OpenAI and httpx per-operation timeouts sit 1 s
+# above it and LiteLLM's per-request timeout 1 s below it, so the agent's deadline decides.
+timeouts:
+  roles:                    # every role in `roles`
+    router:     20
+    summarizer: 20
+    judge:      20
+    extractor:  20
+    reasoning:  90
+    reflection: 90
+  embedding:
+    query:  15              # a question or memory item matched at answer time
+    ingest: 60              # one batch of document chunks (ingest.embed_batch) at ingestion
+  rerank: 20
+  # The agent's retry (LiteLLM retries none): at most one, only before the first streamed token,
+  # only on 429, 5xx or a connection error, and only when at least min_remaining_s remain.
+  retry:
+    min_remaining_s: 10
+    backoff_s: [0.5, 1.5]   # uniform between the two

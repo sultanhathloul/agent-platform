@@ -19,6 +19,7 @@ context for work that belongs to no caller (a status read that outlives its boun
 registration that outlives the upload's answer, ADR-0254): a copy of the current one without
 the deadline, so that work is bound by its own ceilings only."""
 
+import asyncio
 import contextvars
 import math
 from collections.abc import Iterator
@@ -72,6 +73,19 @@ def remaining() -> float:
 def bounded(ceiling_s: float, margin_s: float = 0.0) -> float:
     """min(ceiling, what remains of the enclosing deadline − margin); may be ≤ 0: no time left."""
     return min(ceiling_s, remaining() - margin_s)
+
+
+# How long a cancelled child task is given to end before its parent goes on without it.
+DRAIN_GRACE_S = 1.0
+
+
+async def drain(task: asyncio.Task, grace_s: float = DRAIN_GRACE_S) -> None:
+    """Cancels `task` and waits up to `grace_s` for it to end, shielded from the enclosing
+    cancellation, so a child the caller owns has released what it holds before the caller goes on
+    (rule 12f). Its outcome is not raised."""
+    task.cancel()
+    with anyio.CancelScope(shield=True), anyio.move_on_after(grace_s):
+        await asyncio.wait([task])
 
 
 def detached_context() -> contextvars.Context:

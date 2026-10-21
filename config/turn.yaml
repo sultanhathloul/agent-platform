@@ -1,0 +1,10 @@
+# The whole-turn deadline (CLAUDE.md rule 12c; timeout budget PR, I2 and I3, ADR-0255, ADR-0256).
+# Read by the agent (app/resilience/turn.py) and, for the relay's bound, by the gateway
+# (GATEWAY_TURN_CONFIG). Every bound inside a turn is cut to what remains of it.
+deadline_s: 120         # a turn, from its start in the agent to its terminal event; past it: turn_timeout
+answer_reserve_s: 45    # kept for the answer: each capability runs under min(its manifest's
+                        # limits.timeout_s, what remains − this), the evidence fetch likewise
+evidence_fetch_s: 10    # fetching the text of the capabilities' sources; past it, those sources
+                        # stay without text (the existing failure path) and the answer goes on
+gateway_margin_s: 15    # the gateway's relay ends a stream at deadline_s + this (135 s), so the
+                        # agent's own turn_timeout always reaches the user first

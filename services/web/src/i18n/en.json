@@ -118,6 +118,7 @@
     "data_blocked": "The answer was withheld because it contains protected data.",
     "memory_not_found": "This item was not found in your memory; it may already have been deleted.",
     "turn_in_flight": "Your earlier request in this conversation is still being processed. Wait for it to finish, then try again.",
+    "turn_timeout": "The answer took longer than allowed, so it was stopped. Please try again.",
     "service_busy": "The service is busy with other requests right now. Try again in a moment.",
     "input_blocked": "The request was not carried out under a content policy.",
     "guard_unavailable": "The protection policies could not be checked right now, so the request was not completed. Please try again shortly.",

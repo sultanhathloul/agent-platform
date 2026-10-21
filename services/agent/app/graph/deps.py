@@ -27,6 +27,7 @@ from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.rag.backend import DocumentBackend
 from app.rag.citations import AttributionRule
+from app.resilience.turn import TurnConfig
 from app.settings import Settings
 from app.text.script import ValidationConfig
 from app.tools.broker import ToolBroker
@@ -59,6 +60,7 @@ class Services:
     documents: DocumentBackend  # the one uploads are registered with (I11)
     citations: AttributionRule
     router: RouterConfig
+    turn: TurnConfig  # the whole-turn deadline and its reserves (config/turn.yaml, I2, ADR-0255)
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
     # The compiled main graph, set by app.main.start_services once the database is open:

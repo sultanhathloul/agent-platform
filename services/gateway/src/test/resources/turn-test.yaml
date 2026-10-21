@@ -1,0 +1,5 @@
+# The relay's bound for StreamBoundTest (timeout budget PR, I3): 1 + 1 = 2 s.
+deadline_s: 1
+answer_reserve_s: 0.2
+evidence_fetch_s: 0.2
+gateway_margin_s: 1

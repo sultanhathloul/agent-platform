@@ -158,10 +158,13 @@ public class ChatController {
             // Roles are read here and only here; the agent gets the resulting ceiling (ADR-0046).
             String maxTier = tierCaps.maxTier(KeycloakRoles.realmRoles(jwt)).orElse(null);
             AgentTurnRequest turn = agentRequest(body, principal, maxTier);
+            // Taken before the request leaves, so the agent client's own bound, which starts with
+            // the request, is never earlier (ADR-0256).
+            long relayDeadline = System.nanoTime() + agent.relayBound().toNanos();
             agent.streamTurn(turn, requestId, upstream -> {
                 openStream(response);
                 // The terminal event leaves only after this record is written (ADR-0042).
-                return relay.relay(upstream, response.getOutputStream(), requestId, outcome -> {
+                return relay.relay(upstream, response.getOutputStream(), requestId, relayDeadline, outcome -> {
                     audited.set(true);
                     Map<String, Object> ended = new LinkedHashMap<>(detail);
                     ended.putAll(outcomeDetail(outcome));
@@ -254,6 +257,7 @@ public class ChatController {
                 putToolCalls(detail, data);
             }
             case INTERRUPTED -> detail.put("error_code", ErrorCode.AGENT_STREAM_INTERRUPTED.code());
+            case TIMED_OUT -> detail.put("error_code", ErrorCode.TURN_TIMEOUT.code());
         }
         return detail;
     }

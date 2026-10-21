@@ -23,6 +23,14 @@ Every guard evaluation of the turn (TurnContext.guard_log) goes out with the
 terminal event, done or error, for the audit record, and its matched policies
 are stored for the admin's matches per day; a guard block's error carries the
 policy's own message (README §10.1).
+
+A turn has one deadline (config/turn.yaml `deadline_s`; I2, ADR-0255): the graph runs inside
+its scope, and every bound below it is cut to what remains (app/resilience/deadline.py). At the
+deadline the graph is cancelled with every task it owns, and the turn ends `turn_timeout` through
+the same terminal-error path as any other error; so does any error raised once the deadline has
+passed (an inner call cut by it). The lease is released by `_locked` as for every turn, so the
+next turn of the conversation is not refused. Work that belongs to no caller (a status read,
+ADR-0245; a registration, ADR-0254) runs without the turn's deadline and is left running.
 """
 
 import asyncio
@@ -57,6 +65,7 @@ from app.identity import Principal, hash_user_id
 from app.memory.types import MemoryScope
 from app.observability.langfuse import set_trace_attributes
 from app.observability.otel import current_trace_id, tracer
+from app.resilience import deadline
 
 log = logging.getLogger(__name__)
 
@@ -248,51 +257,16 @@ class TurnRunner:
             )
             if settings.observability_capture_content:
                 span.set_attribute("langfuse.trace.input", req.message)
+            budget: deadline.Budget | None = None
             try:
-                caller = Owner(principal.user_id, principal.tenant_id)
-                owner = await self.services.owners.bind_or_get(
-                    req.conversation_id, caller, self._stored_owner(req.conversation_id)
-                )
-                if owner != caller:
-                    # Refused before the graph writes its input into the thread (ADR-0050).
-                    raise TurnError(
-                        "conversation_forbidden", detail="the conversation belongs to another owner"
-                    )
-                final: dict = {}
-                async for mode, chunk in self.services.graph.astream(
-                    graph_input,
-                    config=_thread(req.conversation_id),
-                    context=ctx,
-                    stream_mode=["custom", "values"],
-                ):
-                    if mode == "custom":
-                        emit(chunk["type"], chunk["data"])
-                    else:
-                        final = chunk
-                # e.g. memory.write_ms: the synchronous memory write's latency (ADR-0058)
-                for name, milliseconds in ctx.timings.items():
-                    span.set_attribute(name, milliseconds)
-                done = DoneData(
-                    answer=final["draft_answer"],
-                    citations=final.get("citations") or [],
-                    usage=Usage(
-                        tokens_in=ctx.usage.tokens_in,
-                        tokens_out=ctx.usage.tokens_out,
-                        cost_usd=ctx.usage.cost_usd,
-                    ),
-                    guard_events=self._guard_data(ctx),
-                    guard_audit=self._guard_audit(ctx),
-                    tool_audit=[ToolAuditData.model_validate(entry) for entry in ctx.tool_audit],
-                    state_digest=StateDigest(
-                        turn=final["turn"], capabilities=final["intent"]["capabilities"]
-                    ),
-                    trace_id=current_trace_id(),
-                )
-                if settings.observability_capture_content:
-                    span.set_attribute("langfuse.trace.output", done.answer)
-                await self._record_turn(req.conversation_id, final.get("messages") or [])
-                emit("done", done)
+                with deadline.within(self.services.turn.deadline_s) as budget:
+                    await self._graph(req, ctx, graph_input, span, emit)
+            except deadline.DeadlineExceeded:
+                self._timed_out(ctx, span, emit)
             except TurnError as exc:
+                if budget is not None and budget.expired:
+                    self._timed_out(ctx, span, emit)  # an inner call the deadline cut
+                    return
                 log.warning("turn %s ended with %s: %s", turn_id, exc.code, exc)
                 span.set_status(Status(StatusCode.ERROR, exc.code))
                 emit("error", self._error(ctx, exc.code, retryable=exc.retryable, exc=exc))
@@ -300,12 +274,66 @@ class TurnRunner:
                 span.set_status(Status(StatusCode.ERROR, "client_disconnected"))
                 raise
             except Exception as exc:
+                if budget is not None and budget.expired:
+                    self._timed_out(ctx, span, emit)
+                    return
                 log.exception("turn %s failed", turn_id)
                 span.record_exception(exc)
                 span.set_status(Status(StatusCode.ERROR, "turn_failed"))
                 emit("error", self._error(ctx, "turn_failed", retryable=True))
             finally:
                 await self._record_guard_events(ctx, req)
+
+    def _timed_out(self, ctx: TurnContext, span, emit) -> None:
+        log.warning(
+            "turn %s ended with turn_timeout after %.0f s", ctx.turn_id, self.services.turn.deadline_s
+        )
+        span.set_status(Status(StatusCode.ERROR, "turn_timeout"))
+        emit("error", self._error(ctx, "turn_timeout", retryable=True))
+
+    async def _graph(self, req: TurnRequest, ctx: TurnContext, graph_input: dict, span, emit) -> None:
+        """The turn proper, inside its deadline: ownership, the graph, the terminal `done`."""
+        settings = self.services.settings
+        principal = req.principal
+        caller = Owner(principal.user_id, principal.tenant_id)
+        owner = await self.services.owners.bind_or_get(
+            req.conversation_id, caller, self._stored_owner(req.conversation_id)
+        )
+        if owner != caller:
+            # Refused before the graph writes its input into the thread (ADR-0050).
+            raise TurnError("conversation_forbidden", detail="the conversation belongs to another owner")
+        final: dict = {}
+        async for mode, chunk in self.services.graph.astream(
+            graph_input,
+            config=_thread(req.conversation_id),
+            context=ctx,
+            stream_mode=["custom", "values"],
+        ):
+            if mode == "custom":
+                emit(chunk["type"], chunk["data"])
+            else:
+                final = chunk
+        # e.g. memory.write_ms: the synchronous memory write's latency (ADR-0058)
+        for name, milliseconds in ctx.timings.items():
+            span.set_attribute(name, milliseconds)
+        done = DoneData(
+            answer=final["draft_answer"],
+            citations=final.get("citations") or [],
+            usage=Usage(
+                tokens_in=ctx.usage.tokens_in,
+                tokens_out=ctx.usage.tokens_out,
+                cost_usd=ctx.usage.cost_usd,
+            ),
+            guard_events=self._guard_data(ctx),
+            guard_audit=self._guard_audit(ctx),
+            tool_audit=[ToolAuditData.model_validate(entry) for entry in ctx.tool_audit],
+            state_digest=StateDigest(turn=final["turn"], capabilities=final["intent"]["capabilities"]),
+            trace_id=current_trace_id(),
+        )
+        if settings.observability_capture_content:
+            span.set_attribute("langfuse.trace.output", done.answer)
+        await self._record_turn(req.conversation_id, final.get("messages") or [])
+        emit("done", done)
 
     async def _record_turn(self, conversation_id: str, messages: list) -> None:
         """The conversation's place in its owner's list (ADR-0192), before `done`, so a list

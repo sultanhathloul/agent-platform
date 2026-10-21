@@ -55,7 +55,7 @@ class UploadRateDefaultTest {
         GatewayProperties.Docs docs = new Binder(ConfigurationPropertySources.from(sources))
                 .bind("gateway.docs", GatewayProperties.Docs.class)
                 .get();
-        GatewayProperties properties = new GatewayProperties(null, null, null, null, null, docs);
+        GatewayProperties properties = new GatewayProperties(null, null, null, null, null, docs, null);
         return new AttachmentsConfig().docsLimits(properties).uploadsPerMinute();
     }
 }

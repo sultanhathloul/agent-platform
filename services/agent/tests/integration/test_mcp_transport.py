@@ -191,9 +191,9 @@ async def test_no_runtime_context_reaches_a_backend_or_a_connection(services, li
     captured: list[RuntimeContext] = []
     original = capability_node._invoke_isolated
 
-    async def capture(cap, cap_input, runtime_context):
+    async def capture(cap, cap_input, runtime_context, **bounds):
         captured.append(runtime_context)
-        return await original(cap, cap_input, runtime_context)
+        return await original(cap, cap_input, runtime_context, **bounds)
 
     monkeypatch.setattr(capability_node, "_invoke_isolated", capture)
     for slug, router in [
