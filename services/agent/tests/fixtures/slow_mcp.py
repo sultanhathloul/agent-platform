@@ -111,3 +111,63 @@ class SlowMCPServer(RawMCPServer):
             result = {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"asked": True}}
             answer = _event({"jsonrpc": "2.0", "id": rid, "result": result})
             await send({"type": "http.response.body", "body": answer})
+
+
+class RestartingMCPServer(SlowMCPServer):
+    """The slow server with real sessions (timeout budget PR, scope A; ADR-0246, I9): each
+    `initialize` gets a session id of its own, and a request naming a session the server does not
+    know is answered 404, as the SDK's server does. `restart()` forgets every session, as a
+    healthy server that restarted would, without going down: requests already open finish (a
+    graceful restart), the next request on an old session is a 404. `init_hold_s` holds each
+    `initialize` before its answer, so a restart can land while a session is being opened; the
+    session id it then answers is already forgotten."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.known: set[str] = set()
+        self.issued = 0
+        self.init_hold_s = 0.0
+        self.restarts = 0
+        self.not_found = 0  # 404s answered for a forgotten session
+
+    def restart(self) -> None:
+        self.known.clear()
+        self.restarts += 1
+
+    async def _handle(self, scope, receive, send) -> None:
+        if scope["method"] != "POST":
+            return await super()._handle(scope, receive, send)
+        body = await self._body(receive)
+        message = json.loads(body or b"{}")
+        if message.get("method") == "initialize":
+            self.issued += 1
+            session_id = f"s-{self.issued}"
+            self.known.add(session_id)
+            if self.init_hold_s:
+                await asyncio.sleep(self.init_hold_s)
+            result = {
+                "protocolVersion": message["params"]["protocolVersion"],
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "restarting", "version": "1"},
+            }
+            headers = [(b"content-type", b"application/json"), (b"mcp-session-id", session_id.encode())]
+            await send({"type": "http.response.start", "status": 200, "headers": headers})
+            payload = json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}).encode()
+            await send({"type": "http.response.body", "body": payload})
+            return
+        session_id = dict(scope["headers"]).get(b"mcp-session-id", b"").decode()
+        if session_id not in self.known:
+            self.not_found += 1
+            await send({"type": "http.response.start", "status": 404, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+            return
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await super()._handle(scope, replay, send)

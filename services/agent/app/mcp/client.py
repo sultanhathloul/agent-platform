@@ -135,9 +135,11 @@ class Breaker:
 
 
 class _Failed(Exception):
-    """A call that failed, by its content-free code, and whether that says the server failed."""
+    """A call that failed, by its content-free code, and whether that says the server failed: True
+    or False is the server's own outcome on this attempt; None is no verdict, the attempt never
+    reached the server (ADR-0249)."""
 
-    def __init__(self, code: str, server_failed: bool):
+    def __init__(self, code: str, server_failed: bool | None):
         super().__init__(code)
         self.code = code
         self.server_failed = server_failed
@@ -145,6 +147,11 @@ class _Failed(Exception):
 
 class _Unreachable(Exception):
     """A session could not be opened: the server is not reachable."""
+
+
+class _NoGeneration(Exception):
+    """No generation is connected: another call ended it and the next is being opened, or the
+    server is down. Says nothing of this call's own outcome (ADR-0249)."""
 
 
 # How long `stop` lets its sessions say goodbye to their servers before it cancels them.
@@ -400,7 +407,7 @@ class ServerConnection:
                 lease.pooled = pooled
                 return
         if not self.connected.is_set():
-            raise _Unreachable()
+            raise _NoGeneration()  # never _Unreachable: this call saw no server (ADR-0249)
         lease.pooled = self._open()  # held by the call before it waits, so it is never lost
         await lease.pooled.opened()
 
@@ -499,6 +506,10 @@ class ServerConnection:
                 self.breaker.success()
                 return result
             except _Failed as failed:
+                if failed.server_failed is None:
+                    # The attempt never reached the server (a generation another call ended, a
+                    # wait for the next one): no verdict, as a cancellation (ADR-0249).
+                    raise ToolFailure(failed.code) from None
                 decided = True
                 if failed.server_failed or trial:
                     self.breaker.failure()
@@ -523,6 +534,7 @@ class ServerConnection:
     ) -> CallResult:
         """One call on a session of the pool, re-sent once on a new generation's session when the
         server no longer knows this one (I9). Raises _Failed with a content-free code."""
+        waiting = False  # waiting for the next generation: a timeout then is no verdict (ADR-0249)
         try:
             async with asyncio.timeout(self.entry.timeout_s + _BACKSTOP_S):
                 await self._take(lease)
@@ -536,13 +548,17 @@ class ServerConnection:
                     gone, lease.pooled = lease.pooled, None
                     self._reset(gone.generation)
                     self._spawn(gone.close())
+                    waiting = True
                     await self.connected.wait()
+                    waiting = False
                     await self._take(lease)
                     result = await self._send(lease.pooled, tool, arguments, observed)
                 lease.clean = True
                 return result
         except TimeoutError:
-            raise _Failed(TIMEOUT, True) from None
+            raise _Failed(TIMEOUT, None if waiting else True) from None
+        except _NoGeneration:
+            raise _Failed(UNAVAILABLE, None) from None
         except McpError as exc:
             message = str(exc.error.message)
             if message == TOO_LARGE:
