@@ -1519,6 +1519,47 @@ Left / for the owner: nothing open in this scope. Recorded in docs/BACKLOG.md, n
 
 Files for human review: no file under `config/` or `infra/` changed this session. docs/DECISIONS.md (ADR-0244 to ADR-0247; Status notes on ADR-0203, 0210, 0233, 0236, 0237), docs/BACKLOG.md, services/agent/tests/fixtures/slow_mcp.py and mcp_server.py.
 
+## Timeout budget (standalone PR before phase 06, owner decision 2026-10-21)
+
+- Branch: `fix/timeout-budget` (from `main` at a371373, PR #10 and PR #11 merged; not a phase, no phase number changes). The session prompt is kept verbatim in `docs/TIMEOUT-BUDGET-PROMPT.md`.
+- Why: docs/BACKLOG.md "Before the phase 06 build": the breaker suspicion of the PR #10 verification and the six timeout budget findings of docs/RESILIENCE.md (sandbox memory, MCP upload registration, no whole-turn bound, inner bounds longer than outer ones, SDK read timeout race, keep-alive mismatch).
+- Baseline on `main` (rule 11, from the narrow fix session of 2026-10-19): agent 814, gateway 138, gateway-db 5, web 148, evals harness 12 (passed; 0 failed, 0 skipped); `make smoke` 163/163; `make smoke-airgap` 171/171. No layer may end lower unless an ADR names each removed test and why.
+- Done when: the breaker suspicion is reproduced and fixed, or shown not reproduced with a test that stays; the six timeout findings of docs/BACKLOG.md are closed, each with its tests; docs/RESILIENCE.md's timeout budget table shows no "Inner ≥ outer" and no "Unbounded" on any row these items cover; scripts/check_timeout_budget.py passes inside make test; make test, make smoke twice and make smoke-airgap once are green from `make clean && make models && make up` with nothing started by hand; results recorded per CLAUDE.md rule 11. No make eval (rule 13: infrastructure only).
+
+Scope restated (session 2026-10-21):
+1. Reproduce the generation-reset breaker suspicion first (1, 4 and max_concurrency calls across an I9 restart, and a reset during initialize, 50 seeded iterations each); fix only if a test fails on main's code.
+2. Make every inner bound shorter than the one enclosing it, by construction: one anyio-based deadline helper; a whole-turn deadline (config/turn.yaml) with turn_timeout; a total bound on the gateway's SSE relay; model, embedding, rerank and MCP bounds nested under what remains; LiteLLM retries moved into the agent.
+3. Keep the document containers alive and uploads honest: sandbox memory sized from measurements with a startup check; MCP registration answers `pending` within 20 s and goes on in the background.
+4. Close the two low items (SDK read timeout above the transport deadline; client keep-alive shorter than the server's) and enforce the whole budget with scripts/check_timeout_budget.py inside make test.
+5. Done = the done-check above, each changed path tested hung, trickling and flooding while another user's request runs (rule 12h), counts per rule 11, no make eval.
+
+Ground rules (from the session prompt, verbatim):
+- T1. Scope is the breaker item and the six findings, nothing else. Any other row of the timeout table still unbounded after this PR (for example the ingest per-job deadline, the agent Redis client, the gateway MinIO client, the web chat request, overlapping status polls) is listed in docs/BACKLOG.md under phase 12, not fixed.
+- T2. Reproduce before fixing. No change to app/mcp/client.py breaker logic unless a test fails on main's code first.
+- T3. One deadline per call, nested by construction: an inner bound is min(its own ceiling, what remains of the enclosing one). A cancelled outer call aborts its inner request and releases what it holds (rule 12f).
+- T4. Rule 12 applies to every line changed here. Rule 12h tests for each changed path: a hung, a trickling and a flooding dependency, each while another user's request runs, asserting that user's platform-side time (excluding model generation) against a number and the event-loop lag (bound 100 ms).
+- T5. Rule 13: infrastructure only. Do not run make eval. Do not change prompts, routing, manifests' routing or tools, eval datasets or models. Capability manifests' limits.timeout_s stay as they are.
+- T6. Rule 11 counts after every green run. Baseline on main: agent 814, gateway 138, gateway-db 5, web 148, evals harness 12 (passed; 0 failed, 0 skipped); smoke 163/163; smoke-airgap 171/171. No layer may end lower unless an ADR names each removed test and why.
+- T7. make up works at every commit. After editing infra/litellm/config.yaml or config.mock.yaml: docker compose up -d --force-recreate litellm.
+- T8. If an OpenAPI document or docs/events.schema.json changes (for example a new error code), bump agent and gateway 2.2.0 → 2.3.0, additive, with make openapi; otherwise no bump. Every new user-facing message goes in config/messages/errors.yaml and services/web/src/i18n/ar.json and en.json, Arabic with no Latin tokens inside sentences.
+- T9. A failed smoke attempt is recorded with its evidence (trace id, audit row), never silently rerun.
+
+Checklist:
+- [ ] 0. First commit: the prompt verbatim (docs/TIMEOUT-BUDGET-PROMPT.md) and this section.
+- [ ] ADRs (decided): D1, I1–I9; and the assumptions of this session.
+- [ ] A. Breaker suspicion: tests with tests/fixtures/slow_mcp.py (1, 4 and max_concurrency calls across an I9 restart; a reset during initialize; 50 seeded iterations each), failure count 0 and closed; reproduced → fix + ADR, else ADR "not reproduced"; the test stays.
+- [ ] I1. app/resilience/deadline.py (anyio cancel scopes, `bounded(ceiling_s)`), its tests; RESILIENCE "What we built" row.
+- [ ] B. I7 sandbox memory: measure child peak RSS (phase 04 corpus) and parent peak under two jobs; set the child limit and mem_limit by the rule; startup check against cgroup memory.max (ingest and mcp-rag-ref); test: two children allocating to their limit at once → both resource_limit, no OOM kill, restart count unchanged, another user's file indexed meanwhile.
+- [ ] C. I5 MCP registration: `register_response_s` 20; `pending` past it; background registration, one per attachment, idempotent on the id; `failed` + `register_failed`; search drops hits of a failed record; tests (25 s server → pending ≤ 20.5 s then indexed; failing server → failed, chunks never returned).
+- [ ] D. I2 whole-turn deadline (config/turn.yaml; capability, evidence and answer bounds; `turn_timeout` through the terminal-error path; lock released; owned tasks cancelled) and I3 gateway relay total bound (135 s), after a test establishing what ends a stream at 60 s today; tests at a 3 s test deadline (hung capability, hung answer, trickling answer; next turn not 409; another user on time; loop lag < 100 ms; the relay ends a silent stream).
+- [ ] E. I4 model call bounds (config/models.yaml `timeouts`; OpenAI/httpx 1 s above; LiteLLM num_retries 0, request_timeout 85; per-request timeout; one agent-side retry) with a slow OpenAI-compatible upstream fixture behind a test-only alias (hung, trickling, flooding; open upstream requests counted); I6 MCP call bounds (broker, semaphore wait, one attempt deadline, I9 re-send inside it); rule 12h tests per path.
+- [ ] F. I6 SDK read timeout = timeout_s + 1; I8 keep-alive (uvicorn 75 s; JDK client 30 s, checked in the image); smoke check (two turns 10 s apart; no connection reset in the gateway log).
+- [ ] G. I9 scripts/check_timeout_budget.py, run by make test, reported as "timeout budget N / 0 / 0".
+- [ ] H. docs/RESILIENCE.md rows, helper row, I3 finding, residuals; README §20 amendment; docs/BACKLOG.md marks and T1 leftovers under phase 12.
+- [ ] I. Smoke: ingest and mcp-rag-ref never OOM-killed.
+- [ ] API 2.2.0 → 2.3.0 if an OpenAPI document or the events schema changes (`turn_timeout`, `register_failed`); messages in errors.yaml, ar.json, en.json.
+- [ ] FINISH: `make clean && make models && make up`; make test; make smoke ×2; make smoke-airgap ×1; rule 11 counts with the timing-test table; files for human review; push; open the merge request.
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`
