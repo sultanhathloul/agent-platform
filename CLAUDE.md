@@ -22,6 +22,18 @@ You are building the Sovereign Agent Platform described in `README.md`. Read `RE
 9. **Small commits, conventional messages** (`feat(agent): …`, `fix(gateway): …`, `test(guardrails): …`). One PR per phase on a branch `phase/NN-name`.
 10. **Record every non-trivial choice** in `docs/DECISIONS.md` (ADR format: context, decision, consequences). An ADR's text is immutable: only its Status line may change, and only with a one-line note, `Accepted on <date>` or `Superseded by ADR-NNNN on <date>`. Every other change to a decision is a new entry that supersedes the old one (ADR-0034).
 11. **Numbers, not words.** After every green run, record in `docs/PROGRESS.md` the passed / failed / skipped counts per layer (agent, gateway, gateway-db, web), smoke checks passed/total, and each eval suite score with its dataset run id. "BUILD SUCCESSFUL" or "green" alone is not a result.
+12. **No shared resource lets one party stall others.** Read docs/RESILIENCE.md first. Applies to every resource a request uses, inbound (uploads, streams, any client request) and outbound (model provider, databases, Redis, object storage, MCP, web fetch):
+   a. Limits at three levels: per user, per tenant and platform-wide. Waiting for a slot is bounded; past the bound, refuse at once with an Arabic and English message (load shedding). No unbounded queue.
+   b. Each request gets its own session or connection from a bounded pool; no request can hold a resource another request is waiting on.
+   c. One deadline per call, from send to last byte; never only a per-read timeout. Nested timeouts are recorded in docs/RESILIENCE.md (timeout budget); an inner timeout is shorter than the one enclosing it.
+   d. Work on input from outside the process is linear and size-capped before parsing; anything heavier runs in a separate process. Nothing CPU-bound runs on the event loop.
+   e. Shared state (breakers, caches) changes only on the remote side's own outcome, never on a caller's cancellation. Caches are keyed per user or tenant.
+   f. A cancelled call releases everything it holds and aborts its remote request. Work that continues in the background is bounded and de-duplicated.
+   g. Retries are bounded, with exponential backoff and jitter.
+   h. Tested from the first build, never only by stopping a dependency: a hung dependency, a trickling one and a flooding one, each while another user's request runs. Each test asserts that user's platform-side time (excluding model generation) against a number and, in async services, the event-loop lag.
+   i. Prefer a maintained library or infrastructure component. Write custom code only where none fits, with an ADR naming the alternatives checked and why each was rejected; add the row to docs/RESILIENCE.md.
+   New code follows this rule from phase 06. Existing gaps stay in the phase 12 backlog.
+13. **Evals by what changed.** Prompts, models, routing, retrieval, a capability manifest or an eval dataset changed → run the affected eval suites. Infrastructure only (connections, timeouts, guards, interfaces, UI) → make test and make smoke, no eval. Before merge, make eval runs three times only if something in the first class changed since the last three passing runs; otherwise once. A failed smoke or eval attempt is recorded in PROGRESS with its evidence (trace, audit row), never silently rerun.
 
 ## Session protocol
 

@@ -1,6 +1,6 @@
 # HANDOFF.md — how Sultan and Claude (chat) run this project
 
-Purpose: everything about our working method that is not in `README.md`, `CLAUDE.md`, `docs/DECISIONS.md` or `docs/PROGRESS.md`. A new chat session with Claude starts by reading `README.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md`, this file, `docs/BACKLOG.md` (decided future work not yet in a phase prompt) and the latest two phase summaries (`docs/PHASE-03-SUMMARY.md`, `docs/PHASE-04-SUMMARY.md`). Nothing from earlier chat transcripts is needed.
+Purpose: everything about our working method that is not in `README.md`, `CLAUDE.md`, `docs/DECISIONS.md` or `docs/PROGRESS.md`. A new chat session with Claude starts by reading `README.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md`, this file, `docs/BACKLOG.md` (decided future work not yet in a phase prompt), `docs/RESILIENCE.md` (how no shared resource lets one party stall others) and the latest two phase summaries (`docs/PHASE-04-SUMMARY.md`, `docs/PHASE-05-SUMMARY.md`). Nothing from earlier chat transcripts is needed.
 
 ## Roles
 
@@ -52,6 +52,14 @@ From phase 04:
   - Integrations are standardised behind interfaces: `DocumentBackend` (ADR-0159); MCP only through the broker (`docs/BACKLOG.md`).
 - **Verification starts from `make clean && make models && make up`**, with nothing started by hand.
 - **Eval cadence:** build sessions and intermediate fix sessions run `make eval` once; the last session before merge runs it three times. Each run's results are kept in `build/evals/` (ADR-0188), because `make clean` wipes Langfuse.
+  - Superseded in part by CLAUDE.md rule 13 (evals by what changed), from phase 06.
+
+From phase 05:
+- **Resilience rule (CLAUDE.md rule 12, `docs/RESILIENCE.md`).** No shared resource (pool, event loop, session, counter, breaker) lets one party stall others: limits per user, tenant and platform; one deadline per call; linear, size-capped parsing; shared state changed only by the remote side's outcome; tests with a hung, a trickling and a flooding dependency while another user's request runs. New code follows it from phase 06.
+- **Evals by what changed (CLAUDE.md rule 13).** Prompts, models, routing, retrieval, manifests or datasets → the affected eval suites; infrastructure only → `make test` and `make smoke`, no eval. Three runs before merge only if the first class changed since the last three passing runs. A failed attempt is recorded with its evidence, never silently rerun.
+- **A fix can create a new defect; that is why round 2 exists.** C1 of PR #10 came from two round-1 fixes interacting: the 2 s status bound cancelled the breaker's trial, and the new breaker rule reopened it on a cancellation.
+- **What cannot be reproduced does not reopen a PR.** It becomes the first item of the next phase, with "reproduce first; fix only if reproduced" (`docs/BACKLOG.md`, before phase 06).
+- **A timing assertion against a hosted model measures platform time, not the whole turn.** Provider latency failed a smoke G7 check in PR #10 without any stall on our side (phase 06 backlog).
 
 ## Prompt templates
 
@@ -140,6 +148,11 @@ Phase 04:
 - **Rerank switch (ADR-0184, ADR-0187).** Measured: off, citation page accuracy 0.91–0.94 and `rag.retrieve` p50 0.13 s; on with 16 candidates on their first 1070 characters, 0.97–1.00 and p95 about 5.6 s on CPU; other metrics equal. Chosen: off in development; on (16, 1070) in production on a GPU, set in `.env`.
 - **MCP moved to phase 05** (owner, 2026-10-12), built against reference MCP servers in the repo because no real server is ready; later phases shift by one (README §15 amendment, `docs/BACKLOG.md`).
 
+Phase 05:
+- **The rag server's operations are transport, not tools, so D6 stands (ADR-0230, superseding ADR-0200).** `register` writes on the server, so calling it read-class was wrong; instead of relaxing D6 (model-callable MCP tools are read only), the document backend's operations became `class: transport`, reached only through `broker.transport` with the same guards and audit, never declared to a capability.
+- **Keyword candidacy stays for directions; routing for all capabilities is decided in phase 08 (ADR-0247).** The keyword-free set measures 0/9; sending every turn to the router model would fix that at the cost of its latency on every turn, so it is decided on measured numbers with kb.
+- **The slug is `directions`, not `routing` (ADR-0215),** because `routing` already names the router's eval suite (`evals/golden/routing.jsonl`).
+
 Phase order (owner, 2026-10-14):
 - **New order:** 05 MCP · 06 Skills · 07 Planner · 08 kb · 09 web · 10 sql · 11 reflection, tiers, HITL and artifact outputs · 12 evaluation and hardening (README §15 amendment, `CLAUDE.md` phase table, `docs/BACKLOG.md`).
 - **Skills are a layer over capabilities.** A skill says how to shape an output (form, template, examples), never where information comes from. Developer-written files in the repo, through a PR with evals; no admin editing; no scripts until a sandbox exists; text outputs first.
@@ -168,28 +181,45 @@ Phase order (owner, 2026-10-14):
 
 ## Current status (update by hand)
 
-- **Phase 04: merged to `main` (PR #4) on 14 Oct 2026.** Build (stopped once under G5; owner approved three core changes: page citations, trace placeholders, the `conversation_attachments` routing rule); review round 1 (main report and three addenda); fix session (ADR-0158 to ADR-0184); review round 2; fix session (ADR-0185 to ADR-0188); verification of round 2 found an upload gate bypass; narrow fix (ADR-0189 to ADR-0191).
-- Results at merge (`docs/PROGRESS.md`, narrow fix of 2026-10-14, rule 11):
-  - `make test`: agent 689 / 0 / 0, gateway 125 / 0 / 0, gateway-db 5 / 0 / 0, web 139 / 0 / 0, evals harness 6 / 0 / 0 (passed / failed / skipped).
-  - `make smoke` 111/111; `make smoke-airgap` 116/116.
-  - `make eval`, run `make-eval-20261014T122845Z` (`build/evals/make-eval-20261014T122845Z.json`): general 28/28, guardrails 142/142 (deterministic 1.00 on 89, judge 1.00 and FPR 0.00 on 53), routing 33/34 (0.97; the miss was an OpenRouter 429 mid-stream), rag 51/53 (hit@8 1.00, citation page accuracy 0.94, faithfulness 0.95, answer correctness 0.87, abstention 1.00; `rag.retrieve` p50 0.13 s, p95 0.15 s, rerank off). The last three-run set (2026-10-12, round 1 fix) passed all four suites each time.
-  - Build measurements (E3, rerank on at the time): time to indexed p50 2.42 s; docs answer TTFT p50 7.72 s, p95 8.13 s. Not re-measured with rerank off.
-- Dev model tiers on OpenRouter via `.env` (ADR-0065). No real or ministry data in dev. Rerank off in dev; production setting in `.env.example` (on, 16, 1070, GPU host).
+- **Phase 05: merged to `main` (PR #10) on 20 Oct 2026.** Build (ADR-0195 to ADR-0229); review round 1; fix session on the owner's decisions 1–16 (ADR-0230 to ADR-0243); review round 2 found two stalls (C1: a caller's cancellation reopened a shared breaker; C2: one shared MCP session per server); narrow fix (ADR-0244 to ADR-0247); verification of the narrow fix, its unreproduced suspicion moved to the backlog (before phase 06).
+- Results at merge (`docs/PROGRESS.md`, narrow fix session of 2026-10-19, rule 11):
+  - `make test`: agent 814 / 0 / 0, gateway 138 / 0 / 0, gateway-db 5 / 0 / 0, web 148 / 0 / 0, evals harness 12 / 0 / 0 (passed / failed / skipped).
+  - `make smoke` 163/163 twice; `make smoke-airgap` 171/171. Three earlier attempts failed on the model provider, none on an MCP call; each is recorded with its audit row.
+  - `make eval` three times, every suite PASS each time, no case lost (rerank off):
+
+    | run (build/evals/<run>.json) | guardrails | rag | rag@mcp | routing | directions | general |
+    |---|---|---|---|---|---|---|
+    | make-eval-20261019T125706Z | 142/142 | 51/53 | 52/53 | 65/67 | 27/27 | 28/28 |
+    | make-eval-20261019T135251Z | 142/142 | 52/53 | 49/53 | 65/67 | 26/27 | 28/28 |
+    | make-eval-20261019T150722Z | 142/142 | 50/53 | 50/53 | 65/67 | 27/27 | 28/28 |
+
+    rag and rag@mcp misses are the twenty-page truncation cases; routing misses are negatives ending `validation_failed`; the keyword-free directions set is 0/9 (reported, not gated, ADR-0247).
+  - Measurements (build G3, n=20, rerank off, OpenRouter development tiers; G7 from the fix sessions):
+
+    | Measure | p50 | p95 |
+    |---|---|---|
+    | directions answer, first token | 2.86 s | 4.01 s |
+    | directions answer, terminal event | 3.59 s | 4.98 s |
+    | MCP call through the broker, routing.geocode / routing.route | 11 ms / 11 ms | 18 ms / 12 ms |
+    | docs, internal backend: time to indexed / retrieve / answer first token | 3.78 s / 0.13 s / 1.81 s | 3.83 s / 0.15 s / 3.38 s |
+    | docs, MCP backend: time to indexed / search / answer first token | 3.07 s / 0.14 s / 1.53 s | 3.16 s / 0.15 s / 3.68 s |
+    | G7: event-loop lag under 1 MiB of notifications / a byte every 2 s | max 3.1 ms / 6.7 ms | bound 100 ms |
+    | G7: another user's quick call while a server holds A's reply (ADR-0246) | 19 ms (2 ms alone) | bound 0.5 s |
 - Tech debt, all in `docs/BACKLOG.md`:
-  - into phase 05: `DocumentScope` generalised to collections and several backends (MCP item 10); partly scanned PDFs for the OCR cases;
-  - into phase 08: KB chunk records, `kb:`/`tool:` exceptions at OUTPUT/DATA, reranker re-measured on large KB documents;
-  - into phase 12: the hardening list (phase 03 notes, checkpoint pruning, MinIO licensing, reranker on GPU, long-document citations, stream timeouts, unaudited refused uploads, slow requests on non-upload paths, provider 429 mid-stream, upload limits in one gateway's memory, docs latency re-measurement).
-- Management decisions pending: in `docs/PHASE-04-SUMMARY.md` and `docs/BACKLOG.md`.
-- **After phase 04, two standalone PRs on 15 Oct 2026 (not phases):** `fix/web-attachment-picker` (the picker read an emptied FileList; web 142 tests) and `feat/conversation-history` (conversation list and history, read-only, owner only, audited; ADR-0192 to ADR-0194; API 2.1.0). Results: agent 700 / 0 / 0, gateway 136 / 0 / 0, gateway-db 5 / 0 / 0, web 145 / 0 / 0, evals harness 6 / 0 / 0; `make smoke` 119/119; `make eval` run `make-eval-20261015T100011Z`: general 28/28, guardrails 142/142, routing 34/34, rag 50/53 (the three twenty-page citation cases).
-- **Next: phase 05 build** (MCP integration; branch `phase/05-mcp`), prompt in `docs/PHASE-05-BUILD-PROMPT.md`.
+  - before phase 06: reproduce the suspected generation-reset breaker count (fix only if reproduced);
+  - phase 06: lost or interrupted eval cases count as failures in every metric; smoke G7 measures platform-side time;
+  - phase 08: routing for all capabilities (ADR-0247); the eval harness still names docs; plus the phase 04 items;
+  - phase 12: resilience (reverse proxy for uploads, Bucket4j + Redis limits, the four scaling traps of `docs/RESILIENCE.md`), scoped LiteLLM keys per internal service, model provider 429s past the 60 s gateway timeout, and the earlier hardening list.
+- Management decisions pending: in `docs/PHASE-05-SUMMARY.md` and `docs/BACKLOG.md`.
+- **Next: phase 06 build prompt (Skills; branch phase/06-skills).**
 
 ## How to resume with Claude (chat)
 
-Open a new chat and attach `README.md`, `CLAUDE.md`, `docs/HANDOFF.md`, `docs/BACKLOG.md`, `docs/PHASE-03-SUMMARY.md`, `docs/PHASE-04-SUMMARY.md`, `docs/PROGRESS.md` and `docs/DECISIONS.md`. Opening message:
+Open a new chat and attach `README.md`, `CLAUDE.md`, `docs/HANDOFF.md`, `docs/BACKLOG.md`, `docs/RESILIENCE.md`, `docs/PHASE-04-SUMMARY.md`, `docs/PHASE-05-SUMMARY.md`, `docs/PROGRESS.md` and `docs/DECISIONS.md`. Opening message:
 
 ```
 نكمل مشروع agent-platform من ملف التسليم.
-اقرأ HANDOFF.md أولًا (الأدوار، دورة العمل، القواعد المتعلمة، قوالب الأوامر، الحالة الحالية)، ثم BACKLOG.md، ثم ملخصي المرحلتين الثالثة والرابعة، ثم PROGRESS.md وDECISIONS.md، ثم README.md وCLAUDE.md لمعايير المرحلة القادمة.
+اقرأ HANDOFF.md أولًا (الأدوار، دورة العمل، القواعد المتعلمة، قوالب الأوامر، الحالة الحالية)، ثم BACKLOG.md وRESILIENCE.md، ثم ملخصي المرحلتين الرابعة والخامسة، ثم PROGRESS.md وDECISIONS.md، ثم README.md وCLAUDE.md لمعايير المرحلة القادمة.
 التزم بتفضيلاتي: المصطلحات الإنجليزية في سطر مستقل أو داخل backticks، مثال مبسط مع كل شرح، ولا تعرض عليّ إلا قرارات النطاق أو المنتج.
 المطلوب: <الخطوة التالية من قسم Current status>.
 ```
