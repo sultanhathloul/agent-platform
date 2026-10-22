@@ -1734,6 +1734,35 @@ Results (rule 11), from `make clean && make models && make up`, nothing started 
 - No `make eval` (rule 13: infrastructure only).
 
 Files for human review: infra/airgap/nginx.conf (`proxy_half_close on`), scripts/refused_unread.sh (new) and scripts/smoke.sh.
+### Narrow session: the scope A restart breaker race (2026-10-22)
+
+Scope: the breaker failure counted against a healthy server during a restart in `make test` attempt 1 of the session above (`four-calls`, iteration 5), as scope A of this PR. Threat model ADR-0054. `docs/HANDOFF.md` untouched. The docs/BACKLOG.md phase 12 line was first removed (scope A, not phase 12 tech debt), then, on the owner's decision to stop the investigation, put back as a known residual (ADR-0273).
+
+Checklist:
+- [x] 1. Reproduced and the path named (scratch harness, local `.venv`, at bbd342d, 2026-10-22T08:54:28Z–09:22:02Z; every `Breaker.failure` recorded with the exception behind it, the client lines it went through and `_attempt`'s locals):
+
+| Scenario (seeded jitter) | Iterations | Iterations with a failure counted |
+|---|---|---|
+| four calls, the restart at a random time | 2000 | 3 (124, 1644, 1897), 0.15 % |
+| restart pinned at the slot taken, pooled / cold pool | 300 / 300 | 0 / 0 |
+| at the session open, pooled / cold | 300 / 300 | 0 / 0 |
+| at initialize, pooled / cold | 300 / 300 | 0 / 0 |
+| at the initialized notification, pooled / cold | 300 / 300 | 0 / 0 |
+| at the send, pooled / cold | 300 / 300 | 0 / 0 |
+| during the read (a call held at the server), pooled / cold | 300 / 300 | 7, 2.3 % / 0 |
+
+  All ten took one path: the I9 re-send (`_attempt`, client line 616) met a second 404, "Session terminated", which only the first send handled; the generic `McpError` branch counted it. State at the count: re-send, not waiting, the re-send's session of generation N+1, the first of N, connected on N+1 (ADR-0272).
+- [x] 2. Fixed (78fb83c, ADR-0272): a 404 on the re-send is no verdict and ends that generation. The harness after the fix (09:40:21Z–10:07:42Z): 0 counted in every scenario above.
+- [x] 3. Two scenarios added to tests/integration/test_mcp_generation_reset.py (`restart-during-a-read`, 300 iterations; `restart-again-at-the-resend`, 50). On the code before the fix, 09:23:27Z: both FAILED, `AssertionError: (3, 1, ['tool_unavailable'])` and `AssertionError: (1, 1, ['tool_unavailable'])`. After it, five consecutive runs of the file at its full count (09:23:55Z–09:40:21Z, local): 7 passed / 0 failed / 0 skipped each, 0 failures counted, 194–199 s per run. (`ruff format` then re-wrapped two lines of the test, no change in behaviour.)
+- [x] Owner decision of 2026-10-22, mid-session (ADR-0273): stop the investigation; the fix stays (complete, its tests pass); the BACKLOG line back as a known residual with the rates above; the scope A test asserts the breaker never opens during a restart, iteration counts kept (3f2f4a8). With the new assertion, 10:14:48Z, local: 7 / 0 / 0 (0 counted, 0 opened). Mutation check (each generation reset counting five failures): `four-calls` and `restart-again-at-the-resend` fail.
+
+Results (rule 11), the stack from `make clean && make models && make up` at 78fb83c (10:09:11Z–10:10:30Z):
+- `make test` at 78fb83c (before the owner's decision; the old assertion), 10:10:40Z–10:23:33Z: agent 900 / 0 / 0, gateway 146 / 0 / 0, gateway-db 5 / 0 / 0, web 149 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 31 / 0 / 0 (self-test 31 / 0 / 0).
+- `make test` at 3f2f4a8 (the FINISH run), 10:23:52Z–10:33:33Z: FAILED, agent 899 passed / 1 failed / 0 skipped: tests/integration/test_turn_deadline.py `test_a_capability_that_ignores_its_cancellation_is_abandoned_and_the_turn_still_ends` (ADR-0268), line 216, `AssertionError: 0.10740987515076995` (event-loop lag 107.4 ms, bound 100 ms); the scope A file passed in the same run. Make stopped after the agent layer, so gateway, gateway-db, web, evals harness and timeout budget did not run. Not rerun (the owner's FINISH: make test once); not investigated (outside this session).
+- `make smoke` ×1 at 3f2f4a8, 10:33:33Z–10:37:39Z: 178/178. R3: 1 137 752 of 31 457 289 bytes sent before the JSON 413, no reset. G7: another user's general turn 1.79 s and 1.71 s, bound 4.71 s.
+- No `make eval` (rule 13: infrastructure only). No smoke-airgap (the owner's FINISH dropped it).
+
+Files for human review: none under `config/` or `infra/`.
 
 ## Phase 06: Skills
 
