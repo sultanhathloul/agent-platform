@@ -166,7 +166,7 @@ def test_a_refusal_names_the_conflict_in_plain_words(values, messages):
     _, problems = budget.evaluate(values, {"turn.answer_reserve_s": 130})
     check = next(p for p in problems if p.name == "answer-reserve-in-turn")
     ar, en = messages.describe(check, lambda kind, ident: (ident, ident))
-    assert ar.startswith("مهلة الإجابة (130 ثانية) أطول من مهلة السؤال كله (120 ثانية)")
+    assert ar.startswith("مهلة الإجابة (١٣٠ ثانية) أطول من مهلة السؤال كله (١٢٠ ثانية)")
     assert "130 s" in en and "120 s" in en
     _, problems = budget.evaluate(values, {"turn.deadline_s": 80})
     room = next(p for p in problems if p.name.startswith("capability-in-room:"))
@@ -175,4 +175,4 @@ def test_a_refusal_names_the_conflict_in_plain_words(values, messages):
     assert "«الملفات المرفقة»" in ar
     _, problems = budget.evaluate(values, {"turn.per_user_max": 0})
     ar, en = messages.describe(problems[0], lambda kind, ident: ("", ""), minimum=1)
-    assert ar == "الأسئلة الجارية للمستخدم الواحد: القيمة 0 خارج المدى المسموح، من 1 إلى 20."
+    assert ar == "الأسئلة الجارية للمستخدم الواحد: القيمة ٠ خارج المدى المسموح، من ١ إلى ٢٠."

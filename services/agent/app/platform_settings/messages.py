@@ -39,6 +39,10 @@ def params(name: str) -> dict[str, str]:
     return dict(zip(keys, parts, strict=False))
 
 
+_ARABIC_DIGITS = str.maketrans("0123456789.", "٠١٢٣٤٥٦٧٨٩٫")
+_NUMBERS = ("inner", "outer", "value", "maximum", "minimum")
+
+
 def _number(value: float | None) -> str:
     return "" if value is None else f"{value:g}"
 
@@ -91,5 +95,7 @@ class SettingsMessages:
                 else "",
                 "tool": names("tool", found["tool"])[index] if "tool" in found else "",
             }
+            if locale == "ar":  # the page writes numbers in Arabic-Indic digits (ar-SA); so do these
+                values = {k: v.translate(_ARABIC_DIGITS) if k in _NUMBERS else v for k, v in values.items()}
             out.append(template[locale].format(**values))
         return out[0], out[1]
