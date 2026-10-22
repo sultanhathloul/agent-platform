@@ -44,7 +44,7 @@ from app.models.gateway import ModelUnavailable
 from app.rag.collections import kind_of
 from app.rag.config import DocsConfig, Rerank, load_docs_config
 from app.rag.extract import ExtractionFailed, detect_kind
-from app.rag.ingest.sandbox import ParserDefect, run_sandboxed
+from app.rag.ingest.sandbox import MemoryBudgetExceeded, ParserDefect, check_memory_budget, run_sandboxed
 from app.rag.rerank import Reranker
 from app.rag.retrieve import HybridRetriever
 from app.rag.vectorstore import PgVectorStore
@@ -342,6 +342,11 @@ def main() -> None:
     settings = Settings()
     port = int(os.environ.get("PORT", "8000"))
     pipeline = build_pipeline(settings, settings.database_url)
+    try:
+        log.info(check_memory_budget(WORKERS, pipeline.config))  # I7, ADR-0252
+    except MemoryBudgetExceeded as exc:
+        log.error("%s", exc)
+        raise SystemExit(1) from None
     app = build_app(pipeline, token=os.environ.get("MCP_RAG_TOKEN", ""), port=port)
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 

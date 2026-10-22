@@ -22,7 +22,21 @@ the broker: no capability imports this module (ADR-0197).
   slot is returned, and a fresh session takes its place: requests open at a server never exceed
   `max_concurrency`. Sessions carry no per-user state (I9): every call carries what it needs; when
   the server no longer knows a session, the tools are pinned again on a new one and the call is
-  tried once more.
+  tried once more; when it no longer knows that one either (it restarted again), the call fails
+  `tool_unavailable` with no verdict and that generation ends too (ADR-0272).
+- Background work (ADR-0265): a call in a detached context (a registration past the upload's
+  answer, a status read past its bound) takes one of the server's background slots, at most half
+  of max_concurrency, before a slot, so callers always find some. Its slot wait is bounded on its
+  own, as a caller's is, and once it has a slot its attempt has the full timeout_s (ADR-0274): a
+  wait behind other users' work is never taken from what the server is given.
+- Bounds (I6, ADR-0259), each cut to what remains of the caller's deadline (app/resilience/
+  deadline.py): the wait for a slot is at most min(timeout_s, remaining − timeout_s − 1), so the
+  call still has its timeout_s once it has one; when no wait is left and no slot is free the call
+  fails `tool_busy` at once, the breaker untouched. One attempt deadline, min(timeout_s,
+  remaining − 0.5), covers opening a session and the request, the I9 re-send and its wait for the
+  next generation included; it ending by the caller's deadline is no verdict (as a cancellation,
+  ADR-0244). The transport's wall-clock deadline is timeout_s from send (transport.py) and the
+  SDK's own read timeout timeout_s + 1, so the SDK never decides.
 - Results (I7): the structured content when present, else the text parts; images, audio and
   resource links are dropped with a note; the body is capped while it is read (transport.py).
 - Observability (G8): the `mcp.call` span carries the server, the tool, the status, the latency,
@@ -53,6 +67,7 @@ from app.mcp.config import Resolved, ServerEntry, ToolEntry
 from app.mcp.transport import CALL_META, TOO_LARGE, TRANSPORT_FAILED, TRANSPORT_TIMEOUT, CappedTransport
 from app.observability.otel import tracer
 from app.observability.redaction import content_hash
+from app.resilience import deadline
 from app.tools.spec import ToolFailure
 
 log = logging.getLogger(__name__)
@@ -64,9 +79,10 @@ BUSY = "tool_busy"
 BREAKER_FAILURES = 5
 BREAKER_OPEN_S = 30.0
 _BACKOFF_MAX_S = 30.0
-# Past the transport's own deadline, so a call ends by the transport's tool_timeout first; this only
-# bounds what the transport cannot see (a re-initialisation, the SDK's own queue).
-_BACKSTOP_S = 2.0
+# I6: what an attempt leaves of its caller's deadline, and the SDK's read timeout past the
+# transport's deadline (timeout_s), so the transport decides.
+_ATTEMPT_MARGIN_S = 0.5
+_SDK_READ_MARGIN_S = 1.0
 # What the SDK reports when the server no longer knows the session (HTTP 404 on a request).
 _SESSION_GONE = "Session terminated"
 
@@ -135,9 +151,11 @@ class Breaker:
 
 
 class _Failed(Exception):
-    """A call that failed, by its content-free code, and whether that says the server failed."""
+    """A call that failed, by its content-free code, and whether that says the server failed: True
+    or False is the server's own outcome on this attempt; None is no verdict, the attempt never
+    reached the server (ADR-0249)."""
 
-    def __init__(self, code: str, server_failed: bool):
+    def __init__(self, code: str, server_failed: bool | None):
         super().__init__(code)
         self.code = code
         self.server_failed = server_failed
@@ -145,6 +163,11 @@ class _Failed(Exception):
 
 class _Unreachable(Exception):
     """A session could not be opened: the server is not reachable."""
+
+
+class _NoGeneration(Exception):
+    """No generation is connected: another call ended it and the next is being opened, or the
+    server is down. Says nothing of this call's own outcome (ADR-0249)."""
 
 
 # How long `stop` lets its sessions say goodbye to their servers before it cancels them.
@@ -207,7 +230,7 @@ class _Session:
                         ClientSession(
                             read,
                             write,
-                            read_timeout_seconds=timedelta(seconds=entry.timeout_s),
+                            read_timeout_seconds=timedelta(seconds=entry.timeout_s + _SDK_READ_MARGIN_S),
                             client_info=client_info,
                             message_handler=_ignore_server_messages,
                         ) as session,
@@ -245,6 +268,7 @@ class _Lease:
 
     pooled: _Session | None = None
     clean: bool = False
+    background: bool = False  # it holds one of the server's background slots too (ADR-0265)
 
 
 class ServerConnection:
@@ -256,6 +280,9 @@ class ServerConnection:
         self._hash_key = hash_key
         self.version = client_version
         self._semaphore = asyncio.Semaphore(self.entry.max_concurrency)
+        # Background work (a registration past the upload's answer, a status read past its bound)
+        # takes at most half of the slots, so callers always find some (ADR-0265).
+        self._background = asyncio.Semaphore(max(1, self.entry.max_concurrency // 2))
         self.breaker = Breaker()
         # The pool (ADR-0246): sessions of the current generation that no call holds. With the
         # sessions calls hold, never more than max_concurrency: a call takes one with its slot.
@@ -400,7 +427,7 @@ class ServerConnection:
                 lease.pooled = pooled
                 return
         if not self.connected.is_set():
-            raise _Unreachable()
+            raise _NoGeneration()  # never _Unreachable: this call saw no server (ADR-0249)
         lease.pooled = self._open()  # held by the call before it waits, so it is never lost
         await lease.pooled.opened()
 
@@ -411,17 +438,22 @@ class ServerConnection:
         returned: requests open at a server never exceed max_concurrency (ADR-0246)."""
         pooled = lease.pooled
         if pooled is None:
-            self._semaphore.release()
+            self._release_slot(lease)
         elif lease.clean:
             if pooled.generation == self._generation and pooled.session is not None:
                 self._idle.append(pooled)
             else:
                 self._spawn(pooled.close())
-            self._semaphore.release()
+            self._release_slot(lease)
         else:
-            self._spawn(self._replace(pooled))
+            self._spawn(self._replace(pooled, lease))
 
-    async def _replace(self, pooled: _Session) -> None:
+    def _release_slot(self, lease: _Lease) -> None:
+        self._semaphore.release()
+        if lease.background:
+            self._background.release()
+
+    async def _replace(self, pooled: _Session, lease: _Lease) -> None:
         """Closes a session a call left, then, within the call's slot, opens a fresh one in its
         place when its generation is still current; the slot is returned last."""
         try:
@@ -437,7 +469,7 @@ class ServerConnection:
                 else:
                     await fresh.close()
         finally:
-            self._semaphore.release()
+            self._release_slot(lease)
 
     # ------------------------------------------------------------------ calls
 
@@ -479,14 +511,8 @@ class ServerConnection:
             raise ToolFailure(UNAVAILABLE)
         if self.breaker.state == "open":
             raise ToolFailure(UNAVAILABLE)
-        if self._semaphore.locked():
-            observed["queued"] = True
-        try:
-            async with asyncio.timeout(self.entry.timeout_s):
-                await self._semaphore.acquire()
-        except TimeoutError:
-            raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
-        lease = _Lease()
+        lease = _Lease(background=deadline.detached())
+        await self._slot(lease, observed)
         try:
             admitted = self.breaker.admit()
             if admitted is None:
@@ -499,6 +525,10 @@ class ServerConnection:
                 self.breaker.success()
                 return result
             except _Failed as failed:
+                if failed.server_failed is None:
+                    # The attempt never reached the server (a generation another call ended, a
+                    # wait for the next one): no verdict, as a cancellation (ADR-0249).
+                    raise ToolFailure(failed.code) from None
                 decided = True
                 if failed.server_failed or trial:
                     self.breaker.failure()
@@ -514,6 +544,39 @@ class ServerConnection:
         finally:
             self._finish(lease)
 
+    async def _slot(self, lease: _Lease, observed: dict[str, str | int | bool]) -> None:
+        """Takes a slot for the call; raises ToolFailure(BUSY), the breaker untouched (nothing
+        reached the server), when none frees up in time. A call waits only as long as leaves it its
+        own timeout_s (I6); a free slot is taken at once. Background work takes one of the
+        background slots first (ADR-0265) and has the same guarantee: its wait is bounded on its
+        own, never taken from its attempt (ADR-0274)."""
+        timeout_s = self.entry.timeout_s
+        if not self._semaphore.locked() and not (lease.background and self._background.locked()):
+            if lease.background:
+                await self._background.acquire()
+            await self._semaphore.acquire()  # a slot is free: taken at once
+            return
+        observed["queued"] = True
+        # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
+        wait_s = deadline.bounded(timeout_s, margin_s=timeout_s + 1.0)
+        if wait_s <= 0:
+            raise ToolFailure(BUSY)  # the breaker is untouched: nothing reached the server
+        held_background = False
+        try:
+            async with asyncio.timeout(wait_s):
+                if lease.background:
+                    await self._background.acquire()
+                    held_background = True
+                await self._semaphore.acquire()
+        except TimeoutError:
+            if held_background:
+                self._background.release()
+            raise ToolFailure(BUSY) from None  # the queue was full: not a server failure
+        except BaseException:
+            if held_background:
+                self._background.release()
+            raise
+
     async def _attempt(
         self,
         tool: ToolEntry,
@@ -522,9 +585,13 @@ class ServerConnection:
         lease: _Lease,
     ) -> CallResult:
         """One call on a session of the pool, re-sent once on a new generation's session when the
-        server no longer knows this one (I9). Raises _Failed with a content-free code."""
+        server no longer knows this one (I9), within timeout_s. Raises _Failed with a content-free
+        code."""
+        waiting = False  # waiting for the next generation: a timeout then is no verdict (ADR-0249)
+        resent = False  # the I9 re-send in flight: sent after the attempt began, so held less
         try:
-            async with asyncio.timeout(self.entry.timeout_s + _BACKSTOP_S):
+            # One deadline for the attempt: the session, the request and the I9 re-send (I6).
+            with deadline.within(self.entry.timeout_s, margin_s=_ATTEMPT_MARGIN_S):
                 await self._take(lease)
                 try:
                     result = await self._send(lease.pooled, tool, arguments, observed)
@@ -536,15 +603,32 @@ class ServerConnection:
                     gone, lease.pooled = lease.pooled, None
                     self._reset(gone.generation)
                     self._spawn(gone.close())
+                    waiting = True
                     await self.connected.wait()
+                    waiting = False
+                    resent = True
                     await self._take(lease)
                     result = await self._send(lease.pooled, tool, arguments, observed)
                 lease.clean = True
                 return result
+        except deadline.DeadlineExceeded as exc:
+            # A timeout is the server's outcome only when the server held the request for its full
+            # timeout_s from the moment it was sent; the caller's deadline, a wait for the next
+            # generation, or a re-send sent after the attempt began says nothing of the server
+            # (ADR-0244, ADR-0249, ADR-0274).
+            raise _Failed(TIMEOUT, None if exc.inherited or waiting or resent else True) from None
         except TimeoutError:
-            raise _Failed(TIMEOUT, True) from None
+            raise _Failed(TIMEOUT, None if waiting else True) from None
+        except _NoGeneration:
+            raise _Failed(UNAVAILABLE, None) from None
         except McpError as exc:
             message = str(exc.error.message)
+            if _SESSION_GONE in message:
+                # The I9 re-send's session is gone too: the server restarted again after the next
+                # generation was opened. A 404 is an answer from a server that is up, so no verdict
+                # (ADR-0272); the generation the re-send was sent on ends, when still current.
+                self._reset(self._generation_of(lease))
+                raise _Failed(UNAVAILABLE, None) from None
             if message == TOO_LARGE:
                 raise _Failed(TOO_LARGE, False) from None  # the server answered; the answer was too big
             if message == TRANSPORT_TIMEOUT:

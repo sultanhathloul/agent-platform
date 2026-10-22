@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.function.Supplier;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -21,6 +22,14 @@ import sa.ncai.agent.gateway.memory.MemorySettings;
 /**
  * Internal client for the agent service (README §6.2). The client is built from Boot's
  * observed {@link RestClient.Builder}, so every call carries W3C {@code traceparent}.
+ *
+ * <p>Spring's JDK request factory applies its read timeout to the whole exchange: past it, the
+ * response body is closed, wherever the reading is (established by test, ADR-0256). So a turn
+ * stream has a client of its own with two bounds, the agent's response headers within
+ * {@link TurnLimits#headers()} (15 s) and the whole stream within {@link TurnLimits#relayBound()}
+ * (135 s) ({@link TurnStreamRequestFactory}, ADR-0264), and every other call keeps
+ * {@code gateway.agent.response-timeout} (60 s). Closing the body at the bound closes the
+ * connection to the agent, which ends the turn there.
  */
 @Component
 public class AgentClient {
@@ -40,19 +49,38 @@ public class AgentClient {
     }
 
     private final RestClient client;
+    private final RestClient streamClient;
+    private final Duration relayBound;
     private final String internalToken;
 
-    public AgentClient(RestClient.Builder builder, GatewayProperties properties) {
+    public AgentClient(RestClient.Builder builder, GatewayProperties properties, TurnLimits turn) {
         GatewayProperties.Agent agent = properties.agent();
         HttpClient http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(agent.connectTimeout())
                 .build();
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(http);
-        // Bounds the wait for response headers only; the body stream itself is unbounded.
-        requestFactory.setReadTimeout(agent.responseTimeout());
-        this.client = builder.baseUrl(agent.baseUrl()).requestFactory(requestFactory).build();
+        this.client = builder.clone()
+                .baseUrl(agent.baseUrl())
+                .requestFactory(factory(http, agent.responseTimeout()))
+                .build();
+        this.relayBound = turn.relayBound();
+        this.streamClient = builder.clone()
+                .baseUrl(agent.baseUrl())
+                .requestFactory(new TurnStreamRequestFactory(http, turn.headers(), relayBound))
+                .build();
         this.internalToken = agent.internalToken();
+    }
+
+    /** From the request to the end of its body: Spring closes the body at this bound. */
+    private static JdkClientHttpRequestFactory factory(HttpClient http, Duration bound) {
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(http);
+        requestFactory.setReadTimeout(bound);
+        return requestFactory;
+    }
+
+    /** The one total bound on a turn stream (config/turn.yaml deadline_s + gateway_margin_s). */
+    public Duration relayBound() {
+        return relayBound;
     }
 
     /**
@@ -63,7 +91,7 @@ public class AgentClient {
      */
     public <T> T streamTurn(AgentTurnRequest request, String requestId, StreamHandler<T> handler) {
         try {
-            return client.post()
+            return streamClient.post()
                     .uri("/v1/turns")
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.TEXT_EVENT_STREAM)

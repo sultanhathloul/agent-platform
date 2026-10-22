@@ -507,6 +507,9 @@ public class AttachmentController {
             case 404 -> ErrorCode.ATTACHMENT_NOT_FOUND;
             case 409 -> ErrorCode.ATTACHMENT_LIMIT;
             case 415 -> ErrorCode.FILE_TYPE_UNSUPPORTED;
+            // The agent counts a registration toward the user's uploads in flight until it ends,
+            // in the background too (the PR #12 review, decision 4, ADR-0265).
+            case 429 -> ErrorCode.TOO_MANY_UPLOADS;
             default -> ErrorCode.AGENT_UNAVAILABLE;
         };
     }

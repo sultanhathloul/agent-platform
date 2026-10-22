@@ -18,7 +18,6 @@ text serialized inside the task, and a failure as its exception's type name, so
 no object the capability created reaches this node (ADR-0054)."""
 
 import asyncio
-import contextlib
 import contextvars
 import copy
 import json
@@ -53,6 +52,7 @@ from app.guardrails.schema import GuardOutcome
 from app.memory.types import MemoryScope
 from app.models.gateway import ModelResult
 from app.observability.otel import tracer
+from app.resilience import deadline
 from app.tools.spec import ToolResult
 
 log = logging.getLogger(__name__)
@@ -286,7 +286,9 @@ async def _run_to_json(
     raise asyncio.CancelledError
 
 
-async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext) -> str:
+async def _invoke_isolated(
+    cap: LoadedCapability, cap_input: CapabilityInput, context: RuntimeContext, *, reserve_s: float
+) -> str:
     """Runs the capability subgraph outside the main graph's RunnableConfig, behind
     an exception/return firewall and a data-only boundary (ADR-0052, ADR-0053,
     ADR-0054). Returns the capability's output as JSON text.
@@ -311,23 +313,33 @@ async def _invoke_isolated(cap: LoadedCapability, cap_input: CapabilityInput, co
     the task, where a raised control-flow signal escapes again (ADR-0054).
     `CancelledError` (the turn was cancelled, e.g. a client disconnect) is the one
     exception that must not be swallowed: the subgraph task is cancelled and
-    drained first, then it is re-raised so the runner ends the turn as cancelled."""
+    drained first, then it is re-raised so the runner ends the turn as cancelled.
+
+    The capability runs under min(its manifest's `limits.timeout_s`, what remains of the turn
+    − `reserve_s`) (I2, ADR-0255): its own limit ends it `capability_failed`; the turn's
+    reserve for the answer ends it, and the turn, `turn_timeout`. The task is created inside
+    that scope, so every call it makes is bounded by it (ADR-0251)."""
     graph = cap.graph
     checkpointer = getattr(graph, "checkpointer", None)
     if (checkpointer is not None and checkpointer is not False) or getattr(graph, "store", None) is not None:
         raise CapabilityFailed(cap.slug, "its graph must compile without a checkpointer or store")
-    isolated = contextvars.copy_context()
-    isolated.run(var_child_runnable_config.set, None)
-    task = asyncio.create_task(_run_to_json(cap, cap_input, context), context=isolated)
     try:
-        ok, text = await asyncio.wait_for(task, cap.manifest.limits.timeout_s)
-    except TimeoutError as exc:
-        raise CapabilityFailed(cap.slug, "timed out", retryable=True) from exc
-    except asyncio.CancelledError:
-        task.cancel()
-        with contextlib.suppress(BaseException):
-            await task
-        raise
+        with deadline.within(cap.manifest.limits.timeout_s, margin_s=reserve_s):
+            isolated = contextvars.copy_context()
+            isolated.run(var_child_runnable_config.set, None)
+            task = asyncio.create_task(_run_to_json(cap, cap_input, context), context=isolated)
+            try:
+                # asyncio.wait, not `await task`: a cancellation of this task stays this task's, so
+                # the scope above recognises its own; the subgraph is then cancelled and drained.
+                await asyncio.wait([task])
+            except asyncio.CancelledError:
+                await deadline.drain(task, name=f"run_capabilities:{cap.slug}")
+                raise
+            ok, text = task.result()
+    except deadline.DeadlineExceeded as exc:
+        if exc.inherited:
+            raise TurnError("turn_timeout", retryable=True, detail=f"capability {cap.slug}") from None
+        raise CapabilityFailed(cap.slug, "timed out", retryable=True) from None
     if not ok:
         raise CapabilityFailed(cap.slug, text)
     return text
@@ -376,7 +388,9 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 config=copy.deepcopy(cap.config),
             )
             try:
-                payload = await _invoke_isolated(cap, cap_input, runtime_context)
+                payload = await _invoke_isolated(
+                    cap, cap_input, runtime_context, reserve_s=services.turn.answer_reserve_s
+                )
                 output = _output(cap, payload)
                 # Events returned in the output rather than streamed arrive after the capability ends.
                 for event in output.events:

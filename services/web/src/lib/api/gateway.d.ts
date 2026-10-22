@@ -1493,6 +1493,15 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
+            /** @description too_many_turns: the caller's or its tenant's turns in flight are at their limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
             /** @description agent_unavailable */
             502: {
                 headers: {

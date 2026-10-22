@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.2.0"
+    "version" : "2.3.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -743,6 +743,16 @@
               }
             },
             "description" : "turn_in_flight: an earlier turn of this conversation is still running"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "too_many_turns: the caller's or its tenant's turns in flight are at their limit"
           },
           "502" : {
             "content" : {

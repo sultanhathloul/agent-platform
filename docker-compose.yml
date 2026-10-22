@@ -414,7 +414,9 @@ services:
       additional_contexts:
         agent: ./services/agent
     command: ["python", "-m", "mcp_ref.rag"]
+    # As ingest: the same sandbox limits from config/docs.yaml, checked at startup, no swap (I7).
     mem_limit: 2g
+    memswap_limit: 2g
     environment:
       CONFIG_DIR: /srv/config
       DATABASE_URL: postgresql://rag_ref:${RAG_REF_DB_PASSWORD}@postgres:5432/app
@@ -467,7 +469,10 @@ services:
       context: ./services/agent
       target: runtime
     command: ["python", "-m", "app.rag.ingest.service"]
+    # workers × the sandbox child's limit + the service's reserve must fit (config/docs.yaml,
+    # checked at startup); no swap, so the limit is the one the check reads (I7, ADR-0252).
     mem_limit: 2g
+    memswap_limit: 2g
     environment:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -520,6 +525,7 @@ services:
       GATEWAY_MODELS_CONFIG: /srv/config/models.yaml
       # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
       GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
+      GATEWAY_TURN_CONFIG: /srv/config/turn.yaml
       # The per-user upload rate, per environment (review round 2, finding 4): .env.example sets the
       # development value. No fallback value here: absent from .env, the variable is empty and the
       # gateway uses config/docs.yaml's baseline (20), the strict one (the verification of round 2).
@@ -533,6 +539,7 @@ services:
     volumes:
       - ./config/models.yaml:/srv/config/models.yaml:ro   # role tier caps (ADR-0046)
       - ./config/docs.yaml:/srv/config/docs.yaml:ro       # upload limits (ADR-0126)
+      - ./config/turn.yaml:/srv/config/turn.yaml:ro       # the relay's bound on a turn (ADR-0256)
     ports:
       - "${GATEWAY_PORT}:8080"
     depends_on:

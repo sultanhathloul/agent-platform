@@ -23,7 +23,7 @@ from app.api.schemas import (
     AttachmentView,
     ErrorEnvelope,
 )
-from app.attachments.service import UnsupportedType
+from app.attachments.service import TooManyUploads, UnsupportedType
 from app.attachments.store import AttachmentRecord, LimitReached
 from app.memory.types import MemoryScope
 from app.rag.types import Owner as DataOwner
@@ -67,6 +67,10 @@ def _request_id(header: str | None) -> str:
         **_ERRORS,
         409: {"model": ErrorEnvelope, "description": "attachment_limit: the conversation holds the maximum"},
         415: {"model": ErrorEnvelope, "description": "file_type_unsupported"},
+        429: {
+            "model": ErrorEnvelope,
+            "description": "too_many_uploads: the caller's registrations in flight are at their limit",
+        },
     },
 )
 async def register_attachment(
@@ -93,6 +97,8 @@ async def register_attachment(
         return _error(request, request_id, "file_type_unsupported", 415)
     except LimitReached:
         return _error(request, request_id, "attachment_limit", 409)
+    except TooManyUploads:
+        return _error(request, request_id, "too_many_uploads", 429)
     return JSONResponse(_view(record).model_dump(mode="json"), status_code=201)
 
 

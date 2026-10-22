@@ -26,8 +26,12 @@ class Limits(_Strict):
     max_files_per_conversation: int = Field(gt=0)
     max_pdf_pages: int = Field(gt=0)
     uploads_per_minute: int = Field(gt=0)  # baseline for the gateway's per-user rate limit (R3)
-    max_concurrent_uploads: int = Field(default=2, gt=0)  # per-user in-flight cap, gateway only (finding 2)
-    max_concurrent_uploads_total: int = Field(default=50, gt=0)  # gateway-wide in-flight cap, gateway only
+    # Per user in flight: bodies in the gateway (finding 2), registrations in the agent (ADR-0265).
+    max_concurrent_uploads: int = Field(default=2, gt=0)
+    max_concurrent_uploads_total: int = Field(default=50, gt=0)  # gateway-wide; the agent's registrations too
+    # A tenant's registrations in flight (ADR-0265): none of its own by default, overrides by tenant id.
+    max_concurrent_uploads_per_tenant: int | None = Field(default=None, gt=0)
+    tenant_concurrent_uploads: dict[str, int] = Field(default_factory=dict)
     upload_deadline_seconds: int = Field(default=120, gt=0)  # to receive one upload's body, gateway only
     types: dict[DocumentKind, FileType]
 
@@ -64,6 +68,9 @@ class Sandbox(_Strict):
     cpu_seconds: int = Field(gt=0)
     memory_mb: int = Field(gt=0)
     timeout_seconds: float = Field(gt=0)
+    # The service's own memory beside its children: workers × memory_mb + this must fit the
+    # container's limit, checked at startup (I7, ADR-0252).
+    parent_reserve_mb: int = Field(gt=0)
 
 
 class Ingest(_Strict):
@@ -108,6 +115,9 @@ class DocsConfig(_Strict):
     # One bound, in seconds, on reading all of a conversation's attachment statuses at once; past
     # it, or when a backend cannot answer, the record's last known status is shown (ADR-0233).
     status_timeout_s: float = Field(default=2.0, gt=0, le=30)
+    # How long an upload waits for the backend to take the file before it answers `pending` and the
+    # registration goes on in the background (I5, ADR-0254); under the gateway's 60 s for the call.
+    register_response_s: float = Field(default=20.0, gt=0, le=55)
     limits: Limits
     chunking: Chunking
     extraction: Extraction

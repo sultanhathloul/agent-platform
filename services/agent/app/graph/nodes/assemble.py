@@ -28,6 +28,7 @@ from app.graph.nodes import traced
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import DataPayload
+from app.resilience import deadline
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +107,16 @@ async def fold_summary(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     ctx = runtime.context
     span = trace.get_current_span()
     try:
-        return await _fold(state, ctx, _plan(state, ctx))
+        plan = _plan(state, ctx)
+        ceiling = ctx.services.models_config.timeouts.roles["summarizer"]
+        if plan.fold and deadline.remaining() < ceiling:
+            # Inside the post-answer reserve: no room left for the summarizer's call (ADR-0263).
+            # The messages stay unfolded and the next turn's fold takes them.
+            span.add_event("summary_skipped", {"remaining_s": round(deadline.remaining(), 3)})
+            log.warning("summary_skipped for turn %s: %.1f s left", ctx.turn_id, deadline.remaining())
+            return {}
+        with deadline.within(ceiling):
+            return await _fold(state, ctx, plan)
     except Exception as exc:
         span.add_event("context.summary.fold_failed", {"error": type(exc).__name__})
         log.warning("summary fold failed for turn %s: %s", ctx.turn_id, type(exc).__name__)

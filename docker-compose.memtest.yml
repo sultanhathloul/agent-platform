@@ -1,0 +1,13 @@
+# Test only (timeout budget PR, scope B, I7; ADR-0252): scripts/smoke.sh layers this file over the
+# stack for one step, then recreates both services without it. Each document service starts from
+# services/agent/tests/fixtures/memtest.py, which wraps the sandbox's extractor so that a file
+# starting with its marker allocates up to the child's memory limit. Never part of `make up`.
+services:
+  ingest:
+    command: ["python", "-m", "tests.fixtures.memtest", "ingest"]
+    volumes:
+      - ./services/agent/tests:/app/tests:ro
+  mcp-rag-ref:
+    command: ["python", "-m", "tests.fixtures.memtest", "rag"]
+    volumes:
+      - ./services/agent/tests:/app/tests:ro

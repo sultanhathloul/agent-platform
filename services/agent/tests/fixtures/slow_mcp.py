@@ -111,3 +111,91 @@ class SlowMCPServer(RawMCPServer):
             result = {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"asked": True}}
             answer = _event({"jsonrpc": "2.0", "id": rid, "result": result})
             await send({"type": "http.response.body", "body": answer})
+
+
+class RestartingMCPServer(SlowMCPServer):
+    """The slow server with real sessions (timeout budget PR, scope A; ADR-0246, I9): each
+    `initialize` gets a session id of its own, and a request naming a session the server does not
+    know is answered 404, as the SDK's server does. `restart()` forgets every session, as a
+    healthy server that restarted would, without going down: requests already open finish (a
+    graceful restart), the next request on an old session is a 404. `init_hold_s` holds each
+    `initialize` before its answer, so a restart can land while a session is being opened; the
+    session id it then answers is already forgotten.
+
+    Two more ways to land a restart (the scope A race of ADR-0272): `restart_during_call(n, part)`
+    restarts while the n-th tools/call from now is held, after `part` of its hold, so no request
+    sees it until a later one; `restart_at_resend` restarts again when the first tools/call after
+    a 404 arrives, before it is looked at, as a server restarting twice in a row would."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.known: set[str] = set()
+        self.issued = 0
+        self.init_hold_s = 0.0
+        self.restarts = 0
+        self.not_found = 0  # 404s answered for a forgotten session
+        self.restart_at_resend = False
+        self._resend_due = False
+        self._during: tuple[int, float] | None = None
+
+    def restart(self) -> None:
+        self.known.clear()
+        self.restarts += 1
+
+    def restart_during_call(self, n: int, part: float) -> None:
+        self._during = (n, part)
+
+    def disarm(self) -> None:
+        self._during, self._resend_due, self.restart_at_resend = None, False, False
+
+    async def _handle(self, scope, receive, send) -> None:
+        if scope["method"] != "POST":
+            return await super()._handle(scope, receive, send)
+        body = await self._body(receive)
+        message = json.loads(body or b"{}")
+        if message.get("method") == "initialize":
+            self.issued += 1
+            session_id = f"s-{self.issued}"
+            self.known.add(session_id)
+            if self.init_hold_s:
+                await asyncio.sleep(self.init_hold_s)
+            result = {
+                "protocolVersion": message["params"]["protocolVersion"],
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "restarting", "version": "1"},
+            }
+            headers = [(b"content-type", b"application/json"), (b"mcp-session-id", session_id.encode())]
+            await send({"type": "http.response.start", "status": 200, "headers": headers})
+            payload = json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}).encode()
+            await send({"type": "http.response.body", "body": payload})
+            return
+        session_id = dict(scope["headers"]).get(b"mcp-session-id", b"").decode()
+        if message.get("method") == "tools/call":
+            if self._resend_due:
+                self._resend_due = False
+                self.restart()
+            if self._during is not None:
+                n, part = self._during
+                if n > 1:
+                    self._during = (n - 1, part)
+                else:
+                    self._during = None
+                    hold = float(message["params"].get("arguments", {}).get("seconds", 0))
+                    asyncio.get_running_loop().call_later(hold * part, self.restart)
+        if session_id not in self.known:
+            self.not_found += 1
+            if self.restart_at_resend and message.get("method") == "tools/call":
+                self._resend_due = True
+            await send({"type": "http.response.start", "status": 404, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+            return
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await super()._handle(scope, replay, send)

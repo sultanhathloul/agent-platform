@@ -14,8 +14,8 @@ from opentelemetry import propagate
 from starlette.background import BackgroundTask
 
 from app.api.events import to_sse
-from app.api.locks import LockPoolBusy
 from app.api.ownership import Owner
+from app.api.runner import TurnRefused
 from app.api.schemas import (
     CONVERSATION_ID_PATTERN,
     MEMORY_ITEM_ID_PATTERN,
@@ -31,6 +31,7 @@ from app.api.schemas import (
     TurnRequest,
 )
 from app.memory.types import MemoryScope
+from app.resilience import deadline
 
 router = APIRouter(prefix="/v1")
 
@@ -80,7 +81,15 @@ async def health(request: Request) -> HealthResponse:
         401: {"model": ErrorEnvelope},
         403: {"model": ErrorEnvelope, "description": "conversation_forbidden: another owner's conversation"},
         409: {"model": ErrorEnvelope, "description": "turn_in_flight: another turn holds the conversation"},
-        503: {"model": ErrorEnvelope, "description": "service_busy: every turn lock connection is in use"},
+        429: {
+            "model": ErrorEnvelope,
+            "description": "too_many_turns: the caller's or its tenant's turns in flight are at their limit",
+        },
+        503: {
+            "model": ErrorEnvelope,
+            "description": "service_busy: the platform's turns in flight are at capacity, or ownership "
+            "and the lock took longer than admission_s",
+        },
     },
 )
 async def create_turn(
@@ -96,19 +105,16 @@ async def create_turn(
 
     parent = propagate.extract(request.headers)
     runner = request.app.state.runner
-    # Ownership first: a non-owner never takes the conversation's lock (ADR-0050, ADR-0109).
-    if not await runner.claim(body.conversation_id, body.principal):
-        return _error(request, request_id, "conversation_forbidden", 403)
-    # One turn at a time per conversation (D6): refused before any stream starts.
+    # The turn's deadline opens now (ADR-0264). Its limits, then ownership (a non-owner never
+    # takes the conversation's lock, ADR-0050, ADR-0109), then one turn at a time per conversation
+    # (D6): every refusal comes before any stream starts.
     try:
-        lease = await runner.lock(body.conversation_id)
-    except LockPoolBusy:
-        return _error(request, request_id, "service_busy", 503)
-    if lease is None:
-        return _error(request, request_id, "turn_in_flight", 409)
+        admission = await runner.admit(body, arrived=deadline.now())
+    except TurnRefused as refused:
+        return _error(request, request_id, refused.code, refused.status)
 
     async def events():
-        async for event in runner.stream(body, request_id, parent, lease=lease):
+        async for event in runner.stream(body, request_id, parent, admission=admission):
             yield to_sse(event)
 
     return StreamingResponse(
@@ -116,7 +122,7 @@ async def create_turn(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "X-Request-Id": request_id},
         # Idempotent; covers a client gone before the stream started.
-        background=BackgroundTask(lease.release),
+        background=BackgroundTask(admission.release),
     )
 
 

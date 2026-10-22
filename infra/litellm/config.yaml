@@ -64,10 +64,14 @@ router_settings:
   fallbacks:
     - heavy: [standard]
 
+# Bounds (timeout budget PR, I4, ADR-0257): the agent's own deadline decides every model call
+# (config/models.yaml `timeouts`) and it passes each request a timeout of what remains of it − 1 s.
+# request_timeout is LiteLLM's backstop, under the agent's longest call ceiling (90 s); retries are
+# the agent's (at most one, only before the first streamed token), never LiteLLM's.
 litellm_settings:
   drop_params: true
-  request_timeout: 300
-  num_retries: 1
+  request_timeout: 85
+  num_retries: 0
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

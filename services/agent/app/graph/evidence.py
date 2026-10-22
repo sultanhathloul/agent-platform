@@ -10,7 +10,11 @@ server over MCP does so through `broker.transport`; those calls join the turn's 
 the capability that found the sources (ADR-0230).
 
 The texts are kept on the turn context, never in state: page attribution after the answer
-compares the answer with them (owner decision C1)."""
+compares the answer with them (owner decision C1).
+
+Every fetch of the step runs under one bound, min(config/turn.yaml `evidence_fetch_s`, what
+remains of the turn − `answer_reserve_s`) (I2, ADR-0255): past it, the sources not fetched yet
+stay without text, as when a server cannot answer, and the answer goes on with what was."""
 
 from collections import defaultdict
 from typing import Any
@@ -23,6 +27,7 @@ from app.graph.guarding import guard_context
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
 from app.rag.backend import DocumentScope
+from app.resilience import deadline
 from app.tools.broker import auditing
 from app.tools.spec import ToolFailure, ToolOutput
 
@@ -44,11 +49,16 @@ def _split(content: str, count: int) -> list[str | None]:
 
 
 async def _fetch(
-    state: AgentState, ctx: TurnContext, capability: str, sources: list[dict[str, Any]]
-) -> dict[tuple[str, str], str]:
-    """The text of each source by (backend, ref), fetched from the backend and collection that
-    found it. A source naming an unknown backend, or a collection this capability may not read
-    this turn, gets nothing."""
+    state: AgentState,
+    ctx: TurnContext,
+    capability: str,
+    sources: list[dict[str, Any]],
+    texts: dict[tuple[str, str], str],
+) -> None:
+    """Puts the text of each source in `texts` by (backend, ref), fetched from the backend and
+    collection that found it, as each backend answers, so what was fetched before the step's bound
+    is kept. A source naming an unknown backend, or a collection this capability may not read this
+    turn, gets nothing."""
     services = ctx.services
     span = trace.get_current_span()
     allowed = services.broker.scope_for(
@@ -61,7 +71,6 @@ async def _fetch(
     for source in sources:
         backend = source.get("backend") or services.backend_name(capability) or ""
         groups[(backend, source.get("collection"))].append(source["ref"])
-    texts: dict[tuple[str, str], str] = {}
     for (name, collection), refs in groups.items():
         backend = services.backends.get(name)
         if backend is None and name == getattr(services.documents, "name", None):
@@ -85,7 +94,6 @@ async def _fetch(
             )
             continue
         texts |= {(name, ref): text for ref, text in fetched.items() if ref in refs}
-    return texts
 
 
 def _key(source: dict[str, Any], ctx: TurnContext, capability: str) -> tuple[str, str]:
@@ -98,17 +106,30 @@ async def load_evidence(state: AgentState, ctx: TurnContext) -> list[dict[str, A
     span = trace.get_current_span()
     retrieved: list[dict[str, Any]] = []
     evidence: dict[str, str] = {}
-    for output in state.get("capability_outputs") or []:
-        sources = [s for s in output.get("sources") or [] if s.get("ref")]
+    wanted = [
+        (output, [s for s in output.get("sources") or [] if s.get("ref")])
+        for output in state.get("capability_outputs") or []
+    ]
+    fetched: dict[str, dict[tuple[str, str], str]] = {}
+    turn = ctx.services.turn
+    try:
+        with deadline.within(turn.evidence_fetch_s, margin_s=turn.answer_reserve_s):
+            for output, sources in wanted:
+                if sources:
+                    texts = fetched.setdefault(output["capability"], {})
+                    await _fetch(state, ctx, output["capability"], sources, texts)
+    except deadline.DeadlineExceeded:
+        span.add_event("evidence.unavailable", {"code": "tool_timeout"})
+    for output, sources in wanted:
         if not sources:
             continue
         capability = output["capability"]
-        fetched = await _fetch(state, ctx, capability, sources)
-        sources = [s for s in sources if _key(s, ctx, capability) in fetched]
+        texts = fetched.get(capability, {})
+        sources = [s for s in sources if _key(s, ctx, capability) in texts]
         if not sources:
             continue
         content = "\n".join(
-            f"{_MARK.format(index=i)}\n{fetched[_key(s, ctx, capability)]}" for i, s in enumerate(sources)
+            f"{_MARK.format(index=i)}\n{texts[_key(s, ctx, capability)]}" for i, s in enumerate(sources)
         )
         outcome = await ctx.services.guard.evaluate(
             Checkpoint.POST_TOOL,

@@ -18,7 +18,8 @@ public record GatewayProperties(
         @Valid @NotNull Cors cors,
         @Valid @NotNull Models models,
         @Valid @NotNull Storage storage,
-        @Valid @NotNull Docs docs) {
+        @Valid @NotNull Docs docs,
+        @Valid @NotNull Turn turn) {
 
     /**
      * @param issuer   browser-facing issuer the tokens carry (validated, never fetched)
@@ -36,11 +37,22 @@ public record GatewayProperties(
      */
     public record Admin(String baseUrl, String realm, String clientId, String clientSecret) {}
 
+    /**
+     * @param responseTimeout every agent call but a turn stream, from the request to the body's end
+     *                        (Spring's JDK client applies its read timeout to the whole exchange;
+     *                        a turn stream is bounded by {@link Turn} instead, ADR-0256)
+     * @param keepAlive       how long an idle connection to the agent is kept; shorter than the
+     *                        agent's own (uvicorn 75 s), set by {@link HttpClientKeepAlive} (I8)
+     */
     public record Agent(
             @NotBlank String baseUrl,
             @NotBlank String internalToken,
             @NotNull Duration connectTimeout,
-            @NotNull Duration responseTimeout) {}
+            @NotNull Duration responseTimeout,
+            @NotNull Duration keepAlive) {}
+
+    /** @param config path of config/turn.yaml: the relay's bound on a turn stream (I3, ADR-0256) */
+    public record Turn(@NotBlank String config) {}
 
     public record Cors(@NotEmpty List<String> allowedOrigins) {}
 

@@ -15,6 +15,7 @@ once, at the configured temperature, on the same context package; in streaming
 mode `retract` withdraws the released text and the retry streams in its place.
 `validate` ends the turn only if the retry fails too (ADR-0061)."""
 
+import math
 from collections.abc import Sequence
 
 from langgraph.runtime import Runtime
@@ -30,6 +31,7 @@ from app.graph.nodes import emit, traced
 from app.graph.state import AgentState
 from app.graph.streaming import DataStream
 from app.memory.types import MemoryScope
+from app.resilience import deadline
 from app.text.script import script_issues
 
 RETRY_REASON = "answer_retry"
@@ -121,21 +123,26 @@ async def answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
             raise
         return result.text, released, result.tokens_in, result.tokens_out
 
-    text, released, tokens_in, tokens_out = await attempt()
+    # The answer, its retry included, ends post_answer_reserve_s before the turn's deadline, so the
+    # steps after it always have that room (ADR-0263).
+    with deadline.within(math.inf, margin_s=services.turn.post_answer_reserve_s):
+        text, released, tokens_in, tokens_out = await attempt()
 
-    retry = services.validation.retry
-    scripts = services.validation.scripts_for(locale)
-    issues = script_issues(text, scripts) if scripts else []
-    retrying = bool(retry.attempts and set(issues) & set(retry.issues))
-    span.set_attribute("answer.retry", retrying)
-    if retrying:
-        span.set_attribute("answer.retry.issues", ",".join(issues))
-        if released:
-            emit(runtime, "retract", {"reason": RETRY_REASON})
-        text, released, retry_in, retry_out = await attempt(retry.temperature)
-        tokens_in += retry_in
-        tokens_out += retry_out
-        span.set_attribute("answer.retry.passed", not script_issues(text, scripts))
+        retry = services.validation.retry
+        scripts = services.validation.scripts_for(locale)
+        issues = script_issues(text, scripts) if scripts else []
+        retrying = bool(retry.attempts and set(issues) & set(retry.issues))
+        span.set_attribute("answer.retry", retrying)
+        if retrying:
+            span.set_attribute("answer.retry.issues", ",".join(issues))
+            if released:
+                emit(runtime, "retract", {"reason": RETRY_REASON})
+            text, released, retry_in, retry_out = await attempt(retry.temperature)
+            tokens_in += retry_in
+            tokens_out += retry_out
+            span.set_attribute("answer.retry.passed", not script_issues(text, scripts))
+    if not buffered:
+        ctx.answer_sent = True  # every token has left (streaming); buffered: release_answer
 
     return {
         "answer_mode": "buffered" if buffered else "streaming",

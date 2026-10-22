@@ -61,7 +61,14 @@ gateway:
     base-url: http://localhost:8000
     # internal-token has no default: the gateway refuses to start without it.
     connect-timeout: 5s
+    # Every agent call but a turn stream, from the request to the body's end: Spring's JDK client
+    # applies it to the whole exchange, body included (finding of the timeout budget PR, ADR-0256).
+    # A turn stream is bounded by config/turn.yaml instead (gateway.turn).
     response-timeout: 60s
+    # An idle connection to the agent is dropped after this, before the agent's server drops it
+    # (uvicorn --timeout-keep-alive 75, services/agent/Dockerfile): I8, ADR-0260. JDK 21's own
+    # default is the same 30 s; it is set here so it is reviewed rather than inherited.
+    keep-alive: 30s
   cors:
     allowed-origins: http://localhost:3000
   models:
@@ -70,6 +77,10 @@ gateway:
   docs:
     # Upload limits (ADR-0126); compose mounts config/docs.yaml and sets GATEWAY_DOCS_CONFIG.
     config: ../../config/docs.yaml
+  turn:
+    # The relay's bound on a turn stream, deadline_s + gateway_margin_s (I3, ADR-0256); compose
+    # mounts config/turn.yaml and sets GATEWAY_TURN_CONFIG.
+    config: ../../config/turn.yaml
   storage:
     # MinIO on the compose network (ADR-0129); GATEWAY_STORAGE_* in compose.
     endpoint: http://localhost:9000

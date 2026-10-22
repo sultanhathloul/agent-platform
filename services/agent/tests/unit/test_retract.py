@@ -55,7 +55,10 @@ class _Engine:
 
 def _runtime(engine=None):
     written: list[dict] = []
-    services = SimpleNamespace(guard=engine, validation=VALIDATION, guard_config=STREAMING)
+    # turn: the guards on the whole answer end persist_s before the deadline (ADR-0263).
+    services = SimpleNamespace(
+        guard=engine, validation=VALIDATION, guard_config=STREAMING, turn=SimpleNamespace(persist_s=0.5)
+    )
     context = TurnContext(
         services=services, principal=Principal(user_id="u"), request_id="r", turn_id="turn-1"
     )

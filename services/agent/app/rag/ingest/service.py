@@ -19,6 +19,8 @@ from app.db import Database
 from app.models.config import load_models_config
 from app.models.embeddings import EmbeddingGateway
 from app.observability.otel import setup_tracing, shutdown_tracing
+from app.rag.config import load_docs_config
+from app.rag.ingest.sandbox import MemoryBudgetExceeded, check_memory_budget
 from app.rag.setup import build_documents
 from app.settings import Settings, get_settings
 
@@ -39,6 +41,12 @@ async def _health(port: int) -> asyncio.base_events.Server:
 async def run(settings: Settings, stop: asyncio.Event) -> None:
     from redis.asyncio import Redis
 
+    docs = load_docs_config(settings.config_dir)
+    try:
+        log.info(check_memory_budget(docs.ingest.workers, docs))
+    except MemoryBudgetExceeded as exc:
+        log.error("%s", exc)
+        raise SystemExit(1) from None
     db = Database(settings.database_url, max_size=4)
     await db.open()
     redis = Redis.from_url(settings.redis_url, decode_responses=True)

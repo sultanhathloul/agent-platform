@@ -1,0 +1,10 @@
+# The relay's bounds for StreamBoundTest (timeout budget PR, I3; PR #12 review, decision 5): the
+# agent's headers within 1 s, the whole stream within 1 + 1 = 2 s.
+deadline_s: 1
+answer_reserve_s: 0.2
+post_answer_reserve_s: 0.1
+persist_s: 0.05
+evidence_fetch_s: 0.2
+admission_s: 0.5
+gateway_headers_s: 1
+gateway_margin_s: 1

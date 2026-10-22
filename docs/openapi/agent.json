@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.2.0"
+    "version": "2.3.0"
   },
   "paths": {
     "/v1/health": {
@@ -123,8 +123,18 @@
               }
             }
           },
+          "429": {
+            "description": "too_many_turns: the caller's or its tenant's turns in flight are at their limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "503": {
-            "description": "service_busy: every turn lock connection is in use",
+            "description": "service_busy: the platform's turns in flight are at capacity, or ownership and the lock took longer than admission_s",
             "content": {
               "application/json": {
                 "schema": {
@@ -2541,6 +2551,16 @@
           },
           "415": {
             "description": "file_type_unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "too_many_uploads: the caller's registrations in flight are at their limit",
             "content": {
               "application/json": {
                 "schema": {

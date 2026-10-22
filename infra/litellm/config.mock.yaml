@@ -48,5 +48,67 @@ model_list:
     model_info:
       mode: rerank
 
+  # A slow model provider (timeout budget PR, I2 and I4; ADR-0255, ADR-0257): tests run it in the
+  # test container (tests/fixtures/slow_upstream.py, port 8765; `make test-agent` uses
+  # --use-aliases so the container answers to agent-tests). Test-only aliases; no tier names them.
+  - model_name: slow-hung
+    litellm_params: {model: openai/hung, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-trickle
+    litellm_params: {model: openai/trickle, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-flood
+    litellm_params: {model: openai/flood, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-ok
+    litellm_params: {model: openai/ok, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-drop
+    litellm_params: {model: openai/drop, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-429
+    litellm_params: {model: openai/status429, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-500
+    litellm_params: {model: openai/status500, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  # As heavy → standard in config.yaml: a fallback hop, here from one hung upstream to another.
+  - model_name: slow-fallback
+    litellm_params: {model: openai/hung, api_base: "http://agent-tests:8765/v1", api_key: mock}
+  - model_name: slow-embed-hung
+    litellm_params: {model: openai/hung, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
+  - model_name: slow-embed-trickle
+    litellm_params: {model: openai/trickle, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
+  - model_name: slow-embed-flood
+    litellm_params: {model: openai/flood, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
+  - model_name: slow-embed-ok
+    litellm_params: {model: openai/ok, api_base: "http://agent-tests:8765/v1", api_key: mock}
+    model_info:
+      mode: embedding
+  - model_name: slow-rerank-hung
+    litellm_params: {model: infinity/hung, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+  - model_name: slow-rerank-trickle
+    litellm_params: {model: infinity/trickle, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+  - model_name: slow-rerank-flood
+    litellm_params: {model: infinity/flood, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+  - model_name: slow-rerank-ok
+    litellm_params: {model: infinity/ok, api_base: "http://agent-tests:8765", api_key: mock}
+    model_info:
+      mode: rerank
+
+router_settings:
+  fallbacks:
+    - slow-fallback: [slow-hung]
+
+# As config.yaml (I4): the agent retries, LiteLLM does not; its own bound is past the agent's.
+litellm_settings:
+  num_retries: 0
+  request_timeout: 85
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

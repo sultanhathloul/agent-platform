@@ -22,8 +22,12 @@ public enum ErrorCode {
     POLICY_EXISTS("policy_exists", 409),
     POLICY_INVALID("policy_invalid", 400),
     TURN_IN_FLIGHT("turn_in_flight", 409),
+    /** The caller's or its tenant's turns in flight at their limit (config/turn.yaml; ADR-0262). */
+    TOO_MANY_TURNS("too_many_turns", 429),
     AGENT_UNAVAILABLE("agent_unavailable", 502),
     AGENT_STREAM_INTERRUPTED("agent_stream_interrupted", 502),
+    /** A turn past its whole-turn bound (config/turn.yaml; I2, I3), from the agent or the relay. */
+    TURN_TIMEOUT("turn_timeout", 504),
     IDENTITY_UNAVAILABLE("identity_unavailable", 502),
     AUDIT_UNAVAILABLE("audit_unavailable", 503),
     SERVICE_BUSY("service_busy", 503),

@@ -261,6 +261,7 @@ POST /v1/kb/{slug}/ingest   body: {object_key, metadata}      ← admin ingestio
 GET  /v1/health
 ```
 > **Amendment 2026-10-15 (phase 05, ADR-0209, ADR-0214, ADR-0219).** Agent and gateway API version 2.2.0, additive: `tool_start` carries the tool's `label {ar, en}`; an attachment carries `warnings` (`[{code: pages_without_text, count}]`, ADR-0201); the terminal `done` and `error` events carry `tool_audit`, every tool call of the turn without content, from the agent to the gateway only (the gateway writes it into the audit record as `tool_calls` and removes it, like `guard_audit`); `GET /v1/health` lists each MCP server and each disabled tool, content-free.
+> **Amendment 2026-10-21 (fix session on the PR #12 review, ADR-0262, ADR-0265).** Agent and gateway API version 2.3.0, additive: `POST /v1/turns` (agent) and `POST /v1/chat/turns` (gateway) may answer 429 `too_many_turns` before any stream; the agent's attachment registration may answer 429 `too_many_uploads`, which the gateway's upload already documented. The events schema is unchanged.
 
 ### 6.3 API standards
 
@@ -766,6 +767,24 @@ Rules:
 > **Amendment 2026-10-18 (phase 05 fix session).** Keys added: config/mcp.yaml `servers[].tools[].class` (`tool` | `transport`, ADR-0230); config/docs.yaml `status_timeout_s` (2: one bound on reading a conversation's file statuses, ADR-0233); a capability's `evals/metrics.yaml` (its eval metrics with generic scorers, ADR-0240); `.env` `MCP_REF_TEST_DELAY_S` (the reference routing server's test-only delay, 0). `mcp-routing-ref` is on `mcp-routing`, a network it shares with the agent only, and CONNECT is kept from PUBLIC on the business, keycloak, langfuse and agent_test databases (ADR-0242).
 
 > **Amendment 2026-10-15 (phase 05, ADR-0211).** Compose gains `mcp-routing-ref` and `mcp-rag-ref`, the reference MCP servers (infra/mcp-ref), on `mcp`, an internal network with no route out, never published; `postgres-roles`, a one-shot job creating the RAG server's database role and schema; and `make mcp-hashes`. The agent does not wait for any MCP server: one that is down is reported in `/v1/health`, and the capabilities that need it say so in their answers.
+
+### 20.5 Configuration keys added before phase 06 (timeout budget PR, owner decision 2026-10-21)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/turn.yaml` (new) | `deadline_s` (120), `answer_reserve_s` (45), `evidence_fetch_s` (10), `gateway_margin_s` (15) | One deadline per chat turn; past it the turn ends `turn_timeout`. Each capability runs under min(its `limits.timeout_s`, what remains − `answer_reserve_s`), the evidence fetch under min(`evidence_fetch_s`, what remains − `answer_reserve_s`), the answer under what remains; the gateway relays a turn for at most `deadline_s + gateway_margin_s` (ADR-0255, ADR-0256). Read by the agent and the gateway (`gateway.turn.config`, GATEWAY_TURN_CONFIG) |
+| `config/models.yaml` | `timeouts.roles.<role>`, `timeouts.embedding.query` / `.ingest`, `timeouts.rerank`, `timeouts.retry.min_remaining_s` / `.backoff_s` | Each model, embedding and rerank call's ceiling, cut to what remains of the call around it; the agent's one retry before the first token (ADR-0257) |
+| `config/docs.yaml` | `register_response_s` (20) | How long an upload waits for its document backend to take the file before it answers `pending` and the registration goes on in the background (ADR-0254) |
+| | `ingest.sandbox.parent_reserve_mb` (512); `ingest.sandbox.memory_mb` now 640 | The document service's own memory beside its sandbox children; workers × `memory_mb` + this must fit the container, or the service refuses to start (ADR-0252) |
+| `infra/litellm/config.yaml` | `litellm_settings.request_timeout` 85, `num_retries` 0 | LiteLLM's backstop under the agent's longest call; retries are the agent's (ADR-0257) |
+| gateway `application.yml` | `gateway.agent.keep-alive` (30 s), `gateway.turn.config` | The JDK HttpClient's idle keep-alive, under the agent's uvicorn `--timeout-keep-alive 75` (ADR-0260); the path of config/turn.yaml |
+| `docker-compose.yml` | `memswap_limit: 2g` on ingest and mcp-rag-ref | No swap, so the container's memory limit is the one the startup check reads (ADR-0253) |
+
+| `config/turn.yaml` (PR #12 review) | `admission_s` (10), `post_answer_reserve_s` (30), `persist_s` (10), `gateway_headers_s` (15) | The turn's deadline opens on arrival; ownership and the lock within `admission_s`; the answer under min(its ceiling, what remains − `post_answer_reserve_s`), the guards on the whole answer, persistence (each checkpoint write ≤ `persist_s`), the summary and memory inside that reserve, never `turn_timeout` once the answer is sent; the gateway waits `gateway_headers_s` for the agent's headers (ADR-0263, ADR-0264) |
+| | `per_user_max` (2), `per_tenant_max` (null: the platform's capacity), `per_tenant_overrides` | Turns in flight per user and per tenant, under LOCK_POOL_SIZE; past one, 429 `too_many_turns` at once (ADR-0262) |
+| `config/docs.yaml` (PR #12 review) | `limits.max_concurrent_uploads_per_tenant` (null), `limits.tenant_concurrent_uploads` | A registration counts toward its user's `max_concurrent_uploads` until it ends, in the background too; a tenant's share is optional; past one, 429 `too_many_uploads` (ADR-0265) |
+
+`scripts/check_timeout_budget.py`, run by `make test`, checks that every nested bound these keys set is shorter than the one around it, with its rules in services/agent/app/resilience/budget.py (ADR-0261, ADR-0269).
 
 ## 21. Getting started on a new machine
 

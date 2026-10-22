@@ -26,6 +26,8 @@ dependencies = [
     "minio>=7.2",
     "defusedxml>=0.7.1",
     "mcp==1.30.0",
+    "anyio>=4.4",
+    "httpx2>=2.12",  # the OpenAI SDK's HTTP client; its byte-capped transport (app/models/transport.py)
 ]
 
 [dependency-groups]

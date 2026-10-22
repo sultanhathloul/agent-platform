@@ -23,12 +23,14 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.mcp.client import UNAVAILABLE, MCPClient, ServerConnection
+from app.mcp.client import TIMEOUT, UNAVAILABLE, MCPClient, ServerConnection
 from app.mcp.config import ToolEntry
+from app.resilience import deadline
 from app.tools.spec import PROVIDER_OWNER, ToolContext, ToolFailure, ToolOutput, ToolSpec
 
-# The broker's own bound on a call: the server's timeout plus room for the queue and the network.
-_BROKER_MARGIN_S = 5.0
+# The broker's own bound on a call (I6, ADR-0259): a wait for a slot of up to timeout_s, then the
+# call's own timeout_s, and room for the network; the broker cuts it to what remains of its caller.
+_BROKER_MARGIN_S = 2.0
 
 
 def public_schema(schema: dict[str, Any], injected: set[str]) -> dict[str, Any]:
@@ -119,7 +121,7 @@ def mcp_tool_specs(client: MCPClient) -> list[ToolSpec]:
                     input_schema=_args_model(server, tool),
                     risk="read",
                     required_permission=None,
-                    timeout_s=server.entry.timeout_s + _BROKER_MARGIN_S,
+                    timeout_s=2 * server.entry.timeout_s + _BROKER_MARGIN_S,
                     max_retries=0,
                     handler=_handler(server, tool),
                     label=tool.label,
@@ -180,7 +182,11 @@ async def call_transport(
     if any(Draft202012Validator(public_schema(schema, set(tool.injected))).iter_errors(args)):
         raise ToolFailure(INVALID_ARGUMENTS)
     try:
-        result = await server.call(tool, {**args, **_injected(tool, scope)})
+        # The broker's bound on a transport operation, as on a tool (I6): the slot, the call, room.
+        with deadline.within(2 * server.entry.timeout_s + _BROKER_MARGIN_S):
+            result = await server.call(tool, {**args, **_injected(tool, scope)})
+    except deadline.DeadlineExceeded:
+        raise ToolFailure(TIMEOUT) from None
     except ToolFailure as failure:
         observed.update(failure.observed)
         raise

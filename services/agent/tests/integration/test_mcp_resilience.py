@@ -27,6 +27,7 @@ from app.tools.registry import ToolRegistry
 from app.tools.spec import ToolFailure, ToolOutput
 from tests.fixtures.mcp_server import FixtureServer, tool_hashes
 from tests.fixtures.raw_mcp import SECRET, RawMCPServer
+from tests.fixtures.timing import LagProbe
 
 pytestmark = pytest.mark.integration
 
@@ -85,28 +86,6 @@ async def _call(broker, name, *, user="u-res", audit=None, args=None):
         conversation_id="c-res",
         on_audit=audit.append if audit is not None else None,
     )
-
-
-class LagProbe:
-    """The event loop's lag: how late a 10 ms sleep wakes, at worst."""
-
-    def __init__(self):
-        self.worst = 0.0
-        self._task: asyncio.Task | None = None
-
-    async def _run(self):
-        loop = asyncio.get_running_loop()
-        while True:
-            started = loop.time()
-            await asyncio.sleep(0.01)
-            self.worst = max(self.worst, loop.time() - started - 0.01)
-
-    def __enter__(self):
-        self._task = asyncio.ensure_future(self._run())
-        return self
-
-    def __exit__(self, *exc):
-        self._task.cancel()
 
 
 async def _general_turn_s(services) -> float:

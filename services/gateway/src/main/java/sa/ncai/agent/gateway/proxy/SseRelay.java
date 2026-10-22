@@ -27,7 +27,9 @@ import sa.ncai.agent.gateway.api.ErrorMessages;
  * ADR-0219). When the audit record fails, the terminal event is replaced
  * by {@code retract} and an {@code audit_unavailable} error, so no turn completes without its
  * audit record (ADR-0042). If the stream breaks or ends without a terminal event, a single
- * {@code agent_stream_interrupted} error event is appended, also after {@code commit}. An event
+ * {@code agent_stream_interrupted} error event is appended, also after {@code commit}; when that
+ * happens at or past the relay's bound ({@code deadlineNanos}: the agent client closes the stream
+ * there, ADR-0256), the event is {@code turn_timeout} instead. An event
  * block cut off before its closing blank line is discarded, never forwarded: a client receives
  * only complete events, each one as this relay passed it (ADR-0118).
  */
@@ -49,11 +51,14 @@ public class SseRelay {
     }
 
     /**
+     * @param deadlineNanos the relay's bound on {@link System#nanoTime()}'s clock: a stream that ends
+     *                      without a terminal event at or past it ended by the bound (turn_timeout)
      * @param commit writes the audit record for the outcome; returns false when it could not
      * @throws ClientGoneException when writing to {@code downstream} fails
      */
     public RelayOutcome relay(
-            InputStream upstream, OutputStream downstream, String requestId, Predicate<RelayOutcome> commit) {
+            InputStream upstream, OutputStream downstream, String requestId, long deadlineNanos,
+            Predicate<RelayOutcome> commit) {
         InputStream in = new BufferedInputStream(upstream, 8192);
         ByteArrayOutputStream line = new ByteArrayOutputStream(512);
         ByteArrayOutputStream block = new ByteArrayOutputStream(1024);
@@ -118,12 +123,13 @@ public class SseRelay {
             flush(downstream);
             return terminal;
         }
-        RelayOutcome interrupted = RelayOutcome.interrupted();
-        write(downstream, commit.test(interrupted)
-                ? errorEvent(requestId, ErrorCode.AGENT_STREAM_INTERRUPTED)
+        boolean timedOut = System.nanoTime() - deadlineNanos >= 0;
+        RelayOutcome ended = timedOut ? RelayOutcome.timedOut() : RelayOutcome.interrupted();
+        write(downstream, commit.test(ended)
+                ? errorEvent(requestId, timedOut ? ErrorCode.TURN_TIMEOUT : ErrorCode.AGENT_STREAM_INTERRUPTED)
                 : auditUnavailable(requestId));
         flush(downstream);
-        return interrupted;
+        return ended;
     }
 
     private RelayOutcome terminalOutcome(String eventType, StringBuilder data) {

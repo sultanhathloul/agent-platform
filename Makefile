@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals eval smoke smoke-airgap logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals test-budget eval smoke smoke-airgap logs ps openapi purge-pre-guard
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -30,7 +30,7 @@ clean: ## Stop the stack and delete every volume
 seed: .env ## Re-run idempotent seed jobs (realm and Langfuse seed on first boot)
 	$(COMPOSE) run --rm minio-init
 
-test: test-agent test-gateway test-gateway-db test-web test-evals ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
+test: test-agent test-gateway test-gateway-db test-web test-evals test-budget ## Unit + integration tests; models via mock LiteLLM (ADR-0007)
 
 test-agent: .env
 	$(COMPOSE) up -d --wait postgres redis presidio-analyzer minio
@@ -40,7 +40,8 @@ test-agent: .env
 	@# The reference RAG server's role and its test database; CONNECT kept from PUBLIC (ADR-0242).
 	$(COMPOSE) run --rm postgres-roles
 	$(COMPOSE) --profile test up -d --wait litellm-mock
-	$(COMPOSE) --profile test run --rm --build agent-tests
+	@# --use-aliases: litellm-mock reaches the slow model provider the tests run, at agent-tests:8765 (ADR-0255).
+	$(COMPOSE) --profile test run --rm --build --use-aliases agent-tests
 
 # --no-cache-filter test: the test stage runs on every call, never from a cached layer (ADR-0043).
 # --build-context docs: the contract drift test compares docs/openapi/gateway.json (ADR-0044).
@@ -63,6 +64,14 @@ test-web:
 test-evals:
 	uv run --no-project --with pytest --with httpx --with pyyaml --with ragas==0.2.15 \
 		--with 'langchain-openai>=0.2,<0.4' pytest -q evals/tests
+
+# The timeout budget (I9, ADR-0261): every nested bound of docs/RESILIENCE.md shorter than the one
+# around it, read from the files that set them; the self-test proves each check catches a violation.
+# scripts/tests: the rules come from what the capabilities declare, none named (ADR-0275).
+test-budget:
+	uv run -q scripts/check_timeout_budget.py --self-test
+	uv run -q scripts/check_timeout_budget.py
+	uv run -q --no-project --with pytest --with pyyaml pytest -q scripts/tests
 
 eval: .env ## Golden suites against the live stack (real models)
 	RAGAS_DO_NOT_TRACK=true uv run evals/run_evals.py $(s)
@@ -99,6 +108,7 @@ openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web'
 	docker run --rm -v "$(CURDIR)/services/gateway":/w -v gateway-gradle-cache:/home/gradle/.gradle -w /w \
 		-v "$(CURDIR)/config/models.yaml":/config/models.yaml:ro -e GATEWAY_MODELS_CONFIG=/config/models.yaml \
 		-v "$(CURDIR)/config/docs.yaml":/config/docs.yaml:ro -e GATEWAY_DOCS_CONFIG=/config/docs.yaml \
+		-v "$(CURDIR)/config/turn.yaml":/config/turn.yaml:ro -e GATEWAY_TURN_CONFIG=/config/turn.yaml \
 		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api

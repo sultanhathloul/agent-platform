@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal, get_args
 
 import yaml
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # The tier names of README §19.1. config/models.yaml must define exactly these, and
 # principal.max_tier accepts only these, so the agent API schema lists them (ADR-0049).
@@ -31,6 +31,31 @@ class Escalation(_Strict):
     max_escalations_per_turn: int
 
 
+class Retry(_Strict):
+    min_remaining_s: float = Field(gt=0)
+    backoff_s: tuple[float, float]
+
+
+class Timeouts(_Strict):
+    """Wall-clock bounds on model calls, each cut to what remains of the call around it
+    (timeout budget PR, I4, ADR-0257)."""
+
+    roles: dict[str, float]
+    embedding: dict[Literal["query", "ingest"], float]
+    rerank: float = Field(gt=0)
+    retry: Retry
+
+    @model_validator(mode="after")
+    def _positive(self) -> "Timeouts":
+        for where, value in [*self.roles.items(), *self.embedding.items()]:
+            if value <= 0:
+                raise ValueError(f"timeouts: {where} must be positive")
+        low, high = self.retry.backoff_s
+        if not 0 <= low <= high:
+            raise ValueError("timeouts.retry.backoff_s: [low, high] with 0 <= low <= high")
+        return self
+
+
 class ModelsConfig(_Strict):
     tiers: dict[str, TierSpec]
     order: list[str]
@@ -41,6 +66,7 @@ class ModelsConfig(_Strict):
     embedding: dict[str, str]
     # The rerank alias (phase 04, ADR-0134); like an embedding, a rerank is not a chat call.
     rerank: dict[str, str] = {"alias": "rerank"}
+    timeouts: Timeouts
 
     @model_validator(mode="after")
     def _references_resolve(self) -> "ModelsConfig":
@@ -62,6 +88,10 @@ class ModelsConfig(_Strict):
         # Every role decodes at a declared temperature; no code-side default (ADR-0032).
         if sorted(self.temperature) != sorted(self.roles):
             raise ValueError("temperature must name every role in `roles` exactly once")
+        if sorted(self.timeouts.roles) != sorted(self.roles):
+            raise ValueError("timeouts.roles must name every role in `roles` exactly once (ADR-0257)")
+        if sorted(self.timeouts.embedding) != ["ingest", "query"]:
+            raise ValueError("timeouts.embedding must name query and ingest")
         for role, value in self.temperature.items():
             if not 0.0 <= value <= 2.0:
                 raise ValueError(f"temperature.{role}: {value} is outside 0.0–2.0")

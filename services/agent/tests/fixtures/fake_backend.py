@@ -152,6 +152,8 @@ def with_backend(services, backend):
         objects=attachments.objects,
         documents=backend,
         limits=attachments.limits,
+        status_timeout_s=attachments.status_timeout_s,
+        register_response_s=attachments.register_response_s,
     )
     swapped.backends = {other: backend for other in attachments.backends} | {
         getattr(backend, "name", "test"): backend

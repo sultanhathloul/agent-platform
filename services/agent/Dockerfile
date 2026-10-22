@@ -37,4 +37,7 @@ COPY app ./app
 RUN useradd --system --uid 10001 --no-create-home agent
 USER agent
 EXPOSE 8000
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# An idle keep-alive connection is kept 75 s, longer than the gateway keeps one (30 s,
+# gateway.agent.keep-alive), so the gateway never sends on a connection the agent has closed
+# (timeout budget PR, I8, ADR-0260); uvicorn's own default is 5 s.
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "75"]

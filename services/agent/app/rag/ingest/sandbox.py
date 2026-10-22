@@ -7,11 +7,16 @@ only: the chunks, the page count, or a failure reason code; never an exception's
 which can quote the document (S5).
 
 The caps on extracted text and on chunks (`extraction.max_chars`, `chunking.max_chunks`) are
-applied here too, and chunking runs in the child, off any event loop."""
+applied here too, and chunking runs in the child, off any event loop.
+
+A service running children checks at startup that its workers' children at their limit, plus
+its own reserve, fit the container's memory limit (`check_memory_budget`, I7, ADR-0252): two
+hostile files at once then fail on their own limits and never get the container OOM-killed."""
 
 import multiprocessing
 import resource
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.rag.chunk import chunk_segments
 from app.rag.config import DocsConfig
@@ -80,6 +85,47 @@ def _child(conn, kind: DocumentKind, data: bytes, config: DocsConfig) -> None:
         conn.send(message)
     finally:
         conn.close()
+
+
+# cgroup v2, then v1: the container's memory limit as the kernel enforces it.
+CGROUP_MEMORY_FILES = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
+_MIB = 1024 * 1024
+
+
+class MemoryBudgetExceeded(Exception):
+    """workers × the child limit + the service's reserve exceed the container's memory limit."""
+
+
+def container_memory_mib(files=CGROUP_MEMORY_FILES) -> float | None:
+    """The container's memory limit in MiB; None when there is none (`max`, or no cgroup file)."""
+    for path in files:
+        try:
+            text = path.read_text().strip()
+        except OSError:
+            continue
+        if text == "max" or not text.isdigit() or int(text) >= 2**60:  # v1 writes a huge number for none
+            return None
+        return int(text) / _MIB
+    return None
+
+
+def check_memory_budget(workers: int, config: DocsConfig, files=CGROUP_MEMORY_FILES) -> str:
+    """Raises MemoryBudgetExceeded, with the numbers, when `workers` children at their memory limit
+    and the service's reserve do not fit the container; returns the budget line to log."""
+    limits = config.ingest.sandbox
+    needed = workers * limits.memory_mb + limits.parent_reserve_mb
+    available = container_memory_mib(files)
+    line = (
+        f"memory budget: {workers} worker(s) × {limits.memory_mb} MiB per child + "
+        f"{limits.parent_reserve_mb} MiB reserve = {needed} MiB; container limit "
+        + ("none" if available is None else f"{available:.0f} MiB")
+    )
+    if available is not None and needed > available:
+        raise MemoryBudgetExceeded(
+            line + ": refusing to start; lower ingest.workers or ingest.sandbox.memory_mb in "
+            "config/docs.yaml, or raise the container's mem_limit (I7)"
+        )
+    return line
 
 
 class ParserDefect(Exception):

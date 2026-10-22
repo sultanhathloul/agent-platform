@@ -35,6 +35,7 @@ from app.graph.state import AgentState
 from app.graph.streaming import split_sentences
 from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import DataPayload, GuardOutcome
+from app.resilience import deadline
 
 # The retract reason when the whole-answer pass redacted what the sentence buffer missed.
 RESENT_REASON = "answer_redacted"
@@ -110,6 +111,13 @@ async def _rewrite(state: AgentState, ctx: TurnContext, outcome: GuardOutcome) -
 
 @traced("guard.OUTPUT")
 async def guard_output(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
+    # Inside the post-answer reserve: every check ends persist_s before the turn's deadline, on
+    # its policy's on_error if it is cut there, so persistence keeps its room (ADR-0263).
+    with deadline.horizon(runtime.context.services.turn.persist_s):
+        return await _guard_output(state, runtime)
+
+
+async def _guard_output(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
     streaming = state.get("answer_mode") != "buffered"
     answer = state["draft_answer"]
@@ -171,7 +179,13 @@ async def _checked_citations(
 async def guard_data(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     """The whole answer through DATA once. Buffered mode: before release_answer streams it.
     Streaming mode: every sentence already went through DATA (app/graph/streaming.py); this
-    pass catches what no sentence held whole and re-sends the text redacted (ADR-0111)."""
+    pass catches what no sentence held whole and re-sends the text redacted (ADR-0111). Inside the
+    post-answer reserve, as OUTPUT (ADR-0263)."""
+    with deadline.horizon(runtime.context.services.turn.persist_s):
+        return await _guard_data(state, runtime)
+
+
+async def _guard_data(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     if state.get("answer_mode") != "buffered":
         return await _final_data_pass(state, runtime)
     ctx = runtime.context
@@ -244,4 +258,5 @@ async def release_answer(state: AgentState, runtime: Runtime[TurnContext]) -> di
         update["shown_answer"] = text
     for citation in state.get("citations") or []:
         emit(runtime, "citation", citation)
+    ctx.answer_sent = True  # buffered: the answer's last token has left (ADR-0263)
     return update

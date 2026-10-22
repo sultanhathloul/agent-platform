@@ -17,7 +17,9 @@ never leaves a conversation locked.
 Release is shielded and runs once: a cancellation that lands while it runs cannot
 stop it halfway, and every connection the pool takes back is reset with
 pg_advisory_unlock_all(), so no pooled connection ever holds a conversation's lock
-(review round 1, ADR-0109). When every lock connection is in use for
+(review round 1, ADR-0109). The unlock is bounded (RELEASE_TIMEOUT_S): past it the connection is
+closed, which ends the session and with it the lock, and the pool discards it (the PR #12 review,
+decision 7, ADR-0267). When every lock connection is in use for
 `getconn_timeout_s`, `acquire` raises LockPoolBusy, which the route answers with
 503 `service_busy`."""
 
@@ -29,6 +31,8 @@ import uuid
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
 log = logging.getLogger(__name__)
+# The bound on a lease's unlock; past it the connection is closed and discarded.
+RELEASE_TIMEOUT_S = 5.0
 
 
 def lock_key(conversation_id: str) -> int:
@@ -69,7 +73,17 @@ class TurnLease:
 
     async def _release(self) -> None:
         try:
-            await self._conn.execute("SELECT pg_advisory_unlock(%s)", (self._key,))
+            # asyncio.timeout, not a cancel scope: the cancellation is delivered once, so closing
+            # the connection and returning it below are not cancelled in turn (ADR-0267).
+            async with asyncio.timeout(RELEASE_TIMEOUT_S):
+                await self._conn.execute("SELECT pg_advisory_unlock(%s)", (self._key,))
+        except TimeoutError:
+            log.warning(
+                "turn lock unlock for %s past %.0f s: connection closed",
+                self.conversation_id,
+                RELEASE_TIMEOUT_S,
+            )
+            await self._conn.close()  # the session ends, and with it the lock; the pool discards it
         except Exception as exc:  # the pool's reset, or the session's end, releases it anyway
             log.warning("turn lock unlock failed for %s: %s", self.conversation_id, type(exc).__name__)
         finally:

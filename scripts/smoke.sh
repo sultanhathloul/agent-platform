@@ -38,18 +38,25 @@
 #             effect; with mcp-routing-ref stopped the turn says the service is unavailable while
 #             another user's turn completes, then it recovers; on the MCP document backend an upload
 #             is indexed and cited; a partly scanned PDF is indexed with its warning on both backends.
+#   timeout budget (standalone PR before phase 06): two users' files that allocate up to their
+#             sandbox memory limit at once both end failed while a third user's file is indexed, and
+#             neither document service is OOM-killed or restarted (I7); two turns 10 s apart on one
+#             gateway both complete, and the gateway logged no connection reset during the run (I8);
+#             at the end, ingest and mcp-rag-ref were never OOM-killed during the run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 
 GW=$GATEWAY_PUBLIC_URL KC=$KEYCLOAK_PUBLIC_URL LF=$LANGFUSE_PUBLIC_URL WEB=$WEB_PUBLIC_URL
 TMP=$(mktemp -d)
+SMOKE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # the gateway's log is read from here (I8)
 # Smoke's temporary policies: whatever happens, the run ends with every one of them off.
 # ttft-buffered-output belongs to scripts/measure_ttft.py, which smoke runs below.
 SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt ttft-buffered-output)
 # Phase 05 changes the stack for two steps; whatever happens, it is put back (EXIT trap).
-RESTORE_ROUTING="" RESTORE_BACKEND=""
+RESTORE_ROUTING="" RESTORE_BACKEND="" RESTORE_MEMTEST=""
 cleanup() {
+  [[ -n $RESTORE_MEMTEST ]] && docker compose up -d --no-deps --force-recreate --wait $RESTORE_MEMTEST >/dev/null 2>&1 || true
   [[ $RESTORE_ROUTING == 1 ]] && docker compose start mcp-routing-ref >/dev/null 2>&1 || true
   [[ $RESTORE_ROUTING == hung ]] && docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null 2>&1 || true
   [[ -n $RESTORE_BACKEND ]] && docker compose up -d --no-deps --force-recreate --wait agent >/dev/null 2>&1 || true
@@ -69,6 +76,7 @@ fail() { printf '  FAIL  %s\n' "$1" >&2; exit 1; }
 check() { local label=$1; shift; "$@" >/dev/null 2>&1 && ok "$label" || fail "$label"; }
 status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 token_for() { uv run -q scripts/get_token.py "$1" "$2"; }
+source scripts/refused_unread.sh  # the R3 upload check (ADR-0271)
 
 # Every container with a healthcheck healthy, waiting up to $1 seconds (F3): a restarted or
 # still-starting container fails the run only when it stays unhealthy.
@@ -539,10 +547,10 @@ code=$(upload "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$TMP/oversize.pdf")
 [[ $code == 413 ]] && ok "an oversize PDF → 413" || fail "an oversize PDF returned $code"
 check "file_too_large with its Arabic message" jq -e '.error.code == "file_too_large" and .error.message_ar == "حجم الملف أكبر من الحد المسموح به."' "$TMP/upload.json"
 { printf '%%PDF-1.7\n'; head -c 31457280 /dev/zero; } > "$TMP/far-oversize.pdf"
-code=$(upload "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$TMP/far-oversize.pdf")
-[[ $code == 413 ]] && jq -e '.error.code == "file_too_large"' "$TMP/upload.json" >/dev/null \
-  && ok "a 30 MB file → the JSON 413 file_too_large, refused before its body is read, no reset (R3)" \
-  || fail "a 30 MB file returned $code: $(head -c 200 "$TMP/upload.json")"
+far=$(refused_unread "$GW/v1/conversations/$(uuidgen | tr 'A-Z' 'a-z')/attachments" "$VIEWER" \
+  "$TMP/far-oversize.pdf" "$TMP/upload.json") || fail "a 30 MB file: ${far#fail }"
+read -r _ far_sent far_size <<< "$far"
+ok "a 30 MB file → the JSON 413 file_too_large, refused before its body is read ($far_sent of $far_size bytes sent), no reset (R3)"
 
 step "phase 04: an instruction inside a document has no effect on the answer (ADR-0136)"
 INJ_CONV=$(uuidgen | tr 'A-Z' 'a-z')
@@ -839,5 +847,72 @@ docker compose up -d --no-deps --force-recreate --wait agent >/dev/null || fail 
 RESTORE_BACKEND=""
 ok "the agent is back on config/docs.yaml's backend"
 
-printf '\nsmoke: all phase 01 to 05 checks and the conversation history checks passed\n'
+# The timeout budget (I7, ADR-0252): a test-only parser (services/agent/tests/fixtures/memtest.py),
+# layered over the stack by docker-compose.memtest.yml for this step only, makes a file starting with
+# its marker allocate up to the sandbox child's memory limit and hold it 8 s.
+MEMTEST_FILES="${COMPOSE_FILE:-docker-compose.yml}:docker-compose.memtest.yml"
+not_oom_killed() {  # $1 service: its container was never OOM-killed and never restarted
+  [[ $(docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' "$(docker compose ps -q "$1")") == "false 0" ]]
+}
+memtest() {  # $1 service
+  local service=$1 container restarts hog_a hog_b plain conv_a conv_b conv_c
+  check "before this step, $service was never OOM-killed or restarted" not_oom_killed "$service"
+  RESTORE_MEMTEST=$service
+  COMPOSE_FILE=$MEMTEST_FILES docker compose up -d --no-deps --force-recreate --wait "$service" >/dev/null \
+    || fail "$service did not start with the test parser"
+  container=$(docker compose ps -q "$service")
+  restarts=$(docker inspect -f '{{.RestartCount}}' "$container")
+  printf 'MEMTEST-ALLOCATE-TO-THE-LIMIT\n' > "$TMP/memhog.txt"
+  VIEWER=$(token_for viewer viewer) || fail "viewer login"
+  EVALUATOR=$(token_for evaluator evaluator) || fail "evaluator login"
+  ANALYST=$(token_for analyst analyst) || fail "analyst login"
+  conv_a=$(uuidgen | tr 'A-Z' 'a-z') conv_b=$(uuidgen | tr 'A-Z' 'a-z') conv_c=$(uuidgen | tr 'A-Z' 'a-z')
+  [[ $(upload "$VIEWER" "$conv_a" "$TMP/memhog.txt") == 201 ]] || fail "the viewer's test file was refused"
+  hog_a=$(jq -r '.data.id' "$TMP/upload.json")
+  [[ $(upload "$EVALUATOR" "$conv_b" "$TMP/memhog.txt") == 201 ]] || fail "the evaluator's test file was refused"
+  hog_b=$(jq -r '.data.id' "$TMP/upload.json")
+  [[ $(upload "$ANALYST" "$conv_c" "$DOCS/summer-hours.txt") == 201 ]] || fail "the analyst's file was refused"
+  plain=$(jq -r '.data.id' "$TMP/upload.json")
+  wait_terminal "$VIEWER" "$conv_a" "$hog_a" && cp "$TMP/status.json" "$TMP/hog-a.json" || fail "the viewer's test file stayed pending"
+  wait_terminal "$EVALUATOR" "$conv_b" "$hog_b" && cp "$TMP/status.json" "$TMP/hog-b.json" || fail "the evaluator's test file stayed pending"
+  check "both files at their memory limit at once ended failed extraction_aborted ($service)" bash -c \
+    "jq -se 'all(.data.status == \"failed\" and .data.reason == \"extraction_aborted\")' '$TMP/hog-a.json' '$TMP/hog-b.json'"
+  wait_terminal "$ANALYST" "$conv_c" "$plain" || fail "the analyst's file stayed pending"
+  check "another user's file uploaded meanwhile is indexed ($service)" jq -e '.data.status == "indexed"' "$TMP/status.json"
+  check "$service was not OOM-killed and did not restart" bash -c \
+    "[[ \$(docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' $container) == 'false $restarts' ]]"
+  docker compose up -d --no-deps --force-recreate --wait "$service" >/dev/null || fail "$service did not come back"
+  RESTORE_MEMTEST=""
+  ok "$service is back on its own entry point"
+}
+
+step "timeout budget: two files at their sandbox memory limit at once, internal backend (I7)"
+memtest ingest
+
+step "timeout budget: two files at their sandbox memory limit at once, MCP backend (I7)"
+RESTORE_BACKEND=1
+DOCS_BACKEND=mcp docker compose up -d --no-deps --force-recreate --wait agent >/dev/null || fail "the agent did not start on DOCS_BACKEND=mcp"
+for _ in $(seq 1 45); do connected rag && break; sleep 2; done
+connected rag || fail "the agent is not connected to mcp-rag-ref"
+memtest mcp-rag-ref
+for _ in $(seq 1 45); do connected rag && break; sleep 2; done
+docker compose up -d --no-deps --force-recreate --wait agent >/dev/null || fail "the agent did not come back on the internal backend"
+RESTORE_BACKEND=""
+
+step "timeout budget: two turns 10 s apart on one gateway, past the agent's old 5 s keep-alive (I8)"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+KA_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+chat "$ANALYST" "$KA_CONV" "ما عاصمة المملكة العربية السعودية؟" "$TMP/keepalive-1.jsonl"
+check "the first turn completes" jq -se 'last.type == "done"' "$TMP/keepalive-1.jsonl"
+sleep 10
+chat "$ANALYST" "$KA_CONV" "وما عاصمة الإمارات؟" "$TMP/keepalive-2.jsonl"
+check "the turn 10 s later completes" jq -se 'last.type == "done"' "$TMP/keepalive-2.jsonl"
+check "the gateway logged no connection reset or closed connection during the run" bash -c \
+  "! docker compose logs --no-log-prefix --since '$SMOKE_STARTED' gateway | grep -Eiq 'connection reset|received no bytes|connection (was )?closed by|EOFException'"
+
+step "timeout budget: no document service was OOM-killed during the run (I7)"
+check "ingest was never OOM-killed or restarted" not_oom_killed ingest
+check "mcp-rag-ref was never OOM-killed or restarted" not_oom_killed mcp-rag-ref
+
+printf '\nsmoke: all phase 01 to 05 checks, the conversation history checks and the timeout budget checks passed\n'
 
