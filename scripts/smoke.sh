@@ -43,6 +43,11 @@
 #             neither document service is OOM-killed or restarted (I7); two turns 10 s apart on one
 #             gateway both complete, and the gateway logged no connection reset during the run (I8);
 #             at the end, ingest and mcp-rag-ref were never OOM-killed during the run.
+#   platform settings (standalone PR before phase 06): a non-admin is refused the settings and the
+#             usage; an invalid pair is refused in plain words; the admin lowers per_user_max to 1,
+#             the usage shows the turn in flight, a second concurrent turn is refused
+#             too_many_turns, the admin restores the default and the turn passes; the save and the
+#             restore are versions with their actor, audited with before and after.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -55,7 +60,13 @@ SMOKE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # the gateway's log is read from 
 SMOKE_POLICY_IDS=(smoke-live-block smoke-pii-exempt ttft-buffered-output)
 # Phase 05 changes the stack for two steps; whatever happens, it is put back (EXIT trap).
 RESTORE_ROUTING="" RESTORE_BACKEND="" RESTORE_MEMTEST=""
+# The platform settings step lowers per_user_max; whatever happens, the files' values come back.
+RESTORE_SETTINGS=""
 cleanup() {
+  if [[ -n $RESTORE_SETTINGS && -n ${ADMIN:-} ]]; then
+    curl -s -o /dev/null -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+      -d '{"overrides":{}}' "$GW/v1/admin/settings" || true
+  fi
   [[ -n $RESTORE_MEMTEST ]] && docker compose up -d --no-deps --force-recreate --wait $RESTORE_MEMTEST >/dev/null 2>&1 || true
   [[ $RESTORE_ROUTING == 1 ]] && docker compose start mcp-routing-ref >/dev/null 2>&1 || true
   [[ $RESTORE_ROUTING == hung ]] && docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null 2>&1 || true
@@ -914,5 +925,82 @@ step "timeout budget: no document service was OOM-killed during the run (I7)"
 check "ingest was never OOM-killed or restarted" not_oom_killed ingest
 check "mcp-rag-ref was never OOM-killed or restarted" not_oom_killed mcp-rag-ref
 
-printf '\nsmoke: all phase 01 to 05 checks, the conversation history checks and the timeout budget checks passed\n'
+step "platform settings: admin only; an invalid pair refused in plain words (ADR-0276, ADR-0278, ADR-0284)"
+ADMIN=$(token_for admin admin) || fail "admin login"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+for path in /v1/admin/settings /v1/admin/usage /v1/admin/settings/versions; do
+  code=$(status -H "Authorization: Bearer $ANALYST" "$GW$path")
+  [[ $code == 403 ]] && ok "a non-admin is refused $path → 403" || fail "a non-admin got $code on $path"
+done
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/settings" > "$TMP/settings.json" || fail "the admin cannot read the settings"
+check "per_user_max is 2, the files' value, with nothing overridden" jq -e \
+  '.data.fields[] | select(.key == "turn.per_user_max") | .default == 2 and .value == 2 and (.overridden | not)' "$TMP/settings.json"
+check "the timeout tree holds on the values in force" jq -e '(.data.tree | length > 20) and all(.data.tree[]; .holds)' "$TMP/settings.json"
+check "LOCK_POOL_SIZE is shown read only with its source" jq -e \
+  '.data.read_only[] | select(.key == "lock_pool_size") | .value == '"${LOCK_POOL_SIZE:-20}"' and (.source | test("LOCK_POOL_SIZE"))' "$TMP/settings.json"
+SETTINGS_V0=$(jq -r '.data.version' "$TMP/settings.json")
+code=$(curl -s -o "$TMP/settings-invalid.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN" \
+  -H 'Content-Type: application/json' -d '{"overrides":{"turn.answer_reserve_s":130}}' "$GW/v1/admin/settings")
+[[ $code == 400 ]] && ok "an answer reserve past the whole question's deadline → 400" || fail "the invalid save returned $code"
+check "settings_invalid, naming the rule, in plain Arabic words" jq -e \
+  '.error.code == "settings_invalid" and (.error.details | index("answer-reserve-in-turn")) and (.error.message_ar | contains("مهلة الإجابة"))' \
+  "$TMP/settings-invalid.json"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/settings" > "$TMP/settings-after-invalid.json"
+check "nothing changed: the same version is in force" jq -e --argjson v "$SETTINGS_V0" '.data.version == $v' "$TMP/settings-after-invalid.json"
+
+step "platform settings: per_user_max 2 → 1 applies to the next turn with no restart; restored, the turn passes (item 10)"
+curl -fsS -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d "{\"overrides\":{\"turn.per_user_max\":1},\"expected_version\":$SETTINGS_V0}" "$GW/v1/admin/settings" > "$TMP/settings-saved.json" \
+  || fail "the admin could not save per_user_max 1"
+RESTORE_SETTINGS=1
+check "the save is a new version that changed per_user_max from 2 to 1" jq -e --argjson v "$SETTINGS_V0" \
+  '.data.version == $v + 1 and .data.change == "save" and .data.changes == [{"key": "turn.per_user_max", "before": 2, "after": 1}]' \
+  "$TMP/settings-saved.json"
+LIMIT_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$LIMIT_CONV\",\"message\":\"اكتب فقرة من خمس جمل عن تاريخ مدينة جدة.\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" > "$TMP/limit-first.sse" &
+LIMIT_FIRST=$!
+for _ in $(seq 1 200); do grep -q '^data: ' "$TMP/limit-first.sse" 2>/dev/null && break; sleep 0.05; done
+grep -q '^data: ' "$TMP/limit-first.sse" || fail "the first turn did not start streaming"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/usage" > "$TMP/usage-busy.json" || fail "the admin cannot read the usage"
+check "the usage section shows the turn in flight (counts only)" jq -e \
+  '.data.turns.in_flight >= 1 and .data.turns.top_user_in_flight >= 1 and .data.turns.per_user_max == 1' "$TMP/usage-busy.json"
+check "the usage names no user" bash -c "! grep -q 'analyst' '$TMP/usage-busy.json'"
+code=$(curl -s -o "$TMP/limit-second.json" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"ما عاصمة المملكة؟\",\"locale\":\"ar\"}" "$GW/v1/chat/turns")
+[[ $code == 429 ]] && ok "the analyst's second concurrent turn → 429" || fail "the second concurrent turn returned $code"
+check "error code is too_many_turns" jq -e '.error.code == "too_many_turns"' "$TMP/limit-second.json"
+wait "$LIMIT_FIRST"
+sed -n 's/^data: //p' "$TMP/limit-first.sse" > "$TMP/limit-first.jsonl"
+check "the turn in flight kept its slot and ends with done" jq -se 'last.type == "done"' "$TMP/limit-first.jsonl"
+curl -fsS -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"overrides":{}}' \
+  "$GW/v1/admin/settings" > "$TMP/settings-restored.json" || fail "the admin could not restore the default"
+RESTORE_SETTINGS=""
+check "the restore is a new version back to 2" jq -e \
+  '.data.change == "restore" and .data.changes == [{"key": "turn.per_user_max", "before": 1, "after": 2}]' "$TMP/settings-restored.json"
+curl -sN -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"اكتب فقرة من خمس جمل عن تاريخ مدينة الطائف.\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns" > "$TMP/limit-a.sse" &
+LIMIT_A=$!
+for _ in $(seq 1 200); do grep -q '^data: ' "$TMP/limit-a.sse" 2>/dev/null && break; sleep 0.05; done
+grep -q '^data: ' "$TMP/limit-a.sse" || fail "the first turn after the restore did not start streaming"
+code=$(curl -s -o "$TMP/limit-b.sse" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"ما عاصمة المملكة؟\",\"locale\":\"ar\"}" \
+  "$GW/v1/chat/turns")
+[[ $code == 200 ]] && ok "with the default back, a second concurrent turn is admitted → 200" || fail "the turn after the restore returned $code"
+wait "$LIMIT_A"
+sed -n 's/^data: //p' "$TMP/limit-a.sse" > "$TMP/limit-a.jsonl"
+sed -n 's/^data: //p' "$TMP/limit-b.sse" > "$TMP/limit-b.jsonl"
+check "the second turn passes: it ends with done" jq -se 'last.type == "done"' "$TMP/limit-b.jsonl"
+check "the first ends with done too" jq -se 'last.type == "done"' "$TMP/limit-a.jsonl"
+curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/settings/versions" > "$TMP/settings-versions.json"
+check "the history holds the save and the restore, newest first, by the admin" jq -e --argjson v "$SETTINGS_V0" \
+  '[.data.versions[0:2][] | [.version, .change, .created_by_username]] == [[$v + 2, "restore", "admin"], [$v + 1, "save", "admin"]]' \
+  "$TMP/settings-versions.json"
+saves=$(sql "select count(*) from gateway.audit_events where action = 'settings.save' and status = 'ok' and occurred_at >= '$SMOKE_STARTED'
+  and detail->>'actor_username' = 'admin' and jsonb_array_length(detail->'changes') = 1 and detail->'changes'->0->>'key' = 'turn.per_user_max'")
+[[ $saves == 2 ]] && ok "each save wrote one audit row with before, after and the actor ($saves)" || fail "settings.save audit rows: $saves"
+
+printf '\nsmoke: all phase 01 to 05 checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
 
