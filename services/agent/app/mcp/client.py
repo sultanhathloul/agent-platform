@@ -22,7 +22,8 @@ the broker: no capability imports this module (ADR-0197).
   slot is returned, and a fresh session takes its place: requests open at a server never exceed
   `max_concurrency`. Sessions carry no per-user state (I9): every call carries what it needs; when
   the server no longer knows a session, the tools are pinned again on a new one and the call is
-  tried once more.
+  tried once more; when it no longer knows that one either (it restarted again), the call fails
+  `tool_unavailable` with no verdict and that generation ends too (ADR-0272).
 - Background work (ADR-0265): a call in a detached context (a registration past the upload's
   answer, a status read past its bound) takes one of the server's background slots, at most half
   of max_concurrency, before a slot, so callers always find some; its slot wait and its attempt
@@ -626,6 +627,12 @@ class ServerConnection:
             raise _Failed(UNAVAILABLE, None) from None
         except McpError as exc:
             message = str(exc.error.message)
+            if _SESSION_GONE in message:
+                # The I9 re-send's session is gone too: the server restarted again after the next
+                # generation was opened. A 404 is an answer from a server that is up, so no verdict
+                # (ADR-0272); the generation the re-send was sent on ends, when still current.
+                self._reset(self._generation_of(lease))
+                raise _Failed(UNAVAILABLE, None) from None
             if message == TOO_LARGE:
                 raise _Failed(TOO_LARGE, False) from None  # the server answered; the answer was too big
             if message == TRANSPORT_TIMEOUT:
