@@ -1789,6 +1789,63 @@ Results (rule 11), the stack from `make up` at ba26fb9 (14:37:14Z–14:37:36Z, t
 
 Files for human review: none under `config/` or `infra/`.
 
+## Platform settings (standalone PR before phase 06, owner decision 2026-10-22)
+
+- Status: in progress (2026-10-22). Not a phase; no phase number changes.
+- Branch: `feat/platform-settings`, from `main` at 081f4df (PR #12, `fix/timeout-budget`, merged 2026-10-22T14:56:57Z). The session prompt is kept verbatim in `docs/PLATFORM-SETTINGS-PROMPT.md`.
+- Threat model: ADR-0054. Rule 13: infrastructure only, no `make eval`. `docs/HANDOFF.md` untouched.
+- Baseline on `main` (rule 11). main at 081f4df carries the code of ba26fb9 (809db79 changed docs/PROGRESS.md only), so the last recorded runs of that code are the baseline:
+  - `make test` at ba26fb9 (2026-10-22T14:37:46Z–14:49:44Z): agent 901 / 0 / 0, gateway 146 / 0 / 0, gateway-db 5 / 0 / 0, web 149 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0), budget tests (scripts/tests) 8 / 0 / 0.
+  - `make smoke` at ba26fb9 (14:49:57Z–14:54:48Z): 178/178.
+  - `make smoke-airgap`, last recorded at 031fafb (2026-10-21T16:56:31Z and 17:05:14Z): 186/186 twice. It has not been run since on the code main carries.
+  - No layer may end lower unless an ADR names each removed test and why.
+- Done when (the prompt's items 1–11 and FINISH):
+  1. Editable from the UI: config/turn.yaml `per_user_max`, `per_tenant_max` (default none) with per-tenant overrides by tenant id, `deadline_s`, `answer_reserve_s`, `post_answer_reserve_s`, `evidence_fetch_s`; config/models.yaml timeouts helper, reasoning, embed_query, embed_batch, rerank; config/docs.yaml concurrent uploads per user and per tenant, uploads per minute per user, `register_response_s`; config/mcp.yaml `max_concurrency` per server, lowered only, never above the file's value (the ICD figure).
+  2. Shown read-only, with their source and a note that a change needs a redeploy: LOCK_POOL_SIZE, the ingest and mcp-rag-ref container limits and the sandbox child limit, `gateway_margin_s`, the keep-alive values.
+  3. Storage. The files stay the defaults, validated at startup. Overrides are an append-only table of versions (the guard policies pattern: a save and a revert are each a new version, no deletion, ADR-0166), reloaded in the agent through Redis pub/sub. The gateway reads the values it enforces (upload caps, turn stream bounds) from an internal agent endpoint, cached at most 10 s. A change applies to requests that start after it; hot paths read cached values only; with Redis or the DB down the last known values stay in force. A stored override that fails validation at startup is ignored, the file value used and an error logged.
+  4. Validation on save: the shared validator app/resilience/budget.py (also used by scripts/check_timeout_budget.py), with nested pairs and ranges, the per-manifest rules included. An invalid save is refused with an Arabic and English message naming the conflict in plain words. The save shows the effective values before it is confirmed.
+  5. Access and audit: admin role only (ADR-0117), checked at the gateway and the agent. Every change is audited fail-closed with before and after values and the actor's username and display name.
+  6. UI `/admin/settings`, code-free, groups "الأسئلة"، "النماذج"، "رفع الملفات"، "خوادم الأدوات"، "سعة المنصة (للعرض فقط)"، "شجرة المهلات"، "الاستهلاك الآن". Arabic labels with units, a one-line help with an example under each field, the default beside each value, "استعادة الافتراضي", a version history with actor and time. No Latin tokens inside Arabic sentences (technical ids in chips only). ar.json and en.json.
+  7. Read-only sections. (a) The timeout tree: the validator's nested pairs with effective values and a pass or fail mark, previewing a pending edit. (b) Usage now: turns in flight (platform, per tenant, the top user's count) against limits; per MCP server, slots and background slots in use against max_concurrency, and breaker state; background registrations in flight; task_abandoned since start. From in-memory counters only, through the gateway, refreshed every 5 s, counts only.
+  8. Agent and gateway API one minor version up (2.3.0 → 2.4.0), additive, with `make openapi`.
+  9. Tests:
+     - a non-admin refused at the gateway and the agent, for settings and usage;
+     - an invalid pair refused with nothing changed;
+     - per_user_max 2 → 1 effective on the next turn, no restart;
+     - an upload cap change at the gateway within 10 s;
+     - an MCP max_concurrency above the file refused;
+     - one audit row per save;
+     - Redis stopped: last values kept, turns go on;
+     - revert is a new version;
+     - usage counts move with turns;
+     - usage answers within 50 ms with 20 turns in flight;
+     - web component tests.
+  10. Smoke: the admin lowers per_user_max to 1, a second concurrent turn is refused, the admin restores the default, the turn passes; the usage section shows the turn in flight.
+  11. README §20 amendment; the docs/RESILIENCE.md note (effective values may come from overrides, where to read them; the page shows the timeout tree and live usage).
+  - FINISH: from `make clean && make models && make up`, nothing started by hand: `make test`; `make smoke` twice; `make smoke-airgap` once. Recorded per rule 11. The pages and sections for the owner's visual check, and the files for human review, listed. Pushed; merge request opened.
+
+Checklist:
+- [ ] 1. ADR (owner decision, decided) and the Assumed ADRs for the details filled in.
+- [ ] 2. Shared validator: budget.py gains the ranges and the editable keys, `apply_overrides` and the plain-language conflict messages (config/messages/settings.yaml, ar and en). The deploy-only values the agent cannot read move to a generated, drift-checked config/deploy.yaml; check_timeout_budget.py and the agent build one value set from the same loader.
+- [ ] 3. Migration 0014: `agent.platform_settings`, append-only versions with actor id, username and display name, the change kind and the version it reverts to.
+- [ ] 4. Agent settings store: versions, Redis cache and pub/sub, periodic refresh, last known values on failure, startup validation of the stored override (ignored and logged when it fails).
+- [ ] 5. Effective values pinned per request (turns, uploads, ingest jobs). The consumers read the pinned values: turn limits and deadlines, model, embedding and rerank ceilings, upload limits and `register_response_s`, MCP max_concurrency (lowered only, without passing the file's value while in-flight calls drain).
+- [ ] 6. Agent API, admin only, checked at the agent too:
+  - GET settings (defaults, overrides, effective, read-only values, the tree);
+  - POST preview; POST save; POST revert; GET versions;
+  - GET usage (in-memory counters only);
+  - internal GET effective for the gateway.
+- [ ] 7. Gateway:
+  - the settings and usage proxy (admin, audited fail-closed with before and after values and the actor's names);
+  - the effective values poller (≤ 10 s, last known kept);
+  - upload caps and the relay bound read from it.
+- [ ] 8. Web `/admin/settings`: the seven groups, i18n ar and en, the header link, component tests.
+- [ ] 9. API 2.4.0 on both, `make openapi`.
+- [ ] 10. Tests of item 9 (agent, gateway, web).
+- [ ] 11. Smoke steps of item 10.
+- [ ] 12. README §20 amendment, docs/RESILIENCE.md note and rows.
+- [ ] 13. FINISH runs, recorded per rule 11.
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`
