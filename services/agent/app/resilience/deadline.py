@@ -122,7 +122,7 @@ async def drain(task: asyncio.Task, grace_s: float = DRAIN_GRACE_S, *, name: str
 def detached_context() -> contextvars.Context:
     """The current context without any enclosing deadline, for asyncio.create_task(context=...).
     Work started in it is background work (`detached()`): an MCP server gives it at most half of
-    its slots and one deadline for the slot and the call (app/mcp/client.py, ADR-0265)."""
+    its slots (app/mcp/client.py, ADR-0265), and the full timeout_s once it has one (ADR-0274)."""
     context = contextvars.copy_context()
     context.run(_END.set, math.inf)
     context.run(_DETACHED.set, True)

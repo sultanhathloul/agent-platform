@@ -26,8 +26,9 @@ the broker: no capability imports this module (ADR-0197).
   `tool_unavailable` with no verdict and that generation ends too (ADR-0272).
 - Background work (ADR-0265): a call in a detached context (a registration past the upload's
   answer, a status read past its bound) takes one of the server's background slots, at most half
-  of max_concurrency, before a slot, so callers always find some; its slot wait and its attempt
-  share one deadline of timeout_s (the wait at most half of it), and its own timeout still counts.
+  of max_concurrency, before a slot, so callers always find some. Its slot wait is bounded on its
+  own, as a caller's is, and once it has a slot its attempt has the full timeout_s (ADR-0274): a
+  wait behind other users' work is never taken from what the server is given.
 - Bounds (I6, ADR-0259), each cut to what remains of the caller's deadline (app/resilience/
   deadline.py): the wait for a slot is at most min(timeout_s, remaining − timeout_s − 1), so the
   call still has its timeout_s once it has one; when no wait is left and no slot is free the call
@@ -510,13 +511,8 @@ class ServerConnection:
             raise ToolFailure(UNAVAILABLE)
         if self.breaker.state == "open":
             raise ToolFailure(UNAVAILABLE)
-        background = deadline.detached()
-        started = deadline.now()
-        lease = _Lease(background=background)
+        lease = _Lease(background=deadline.detached())
         await self._slot(lease, observed)
-        # Background work has one deadline, timeout_s from its start, for the slot and the attempt
-        # (ADR-0265); a caller's call keeps its own timeout_s once it has a slot (ADR-0259).
-        ceiling = self.entry.timeout_s - (deadline.now() - started) if background else self.entry.timeout_s
         try:
             admitted = self.breaker.admit()
             if admitted is None:
@@ -524,7 +520,7 @@ class ServerConnection:
             trial = admitted == "trial"
             decided = False
             try:
-                result = await self._attempt(tool, arguments, observed, lease, ceiling)
+                result = await self._attempt(tool, arguments, observed, lease)
                 decided = True
                 self.breaker.success()
                 return result
@@ -550,24 +546,21 @@ class ServerConnection:
 
     async def _slot(self, lease: _Lease, observed: dict[str, str | int | bool]) -> None:
         """Takes a slot for the call; raises ToolFailure(BUSY), the breaker untouched (nothing
-        reached the server), when none frees up in time. A caller's call waits only as long as
-        leaves it its own timeout_s (I6); a free slot is taken at once. Background work takes one
-        of the background slots first, and waits up to half its one deadline, so its attempt keeps
-        the other half (ADR-0265)."""
+        reached the server), when none frees up in time. A call waits only as long as leaves it its
+        own timeout_s (I6); a free slot is taken at once. Background work takes one of the
+        background slots first (ADR-0265) and has the same guarantee: its wait is bounded on its
+        own, never taken from its attempt (ADR-0274)."""
         timeout_s = self.entry.timeout_s
-        if lease.background:
-            wait_s = timeout_s / 2
-            if self._semaphore.locked() or self._background.locked():
-                observed["queued"] = True
-        elif self._semaphore.locked():
-            observed["queued"] = True
-            # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
-            wait_s = deadline.bounded(timeout_s, margin_s=timeout_s + 1.0)
-            if wait_s <= 0:
-                raise ToolFailure(BUSY)  # the breaker is untouched: nothing reached the server
-        else:
+        if not self._semaphore.locked() and not (lease.background and self._background.locked()):
+            if lease.background:
+                await self._background.acquire()
             await self._semaphore.acquire()  # a slot is free: taken at once
             return
+        observed["queued"] = True
+        # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
+        wait_s = deadline.bounded(timeout_s, margin_s=timeout_s + 1.0)
+        if wait_s <= 0:
+            raise ToolFailure(BUSY)  # the breaker is untouched: nothing reached the server
         held_background = False
         try:
             async with asyncio.timeout(wait_s):
@@ -590,15 +583,15 @@ class ServerConnection:
         arguments: dict[str, Any],
         observed: dict[str, str | int | bool],
         lease: _Lease,
-        ceiling: float,
     ) -> CallResult:
         """One call on a session of the pool, re-sent once on a new generation's session when the
-        server no longer knows this one (I9), within `ceiling` (timeout_s, or what a background
-        call's one deadline leaves). Raises _Failed with a content-free code."""
+        server no longer knows this one (I9), within timeout_s. Raises _Failed with a content-free
+        code."""
         waiting = False  # waiting for the next generation: a timeout then is no verdict (ADR-0249)
+        resent = False  # the I9 re-send in flight: sent after the attempt began, so held less
         try:
             # One deadline for the attempt: the session, the request and the I9 re-send (I6).
-            with deadline.within(ceiling, margin_s=_ATTEMPT_MARGIN_S):
+            with deadline.within(self.entry.timeout_s, margin_s=_ATTEMPT_MARGIN_S):
                 await self._take(lease)
                 try:
                     result = await self._send(lease.pooled, tool, arguments, observed)
@@ -613,14 +606,17 @@ class ServerConnection:
                     waiting = True
                     await self.connected.wait()
                     waiting = False
+                    resent = True
                     await self._take(lease)
                     result = await self._send(lease.pooled, tool, arguments, observed)
                 lease.clean = True
                 return result
         except deadline.DeadlineExceeded as exc:
-            # Its own timeout_s is the server's outcome; the caller's deadline, or a wait for the
-            # next generation, says nothing of the server (ADR-0244, ADR-0249).
-            raise _Failed(TIMEOUT, None if exc.inherited or waiting else True) from None
+            # A timeout is the server's outcome only when the server held the request for its full
+            # timeout_s from the moment it was sent; the caller's deadline, a wait for the next
+            # generation, or a re-send sent after the attempt began says nothing of the server
+            # (ADR-0244, ADR-0249, ADR-0274).
+            raise _Failed(TIMEOUT, None if exc.inherited or waiting or resent else True) from None
         except TimeoutError:
             raise _Failed(TIMEOUT, None if waiting else True) from None
         except _NoGeneration:

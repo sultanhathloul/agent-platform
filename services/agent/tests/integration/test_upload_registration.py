@@ -87,6 +87,7 @@ async def rag(settings, litellm):
     client = MCPClient(resolved, hash_key=settings.content_hash_key, client_version="test")
     client.start()
     assert await client.wait_connected(20), client.health()
+    mode["connection"] = client.servers["rag"]  # its breaker, for the tests that watch it
     backend = MCPDocumentBackend(ToolBroker(ToolRegistry(), GuardEngine(), mcp=client).transport, "rag")
     yield mode, backend
     await client.stop()
@@ -136,6 +137,19 @@ async def _record(services, record_id: str, *, until: str, within_s: float):
             return stored
         await asyncio.sleep(0.1)
     raise AssertionError(f"the record {record_id} did not reach {until} in {within_s} s")
+
+
+def _counting(connection) -> list[int]:
+    """Every failure the breaker is told of (a later success would reset the count)."""
+    counted: list[int] = []
+    failure = connection.breaker.failure
+
+    def counting() -> None:
+        counted.append(1)
+        failure()
+
+    connection.breaker.failure = counting
+    return counted
 
 
 async def _server_status(backend, scope, document_id, *, until: str, within_s: float) -> str:
@@ -283,6 +297,55 @@ async def test_two_users_uploading_against_a_slow_register_leave_another_users_s
     )
 
 
+async def test_registrations_queued_behind_other_users_never_count_against_a_server_answering_in_time(
+    services, rag
+):
+    """Review round 2 of PR #12, finding (1): users A–F upload two files each, A and B at 0 s, C and
+    D at 12 s, E and F at 30 s, against a server that holds `register` 25 s (timeout_s 30, rag's 8
+    slots: 4 background), with no search to reset the breaker's count. C to F wait 12–20 s for a
+    background slot behind other users' registrations; that wait is theirs, not the server's, so
+    once a slot is taken the attempt has the full timeout_s (ADR-0259's guarantee, background work
+    included): no failure is counted, the breaker stays closed, and every file ends indexed."""
+    mode, backend = rag
+    switched = with_backend(services, backend)
+    counted = _counting(mode["connection"])
+    users = {who: f"u-reg-q{who}-{uuid.uuid4().hex[:6]}" for who in "abcdef"}
+    rounds = {0.0: "ab", 12.0: "cd", 30.0: "ef"}
+    mode["held_s"] = REGISTER_HELD_S
+    started = time.monotonic()
+
+    async def at(offset: float, who: str):
+        await asyncio.sleep(max(0.0, offset - (time.monotonic() - started)))
+        return await asyncio.gather(*(_upload(switched, users[who]) for _ in range(2)))
+
+    try:
+        with LagProbe() as probe:
+            answered = await asyncio.gather(
+                *(at(offset, who) for offset, pair in rounds.items() for who in pair)
+            )
+            uploads = [upload for pair in answered for upload in pair]
+            end = time.monotonic() + 120  # bounded polling: until every registration has ended
+            while switched.attachments.in_flight.in_flight("default") and time.monotonic() < end:
+                await asyncio.sleep(0.2)
+            ended_s = time.monotonic() - started
+    finally:
+        mode["held_s"] = 0.0
+    assert switched.attachments.in_flight.in_flight("default") == 0
+    assert counted == [], counted  # the server answered every call within its timeout_s
+    assert mode["connection"].breaker.state == "closed"
+    assert probe.worst < LAG_BOUND_S, probe.worst
+    for scope, record, _ in uploads:
+        stored = await switched.attachments.store.by_id(record.id)
+        assert stored.reason != "register_failed", stored
+        assert await _server_status(backend, scope, record.id, until="indexed", within_s=60) == "indexed"
+        shown = await switched.attachments.get_with_status(scope.owner, scope.conversations[0], record.id)
+        assert shown.status == "indexed", shown
+    print(f"finding (1): six users' 12 registrations (register held {REGISTER_HELD_S:.0f} s, timeout_s 30, "
+          f"4 background slots) ended by {ended_s:.0f} s; failures counted {len(counted)}, breaker "
+          f"{mode['connection'].breaker.state}, all 12 indexed; loop lag max "
+          f"{probe.worst * 1000:.1f} ms")  # fmt: skip
+
+
 async def test_a_users_third_concurrent_upload_is_refused_until_a_registration_ends(services, rag):
     mode, backend = rag
     switched = with_backend(services, backend)
@@ -361,7 +424,7 @@ async def ops_server(settings):
 async def test_a_trickling_or_flooding_register_ends_failed_within_its_one_deadline(
     services, ops_server, kind
 ):
-    """A background registration has one deadline, timeout_s (3 s) for its slot wait and its attempt;
+    """A background registration that takes a free slot has its attempt's timeout_s (3 s, ADR-0274);
     a trickling register is cut there, a flooding one at its byte cap; either ends the file failed
     register_failed, while another user's search on the same server answers in its normal time."""
     server, backend = ops_server
@@ -385,7 +448,7 @@ async def test_a_trickling_or_flooding_register_ends_failed_within_its_one_deadl
     assert failed.reason == "register_failed"
     if kind == "trickle":
         assert record.status == "pending" and 0.9 <= took <= 1.5, (record, took)
-        assert failed_s <= 3.0 + 1.0, failed_s  # one deadline of timeout_s, and the record's poll
+        assert failed_s <= 3.0 + 1.0, failed_s  # its attempt's timeout_s, and the record's poll
     else:
         assert record.status == "failed" and took < 1.0, (record, took)  # refused at its byte cap, unparsed
     assert other_took < alone + 1.0, (other_took, alone)

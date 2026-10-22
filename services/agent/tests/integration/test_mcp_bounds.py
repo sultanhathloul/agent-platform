@@ -235,11 +235,12 @@ async def test_the_sdks_read_timeout_is_past_the_transports_deadline(slow_server
         await client.stop()
 
 
-async def test_background_work_takes_at_most_half_the_slots_and_one_deadline(slow_server):
+async def test_background_work_takes_at_most_half_the_slots_and_keeps_its_own_timeout(slow_server):
     """Decision 4 (ADR-0265): calls in a detached context (registrations past the upload's answer,
     status reads past their bound) take one of max_concurrency // 2 background slots first, so a
-    caller's call always finds a slot; a background call's slot wait and attempt share one
-    deadline of timeout_s, and its own timeout still counts."""
+    caller's call always finds a slot. Review round 2, finding (1) (ADR-0274): a background call's
+    slot wait is bounded on its own, as a caller's is (ADR-0259), and once it has a slot its attempt
+    has the full timeout_s; a server that holds it that long still counts."""
     client = await _client(slow_server.url, SCHEMAS, timeout_s=4.0, max_concurrency=4)
     connection = client.servers["fx"]
     counted = _counting(connection)
@@ -255,24 +256,29 @@ async def test_background_work_takes_at_most_half_the_slots_and_one_deadline(slo
     try:
         _, alone = await _call(broker, "quick", "user-c")
         slow_server.reset_peak()
-        held = [background(30) for _ in range(6)]  # hung: each ends at its one deadline
+        first = [background(30) for _ in range(2)]  # hung: each takes a slot at once
         await _open(slow_server, 2)
+        await asyncio.sleep(1.0)
+        queued = [background(30) for _ in range(4)]  # wait up to timeout_s (4 s) for a slot, ~3 s
         peak_background = slow_server.peak
         with deadline.within(20.0):
             mine, mine_took = await _call(broker, "quick", "user-c")
-        outcomes = await asyncio.gather(*held)
+        outcomes = await asyncio.gather(*first, *queued)
         assert peak_background == 2, peak_background  # max_concurrency 4 // 2
         assert mine.status == "ok" and mine_took < alone + 0.5, (mine_took, alone)
-        # Two took a slot at once and timed out at timeout_s (4 s); the others waited up to half of it
-        # (2 s) for a background slot and were busy: slot wait + attempt never past timeout_s.
-        busy = [r for r, _ in outcomes if r.error == "tool_busy"]
-        timed_out = [(r, took) for r, took in outcomes if r.error == "tool_timeout"]
-        assert len(timed_out) == 2 and len(busy) == 4, [r.error for r, _ in outcomes]
-        assert all(took <= 4.0 + EDGE_S for _, took in outcomes), [took for _, took in outcomes]
-        assert all(took <= 2.0 + EDGE_S for r, took in outcomes if r.error == "tool_busy")
-        assert len(counted) == 2  # a background call's own timeout is the server's outcome
+        # The first two timed out at timeout_s (4 s). Two of the queued took their slots when those
+        # ended and had their own full 4 s; the other two found none within their wait and were busy.
+        busy = [took for r, took in outcomes if r.error == "tool_busy"]
+        timed_out = [took for r, took in outcomes if r.error == "tool_timeout"]
+        assert len(timed_out) == 4 and len(busy) == 2, [r.error for r, _ in outcomes]
+        assert all(took <= 4.0 + EDGE_S for took in busy), busy
+        # The queued two waited about 3 s, then had their own full 4 s (not what was left of 4 s).
+        waited = sorted(timed_out)[2:]
+        assert all(3.0 + 4.0 - EDGE_S <= took <= 4.0 + 4.0 + EDGE_S for took in waited), timed_out
+        assert len(counted) == 4  # each held its full timeout_s by the server: the server's outcome
         print(f"4 background slots: peak {peak_background} of 4 at the server, a caller's call "
-              f"{mine_took * 1000:.0f} ms ({alone * 1000:.0f} ms alone); background calls ended by "
-              f"{max(t for _, t in outcomes):.2f} s (timeout_s 4)")  # fmt: skip
+              f"{mine_took * 1000:.0f} ms ({alone * 1000:.0f} ms alone); background calls timed out at "
+              f"{', '.join(f'{t:.2f}' for t in sorted(timed_out))} s (timeout_s 4), busy at "
+              f"{', '.join(f'{t:.2f}' for t in sorted(busy))} s")  # fmt: skip
     finally:
         await client.stop()
