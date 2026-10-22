@@ -25,18 +25,47 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Check:
+    """One rule's result. A nested pair also carries its two sides, so the settings page can show
+    the timeout tree (ADR-0278): `unit` is `s` for a timeout pair, `MiB` for memory, `count` for a
+    count, and None for a rule on the code (a margin it must use) or a range."""
+
     name: str
     row: str
     holds: bool
     detail: str
+    inner: str | None = None
+    inner_v: float | None = None
+    outer: str | None = None
+    outer_v: float | None = None
+    strict: bool = True
+    unit: str | None = None
 
 
 def _pair(
-    name: str, row: str, inner: str, inner_v: float, outer: str, outer_v: float, *, strict=True
+    name: str,
+    row: str,
+    inner: str,
+    inner_v: float,
+    outer: str,
+    outer_v: float,
+    *,
+    strict=True,
+    unit: str = "s",
 ) -> Check:
     holds = inner_v < outer_v if strict else inner_v <= outer_v
     sign = "<" if strict else "≤"
-    return Check(name, row, holds, f"{inner} {inner_v:g} {sign} {outer} {outer_v:g}")
+    return Check(
+        name,
+        row,
+        holds,
+        f"{inner} {inner_v:g} {sign} {outer} {outer_v:g}",
+        inner,
+        float(inner_v),
+        outer,
+        float(outer_v),
+        strict,
+        unit,
+    )
 
 
 def _uses(name: str, row: str, source: str, pattern: str, constant: str, value: float) -> Check:
@@ -146,6 +175,7 @@ def checks(v: dict) -> list[Check]:
             "none",
             0.0,
             strict=False,
+            unit="count",
         ),
         _uses(
             "litellm-margin-used",
@@ -232,6 +262,7 @@ def checks(v: dict) -> list[Check]:
                 "mem_limit (MiB)",
                 float(v["mem_limits_mb"][service]),
                 strict=False,
+                unit="MiB",
             )
         )
     out += [rule(v, *key) for family, rule in _FAMILIES.items() for key in _keys(v, family)]
@@ -502,3 +533,365 @@ def self_test(values: dict) -> list[str]:
         elif own[0].holds:
             problems.append(f"{name}: a violation went unnoticed ({own[0].detail})")
     return problems
+
+
+# ------------------------------------------------------------------ settings an administrator may override
+#
+# The platform settings page (owner decision 2026-10-22, ADR-0276): the files stay the defaults, and
+# an override is checked here before it is saved, with the same rules as the files (ADR-0278). Each
+# editable setting has a range; every rule above then runs on the values the overrides produce.
+# `values` is the dict `checks` reads, with "platform": {"lock_pool_size": N} for the ranges that the
+# platform's capacity bounds.
+
+TENANT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+HELPER_ROLES = ("router", "summarizer", "judge", "extractor")
+REASONING_ROLES = ("reasoning", "reflection")
+
+
+@dataclass(frozen=True)
+class Setting:
+    """One editable value. `read` gives its default from the files' values, `write` sets it into
+    a copy of them; `maximum` is computed from the files' values (a server's max_concurrency may
+    only be lowered, so its maximum is the file's). `nullable`: None is a value (no limit of its
+    own). `per_tenant`: the value is a map from tenant id to a count."""
+
+    key: str
+    group: str
+    source: str
+    unit: str
+    integer: bool
+    minimum: float
+    maximum: Callable[[dict], float]
+    read: Callable[[dict], object]
+    write: Callable[[dict, object], None]
+    nullable: bool = False
+    per_tenant: bool = False
+
+
+def _at(*path: str) -> tuple[Callable[[dict], object], Callable[[dict, object], None]]:
+    def read(v: dict) -> object:
+        node = v
+        for part in path:
+            node = node[part]
+        return node
+
+    def write(v: dict, value: object) -> None:
+        node = v
+        for part in path[:-1]:
+            node = node[part]
+        node[path[-1]] = value
+
+    return read, write
+
+
+def _roles(roles: tuple[str, ...]) -> tuple[Callable[[dict], object], Callable[[dict, object], None]]:
+    """A ceiling shared by several roles: its default is their longest, and it sets them all."""
+
+    def read(v: dict) -> object:
+        return max(float(v["models"]["timeouts"]["roles"][r]) for r in roles)
+
+    def write(v: dict, value: object) -> None:
+        for r in roles:
+            v["models"]["timeouts"]["roles"][r] = value
+
+    return read, write
+
+
+def _fixed(value: float) -> Callable[[dict], float]:
+    return lambda v: value
+
+
+def _capacity(v: dict) -> float:
+    return float(v["platform"]["lock_pool_size"])
+
+
+def _uploads_total(v: dict) -> float:
+    return float(v["docs"]["limits"]["max_concurrent_uploads_total"])
+
+
+def _setting(key, group, source, unit, integer, minimum, maximum, at, **flags) -> Setting:
+    read, write = at
+    return Setting(key, group, source, unit, integer, minimum, maximum, read, write, **flags)
+
+
+_FIXED_SETTINGS: tuple[Setting, ...] = (
+    _setting(
+        "turn.per_user_max",
+        "turns",
+        "config/turn.yaml per_user_max",
+        "count",
+        True,
+        1,
+        _capacity,
+        _at("turn", "per_user_max"),
+    ),
+    _setting(
+        "turn.per_tenant_max",
+        "turns",
+        "config/turn.yaml per_tenant_max",
+        "count",
+        True,
+        1,
+        _capacity,
+        _at("turn", "per_tenant_max"),
+        nullable=True,
+    ),
+    _setting(
+        "turn.per_tenant_overrides",
+        "turns",
+        "config/turn.yaml per_tenant_overrides",
+        "count",
+        True,
+        1,
+        _capacity,
+        _at("turn", "per_tenant_overrides"),
+        per_tenant=True,
+    ),
+    _setting(
+        "turn.deadline_s",
+        "turns",
+        "config/turn.yaml deadline_s",
+        "s",
+        False,
+        1,
+        _fixed(600),
+        _at("turn", "deadline_s"),
+    ),
+    _setting(
+        "turn.answer_reserve_s",
+        "turns",
+        "config/turn.yaml answer_reserve_s",
+        "s",
+        False,
+        1,
+        _fixed(600),
+        _at("turn", "answer_reserve_s"),
+    ),
+    _setting(
+        "turn.post_answer_reserve_s",
+        "turns",
+        "config/turn.yaml post_answer_reserve_s",
+        "s",
+        False,
+        1,
+        _fixed(600),
+        _at("turn", "post_answer_reserve_s"),
+    ),
+    _setting(
+        "turn.evidence_fetch_s",
+        "turns",
+        "config/turn.yaml evidence_fetch_s",
+        "s",
+        False,
+        1,
+        _fixed(120),
+        _at("turn", "evidence_fetch_s"),
+    ),
+    _setting(
+        "models.helper_s",
+        "models",
+        "config/models.yaml timeouts.roles (router, summarizer, judge, extractor)",
+        "s",
+        False,
+        1,
+        _fixed(120),
+        _roles(HELPER_ROLES),
+    ),
+    _setting(
+        "models.reasoning_s",
+        "models",
+        "config/models.yaml timeouts.roles (reasoning, reflection)",
+        "s",
+        False,
+        1,
+        _fixed(600),
+        _roles(REASONING_ROLES),
+    ),
+    _setting(
+        "models.embed_query_s",
+        "models",
+        "config/models.yaml timeouts.embedding.query",
+        "s",
+        False,
+        1,
+        _fixed(120),
+        _at("models", "timeouts", "embedding", "query"),
+    ),
+    _setting(
+        "models.embed_batch_s",
+        "models",
+        "config/models.yaml timeouts.embedding.ingest",
+        "s",
+        False,
+        1,
+        _fixed(600),
+        _at("models", "timeouts", "embedding", "ingest"),
+    ),
+    _setting(
+        "models.rerank_s",
+        "models",
+        "config/models.yaml timeouts.rerank",
+        "s",
+        False,
+        1,
+        _fixed(120),
+        _at("models", "timeouts", "rerank"),
+    ),
+    _setting(
+        "docs.max_concurrent_uploads",
+        "uploads",
+        "config/docs.yaml limits.max_concurrent_uploads",
+        "count",
+        True,
+        1,
+        _uploads_total,
+        _at("docs", "limits", "max_concurrent_uploads"),
+    ),
+    _setting(
+        "docs.max_concurrent_uploads_per_tenant",
+        "uploads",
+        "config/docs.yaml limits.max_concurrent_uploads_per_tenant",
+        "count",
+        True,
+        1,
+        _uploads_total,
+        _at("docs", "limits", "max_concurrent_uploads_per_tenant"),
+        nullable=True,
+    ),
+    _setting(
+        "docs.tenant_concurrent_uploads",
+        "uploads",
+        "config/docs.yaml limits.tenant_concurrent_uploads",
+        "count",
+        True,
+        1,
+        _uploads_total,
+        _at("docs", "limits", "tenant_concurrent_uploads"),
+        per_tenant=True,
+    ),
+    _setting(
+        "docs.uploads_per_minute",
+        "uploads",
+        "config/docs.yaml limits.uploads_per_minute (UPLOADS_PER_MINUTE in .env overrides it)",
+        "per_minute",
+        True,
+        1,
+        _fixed(1000),
+        _at("docs", "limits", "uploads_per_minute"),
+    ),
+    _setting(
+        "docs.register_response_s",
+        "uploads",
+        "config/docs.yaml register_response_s",
+        "s",
+        False,
+        1,
+        _fixed(55),
+        _at("docs", "register_response_s"),
+    ),
+)
+
+
+def _server_setting(index: int, server: dict) -> Setting:
+    file_value = float(server["max_concurrency"])
+    return _setting(
+        f"mcp.{server['id']}.max_concurrency",
+        "mcp",
+        f"config/mcp.yaml servers[{server['id']}].max_concurrency",
+        "count",
+        True,
+        1,
+        _fixed(file_value),  # lowered only, never above the file's (the ICD figure)
+        _at("mcp", "servers", index, "max_concurrency"),
+    )
+
+
+def editable(values: dict) -> list[Setting]:
+    """Every value an administrator may override: the fixed ones and one per MCP server."""
+    return [*_FIXED_SETTINGS, *(_server_setting(i, s) for i, s in enumerate(values["mcp"]["servers"]))]
+
+
+def _problem(
+    key: str, reason: str, detail: str, value: float | None = None, maximum: float | None = None
+) -> Check:
+    """A failed range check: `row` is the reason (required, number, integer, range, tenant,
+    unknown, map), `inner_v` the value, `outer_v` the maximum."""
+    family = "unknown" if reason == "unknown" else "range"
+    return Check(f"{family}:{key}", reason, False, detail, inner_v=value, outer_v=maximum)
+
+
+def _range(setting: Setting, maximum: float, value: object, where: str) -> Check | None:
+    """None when `value` fits the setting; otherwise the failed range check."""
+    key = setting.key
+    if value is None:
+        return None if setting.nullable else _problem(key, "required", f"{where}: a value is required")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return _problem(key, "number", f"{where}: not a number")
+    if setting.integer and float(value) != int(value):
+        return _problem(key, "integer", f"{where}: {value:g} is not a whole number", float(value), maximum)
+    if not setting.minimum <= float(value) <= maximum:
+        return _problem(
+            key,
+            "range",
+            f"{where}: {value:g} outside {setting.minimum:g}..{maximum:g}",
+            float(value),
+            maximum,
+        )
+    return None
+
+
+def range_checks(values: dict, overrides: dict) -> list[Check]:
+    """The overrides against their settings' ranges, computed on the files' values: one failed
+    Check per problem; an empty list when every override fits."""
+    known = {s.key: s for s in editable(values)}
+    out: list[Check] = []
+    for key, value in sorted(overrides.items()):
+        setting = known.get(key)
+        if setting is None:
+            out.append(_problem(key, "unknown", f"{key}: not an editable setting"))
+            continue
+        maximum = setting.maximum(values)
+        if setting.per_tenant:
+            if not isinstance(value, dict):
+                out.append(_problem(key, "map", f"{key}: a map from tenant id to a count"))
+                continue
+            for tenant, count in sorted(value.items()):
+                if not isinstance(tenant, str) or not TENANT_ID.match(tenant):
+                    out.append(_problem(key, "tenant", f"{key}: {tenant!r} is not a tenant id"))
+                elif count is None:
+                    out.append(_problem(key, "required", f"{key}[{tenant}]: a value is required"))
+                elif problem := _range(setting, maximum, count, f"{key}[{tenant}]"):
+                    out.append(problem)
+            continue
+        if problem := _range(setting, maximum, value, key):
+            out.append(problem)
+    return out
+
+
+def apply(values: dict, overrides: dict) -> dict:
+    """A copy of `values` with `overrides` written in (each known key; the caller checks ranges)."""
+    out = copy.deepcopy(values)
+    known = {s.key: s for s in editable(values)}
+    for key, value in overrides.items():
+        if key in known:
+            known[key].write(out, copy.deepcopy(value))
+    return out
+
+
+def defaults(values: dict) -> dict[str, object]:
+    """Every editable setting's default, from the files' values."""
+    return {s.key: copy.deepcopy(s.read(values)) for s in editable(values)}
+
+
+def evaluate(values: dict, overrides: dict) -> tuple[dict, list[Check]]:
+    """What a set of overrides would produce: the values with the overrides in, and every problem
+    with it (ranges first, then each rule of `checks` that fails, then each expected rule that went
+    missing). An empty list means the overrides may be saved."""
+    problems = range_checks(values, overrides)
+    if problems:
+        return copy.deepcopy(values), problems
+    effective = apply(values, overrides)
+    found, missing = verify(effective)
+    problems += [check for check in found if not check.holds]
+    problems += [Check(name, name, False, f"{name}: expected, but no such rule") for name in missing]
+    return effective, problems

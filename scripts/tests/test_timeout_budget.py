@@ -101,3 +101,36 @@ def test_removing_all_capabilities_but_one_fails_nothing():
     found, missing = budget.verify(values)
     assert missing == [] and all(check.holds for check in found)
     assert budget.self_test(values) == []
+
+
+def test_deploy_values_match_their_files_and_a_change_is_caught(tmp_path):
+    """config/deploy-values.yaml, which the agent reads for the settings page's checks (ADR-0277),
+    is what the files it copies say; a change to one of them is reported as drift."""
+    assert script.deploy_drift() is None
+    repo = tmp_path / "repo"
+    for rel in (
+        "config/deploy-values.yaml",
+        "services/gateway/src/main/resources/application.yml",
+        "docker-compose.yml",
+        "docker-compose.dev.yml",
+        "infra/litellm/config.yaml",
+        "infra/mcp-ref/mcp_ref/rag/server.py",
+        "services/agent/Dockerfile",
+    ):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text((script.REPO / rel).read_text(encoding="utf-8"), encoding="utf-8")
+    assert script.deploy_drift(repo) is None
+    litellm = repo / "infra/litellm/config.yaml"
+    litellm.write_text(litellm.read_text().replace("request_timeout: 85", "request_timeout: 80"))
+    assert "differs" in script.deploy_drift(repo)
+    (repo / "config/deploy-values.yaml").unlink()
+    assert "missing" in script.deploy_drift(repo)
+
+
+def test_the_agent_and_the_script_build_the_same_values():
+    """The agent builds its values from config/deploy-values.yaml, the script from the files
+    themselves: the same dict, so a save is checked exactly as make test checks the files."""
+    from app.resilience import budget_values
+
+    agent = budget_values.load_values(script.REPO / "config", script.REPO / "services/agent/app")
+    assert agent == script.load()
