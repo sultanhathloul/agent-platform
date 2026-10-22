@@ -1782,6 +1782,13 @@ Checklist:
   - The smoke-airgap check should also require the bytes sent below `max_file_bytes`.
   - A database host that stops answering holds an admission connection past 10 s (psycopg's cancel wait).
 
+Results (rule 11), the stack from `make up` at ba26fb9 (14:37:14Z–14:37:36Z, the agent rebuilt):
+- `make test` ×1 at ba26fb9, 14:37:46Z–14:49:44Z: agent 901 / 0 / 0, gateway 146 / 0 / 0, gateway-db 5 / 0 / 0, web 149 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0), budget tests (scripts/tests) 8 / 0 / 0. No layer is lower than the baseline (agent 900 → 901: the reproduction test added) and no test was removed.
+- `make smoke` ×1 at ba26fb9, 14:49:57Z–14:54:48Z: 178/178. R3: 1 245 184 of 31 457 289 bytes sent before the JSON 413, no reset. G7: another user's general turn took 2.89 s and 3.99 s, within the 7.37 s bound.
+- No `make eval` (rule 13: infrastructure only). No smoke-airgap: not asked for in this session's FINISH.
+
+Files for human review: none under `config/` or `infra/`.
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`
