@@ -1765,6 +1765,23 @@ Results (rule 11), the stack from `make clean && make models && make up` at 78fb
 
 Files for human review: none under `config/` or `infra/`.
 
+### Narrow fix session: review round 2 of PR #12, findings (1) and (3) (2026-10-22)
+
+Scope: findings (1) and (3) of review round 2. Nothing else changed. Threat model ADR-0054. `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1. Finding (1) (ADR-0274): a timeout counts against the breaker only when the server held the request for its full `timeout_s` from its send. Background work gets ADR-0259's guarantee: its slot wait is bounded on its own, and the attempt has the full `timeout_s` once it has a slot (app/mcp/client.py `_slot`, `_attempt`).
+  - The reviewer's reproduction is the test `test_registrations_queued_behind_other_users_never_count_against_a_server_answering_in_time`.
+  - On the code before the fix (07d1b68, 2026-10-22T14:24:54Z–14:26:22Z): FAILED, `AssertionError: [1, 1, 1, 1, 1, 1, ...]`, 8 failures counted, 8 registrations failed `ToolFailure`.
+  - `test_background_work_takes_at_most_half_the_slots_and_keeps_its_own_timeout` replaces ADR-0265's one-deadline test. A server holding past `timeout_s` still counts.
+  - After the fix, local container, 2026-10-22T14:29:36Z–14:36:50Z (the upload, MCP bounds, sessions and generation-reset files and tests/unit): 529 passed / 0 failed / 0 skipped. The reproduction counted 0 failures, the breaker stayed closed and all 12 files were indexed, ending by 75 s with a worst loop lag of 14.5 ms. The background test timed out at 4.00, 4.00, 7.02 and 7.02 s and was busy at 4.00 s and 4.00 s, with 4 failures counted.
+- [x] 2. Finding (3) (ADR-0275): app/resilience/budget.py names no capability, tool or server. There are five generated rule families, each with one generic mutation, and `generated(values)` is expected alongside EXPECTED.
+  - The `helper-in-shortest-capability` mutation depended on `general`'s 30 s; it is now the shortest capability's limit.
+  - scripts/tests/test_timeout_budget.py runs in `make test-budget`: a fixture capability added at test time, its violations, and removing each capability.
+- [x] 3. docs/BACKLOG.md phase 12, not implemented:
+  - The smoke-airgap check should also require the bytes sent below `max_file_bytes`.
+  - A database host that stops answering holds an admission connection past 10 s (psycopg's cancel wait).
+
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`

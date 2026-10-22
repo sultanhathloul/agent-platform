@@ -2465,3 +2465,49 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The narrow fix session on the scope A race (one breaker failure counted against a healthy server during a restart in `make test` of 2026-10-21T16:18Z) had reproduced it (3 in 2000 seeded iterations of four calls; 7 in 300 with the restart landing during a call's read), named and fixed one path (ADR-0272) and tested the fix (five consecutive green runs of the test file; 0 counted in the same harness runs), when the owner stopped the investigation: server restarts are planned maintenance with notice, and the breaker counts consecutive failures only, so a single stray count is reset by the next success and cannot open it.
 - Decision: The investigation stops. The fix of ADR-0272 stays: it is complete and its tests pass. A rare stray count during a restart is a known residual, listed in docs/BACKLOG.md phase 12 with the reproduction rates measured. The scope A test (tests/integration/test_mcp_generation_reset.py, now `test_a_healthy_servers_restart_never_opens_the_breaker`) asserts what users would notice: the breaker never opens during a restart, in any of its seven scenarios, checked at every failure the breaker is told of as well as at the end of each iteration, and is closed after every iteration; the failures counted are printed, not asserted. Iteration counts unchanged (50 each; 300 for `restart-during-a-read`); no test skipped or removed.
 - Consequences: A path other than ADR-0272's, if one exists, may still count a stray failure during a restart; it would fail the test only if it counted five in a row. Checked against a mutation (each generation reset counting five failures): the test fails (`four-calls` at iteration 0, `restart-again-at-the-resend` at iteration 1).
+
+### ADR-0274: A timeout counts only when the server held the request its full timeout_s; background work keeps its own timeout_s after its slot wait
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`fix/timeout-budget`, narrow fix session on review round 2 of PR #12, finding (1); supersedes the one deadline of ADR-0265 and ADR-0270 (3))
+- Status: decided
+- Context: Review round 2, finding (1): a background call (every registration past the upload's answer, every status read past its bound) had one deadline of `timeout_s` for its slot wait (up to half of it) and its attempt, so a call that waited W seconds behind other users' background work had an attempt of `timeout_s − W`, whose expiry was not inherited and counted against the breaker (`_Failed(TIMEOUT, True)`). A server answering `register` in 25 s, inside its 30 s, was judged failed whenever the wait passed 5 s: six users uploading two files each at 0, 12 and 30 s, with no search to reset the count, counted 8 failures (the 5th opens the rag breaker for every user for 30 s), and each of those files ended `register_failed`, final. Background work had lost the guarantee ADR-0259 gives a caller's call. This broke ADR-0244's principle that only the server's own outcome decides.
+- Decision: A timeout counts against the breaker only when the server itself held the request for its full `timeout_s` from the moment it was sent. An attempt shortened and then cut gives no verdict, as a caller's cancellation does not (ADR-0244). Shortened means: by its caller's deadline (inherited, ADR-0259), by a wait for the next generation (ADR-0249), or because it was an I9 re-send, sent after the attempt had begun. Background work gets ADR-0259's guarantee:
+  - It still takes a background slot first, at most `max_concurrency // 2` (ADR-0265).
+  - Its slot wait is bounded on its own, as a caller's is: at most min(`timeout_s`, remaining − `timeout_s` − 1), where remaining is under the broker's `call_transport` bound of 2 × `timeout_s` + 2; when no wait is left, `tool_busy` at once.
+  - Once it has a slot, its attempt has the full `timeout_s`. No wait is taken from it, so its timeout is again the server's outcome.
+  - A free slot is taken at once.
+
+  `_attempt` has no ceiling parameter: it always runs within `timeout_s`, cut by the caller's deadline less 0.5 s.
+- Consequences:
+  - A background call lives at most 2 × `timeout_s` (60 s for rag): up to 30 s of slot wait, then 30 s of attempt. Under ADR-0265 and ADR-0270 (3) it lived `timeout_s`. That is still inside the broker's bound, and the budget rule `slot-and-attempt-in-broker` checks it.
+  - A re-send that times out is now no verdict. The next call to a server that really hangs, sent on a fresh session, is held its full `timeout_s` and counts.
+  - Tested:
+    - The reviewer's reproduction (tests/integration/test_upload_registration.py `test_registrations_queued_behind_other_users_never_count_against_a_server_answering_in_time`) runs on the reference RAG server with `register` held 25 s, `timeout_s` 30 and rag's 8 slots, so 4 background. Users A to F upload 2 files each, A and B at 0 s, C and D at 12 s, E and F at 30 s, with no search running. The test asserts that no failure is counted, the breaker stays closed and every file ends indexed. On the code before the fix (07d1b68, 2026-10-22T14:25Z) it failed: `AssertionError: [1, 1, 1, 1, 1, 1, ...]`, 8 failures counted, and 8 registrations failed with `ToolFailure`. After it (2026-10-22T14:29Z–14:37Z, with the four MCP and upload test files and the unit tests, 529 / 0 / 0): 0 failures counted, the breaker closed, all 12 files indexed, the last registration ended by 75 s, worst loop lag 14.5 ms.
+    - A server that really holds a request past `timeout_s` still counts (tests/integration/test_mcp_bounds.py `test_background_work_takes_at_most_half_the_slots_and_keeps_its_own_timeout`). There are 6 hung background calls, `timeout_s` 4 and 2 background slots. Two time out at 4 s and count. Two wait about 3 s, then have their own full 4 s and count. Two find no slot within their wait and end `tool_busy`. That makes 4 failures counted, while a caller's call meanwhile answers in its normal time. Measured: timed out at 4.00, 4.00, 7.02 and 7.02 s, busy at 4.00 s and 4.00 s, a caller's call 41 ms (1 ms alone). The scope A file passed unchanged: 0 failures counted, never opened.
+
+### ADR-0275: The timeout budget's rules of a capability, tool or server are generated from what the configuration declares
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`fix/timeout-budget`, narrow fix session on review round 2 of PR #12, finding (3); amends ADR-0269)
+- Status: decided
+- Context: Review round 2, finding (3): services/agent/app/resilience/budget.py, a core module, named the shipped capabilities and their tools.
+  - The check that a tool fits its capability's limit existed only for `docs_search` in `docs`.
+  - EXPECTED and MUTATIONS named `directions`, `docs`, `general`, `docs_search` and the servers `routing` and `rag`.
+  - So the kb, web and sql tools (phases 08 to 10) would go unchecked until core was edited, and removing or renaming a capability would fail `make test` (CLAUDE.md rule 3).
+  - The `helper-in-shortest-capability` mutation (router 30) also depended on `general`'s 30 s: with `general` removed, it violated nothing.
+- Decision: Rule families, each generated from the values the script reads, with no capability, tool or server named:
+  - `capability-in-room:<slug>`: each manifest's `limits.timeout_s` < `deadline_s − answer_reserve_s`.
+  - `tool-in-capability:<slug>:<tool>`: for each tool a manifest declares, the tool's bound < the capability's `limits.timeout_s`. An MCP tool's bound is its broker bound (2 × `timeout_s` + `_BROKER_MARGIN_S`); an in-process tool's is its ToolSpec `timeout_s`. A declared tool with no bound found fails rather than drops out.
+  - `facade-search-in-tool:<slug>:<tool>`: for each in-process tool of a manifest that declares `documents` (the broker hands it the facade, ADR-0231), one query's embedding plus rerank < the tool's bound.
+  - `document-server-in-tool:<slug>:<tool>`: for the same tools, the server named by config/docs.yaml `mcp_server` has a `timeout_s` < the tool's bound.
+  - `slot-and-attempt-in-broker:<server>`: one per config/mcp.yaml server.
+
+  `generated(values)` lists the names these must produce, which `verify` expects alongside EXPECTED. Each family has one generic mutation (`mutations(values)`) that sets the value exactly at its bound, so the strict rule must refuse it. EXPECTED and MUTATIONS hold the fixed rules only. The `helper-in-shortest-capability` mutation sets the router to the shortest capability's limit. The rules stay strict (<), as CLAUDE.md rule 12c has it, where the review's sketch wrote ≤.
+- Consequences:
+  - The rules replace `docs-search-in-docs`, `embed-rerank-in-docs-search`, `server-call-in-docs-search:rag` and `broker-in-capability:routing:directions` under generated names. That last one is now one rule per tool: `routing.geocode` and `routing.route`.
+  - `timeout budget 32 / 0 / 0`, self-test 32 / 0 / 0 (ADR-0269 had 31).
+  - Tested (scripts/tests/test_timeout_budget.py, in `make test-budget`):
+    - A test-only capability added at test time (an in-process tool, an MCP tool and the document facade) gets its five rules, all holding, each with a mutation that fails it, with no edit to budget.py.
+    - Its tool past its limit fails its own rule.
+    - Its tool with no bound fails rather than drops out.
+    - Removing any one shipped capability, or all but one, fails nothing, and the self-test passes.
+    - EXPECTED and MUTATIONS name no capability, tool or server.
