@@ -36,6 +36,8 @@ Patterns and names follow the standard literature: Michael Nygard, *Release It!*
 | Nested deadlines (one per call, inner never past outer) | `deadline.within` / `bounded` on anyio cancel scopes and `anyio.current_effective_deadline()`; one context variable carries a scope's end into tasks it creates | Agent (app/resilience/deadline.py) | anyio itself (cancel scopes); `asyncio.timeout` (no effective-deadline lookup across nesting); a custom context-variable stack | Keep anyio as the mechanism (ADR-0250); the context variable only carries the end across `asyncio.create_task`, which anyio does not (ADR-0251) |
 | Timeout budget check | scripts/check_timeout_budget.py in `make test`, its rules in services/agent/app/resilience/budget.py: every nested pair of the table below whose values are configured, the margins the code must use, a mutation per rule, the expected rule names; the rules of each capability, tool and MCP server generated from what the configuration declares, none named (scripts/tests) | Repository | None for a project's own configuration | Keep (ADR-0261, ADR-0269, ADR-0275) |
 | Concurrency limits per user, per tenant, platform-wide (turns, registrations) | In-process counters, refused at once (`ConcurrencyLimiter`) | Agent (app/resilience/limits.py) | `asyncio.Semaphore` per key (waits, one level); aiolimiter (a rate, not what is in flight); Bucket4j or Envoy's rate-limit service over Redis | Keep for one replica (ADR-0262, ADR-0265); move to Redis with the other limits before a second (phase 12) |
+| Lowering an MCP server's max_concurrency at runtime (platform settings) | A holdback of the server's own asyncio semaphore permits: free ones taken at once, the rest as calls return theirs; never past the file's value (`_Holdback`) | Agent (app/mcp/client.py) | A resizable semaphore of our own; replacing the semaphore (old holders plus new callers could pass the ICD figure); aiolimiter (a rate) | Keep: the library keeps waiting, fairness and cancellation (ADR-0281) |
+| The gateway's copy of the limits it enforces | A scheduled read of the agent every 5 s, each bounded 4 s, the last values kept on failure (`PlatformLimits`) | Gateway | Spring Cloud Config or a Redis read per request | Keep for one gateway; read per request never (ADR-0283) |
 | Answer size cap under the OpenAI SDK, any status | An httpx2 transport counting bytes as they are read (`CappedTransport`) | Agent (app/models/transport.py) | None: neither httpx nor the SDK caps a response; LiteLLM's proxy relays whatever the provider sends | Keep (ADR-0266) |
 
 ## Traps when scaling out (more than one gateway or agent replica)
@@ -48,6 +50,20 @@ Patterns and names follow the standard literature: Michael Nygard, *Release It!*
 Scaling out never fixes event-loop blocking: every replica blocks the same way. Rule 12d holds at any size.
 
 MCP sessions carry Mcp-Session-Id: a server behind its own load balancer must route a session to the same instance (session affinity). This is the server owner's duty and an ICD item.
+
+## Values in force: files and overrides (platform settings, ADR-0276)
+
+Since the platform settings PR (`feat/platform-settings`, 2026-10-22), the values in the tables below are the **defaults**. An administrator may override some of them from `/admin/settings`, with no deploy.
+
+- **What can be overridden:** the turn limits and deadline, the reserves, the evidence fetch, the model, embedding and rerank ceilings, the upload caps and `register_response_s`, and each MCP server's `max_concurrency`, lowered only. Everything else here changes only with a redeploy.
+- **Where to read the values in force:**
+  - the page's groups and its timeout tree;
+  - the admin API `GET /v1/admin/settings` (each value's default, its value in force and whether it is overridden);
+  - the history `GET /v1/admin/settings/versions`, and `agent.platform_settings` in the `app` database (the newest version is in force);
+  - the gateway's copy, `GET /v1/internal/settings/limits` on the agent, which it reads every 5 s.
+- **Checking:** every save runs the rules `make test` runs (app/resilience/budget.py, on the same values, ADR-0277), so an override cannot break a nested pair.
+- **Applying:** a change applies to requests that start after it (ADR-0279). A stored version that no longer passes after a file changed is ignored and the files' values are in force (ADR-0280).
+- **Live usage:** the same page shows, read-only and refreshed every 5 s, the turns in flight against their limits, each MCP server's slots, background slots and breaker, background registrations, and `task_abandoned` since start, all from the agent's in-memory counters (ADR-0282).
 
 ## Timeout budget (current values)
 
@@ -67,6 +83,7 @@ Values as of the timeout budget PR (`fix/timeout-budget`, 2026-10-21, ADR-0248 t
 | gateway | `gateway.agent.response-timeout`, every other agent call | 60 s, request to the body's end (Spring closes the body at the bound) | application.yml:67; proxy/AgentClient.java:60-63 | — | Agent register (20 s), status, memory, admin, history calls | |
 | gateway | SSE relay | 8192 B buffer; ends at the turn stream's bound | proxy/SseRelay.java:57,126 | Turn stream 135 s | Agent turn | |
 | gateway ↔ agent | Keep-alive idle: uvicorn server / JDK HttpClient | 75 s / 30 s (set from `gateway.agent.keep-alive`; JDK 21.0.12's own default, checked, is also 30 s) | services/agent/Dockerfile:43; application.yml:71; HttpClientKeepAlive.java | — | — | Client idle 30 s < server idle 75 s (ADR-0260) |
+| gateway | Read of the platform limits from the agent (turn deadline, upload caps) | Every 5 s (`gateway.settings.refresh`), one bound of 4 s from request to body; failure keeps the last values; a change reaches the gateway within 10 s (ADR-0283) | settings/PlatformLimits.java; application.yml | Refresh 5 s | Agent limits endpoint (memory only) | |
 | gateway | Hikari pool / connectionTimeout | 10 / 30 s (library default) | application.yml:16 | — | — | |
 | agent | Turns in flight: per user / per tenant / platform | 2 / none of its own (the platform's) or `per_tenant_max` with overrides / `LOCK_POOL_SIZE` 20; refused at once: 429 `too_many_turns`, the platform full 503 `service_busy` (ADR-0262) | config/turn.yaml:27-30; services/agent/app/api/runner.py:225; resilience/limits.py | — | Admission | No wait: load shedding |
 | agent | Admission: ownership and the lock | `admission_s` 10 s inside the turn's deadline, which opens on the request's arrival; past it 503 `service_busy` (ADR-0264) | config/turn.yaml:7; services/agent/app/api/runner.py:237; app/api/routes.py:112 | Gateway header bound 15 s | Lock `getconn`, ownership reads | |

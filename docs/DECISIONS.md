@@ -2511,3 +2511,156 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
     - Its tool with no bound fails rather than drops out.
     - Removing any one shipped capability, or all but one, fails nothing, and the self-test passes.
     - EXPECTED and MUTATIONS name no capability, tool or server.
+
+### ADR-0276: The platform administrator manages the capacity and timeout settings from the web UI; the files are the defaults
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`, owner decision 2026-10-22)
+- Status: decided
+- Context: Every capacity and timeout value lived in files (config/turn.yaml, config/models.yaml, config/docs.yaml, config/mcp.yaml), so any change was a redeploy, and nothing showed the timeout tree or what was in use. The owner decided that the platform administrator manages these values from the web UI, with the files as defaults, and that the same page shows the timeout tree and live usage, read-only (docs/PLATFORM-SETTINGS-PROMPT.md).
+- Decision:
+  - **Editable:**
+    - config/turn.yaml: `per_user_max`, `per_tenant_max` (default none) with per-tenant overrides by tenant id, `deadline_s`, `answer_reserve_s`, `post_answer_reserve_s`, `evidence_fetch_s`.
+    - config/models.yaml timeouts: helper, reasoning, embed_query, embed_batch, rerank.
+    - config/docs.yaml: concurrent uploads per user and per tenant (with per-tenant overrides), uploads per minute per user, `register_response_s`.
+    - config/mcp.yaml: `max_concurrency` per server, lowered only, never above the file's value (the ICD figure).
+  - **Read-only, with their source and a note that a change needs a redeploy:** LOCK_POOL_SIZE, the ingest and mcp-rag-ref container memory limits, the sandbox child limits, `gateway_margin_s`, the keep-alive values.
+  - **Storage.** The files stay the defaults, validated at startup as before. Overrides are versions of one document in `agent.platform_settings` (migration 0014), in the guard policies' pattern:
+    - A save, a revert and a restore each insert the next version, and the newest is in force. Nothing is updated or deleted; a trigger refuses both (ADR-0166).
+    - Version 1 is written by the seed with no overrides, so the history starts at the files' values.
+    - Each version keeps its actor's id, username and display name (ADR-0123), and a revert names the version it brought back.
+    - The agent caches the version in force in memory and in Redis, and reloads it on a pub/sub notice, on resubscribing and every 30 s. Every process reads it: the agent and the ingest service.
+  - **A change applies to requests that start after it**; a request in flight keeps its values (ADR-0279). Hot paths read the cached snapshot, never the database. When Redis or Postgres cannot be read, the last known values stay in force.
+  - **Access:** the `admin` role only (ADR-0117), checked at the gateway and at the agent (ADR-0284). Every call is audited fail-closed at the gateway. A change's record holds each value it changed, before and after, and the actor's username and display name.
+  - **The gateway** reads the values it enforces (the turn deadline for its relay bound, uploads per minute, uploads in flight per user) from an internal agent endpoint, cached at most 10 s (ADR-0283).
+  - **API:** agent and gateway 2.4.0, additive.
+- Consequences: A value can now differ from its file. The settings page says which values are overridden and shows the default beside each one; docs/RESILIENCE.md says where to read the values in force. The reference MCP servers (infra/mcp-ref) stand for external servers and keep their file values. The details filled in are ADR-0277 to ADR-0285.
+
+### ADR-0277: One loader builds the timeout budget's values for the script and the agent; the redeploy-only values are copied into config/deploy-values.yaml
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 4 has the save use the same validator as scripts/check_timeout_budget.py. The validator's rules read values the agent's container cannot see: the gateway's application.yml (response-timeout, keep-alive, Tomcat's upload timeout), the agent's Dockerfile and the dev overlay (uvicorn keep-alive), docker-compose.yml (memory limits), infra/litellm/config.yaml (request_timeout, num_retries) and the reference RAG server's WORKERS. Item 2 also shows several of them read-only.
+- Decision:
+  - The loader moves from the script to services/agent/app/resilience/budget_values.py (PyYAML and the standard library, so the script still imports it). It builds the values from config/, the capability manifests and tool modules under app/, and the agent modules whose margins the rules check.
+  - The redeploy-only values come from config/deploy-values.yaml, which `uv run scripts/check_timeout_budget.py --write-deploy-values` generates from those files, with each value's source.
+  - The script reads them from the files themselves and fails `make test` when config/deploy-values.yaml differs from them (`deploy-values` line).
+  - A test asserts that the agent's values and the script's are the same dict.
+  - The agent writes into those values what its environment sets instead: the MCP allowlist it runs (MCP_CONFIG), UPLOADS_PER_MINUTE (`DOCS_UPLOADS_PER_MINUTE`, the gateway's own override), and LOCK_POOL_SIZE, which bounds the count ranges.
+  - At startup it logs an error when the files themselves fail a rule, rather than refusing to start: `make test` is the gate, and every save is refused meanwhile.
+- Alternatives:
+  - Mounting the gateway's application.yml, docker-compose.yml and the LiteLLM config into the agent's container: rejected. It couples the agent to other services' files, and the agent does not run the dev overlay.
+  - The gateway sending its values on each save: rejected. It leaves the agent's check dependent on a caller's claim, and LiteLLM's and compose's values are not the gateway's.
+- Consequences: Changing one of those files now also means regenerating config/deploy-values.yaml; `make test` says so. scripts/tests gains two tests (drift caught, same values), 8 → 10.
+
+### ADR-0278: Each editable setting has a range; a refusal names each conflict in plain Arabic and English words
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 4 requires ranges (positive, sane maximums) next to the nested pairs, and a refusal message naming the conflict in plain words.
+- Decision:
+  - **Ranges.** budget.py holds the catalog of editable settings (`editable`), each with its range:
+    - The turn and tenant counts: 1 to LOCK_POOL_SIZE.
+    - Upload counts: 1 to `max_concurrent_uploads_total`. Uploads per minute: 1 to 1000.
+    - `deadline_s`, `answer_reserve_s`, `post_answer_reserve_s`: 1 to 600 s. `evidence_fetch_s`: 1 to 120 s.
+    - Helper and rerank ceilings: 1 to 120 s. Reasoning and the embedding batch: 1 to 600 s. A query embedding: 1 to 120 s.
+    - `register_response_s`: 1 to 55 s (DocsConfig's own bound).
+    - A server's max_concurrency: 1 to the file's value.
+    - Counts are whole numbers. `per_tenant_max` and the upload tenant share may be null (no limit of their own). A tenant map's keys must be tenant ids.
+  - **Rules.** `evaluate(values, overrides)` checks the ranges first, then every rule of `checks` on the values the overrides produce, the rules generated per manifest, tool and server included. An expected rule that goes missing is a problem too.
+  - **Messages.** config/messages/settings.yaml holds one sentence per fixed rule, per family of generated rules, per range problem and per field label, in Arabic and in English. They name a capability by its manifest's name and a tool by its label, never by an id inside an Arabic sentence, and carry the rule's two values.
+  - **The refusal.** A refused save is 400 `settings_invalid`, its message_ar and message_en joining those sentences and its `details` naming each rule. The gateway relays the agent's sentences as they are. The web page shows them, and its own catalog titles each rule of the timeout tree; a web test checks that every rule and field of config/messages/settings.yaml has its title.
+- Consequences:
+  - The shared rules also constrain lowering. The answering model's ceiling stays above LiteLLM's 85 s backstop (`litellm-backstop-in-longest-call`), so `models.reasoning_s` cannot go below 86 s without a redeploy of infra/litellm/config.yaml.
+  - The helper ceiling stays under the shortest capability's 30 s.
+  - A `deadline_s` of 80 s fails the 60 s capabilities and the 90 s answering model at once.
+
+### ADR-0279: A request pins the settings current at its start; a lowered shared limit applies to what starts after it
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 3: a change applies to requests that start after it; requests in flight keep their values. The values are read in many places: the runner, the capability and answer nodes, the guards, the summary and memory steps, the model, embedding and rerank gateways, the upload service and the ingest worker.
+- Decision:
+  - **Pinning.** One immutable snapshot (`app/platform_settings/effective.py`) holds the overrides in force and what they change in each configuration object. A request pins the snapshot current when it starts, in a ContextVar, and the tasks it starts inherit it:
+    - a turn at admission (`Admission.settings`, pinned again at the start of the turn's task);
+    - an upload at registration (its background hand-over included);
+    - an ingest job when the worker takes it.
+  - **Reading.** Readers call `effective.turn(default)`, `effective.timeouts(default)` and `effective.register_response_s(default)`: the caller's own default with the pinned overrides written in, built once per default object, or the default itself when nothing is pinned. A test that swaps `services.turn` keeps its own configuration that way.
+  - **Shared limits.** Counters shared across requests — the turn limiter, the registrations limiter, each MCP server's slots — are resized by a hook on every new snapshot. What is in flight keeps its slot, and a request that starts after the change meets the new limit. That is how per_user_max 2 → 1 refuses the next turn while the first goes on.
+- Consequences: A turn admitted just before a change runs to its end with the old deadline. A change does not reach a request already running; the relay's bound at the gateway follows the deadline in force when the stream starts (ADR-0283).
+
+### ADR-0280: A stored version that no longer passes the rules is ignored as a whole
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 3: a stored override that fails validation at startup (for example after a file default changed) is ignored, the file value used, and an error logged. Rules span several values, so one value's override cannot always be judged alone.
+- Decision: Every load of the version in force (start, notice, refresh) checks its overrides with `evaluate` against the files' values. When any problem is found, the whole version is ignored: the files' values are in force, an error is logged with the rules it fails, and the page says so (`ignored`). The version stays in the history, and the next save or revert replaces it.
+- Consequences: One stale value voids the other overrides of its version until the administrator saves again. Dropping only the values a failing rule names would need each rule to say which of its inputs to drop; the simplest consistent option is the files' values.
+
+### ADR-0281: An MCP server's max_concurrency is lowered by holding back permits of its own semaphore
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 1: a server's max_concurrency may be lowered from the page, never raised above the file's value, which is the figure agreed in the ICD. The client sizes an `asyncio.Semaphore` (and the background half, ADR-0265) at startup. asyncio's semaphore cannot be resized. Replacing it while calls hold the old one would let old holders and new callers together pass the file's value.
+- Decision: The semaphore stays asyncio's, so its waiting, FIFO fairness and cancellation stay the library's. A `_Holdback` (app/mcp/client.py) keeps `file − limit` of its permits out of use:
+  - It takes the permits free now at once, and the rest in the semaphore's own queue as calls return theirs.
+  - A call holding a slot keeps it; one waiting is served after the holdback.
+  - Raising the limit back returns the held permits.
+  - The background semaphore is held back to half of the new limit, at least 1.
+  - In flight never passes max(old, new) ≤ the file's value.
+  - The server's `in_use` and `background_in_use` are counted for the usage section.
+- Alternatives:
+  - A custom resizable semaphore: rejected. It rewrites waiting and cancellation, which the library gets right.
+  - Replacing the semaphore: rejected; it can pass the ICD figure.
+  - aiolimiter: rejected. It limits a rate, not what is in flight.
+  - Envoy or a proxy limit: rejected. It is per host, not per server entry, and does not exist in compose.
+- Consequences: Lowering takes effect as calls end, never by cancelling them. A row in docs/RESILIENCE.md records it.
+
+### ADR-0282: The usage section reads the process's counters only; counts, never who
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 7b: usage from in-memory counters only, no database and no per-request cost, counts only.
+- Decision: `GET /v1/admin/usage` (agent, admin only) answers:
+  - turns in flight (the platform, each tenant with something in flight, the busiest user's count) against their limits, from `ConcurrencyLimiter.snapshot`;
+  - per MCP server, slots and background slots in use against the limits in force, and the breaker's state with the seconds since it opened;
+  - registrations still running after their upload answered `pending`;
+  - `task_abandoned` since start (`deadline.ABANDONED`).
+  
+  No user id or name appears. Tenant ids appear, as chips on the page. The gateway proxies and audits each read like every admin call (ADR-0042). The page refreshes it every 5 s while it is open and visible.
+- Consequences: The audit log gains one `settings.usage` row per open page every 5 s. Measured: with 20 turns in flight, the endpoint answered in 1.1 ms at worst (median 0.3 ms), under the 50 ms bound (tests/integration/test_platform_settings.py).
+
+### ADR-0283: The gateway reads the values it enforces every 5 s, each read bounded by 4 s; the last values read stay in force
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 3: the gateway enforces some of the values itself, so it reads them from an internal agent endpoint, cached at most 10 s. The values are the turn deadline (its relay bound), uploads per minute and uploads in flight per user.
+- Decision:
+  - `PlatformLimits` (gateway) reads `GET /v1/internal/settings/limits` (internal token, no caller) every `gateway.settings.refresh`, 5 s, on a thread of its own. Each read is bounded 4 s from request to body, so a change reaches the gateway within 10 s.
+  - Hot paths read its cache only. The upload rate limiter and the per-user upload cap read it per upload; the relay bound is read when each turn's stream is sent.
+  - An unreachable or unusable answer keeps the last values. Before the first read, the files' values apply (with GATEWAY_DOCS_UPLOADS_PER_MINUTE).
+  - The test profile sets the refresh to 0 (off), since its mock agent answers in order; PlatformLimitsTest reads on its own.
+  - `gateway_headers_s` and `gateway_margin_s` stay the file's: they are redeploy-only.
+- Consequences: The gateway-wide upload cap (`max_concurrent_uploads_total`) stays the file's. One small request every 5 s reaches the agent.
+
+### ADR-0284: The agent checks the admin role too, from the gateway's X-User-Admin on admin calls
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Item 5: admin only, checked at the gateway and the agent. The agent is role-blind (ADR-0046); its admin policy API trusts the internal token, and the gateway alone checks the role.
+- Decision: The gateway's admin proxy (`AgentClient.exchangeAdmin`, used by the policy and settings controllers) sends `X-User-Admin`, `true` or `false`, read from the same verified token as X-User-Id. Every settings and usage endpoint of the agent refuses a call without `true` (403 `forbidden`, new in config/messages/errors.yaml), after the internal token. A gateway route that forwarded a user's call there by mistake is still refused. The agent's policy endpoints are unchanged.
+- Consequences: Defence in depth within the compose network's trust (the internal token): it does not protect against a forged internal call, which the network policy and the token do. The internal limits endpoint the gateway polls has no caller and needs no role.
+
+### ADR-0285: The details this PR filled in
+- Date: 2026-10-22
+- Phase: standalone PR before phase 06 (`feat/platform-settings`)
+- Status: assumed
+- Context: Details the owner's decision left open.
+- Decision:
+  1. The models.yaml "helper" timeout sets the router, summarizer, judge and extractor ceilings together, and "reasoning" sets reasoning and reflection. Each default is the longest of its roles.
+  2. The settings keys are dotted ids (`turn.per_user_max`, `models.helper_s`, `docs.register_response_s`, `mcp.<server>.max_concurrency`), shown in chips only.
+  3. The per-tenant upload map (`limits.tenant_concurrent_uploads`) is editable beside the tenant share, as the turn overrides are.
+  4. A save whose overrides are a subset of those in force, each unchanged, is recorded as `restore`. A save may name the version it was made from (`expected_version`); another save first is 409 `settings_conflict`.
+  5. A revert of a version that no longer passes the rules is refused like a save.
+  6. The page's save goes through a review step: a preview (`POST /v1/admin/settings/preview`) shows what changes, each conflict and the timeout tree on the draft's values, and only a valid preview of the current draft can be confirmed.
+  7. Uploads per minute's default is the deployment's UPLOADS_PER_MINUTE where set (the gateway's own override), else config/docs.yaml's.
+- Consequences: The owner may prefer separate helper roles, per-key restore rows, or a save without the review step.
