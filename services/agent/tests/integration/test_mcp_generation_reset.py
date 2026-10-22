@@ -1,4 +1,4 @@
-"""A generation reset never counts against a healthy server (timeout budget PR, scope A; the
+"""A healthy server's restart never opens the breaker (timeout budget PR, scope A; the
 breaker suspicion of the PR #10 verification, docs/BACKLOG.md "Before the phase 06 build").
 
 The suspicion, from reading app/mcp/client.py only: when one call finds its MCP session gone (I9,
@@ -9,7 +9,10 @@ A healthy server restarts (tests/fixtures/slow_mcp.py, RestartingMCPServer: ever
 forgotten, nothing goes down) while 1, 4 and max_concurrency calls are in flight or waiting for a
 session; and a restart lands while sessions are being initialised. 50 iterations each, with
 seeded jitter on when each call starts, how long the server holds it and when the restart lands.
-After every iteration the breaker has counted no failure and is closed.
+After every iteration the breaker has never opened and is closed: what users would notice (every
+call to the server refused for 30 s). A stray failure counted during a restart is reset by the
+next success, since the breaker counts consecutive failures only (owner decision, ADR-0273); the
+failures counted are printed, not asserted.
 
 Two scenarios added for the race of ADR-0272, reproduced at 2000 iterations of four calls (3
 failures counted) and with the restart pinned to each step of a call (7 in 300 when it lands
@@ -125,21 +128,24 @@ async def _iteration(
         "restart-again-at-the-resend",
     ],
 )
-async def test_a_healthy_servers_restart_never_counts_a_breaker_failure(
+async def test_a_healthy_servers_restart_never_opens_the_breaker(
     restarting, calls, during_initialize, mode, iterations
 ):
     server, connection = restarting
     # The first five scenarios keep their seeds of ADR-0249.
     seed = f"{SEED}-{calls}-{during_initialize}" + ("" if mode == "timed" else f"-{mode}")
     rng = random.Random(seed)
-    # Every failure the breaker is told of, not only the count left at the end: a later success
-    # resets the count, so a failure counted mid-iteration would not show in it.
+    # Every failure the breaker is told of, and every time it opened, not only its state at the
+    # end of an iteration: an opening mid-iteration must not be missed.
     counted: list[int] = []
+    opened: list[int] = []
     breaker_failure = connection.breaker.failure
 
     def failure() -> None:
         counted.append(iteration)
         breaker_failure()
+        if connection.breaker.opened_at is not None:
+            opened.append(iteration)
 
     connection.breaker.failure = failure
     failed_calls = 0
@@ -150,12 +156,12 @@ async def test_a_healthy_servers_restart_never_counts_a_breaker_failure(
         )
         failures = [o for o in outcomes if isinstance(o, BaseException)]
         failed_calls += len(failures)
-        assert not counted, (
+        assert not opened, (
             iteration,
+            opened,
             len(counted),
             [getattr(f, "code", type(f).__name__) for f in failures],
         )
-        assert connection.breaker.failures == 0, (iteration, connection.breaker.failures, failures)
         assert connection.breaker.state == "closed", (iteration, connection.breaker.state)
         # The next iteration starts on a connected server, as a later user's call would.
         await asyncio.wait_for(connection.connected.wait(), 10)
@@ -163,5 +169,5 @@ async def test_a_healthy_servers_restart_never_counts_a_breaker_failure(
         f"scope A {calls} call(s), during_initialize={during_initialize}, {mode}: {iterations} iterations in "
         f"{time.monotonic() - started:.1f} s, {server.restarts} restarts, {server.not_found} 404s, "
         f"{connection.sessions} sessions; failed calls {failed_calls}, "
-        f"breaker failures counted {len(counted)}"
+        f"breaker failures counted {len(counted)}, opened {len(opened)}"
     )
