@@ -67,9 +67,11 @@ test-evals:
 
 # The timeout budget (I9, ADR-0261): every nested bound of docs/RESILIENCE.md shorter than the one
 # around it, read from the files that set them; the self-test proves each check catches a violation.
+# scripts/tests: the rules come from what the capabilities declare, none named (ADR-0275).
 test-budget:
 	uv run -q scripts/check_timeout_budget.py --self-test
 	uv run -q scripts/check_timeout_budget.py
+	uv run -q --no-project --with pytest --with pyyaml pytest -q scripts/tests
 
 eval: .env ## Golden suites against the live stack (real models)
 	RAGAS_DO_NOT_TRACK=true uv run evals/run_evals.py $(s)

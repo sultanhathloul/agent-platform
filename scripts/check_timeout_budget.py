@@ -127,7 +127,7 @@ def self_test(values: dict) -> int:
     problems = budget.self_test(values)
     for problem in problems:
         print(f"  FAIL  self-test: {problem}")
-    total = len(budget.MUTATIONS)
+    total = len(budget.mutations(values))
     print(f"timeout budget self-test {total - len(problems)} / {len(problems)} / 0")
     return 1 if problems else 0
 

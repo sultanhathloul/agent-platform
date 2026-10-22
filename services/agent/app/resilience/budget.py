@@ -7,12 +7,15 @@ files that set them), so a later endpoint that saves one of those files can run 
 the values it is about to write. Standard library only.
 
 - `checks(values)`: one Check per rule, by a stable name.
-- EXPECTED: the names the shipped configuration must produce; a missing one fails (`verify`), so a
-  rule never drops out because a file changed shape.
-- MUTATIONS: one violating change per rule; `self_test` requires that each makes its own rule fail.
+- EXPECTED: the names of the fixed rules the shipped configuration must produce, and `generated`:
+  the rules each capability, tool and MCP server it declares must produce (ADR-0275); a missing one
+  fails (`verify`), so a rule never drops out because a file changed shape.
+- MUTATIONS: one violating change per fixed rule, and one generic mutation per generated family
+  (`mutations`); `self_test` requires that each makes its own rule fail.
 
-A new nested pair needs a rule here, its name in EXPECTED, a mutation and a row in
-docs/RESILIENCE.md."""
+No capability, tool or MCP server is named here: one added or removed changes the rules produced,
+never this module. A new nested pair needs a rule here, its name in EXPECTED (or a family), a
+mutation and a row in docs/RESILIENCE.md."""
 
 import copy
 import re
@@ -212,7 +215,7 @@ def checks(v: dict) -> list[Check]:
             "attempt-margin-used",
             "MCP: an attempt inside its caller's deadline",
             src["mcp/client.py"],
-            r"deadline\.within\(ceiling, margin_s=_ATTEMPT_MARGIN_S\)",
+            r"deadline\.within\(self\.entry\.timeout_s, margin_s=_ATTEMPT_MARGIN_S\)",
             "_ATTEMPT_MARGIN_S",
             c["attempt_margin_s"],
         ),
@@ -231,77 +234,182 @@ def checks(v: dict) -> list[Check]:
                 strict=False,
             )
         )
-    for slug, manifest in sorted(v["manifests"].items()):
-        out.append(
-            _pair(
-                f"capability-in-room:{slug}",
-                f"Chat: capability {slug} in the turn before the answer",
-                f"{slug} limits.timeout_s",
-                float(manifest["limits"]["timeout_s"]),
-                "deadline_s − answer_reserve_s",
-                room,
-            )
-        )
-    if "docs_search" in v["tools"] and "docs" in v["manifests"]:
-        search = v["tools"]["docs_search"]
-        out += [
-            _pair(
-                "docs-search-in-docs",
-                "Chat: docs_search in the docs capability",
-                "docs_search timeout_s",
-                search,
-                "docs limits.timeout_s",
-                float(v["manifests"]["docs"]["limits"]["timeout_s"]),
-            ),
-            _pair(
-                "embed-rerank-in-docs-search",
-                "Chat: a query's embedding and rerank in docs_search",
-                "timeouts.embedding.query + timeouts.rerank",
-                timeouts["embedding"]["query"] + timeouts["rerank"],
-                "docs_search timeout_s",
-                search,
-            ),
-        ]
-    for server in v["mcp"]["servers"]:
-        sid, t = server["id"], float(server["timeout_s"])
-        bound = 2 * t + c["broker_margin_s"]
-        out.append(
-            _pair(
-                f"slot-and-attempt-in-broker:{sid}",
-                f"MCP: {sid}'s slot wait and attempt in the broker bound",
-                f"slot wait {sid}.timeout_s + attempt {sid}.timeout_s",
-                2 * t,
-                f"broker bound 2 × {sid}.timeout_s + _BROKER_MARGIN_S",
-                bound,
-            )
-        )
-        for slug, manifest in sorted(v["manifests"].items()):
-            if any(tool.startswith(f"{sid}.") for tool in manifest.get("tools") or []):
-                out.append(
-                    _pair(
-                        f"broker-in-capability:{sid}:{slug}",
-                        f"MCP: {sid} tools in capability {slug}",
-                        f"broker bound 2 × {sid}.timeout_s + margin",
-                        bound,
-                        f"{slug} limits.timeout_s",
-                        float(manifest["limits"]["timeout_s"]),
-                    )
-                )
-        if sid == docs.get("mcp_server") and "docs_search" in v["tools"]:
-            out.append(
-                _pair(
-                    f"server-call-in-docs-search:{sid}",
-                    f"MCP: one {sid} call (search) in docs_search",
-                    f"{sid}.timeout_s",
-                    t,
-                    "docs_search timeout_s",
-                    v["tools"]["docs_search"],
-                )
-            )
+    out += [rule(v, *key) for family, rule in _FAMILIES.items() for key in _keys(v, family)]
     return out
 
 
-# The rules the shipped configuration produces; a missing one fails.
+# The rules generated from what the configuration declares, one per capability, tool or server:
+# no capability, tool or server is named here (review round 2 of PR #12, finding (3), ADR-0275).
+# A capability added or removed changes the rules produced, never this module.
+
+
+def _mcp_server(v: dict, tool: str) -> dict | None:
+    """The config/mcp.yaml server of an MCP tool (`<server>.<tool>`), or None for an in-process one."""
+    sid = tool.split(".", 1)[0] if "." in tool else None
+    return next((s for s in v["mcp"]["servers"] if s["id"] == sid), None)
+
+
+def _tool_bound(v: dict, tool: str) -> tuple[str, float] | None:
+    """What bounds a tool the broker runs: an MCP tool's broker bound (2 × its server's timeout_s
+    + _BROKER_MARGIN_S, ADR-0259), an in-process tool's own ToolSpec timeout_s; None when the
+    configuration sets neither."""
+    server = _mcp_server(v, tool)
+    if server is not None:
+        sid = server["id"]
+        return f"broker bound 2 × {sid}.timeout_s + margin", 2 * float(server["timeout_s"]) + v["constants"][
+            "broker_margin_s"
+        ]
+    if tool in v["tools"]:
+        return f"{tool} timeout_s", float(v["tools"][tool])
+    return None
+
+
+def _facade_tools(v: dict, slug: str) -> list[str]:
+    """The in-process tools of a capability whose manifest declares `documents`: the broker hands
+    each the document facade (ADR-0231), so each must fit one facade search."""
+    manifest = v["manifests"][slug]
+    if not manifest.get("documents"):
+        return []
+    return [tool for tool in manifest.get("tools") or [] if _mcp_server(v, tool) is None]
+
+
+def _document_server(v: dict) -> dict | None:
+    return next((s for s in v["mcp"]["servers"] if s["id"] == v["docs"].get("mcp_server")), None)
+
+
+def _keys(v: dict, family: str) -> list[tuple[str, ...]]:
+    manifests = sorted(v["manifests"].items())
+    if family == "capability-in-room":
+        return [(slug,) for slug, _ in manifests]
+    if family == "tool-in-capability":
+        return [(slug, tool) for slug, m in manifests for tool in m.get("tools") or []]
+    if family == "facade-search-in-tool":
+        return [(slug, tool) for slug, _ in manifests for tool in _facade_tools(v, slug)]
+    if family == "document-server-in-tool":
+        if _document_server(v) is None:
+            return []
+        return [(slug, tool) for slug, _ in manifests for tool in _facade_tools(v, slug)]
+    if family == "slot-and-attempt-in-broker":
+        return [(server["id"],) for server in v["mcp"]["servers"]]
+    raise KeyError(family)
+
+
+def _room(v: dict) -> float:
+    return v["turn"]["deadline_s"] - v["turn"]["answer_reserve_s"]
+
+
+def _capability_in_room(v: dict, slug: str) -> Check:
+    return _pair(
+        f"capability-in-room:{slug}",
+        f"Chat: capability {slug} in the turn before the answer",
+        f"{slug} limits.timeout_s",
+        float(v["manifests"][slug]["limits"]["timeout_s"]),
+        "deadline_s − answer_reserve_s",
+        _room(v),
+    )
+
+
+def _tool_in_capability(v: dict, slug: str, tool: str) -> Check:
+    name, row = f"tool-in-capability:{slug}:{tool}", f"Chat: {tool} in capability {slug}"
+    bound = _tool_bound(v, tool)
+    if bound is None:  # a declared tool with no bound fails rather than drops out
+        return Check(name, row, False, f"{tool}: no bound found (no ToolSpec timeout_s, no MCP server)")
+    label, value = bound
+    limit = float(v["manifests"][slug]["limits"]["timeout_s"])
+    return _pair(name, row, label, value, f"{slug} limits.timeout_s", limit)
+
+
+def _facade_search_in_tool(v: dict, slug: str, tool: str) -> Check:
+    name, row = f"facade-search-in-tool:{slug}:{tool}", f"Chat: a query's embedding and rerank in {tool}"
+    bound = _tool_bound(v, tool)
+    if bound is None:
+        return Check(name, row, False, f"{tool}: no bound found (no ToolSpec timeout_s)")
+    timeouts = v["models"]["timeouts"]
+    return _pair(
+        name,
+        row,
+        "timeouts.embedding.query + timeouts.rerank",
+        timeouts["embedding"]["query"] + timeouts["rerank"],
+        bound[0],
+        bound[1],
+    )
+
+
+def _document_server_in_tool(v: dict, slug: str, tool: str) -> Check:
+    server = _document_server(v)
+    sid = server["id"]
+    name, row = (
+        f"document-server-in-tool:{slug}:{tool}",
+        f"MCP: one {sid} call (the document backend's) in {tool}",
+    )
+    bound = _tool_bound(v, tool)
+    if bound is None:
+        return Check(name, row, False, f"{tool}: no bound found (no ToolSpec timeout_s)")
+    return _pair(name, row, f"{sid}.timeout_s", float(server["timeout_s"]), bound[0], bound[1])
+
+
+def _slot_and_attempt_in_broker(v: dict, sid: str) -> Check:
+    t = float(next(s for s in v["mcp"]["servers"] if s["id"] == sid)["timeout_s"])
+    return _pair(
+        f"slot-and-attempt-in-broker:{sid}",
+        f"MCP: {sid}'s slot wait and attempt in the broker bound",
+        f"slot wait {sid}.timeout_s + attempt {sid}.timeout_s",
+        2 * t,
+        f"broker bound 2 × {sid}.timeout_s + _BROKER_MARGIN_S",
+        2 * t + v["constants"]["broker_margin_s"],
+    )
+
+
+_FAMILIES: dict[str, Callable[..., Check]] = {
+    "capability-in-room": _capability_in_room,
+    "tool-in-capability": _tool_in_capability,
+    "facade-search-in-tool": _facade_search_in_tool,
+    "document-server-in-tool": _document_server_in_tool,
+    "slot-and-attempt-in-broker": _slot_and_attempt_in_broker,
+}
+
+
+def _limit_to_bound(v: dict, slug: str, tool: str) -> None:
+    bound = _tool_bound(v, tool)
+    v["manifests"][slug]["limits"]["timeout_s"] = bound[1] if bound else 0.0
+
+
+def _tool_to(v: dict, tool: str, value: float) -> None:
+    v["tools"][tool] = value
+
+
+# One generic violating change per family, applied to each rule it generates: the value just at
+# its bound, which the rule (strict) must refuse.
+_FAMILY_MUTATIONS: dict[str, Callable[..., None]] = {
+    "capability-in-room": lambda v, slug: v["manifests"][slug]["limits"].update(timeout_s=_room(v)),
+    "tool-in-capability": _limit_to_bound,
+    "facade-search-in-tool": lambda v, slug, tool: _tool_to(
+        v, tool, v["models"]["timeouts"]["embedding"]["query"] + v["models"]["timeouts"]["rerank"]
+    ),
+    "document-server-in-tool": lambda v, slug, tool: _tool_to(
+        v, tool, float(_document_server(v)["timeout_s"])
+    ),
+    "slot-and-attempt-in-broker": lambda v, sid: v["constants"].update(broker_margin_s=0.0),
+}
+
+
+def generated(values: dict) -> list[str]:
+    """The names of the rules the configuration's capabilities, tools and servers must produce."""
+    return [":".join((family, *key)) for family in _FAMILIES for key in _keys(values, family)]
+
+
+def mutations(values: dict) -> dict[str, Callable[[dict], None]]:
+    """Every rule's mutation: the fixed rules' (MUTATIONS) and each generated rule's, from its
+    family's one mutation."""
+    out = dict(MUTATIONS)
+    for family, mutate in _FAMILY_MUTATIONS.items():
+        for key in _keys(values, family):
+            out[":".join((family, *key))] = lambda v, mutate=mutate, key=key: mutate(v, *key)
+    return out
+
+
+# The fixed rules the shipped configuration produces; a missing one fails. The generated ones
+# (`generated`) are expected from what the configuration declares.
 EXPECTED: tuple[str, ...] = (
     "turn-in-relay",
     "headers-in-relay",
@@ -325,20 +433,7 @@ EXPECTED: tuple[str, ...] = (
     "attempt-margin-used",
     "sandbox-memory:ingest",
     "sandbox-memory:mcp-rag-ref",
-    "capability-in-room:directions",
-    "capability-in-room:docs",
-    "capability-in-room:general",
-    "docs-search-in-docs",
-    "embed-rerank-in-docs-search",
-    "slot-and-attempt-in-broker:routing",
-    "broker-in-capability:routing:directions",
-    "slot-and-attempt-in-broker:rag",
-    "server-call-in-docs-search:rag",
 )
-
-
-def _server(v: dict, sid: str) -> dict:
-    return next(s for s in v["mcp"]["servers"] if s["id"] == sid)
 
 
 def _sub(file: str, pattern: str, repl: str) -> Callable[[dict], None]:
@@ -365,7 +460,9 @@ MUTATIONS: dict[str, Callable[[dict], None]] = {
     "litellm-no-retries": lambda v: v["litellm"]["litellm_settings"].update(num_retries=1),
     "litellm-margin-used": _sub("models/gateway.py", r"remaining\s*-\s*LITELLM_MARGIN_S", "remaining"),
     "client-margin-used": _sub("models/gateway.py", r"remaining\s*\+\s*CLIENT_MARGIN_S", "remaining"),
-    "helper-in-shortest-capability": lambda v: v["models"]["timeouts"]["roles"].update(router=30),
+    "helper-in-shortest-capability": lambda v: v["models"]["timeouts"]["roles"].update(
+        router=min(float(m["limits"]["timeout_s"]) for m in v["manifests"].values())
+    ),
     "register-in-gateway-call": lambda v: v["docs"].update(register_response_s=62),
     "upload-stall-in-deadline": lambda v: v["gateway"].update(connection_upload_timeout_s=120),
     "keep-alive": lambda v: v.update(agent_keep_alive_s=5.0),
@@ -375,35 +472,28 @@ MUTATIONS: dict[str, Callable[[dict], None]] = {
     ),
     "attempt-margin-used": _sub(
         "mcp/client.py",
-        r"deadline\.within\(ceiling, margin_s=_ATTEMPT_MARGIN_S\)",
-        "deadline.within(ceiling)",
+        r"deadline\.within\(self\.entry\.timeout_s, margin_s=_ATTEMPT_MARGIN_S\)",
+        "deadline.within(self.entry.timeout_s)",
     ),
     "sandbox-memory:ingest": lambda v: v["sandbox_workers"].update(ingest=3),
     "sandbox-memory:mcp-rag-ref": lambda v: v["mem_limits_mb"].update({"mcp-rag-ref": 1024}),
-    "capability-in-room:directions": lambda v: v["manifests"]["directions"]["limits"].update(timeout_s=500),
-    "capability-in-room:docs": lambda v: v["manifests"]["docs"]["limits"].update(timeout_s=500),
-    "capability-in-room:general": lambda v: v["manifests"]["general"]["limits"].update(timeout_s=500),
-    "docs-search-in-docs": lambda v: v["tools"].update(docs_search=90),
-    "embed-rerank-in-docs-search": lambda v: v["models"]["timeouts"]["embedding"].update(query=45),
-    "slot-and-attempt-in-broker:routing": lambda v: v["constants"].update(broker_margin_s=-1.0),
-    "broker-in-capability:routing:directions": lambda v: _server(v, "routing").update(timeout_s=100),
-    "slot-and-attempt-in-broker:rag": lambda v: v["constants"].update(broker_margin_s=-1.0),
-    "server-call-in-docs-search:rag": lambda v: _server(v, "rag").update(timeout_s=60),
 }
 
 
 def verify(values: dict) -> tuple[list[Check], list[str]]:
-    """Every check, and the names EXPECTED lists that no check produced."""
+    """Every check, and the names expected (EXPECTED, and the generated rules the configuration
+    declares) that no check produced."""
     found = checks(values)
     names = {check.name for check in found}
-    return found, [name for name in EXPECTED if name not in names]
+    return found, [name for name in (*EXPECTED, *generated(values)) if name not in names]
 
 
 def self_test(values: dict) -> list[str]:
     """What the self-test found wrong: a rule without a mutation, or a mutation that left its own
     rule holding."""
-    problems = [f"{name}: no mutation" for name in EXPECTED if name not in MUTATIONS]
-    for name, mutate in MUTATIONS.items():
+    every = mutations(values)
+    problems = [f"{name}: no mutation" for name in (*EXPECTED, *generated(values)) if name not in every]
+    for name, mutate in every.items():
         changed = copy.deepcopy(values)
         mutate(changed)
         own = [check for check in checks(changed) if check.name == name]
