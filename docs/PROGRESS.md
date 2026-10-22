@@ -1791,7 +1791,7 @@ Files for human review: none under `config/` or `infra/`.
 
 ## Platform settings (standalone PR before phase 06, owner decision 2026-10-22)
 
-- Status: in progress (2026-10-22). Not a phase; no phase number changes.
+- Status: done (2026-10-22); awaiting the owner's review (merge request). Not a phase; no phase number changes.
 - Branch: `feat/platform-settings`, from `main` at 081f4df (PR #12, `fix/timeout-budget`, merged 2026-10-22T14:56:57Z). The session prompt is kept verbatim in `docs/PLATFORM-SETTINGS-PROMPT.md`.
 - Threat model: ADR-0054. Rule 13: infrastructure only, no `make eval`. `docs/HANDOFF.md` untouched.
 - Baseline on `main` (rule 11). main at 081f4df carries the code of ba26fb9 (809db79 changed docs/PROGRESS.md only), so the last recorded runs of that code are the baseline:
@@ -1825,26 +1825,88 @@ Files for human review: none under `config/` or `infra/`.
   - FINISH: from `make clean && make models && make up`, nothing started by hand: `make test`; `make smoke` twice; `make smoke-airgap` once. Recorded per rule 11. The pages and sections for the owner's visual check, and the files for human review, listed. Pushed; merge request opened.
 
 Checklist:
-- [ ] 1. ADR (owner decision, decided) and the Assumed ADRs for the details filled in.
-- [ ] 2. Shared validator: budget.py gains the ranges and the editable keys, `apply_overrides` and the plain-language conflict messages (config/messages/settings.yaml, ar and en). The deploy-only values the agent cannot read move to a generated, drift-checked config/deploy.yaml; check_timeout_budget.py and the agent build one value set from the same loader.
-- [ ] 3. Migration 0014: `agent.platform_settings`, append-only versions with actor id, username and display name, the change kind and the version it reverts to.
-- [ ] 4. Agent settings store: versions, Redis cache and pub/sub, periodic refresh, last known values on failure, startup validation of the stored override (ignored and logged when it fails).
-- [ ] 5. Effective values pinned per request (turns, uploads, ingest jobs). The consumers read the pinned values: turn limits and deadlines, model, embedding and rerank ceilings, upload limits and `register_response_s`, MCP max_concurrency (lowered only, without passing the file's value while in-flight calls drain).
-- [ ] 6. Agent API, admin only, checked at the agent too:
-  - GET settings (defaults, overrides, effective, read-only values, the tree);
-  - POST preview; POST save; POST revert; GET versions;
-  - GET usage (in-memory counters only);
-  - internal GET effective for the gateway.
-- [ ] 7. Gateway:
-  - the settings and usage proxy (admin, audited fail-closed with before and after values and the actor's names);
-  - the effective values poller (≤ 10 s, last known kept);
-  - upload caps and the relay bound read from it.
-- [ ] 8. Web `/admin/settings`: the seven groups, i18n ar and en, the header link, component tests.
-- [ ] 9. API 2.4.0 on both, `make openapi`.
-- [ ] 10. Tests of item 9 (agent, gateway, web).
-- [ ] 11. Smoke steps of item 10.
-- [ ] 12. README §20 amendment, docs/RESILIENCE.md note and rows.
-- [ ] 13. FINISH runs, recorded per rule 11.
+- [x] 1. ADR-0276 (owner decision, decided); ADR-0277 to ADR-0285 (assumed) for the details filled in.
+- [x] 2. Shared validator (ADR-0277, ADR-0278).
+  - budget.py has the editable settings with their ranges, `apply` and `evaluate`.
+  - config/messages/settings.yaml says each conflict in Arabic and English.
+  - The loader is in app/resilience/budget_values.py, shared by the script and the agent.
+  - config/deploy-values.yaml is generated, and its drift fails `make test`.
+- [x] 3. Migration 0014: `agent.platform_settings`, append-only by trigger, with actor id, username and display name, the change kind and `reverted_to`.
+- [x] 4. SettingsStore (ADR-0276, ADR-0280).
+  - Version 1 is seeded with no overrides; the store keeps a Redis cache and pub/sub and refreshes every 30 s.
+  - The last values stay when Redis or Postgres is gone.
+  - A version that fails the rules against the files is ignored and logged.
+- [x] 5. Pinned per request (ADR-0279): a turn at admission, an upload at registration, an ingest job when taken.
+  - The limiters and each MCP server's slots are resized for what starts after a change.
+  - MCP is lowered by holding back semaphore permits (ADR-0281).
+- [x] 6. Agent API, admin only, checked at the agent through X-User-Admin (ADR-0284).
+  - Settings, preview, save, revert and versions.
+  - Usage from in-memory counters (ADR-0282).
+  - The internal limits endpoint.
+- [x] 7. Gateway.
+  - AdminSettingsController: admin, proxied, audited fail-closed with before, after and the actor's names.
+  - PlatformLimits: read every 5 s, each read bounded 4 s, the last values kept.
+  - The upload rate, the per-user upload cap and the relay bound read it (ADR-0283).
+- [x] 8. Web `/admin/settings`.
+  - The seven groups, a review step and the version history.
+  - ar.json and en.json, a header link and component tests.
+- [x] 9. API 2.4.0 on both, `make openapi`; both specs additive (no path or schema of 2.3.0 changed).
+- [x] 10. Tests of item 9:
+  - agent: tests/unit/test_platform_settings_rules.py (18) and tests/integration/test_platform_settings.py (27);
+  - gateway: AdminSettingsProxyTest (14) and PlatformLimitsTest (3);
+  - web: Settings.test.tsx (13);
+  - scripts/tests: 2.
+- [x] 11. Smoke steps of item 10 (scripts/smoke.sh, two steps, 21 checks).
+- [x] 12. README §6.2 and §20.6 amendments; the docs/RESILIENCE.md note "Values in force: files and overrides" and three rows.
+- [x] 13. FINISH, recorded below.
+
+Results (rule 11). FINISH ran at 23a9dfc, in order, nothing started by hand, from `make clean` at 15:42:38Z: `make clean` → `make models` → `make up` (15:44:00Z healthy).
+- `make test`, 15:44:00Z–15:57:22Z:
+  - agent 946 / 0 / 0; gateway 163 / 0 / 0; gateway-db 5 / 0 / 0; web 162 / 0 / 0; evals harness 12 / 0 / 0;
+  - timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, `deploy-values` ok); budget tests (scripts/tests) 10 / 0 / 0.
+  - Against the baseline: agent 901 → 946, gateway 146 → 163, web 149 → 162, scripts/tests 8 → 10. No layer is lower and no test was removed.
+- `make smoke` ×2: 15:57:22Z–16:02:48Z 199/199, and 16:02:48Z–16:08:10Z 199/199 (baseline 178; the 21 platform settings checks added).
+  - R3: 1 245 184 and 2 661 248 of 31 457 289 bytes sent before the JSON 413.
+  - G7: general turn median 3.90 s and 3.07 s.
+- `make smoke-airgap` ×1, 16:08:10Z–16:16:21Z: 207/207 (last recorded 186 at 031fafb; the airgap stack runs every smoke check plus its own).
+  - R3: 2 359 296 bytes sent.
+  - G7: median 3.07 s.
+- No `make eval` (rule 13: infrastructure only).
+- Timings, from the development run with `pytest -s` at 362ed06 (2026-10-22, agent-tests container); `make test` runs without `-s` and does not print them:
+  - per_user_max 2 → 1: the next turn was refused `too_many_turns` in 0 ms, no restart.
+  - Usage with 20 turns in flight: 1.1 ms at worst, median 0.3 ms, against the 50 ms bound.
+  - An upload cap change reaches the gateway within 10 s: PlatformLimitsTest asserts it, with the gateway's 5 s refresh.
+- Before FINISH, the two new smoke steps were run alone against the stack from `make up` at e4782cc: 22/22. They were also checked by hand in the browser: an 80 s deadline was refused in review with three conflicts and the tree marking the pair.
+
+How to verify: `make clean && make models && make up`, then `make test`, `make smoke`, `make smoke-airgap`. Sign in as admin/admin and open http://localhost:3000/admin/settings.
+
+For the owner's visual check (`/admin/settings`, as admin, in Arabic and English):
+- Each group: الأسئلة، النماذج، رفع الملفات، خوادم الأدوات (each server's id in a chip), سعة المنصة (للعرض فقط)، شجرة المهلات، الاستهلاك الآن، سجل النسخ.
+- In each group: the labels with units, the help lines with examples, the default beside each value, and "استعادة الافتراضي" on an overridden field.
+- The timeout tree: every pair holds on the files' values. Change the deadline to 80 and press "مراجعة التغيير قبل الحفظ": it shows "متعارض" on the answering model and on the 60 s capabilities.
+- An invalid-save message: the deadline at 80, or the answer reserve at 130, in the review panel. A save the agent refuses shows its sentences.
+- The usage section: with a turn running in another tab, the turns in flight move. Each server shows its slots, background slots and state.
+- The version history: actor and time, "استعادة هذه النسخة" with its confirm step, and no revert on the seed or the version in force.
+
+Files for human review:
+- services/agent/app/db/migrations/0014_platform_settings.sql (the new migration).
+- The settings seeds:
+  - the seeded version 1 (app/platform_settings/store.py `seed`);
+  - config/messages/settings.yaml (every refusal sentence and field label);
+  - config/deploy-values.yaml (generated);
+  - config/messages/errors.yaml (`forbidden`, `settings_invalid`, `settings_conflict`, `settings_version_not_found`).
+- Configuration:
+  - services/gateway/src/main/resources/application.yml (`gateway.settings.refresh` 5 s);
+  - docker-compose.yml (`DOCS_UPLOADS_PER_MINUTE` in the agent's environment);
+  - services/web/Dockerfile (the settings messages copied into the test stage).
+
+Left / for the owner:
+- Assumed, for confirmation: ADR-0277 to ADR-0285. In particular:
+  - the helper and reasoning keys each grouping several roles;
+  - a whole stored version ignored when it fails;
+  - the agent's admin check through X-User-Admin;
+  - usage reads audited every 5 s.
+- The rules also bound lowering: the answering model's ceiling cannot go below LiteLLM's 85 s backstop without a redeploy (ADR-0278).
 
 ## Phase 06: Skills
 
