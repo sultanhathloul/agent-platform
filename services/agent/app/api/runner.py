@@ -79,6 +79,7 @@ from app.identity import Principal, hash_user_id
 from app.memory.types import MemoryScope
 from app.observability.langfuse import set_trace_attributes
 from app.observability.otel import current_trace_id, tracer
+from app.platform_settings import effective
 from app.resilience import deadline
 from app.resilience.limits import Slot
 
@@ -117,6 +118,8 @@ class Admission:
     lease: TurnLease
     slot: Slot
     ends_at: float
+    # The platform settings in force when the turn arrived: it keeps them to its end (ADR-0279).
+    settings: effective.Effective | None = None
 
     async def release(self) -> None:
         try:
@@ -224,8 +227,11 @@ class TurnRunner:
 
     async def admit(self, req: TurnRequest, *, arrived: float | None = None) -> Admission:
         """A slot within the turn limits, ownership and the conversation's lock, within
-        `admission_s` of the deadline that opened at `arrived` (now by default). Raises TurnRefused."""
-        turn = self.services.turn
+        `admission_s` of the deadline that opened at `arrived` (now by default). Raises TurnRefused.
+        The platform settings current now are the turn's to its end (ADR-0279)."""
+        snapshot = self.services.platform.current if self.services.platform is not None else None
+        with effective.pin(snapshot):
+            turn = effective.turn(self.services.turn)
         ends_at = (deadline.now() if arrived is None else arrived) + turn.deadline_s
         principal = req.principal
         slot = self.services.turn_limits.try_acquire(principal.tenant_id, principal.user_id)
@@ -247,7 +253,7 @@ class TurnRunner:
         if lease is None:
             slot.release()
             raise TurnRefused("turn_in_flight")
-        return Admission(lease=lease, slot=slot, ends_at=ends_at)
+        return Admission(lease=lease, slot=slot, ends_at=ends_at, settings=snapshot)
 
     async def lock(self, conversation_id: str) -> TurnLease | None:
         """The conversation's turn lock, or None while another turn holds it (D6). Raises
@@ -303,6 +309,8 @@ class TurnRunner:
                 except TurnRefused as refused:
                     emit("error", self.services.messages.error(refused.code, retryable=refused.retryable))
                     return
+            # This task and every task the turn starts read the settings it was admitted with.
+            effective.pin_here(admission.settings)
             await self._run(req, request_id, turn_id, parent, emit, admission.ends_at)
         finally:
             try:
@@ -385,7 +393,9 @@ class TurnRunner:
 
     def _timed_out(self, ctx: TurnContext, span, emit) -> None:
         log.warning(
-            "turn %s ended with turn_timeout after %.0f s", ctx.turn_id, self.services.turn.deadline_s
+            "turn %s ended with turn_timeout after %.0f s",
+            ctx.turn_id,
+            effective.turn(self.services.turn).deadline_s,
         )
         span.set_status(Status(StatusCode.ERROR, "turn_timeout"))
         emit("error", self._error(ctx, "turn_timeout", retryable=True))
@@ -422,7 +432,7 @@ class TurnRunner:
                 progress.final = chunk
             if ctx.answer_sent and not progress.extended:
                 progress.extended = True
-                budget.extend(deadline.now() + self.services.turn.post_answer_reserve_s)
+                budget.extend(deadline.now() + effective.turn(self.services.turn).post_answer_reserve_s)
 
     async def _done(self, req: TurnRequest, ctx: TurnContext, span, emit, final: dict) -> None:
         """The terminal `done`, after the conversation's place in its owner's list is recorded."""

@@ -14,6 +14,7 @@ from app.models.config import ModelsConfig
 from app.models.embeddings import read_capped
 from app.models.gateway import DEADLINE_EDGE_S, ModelUnavailable, request_bounds
 from app.observability.otel import tracer
+from app.platform_settings import effective
 from app.resilience import deadline
 from app.settings import Settings
 
@@ -51,7 +52,7 @@ class Reranker:
         self._url = settings.litellm_base_url.rstrip("/") + "/rerank"
         self._key = settings.litellm_api_key or "unset"
         self._alias = alias or config.rerank["alias"]
-        self._ceiling = config.timeouts.rerank
+        self._timeouts = config.timeouts
 
     async def rerank(self, query: str, documents: Sequence[str]) -> list[float]:
         """One relevance score per document, in the documents' order."""
@@ -61,7 +62,7 @@ class Reranker:
             span.set_attribute("model.alias", self._alias)
             span.set_attribute("rerank.documents", len(documents))
             try:
-                with deadline.within(self._ceiling) as budget:
+                with deadline.within(effective.timeouts(self._timeouts).rerank) as budget:
                     client_timeout, litellm_timeout = request_bounds(budget)
                     try:
                         async with (
@@ -92,7 +93,8 @@ class Reranker:
                 span.set_attribute("model.timed_out", True)
                 if exc.inherited:
                     raise
-                raise ModelUnavailable(f"rerank past its {self._ceiling:.0f} s bound") from None
+                ceiling = effective.timeouts(self._timeouts).rerank
+                raise ModelUnavailable(f"rerank past its {ceiling:.0f} s bound") from None
             if status != 200:
                 raise ModelUnavailable(f"LiteLLM rerank returned {status}")
             try:

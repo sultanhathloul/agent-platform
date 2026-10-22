@@ -174,6 +174,46 @@ class _NoGeneration(Exception):
 _STOP_GRACE_S = 1.0
 
 
+class _Holdback:
+    """Keeps `target` of a semaphore's permits out of use, so a server's max_concurrency can be
+    lowered from the settings page without ever passing the file's (the ICD figure, ADR-0281). A
+    permit free now is taken at once; the rest are taken as calls return theirs, in the
+    semaphore's own FIFO order, so a call holding a slot keeps it and one waiting is served after
+    the holdback. Raising the limit back returns the permits held. The semaphore itself is
+    asyncio's: its waiting, fairness and cancellation stay the library's."""
+
+    def __init__(self, semaphore: asyncio.Semaphore):
+        self._semaphore = semaphore
+        self.held = 0
+        self.target = 0
+        self._task: asyncio.Task | None = None
+
+    def hold(self, target: int) -> None:
+        self.target = max(0, target)
+        while self.held > self.target:
+            self.held -= 1
+            self._semaphore.release()
+        if self.held < self.target and (self._task is None or self._task.done()):
+            try:
+                self._task = asyncio.get_running_loop().create_task(self._take(), name="mcp:holdback")
+            except RuntimeError:  # no loop yet: startup applies the files' values, which hold none
+                log.warning("mcp holdback of %d permit(s) deferred: no running loop", self.target)
+
+    async def _take(self) -> None:
+        while self.held < self.target:
+            await self._semaphore.acquire()
+            if self.held < self.target:
+                self.held += 1
+            else:
+                self._semaphore.release()
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._task
+
+
 class _Session:
     """One MCP session, used by one call at a time (ADR-0246). The SDK's contexts must be entered
     and left in one task, so each session lives in a task of its own; closing it leaves those
@@ -283,6 +323,13 @@ class ServerConnection:
         # Background work (a registration past the upload's answer, a status read past its bound)
         # takes at most half of the slots, so callers always find some (ADR-0265).
         self._background = asyncio.Semaphore(max(1, self.entry.max_concurrency // 2))
+        # The limit in force (the settings page may lower it, never past the file's, ADR-0281), and
+        # what calls hold now, for the usage section: counts only, read from memory.
+        self.max_concurrency = self.entry.max_concurrency
+        self._holdback = _Holdback(self._semaphore)
+        self._background_holdback = _Holdback(self._background)
+        self.in_use = 0
+        self.background_in_use = 0
         self.breaker = Breaker()
         # The pool (ADR-0246): sessions of the current generation that no call holds. With the
         # sessions calls hold, never more than max_concurrency: a call takes one with its slot.
@@ -305,11 +352,27 @@ class ServerConnection:
 
     # ------------------------------------------------------------------ connection
 
+    @staticmethod
+    def background_share(limit: int) -> int:
+        return max(1, limit // 2)
+
+    def set_max_concurrency(self, limit: int) -> None:
+        """Lowers (or raises back) the server's limit: at least 1, never above the file's. Calls
+        that hold a slot keep it; calls that start after it see the new limit (ADR-0281)."""
+        limit = max(1, min(int(limit), self.entry.max_concurrency))
+        self.max_concurrency = limit
+        self._holdback.hold(self.entry.max_concurrency - limit)
+        self._background_holdback.hold(
+            self.background_share(self.entry.max_concurrency) - self.background_share(limit)
+        )
+
     def start(self) -> None:
         if self._task is None and self.resolved.enabled:
             self._task = asyncio.create_task(self._keep_connected(), name=f"mcp:{self.entry.id}")
 
     async def stop(self) -> None:
+        await self._holdback.stop()
+        await self._background_holdback.stop()
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -449,8 +512,10 @@ class ServerConnection:
             self._spawn(self._replace(pooled, lease))
 
     def _release_slot(self, lease: _Lease) -> None:
+        self.in_use -= 1
         self._semaphore.release()
         if lease.background:
+            self.background_in_use -= 1
             self._background.release()
 
     async def _replace(self, pooled: _Session, lease: _Lease) -> None:
@@ -555,6 +620,7 @@ class ServerConnection:
             if lease.background:
                 await self._background.acquire()
             await self._semaphore.acquire()  # a slot is free: taken at once
+            self._held(lease)
             return
         observed["queued"] = True
         # Wait only as long as leaves the call its own timeout_s (I6); no wait left: busy now.
@@ -568,6 +634,7 @@ class ServerConnection:
                     await self._background.acquire()
                     held_background = True
                 await self._semaphore.acquire()
+            self._held(lease)
         except TimeoutError:
             if held_background:
                 self._background.release()
@@ -576,6 +643,25 @@ class ServerConnection:
             if held_background:
                 self._background.release()
             raise
+
+    def _held(self, lease: _Lease) -> None:
+        self.in_use += 1
+        if lease.background:
+            self.background_in_use += 1
+
+    def usage(self) -> dict[str, Any]:
+        """Counts only, from memory (the settings page's usage section, ADR-0282)."""
+        opened = self.breaker.opened_at
+        return {
+            "id": self.entry.id,
+            "max_concurrency": self.max_concurrency,
+            "file_max_concurrency": self.entry.max_concurrency,
+            "in_use": self.in_use,
+            "background_max": self.background_share(self.max_concurrency),
+            "background_in_use": self.background_in_use,
+            "breaker": self.breaker.state,
+            "open_for_s": None if opened is None else round(max(0.0, self.breaker._clock() - opened), 1),
+        }
 
     async def _attempt(
         self,
@@ -748,6 +834,16 @@ class MCPClient:
             return True
         except TimeoutError:
             return False
+
+    def set_max_concurrency(self, limits: dict[str, int]) -> None:
+        """Each server's limit in force (the settings page, ADR-0281); a server not named keeps its own."""
+        for sid, server in self.servers.items():
+            if sid in limits:
+                server.set_max_concurrency(limits[sid])
+
+    def usage(self) -> list[dict[str, Any]]:
+        """Each server's slots in use and breaker, counts only (ADR-0282)."""
+        return [server.usage() for _, server in sorted(self.servers.items())]
 
     def health(self) -> list[dict[str, Any]]:
         """Each server and each disabled tool, content-free (I8): no URL, no token, no schema."""

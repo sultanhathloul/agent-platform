@@ -104,3 +104,15 @@ tool_timeout:
 tool_result_too_large:
   ar: "أعادت الخدمة المطلوبة نتيجة أكبر من الحد المسموح به، فلم تُستخدم."
   en: "The service this step needs returned a result larger than allowed, so it was not used."
+forbidden:
+  ar: "هذا الإجراء متاح للمشرفين فقط."
+  en: "This action is available to administrators only."
+settings_invalid:
+  ar: "لم تُحفظ الإعدادات لأنها تخالف قواعد المهلات أو حدودها."
+  en: "The settings were not saved: they break a timeout rule or a limit."
+settings_conflict:
+  ar: "حفظ مشرف آخر الإعدادات قبلك. حدّث الصفحة وراجع التغيير ثم احفظه من جديد."
+  en: "Another administrator saved the settings first. Reload the page, review your change and save it again."
+settings_version_not_found:
+  ar: "لم يُعثر على هذه النسخة من الإعدادات."
+  en: "This settings version was not found."

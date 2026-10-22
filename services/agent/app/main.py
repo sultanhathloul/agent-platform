@@ -24,6 +24,8 @@ from app.api.ownership import ConversationOwners
 from app.api.routes import router
 from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
+from app.api.settings import internal as internal_router
+from app.api.settings import router as settings_router
 from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
@@ -64,6 +66,10 @@ from app.models.prompts import PromptLibrary
 from app.models.routing import TierResolver
 from app.observability.logs import quiet_libraries
 from app.observability.otel import setup_tracing, shutdown_tracing
+from app.platform_settings.effective import Effective
+from app.platform_settings.messages import SettingsMessages
+from app.platform_settings.setup import build_defaults
+from app.platform_settings.store import SettingsStore
 from app.rag.access import DocumentAccess, Held
 from app.rag.citations import load_attribution_rule
 from app.rag.setup import build_documents
@@ -84,7 +90,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.3.0"
+API_VERSION = "2.4.0"
 
 
 def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
@@ -196,18 +202,33 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
     broker = broker.with_documents(
         document_access(registry, documents.backends, documents.backend, attachment_store)
     )
+    upload_limits = load_upload_limits(settings.config_dir)
     attachments = AttachmentService(
         db=db,
         store=attachment_store,
         objects=objects,
         documents=documents.backend,
-        limits=load_upload_limits(settings.config_dir),
+        limits=upload_limits,
         backends=documents.backends,
         status_timeout_s=documents.config.status_timeout_s,
         register_response_s=documents.config.register_response_s,
     )
     store = MemoryStore(db, memory_config)
     turn = load_turn_config(settings.config_dir)
+    platform = SettingsStore(
+        db,
+        build_defaults(
+            settings,
+            turn=turn,
+            models_config=models_config,
+            upload=upload_limits,
+            register_response_s=documents.config.register_response_s,
+        ),
+        redis,
+        namespace=settings.redis_namespace,
+        messages=SettingsMessages.load(settings.config_dir),
+    )
+    turn_limits = turn.limiter(settings.lock_pool_size)
     memory = MemoryService(
         config=memory_config,
         store=store,
@@ -243,12 +264,23 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
         turn=turn,
-        turn_limits=turn.limiter(settings.lock_pool_size),
+        turn_limits=turn_limits,
+        platform=platform,
         redis=redis,
         closers=(presidio.close,),
     )
     judge.bind(services)
+    platform.on_change(lambda snapshot: _resize(services, snapshot))
     return services
+
+
+def _resize(services: Services, snapshot: Effective) -> None:
+    """The shared limits a settings change resizes: what is in flight keeps its slot, and the new
+    limits apply to what starts after (ADR-0279)."""
+    services.turn_limits.caps = snapshot.turn_caps()
+    if services.attachments.in_flight is not None:
+        services.attachments.in_flight.caps = snapshot.upload_caps()
+    services.broker.mcp_resize(dict(snapshot.mcp_max_concurrency))
 
 
 def uploads_backend(registry: CapabilityRegistry) -> str:
@@ -317,6 +349,7 @@ async def start_services(services: Services) -> Services:
     await services.locks.open()
     await services.policies.seed(policy_roots(services.settings, services.registry))
     await services.policies.start()
+    await services.platform.start()
     if services.broker.mcp is not None:
         # Connects in the background: a server that is down never stops the agent (I8).
         services.broker.mcp.start()
@@ -327,6 +360,7 @@ async def stop_services(services: Services) -> None:
     if services.broker.mcp is not None:
         await services.broker.mcp.stop()
     await services.policies.stop()
+    await services.platform.stop()
     for close in services.closers:
         await close()
     if services.redis is not None:
@@ -368,6 +402,8 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(admin_router)
     app.include_router(attachments_router)
     app.include_router(conversations_router)
+    app.include_router(settings_router)
+    app.include_router(internal_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:

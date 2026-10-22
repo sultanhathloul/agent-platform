@@ -31,6 +31,7 @@ from app.graph.nodes import emit, traced
 from app.graph.state import AgentState
 from app.graph.streaming import DataStream
 from app.memory.types import MemoryScope
+from app.platform_settings import effective
 from app.resilience import deadline
 from app.text.script import script_issues
 
@@ -125,7 +126,7 @@ async def answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
 
     # The answer, its retry included, ends post_answer_reserve_s before the turn's deadline, so the
     # steps after it always have that room (ADR-0263).
-    with deadline.within(math.inf, margin_s=services.turn.post_answer_reserve_s):
+    with deadline.within(math.inf, margin_s=effective.turn(services.turn).post_answer_reserve_s):
         text, released, tokens_in, tokens_out = await attempt()
 
         retry = services.validation.retry

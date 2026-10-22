@@ -29,6 +29,7 @@ from app.guardrails.checkpoints import Checkpoint
 from app.guardrails.schema import DataPayload
 from app.memory.policy import Candidate, guard_flagged, parse_candidates
 from app.memory.types import MemoryScope
+from app.platform_settings import effective
 from app.resilience import deadline
 
 log = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ async def write_memory(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     span = trace.get_current_span()
     started = time.monotonic()
     tokens_in = tokens_out = 0
-    ceiling = ctx.services.models_config.timeouts.roles["extractor"]
+    ceiling = effective.timeouts(ctx.services.models_config.timeouts).roles["extractor"]
     try:
         if deadline.remaining() < ceiling:
             # Inside the post-answer reserve: no room left for the extractor's call (ADR-0263).

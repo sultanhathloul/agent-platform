@@ -39,6 +39,7 @@ from app.models.transport import AnswerTooLarge, CappedTransport
 from app.observability.langfuse import set_generation, set_metadata
 from app.observability.otel import tracer
 from app.observability.redaction import content_hash, is_content_free, messages_digest, observable_messages
+from app.platform_settings import effective
 from app.resilience import deadline
 from app.settings import Settings
 
@@ -160,7 +161,7 @@ class ModelGateway:
                     "context_tokens": context.total_tokens(),
                 },
             )
-            ceiling = self._config.timeouts.roles[decision.role]
+            ceiling = effective.timeouts(self._config.timeouts).roles[decision.role]
             retries = 0
             try:
                 with deadline.within(ceiling) as budget:

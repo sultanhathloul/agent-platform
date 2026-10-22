@@ -26,6 +26,7 @@ from app.api.schemas import (
 from app.attachments.service import TooManyUploads, UnsupportedType
 from app.attachments.store import AttachmentRecord, LimitReached
 from app.memory.types import MemoryScope
+from app.platform_settings import effective
 from app.rag.types import Owner as DataOwner
 
 router = APIRouter(prefix="/v1/conversations/{conversation_id}/attachments", tags=["attachments"])
@@ -90,9 +91,16 @@ async def register_attachment(
         return _error(request, request_id, "conversation_forbidden", 403)
     owner = DataOwner(tenant_id=body.principal.tenant_id, user_id=body.principal.user_id)
     try:
-        record = await services.attachments.register(
-            owner, conversation_id, name=body.name, mime=body.mime, size=body.size, object_key=body.object_key
-        )
+        # The settings current now are the upload's, its background hand-over included (ADR-0279).
+        with effective.pin(services.platform.current if services.platform is not None else None):
+            record = await services.attachments.register(
+                owner,
+                conversation_id,
+                name=body.name,
+                mime=body.mime,
+                size=body.size,
+                object_key=body.object_key,
+            )
     except UnsupportedType:
         return _error(request, request_id, "file_type_unsupported", 415)
     except LimitReached:

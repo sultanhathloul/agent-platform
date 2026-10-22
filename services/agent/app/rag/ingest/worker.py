@@ -8,8 +8,10 @@ attachment ends `failed` with the transient reason."""
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 
 from app.attachments.store import AttachmentStore
+from app.platform_settings import effective
 from app.rag.config import DocsConfig
 from app.rag.ingest.pipeline import IngestPipeline, Retry
 from app.rag.ingest.queue import IngestQueue
@@ -32,6 +34,9 @@ class IngestWorker:
         self._config = config
         self.queue = queue
         self._tasks: list[asyncio.Task] = []
+        # The platform settings in force (the ingest service's store, ADR-0279): each job runs with
+        # the snapshot current when it starts, e.g. the embedding batch's ceiling. None: the files'.
+        self.settings: Callable[[], effective.Effective | None] = lambda: None
 
     async def start(self) -> None:
         await self.queue.requeue(await self._attachments.pending_ids())
@@ -58,7 +63,8 @@ class IngestWorker:
                 await asyncio.sleep(2)
                 continue
             if item is not None:
-                await self._job(item)
+                with effective.pin(self.settings()):
+                    await self._job(item)
 
     async def _job(self, attachment_id: str) -> str:
         attempt = 0
