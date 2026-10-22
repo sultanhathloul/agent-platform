@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
@@ -52,9 +53,10 @@ final class TurnStreamRequestFactory implements ClientHttpRequestFactory {
 
     private final HttpClient http;
     private final Duration headers;
-    private final Duration total;
+    /** Read when each request is sent: the deadline in force then (ADR-0283). */
+    private final Supplier<Duration> total;
 
-    TurnStreamRequestFactory(HttpClient http, Duration headers, Duration total) {
+    TurnStreamRequestFactory(HttpClient http, Duration headers, Supplier<Duration> total) {
         this.http = http;
         this.headers = headers;
         this.total = total;
@@ -94,6 +96,7 @@ final class TurnStreamRequestFactory implements ClientHttpRequestFactory {
         @Override
         protected ClientHttpResponse executeInternal(HttpHeaders requestHeaders) throws IOException {
             long started = System.nanoTime();
+            Duration totalBound = total.get();
             HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                     .timeout(headers)
                     .method(method.name(), HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()));
@@ -118,7 +121,7 @@ final class TurnStreamRequestFactory implements ClientHttpRequestFactory {
                 }
                 throw e.getCause() instanceof IOException io ? io : new IOException(e.getCause());
             }
-            long left = total.toNanos() - (System.nanoTime() - started);
+            long left = totalBound.toNanos() - (System.nanoTime() - started);
             InputStream stream = response.body();
             ScheduledFuture<?> bound = CLOSER.schedule(() -> closeQuietly(stream), Math.max(left, 0),
                     TimeUnit.NANOSECONDS);

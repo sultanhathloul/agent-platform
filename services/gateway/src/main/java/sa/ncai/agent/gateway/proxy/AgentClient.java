@@ -18,6 +18,7 @@ import sa.ncai.agent.gateway.api.RequestIdFilter;
 import sa.ncai.agent.gateway.auth.GatewayPrincipal;
 import sa.ncai.agent.gateway.memory.MemoryList;
 import sa.ncai.agent.gateway.memory.MemorySettings;
+import sa.ncai.agent.gateway.settings.PlatformLimits;
 
 /**
  * Internal client for the agent service (README §6.2). The client is built from Boot's
@@ -41,6 +42,8 @@ public class AgentClient {
     /** The admin's username and display name on admin calls, percent-encoded UTF-8 (ADR-0123). */
     public static final String USER_NAME_HEADER = "X-User-Name";
     public static final String USER_DISPLAY_NAME_HEADER = "X-User-Display-Name";
+    /** On admin calls only: whether the verified token holds the admin role; the agent checks it too (ADR-0284). */
+    public static final String USER_ADMIN_HEADER = "X-User-Admin";
 
     /** Consumes the agent's SSE body; runs only after a 2xx response. */
     @FunctionalInterface
@@ -50,10 +53,10 @@ public class AgentClient {
 
     private final RestClient client;
     private final RestClient streamClient;
-    private final Duration relayBound;
+    private final PlatformLimits limits;
     private final String internalToken;
 
-    public AgentClient(RestClient.Builder builder, GatewayProperties properties, TurnLimits turn) {
+    public AgentClient(RestClient.Builder builder, GatewayProperties properties, PlatformLimits limits) {
         GatewayProperties.Agent agent = properties.agent();
         HttpClient http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -63,10 +66,11 @@ public class AgentClient {
                 .baseUrl(agent.baseUrl())
                 .requestFactory(factory(http, agent.responseTimeout()))
                 .build();
-        this.relayBound = turn.relayBound();
+        this.limits = limits;
+        // The deadline in force is read per turn: a settings change applies to the next one (ADR-0283).
         this.streamClient = builder.clone()
                 .baseUrl(agent.baseUrl())
-                .requestFactory(new TurnStreamRequestFactory(http, turn.headers(), relayBound))
+                .requestFactory(new TurnStreamRequestFactory(http, limits.headers(), limits::relayBound))
                 .build();
         this.internalToken = agent.internalToken();
     }
@@ -78,9 +82,12 @@ public class AgentClient {
         return requestFactory;
     }
 
-    /** The one total bound on a turn stream (config/turn.yaml deadline_s + gateway_margin_s). */
+    /**
+     * The one total bound on a turn stream: the deadline in force (config/turn.yaml deadline_s, or the
+     * administrator's override, ADR-0283) + gateway_margin_s.
+     */
     public Duration relayBound() {
-        return relayBound;
+        return limits.relayBound();
     }
 
     /**
@@ -205,6 +212,7 @@ public class AgentClient {
         return reach(() -> identified(request, caller, requestId)
                 .header(USER_NAME_HEADER, encoded(caller.username()))
                 .header(USER_DISPLAY_NAME_HEADER, encoded(caller.displayName()))
+                .header(USER_ADMIN_HEADER, Boolean.toString(caller.admin()))
                 .exchange((clientRequest, response) ->
                         new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
     }

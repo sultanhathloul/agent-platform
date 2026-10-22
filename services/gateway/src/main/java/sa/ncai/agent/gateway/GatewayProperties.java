@@ -19,7 +19,14 @@ public record GatewayProperties(
         @Valid @NotNull Models models,
         @Valid @NotNull Storage storage,
         @Valid @NotNull Docs docs,
-        @Valid @NotNull Turn turn) {
+        @Valid @NotNull Turn turn,
+        @Valid Settings settings) {
+
+    /**
+     * @param refresh how often the values the gateway enforces are read from the agent (ADR-0283);
+     *                5 s, so a change reaches the gateway within 10 s; zero turns the reads off
+     */
+    public record Settings(@NotNull Duration refresh) {}
 
     /**
      * @param issuer   browser-facing issuer the tokens carry (validated, never fetched)

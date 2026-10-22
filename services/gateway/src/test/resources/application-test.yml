@@ -25,3 +25,7 @@ gateway:
   storage:
     endpoint: http://localhost:9
     bucket: uploads
+  # The scripted mock agent answers in order: no background read may take an answer meant for a
+  # test. PlatformLimitsTest reads on its own.
+  settings:
+    refresh: 0s
