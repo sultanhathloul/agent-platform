@@ -16,6 +16,9 @@ COPY . .
 FROM source AS test
 COPY --from=config policies /config/policies
 ENV SEED_POLICIES_DIR=/config/policies
+# The settings page's tests check that every rule and setting the agent may name has its words here.
+COPY --from=config messages/settings.yaml /config/messages/settings.yaml
+ENV SETTINGS_MESSAGES=/config/messages/settings.yaml
 RUN npm run typecheck && npm run lint && npm test
 
 FROM source AS build

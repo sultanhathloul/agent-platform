@@ -192,6 +192,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every editable setting (default, value in force, range), the read-only ones and the timeout tree */
+        get: operations["getSettings"];
+        put?: never;
+        /** Saves a draft as the next version; applies to requests that start after it */
+        post: operations["saveSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What a draft would produce, and why it cannot be saved if it cannot; nothing is written */
+        post: operations["previewSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Brings an earlier version's overrides back as a new version */
+        post: operations["revertSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The versions of the overrides, newest first, with who made each */
+        get: operations["settingsVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What is in use now: turns, MCP slots and breakers, background registrations; counts only */
+        get: operations["platformUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/attachments/limits": {
         parameters: {
             query?: never;
@@ -447,6 +533,16 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopePlatformSettingsView: {
+            data?: components["schemas"]["PlatformSettingsView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopePlatformUsage: {
+            data?: components["schemas"]["PlatformUsage"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiEnvelopePolicyChanges: {
             data?: components["schemas"]["PolicyChanges"];
             error?: components["schemas"]["ApiError"];
@@ -494,6 +590,21 @@ export interface components {
         };
         ApiEnvelopePolicyYaml: {
             data?: components["schemas"]["PolicyYaml"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeSettingsPreview: {
+            data?: components["schemas"]["SettingsPreview"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeSettingsSaved: {
+            data?: components["schemas"]["SettingsSaved"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeSettingsVersions: {
+            data?: components["schemas"]["SettingsVersions"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -640,6 +751,29 @@ export interface components {
         };
         MemorySettings: {
             enabled: boolean;
+        };
+        PlatformSettingsView: {
+            fields: components["schemas"]["SettingField"][];
+            /** @description When the stored version fails the rules against the files: the rules it fails, and the files' values are in force */
+            ignored: string[];
+            read_only: components["schemas"]["ReadOnlySetting"][];
+            tree: components["schemas"]["TimeoutPair"][];
+            /**
+             * Format: int64
+             * @description The stored version in force; 0 for none
+             */
+            version: number;
+        };
+        PlatformUsage: {
+            mcp: components["schemas"]["ServerUsage"][];
+            /** Format: int32 */
+            registrations_in_background: number;
+            /**
+             * Format: int32
+             * @description Tasks that ignored their cancellation since the agent started
+             */
+            tasks_abandoned: number;
+            turns: components["schemas"]["TurnsUsage"];
         };
         PolicyChange: {
             actor: string;
@@ -830,12 +964,175 @@ export interface components {
         PolicyYaml: {
             yaml: string;
         };
+        ReadOnlySetting: {
+            key: string;
+            /** @description Where it is set; changing it needs a redeploy */
+            source: string;
+            /** @enum {string} */
+            unit: "s" | "count" | "MiB" | "cpu_s";
+            value: components["schemas"]["JsonNode"];
+        };
+        ServerUsage: {
+            /** Format: int32 */
+            background_in_use: number;
+            /** Format: int32 */
+            background_max: number;
+            /** @enum {string} */
+            breaker: "closed" | "open" | "half_open";
+            /** Format: int32 */
+            file_max_concurrency: number;
+            id: string;
+            /** Format: int32 */
+            in_use: number;
+            /** Format: int32 */
+            max_concurrency: number;
+            /**
+             * Format: double
+             * @description Seconds since the breaker opened
+             */
+            open_for_s?: number;
+        };
+        SettingChange: {
+            after?: components["schemas"]["JsonNode"];
+            before?: components["schemas"]["JsonNode"];
+            key: string;
+        };
+        SettingField: {
+            default?: components["schemas"]["JsonNode"];
+            /** @enum {string} */
+            group: "turns" | "models" | "uploads" | "mcp";
+            integer: boolean;
+            /** @description The setting's id, e.g. turn.per_user_max or mcp.rag.max_concurrency */
+            key: string;
+            /** Format: double */
+            maximum: number;
+            /** Format: double */
+            minimum: number;
+            /** @description null is a value: no limit of its own */
+            nullable: boolean;
+            overridden: boolean;
+            /** @description The value is a map from tenant id to a count */
+            per_tenant: boolean;
+            /** @description An MCP server's id, for its max_concurrency */
+            server?: string;
+            /** @description The file and key of the default */
+            source: string;
+            /** @enum {string} */
+            unit: "s" | "count" | "per_minute";
+            value?: components["schemas"]["JsonNode"];
+        };
+        SettingsDraft: {
+            /**
+             * Format: int32
+             * @description The version the draft was made from; another save first is 409 settings_conflict
+             */
+            expected_version?: number;
+            overrides: {
+                [key: string]: components["schemas"]["JsonNode"];
+            };
+        };
+        SettingsPreview: {
+            /** @description The keys whose value in force the draft changes */
+            changed: string[];
+            fields: components["schemas"]["SettingField"][];
+            problems: components["schemas"]["SettingsProblem"][];
+            tree: components["schemas"]["TimeoutPair"][];
+            valid: boolean;
+        };
+        SettingsProblem: {
+            family: string;
+            /** Format: double */
+            inner_value?: number;
+            message_ar: string;
+            message_en: string;
+            /** Format: double */
+            minimum?: number;
+            /** Format: double */
+            outer_value?: number;
+            params: {
+                [key: string]: string;
+            };
+            rule: string;
+        };
+        SettingsRevert: {
+            /** Format: int32 */
+            expected_version?: number;
+            /** Format: int32 */
+            version: number;
+        };
+        SettingsSaved: {
+            /** @enum {string} */
+            change: "save" | "revert" | "restore";
+            changes: components["schemas"]["SettingChange"][];
+            /** Format: int32 */
+            reverted_to?: number;
+            settings: components["schemas"]["PlatformSettingsView"];
+            /** Format: int64 */
+            version: number;
+        };
+        SettingsVersionView: {
+            /** @enum {string} */
+            change: "seed" | "save" | "revert" | "restore";
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            created_by_name?: string;
+            created_by_username?: string;
+            overrides: {
+                [key: string]: components["schemas"]["JsonNode"];
+            };
+            /** Format: int32 */
+            reverted_to?: number;
+            /** Format: int64 */
+            version: number;
+        };
+        SettingsVersions: {
+            versions: components["schemas"]["SettingsVersionView"][];
+        };
         /** @description Whom to evaluate for; default: the admin, with no policy roles. */
         SimulatedPrincipal: {
             /** @description Full names, policy:{name} */
             policy_roles?: string[];
             /** @description Default: default */
             tenant_id?: string;
+        };
+        TenantUsage: {
+            /** Format: int32 */
+            in_flight: number;
+            /** Format: int32 */
+            limit?: number;
+            tenant_id: string;
+        };
+        TimeoutPair: {
+            family: string;
+            holds: boolean;
+            inner: string;
+            /** Format: double */
+            inner_value: number;
+            outer: string;
+            /** Format: double */
+            outer_value: number;
+            /** @description The ids the rule names: capability, tool, server */
+            params: {
+                [key: string]: string;
+            };
+            rule: string;
+            /** @description inner < outer when true, inner ≤ outer when false */
+            strict: boolean;
+        };
+        TurnsUsage: {
+            /** Format: int32 */
+            capacity?: number;
+            /** Format: int32 */
+            in_flight: number;
+            /** Format: int32 */
+            per_user_max: number;
+            tenants: components["schemas"]["TenantUsage"][];
+            /**
+             * Format: int32
+             * @description The busiest user's turns in flight: a count, never who
+             */
+            top_user_in_flight: number;
         };
         /** @description Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF. */
         Warning: {
@@ -1406,6 +1703,275 @@ export interface operations {
             };
             /** @description audit_unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePlatformSettingsView"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    saveSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsDraft"];
+            };
+        };
+        responses: {
+            /** @description The saved version, what it changed, the settings now */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeSettingsSaved"];
+                };
+            };
+            /** @description settings_invalid: the conflicts in plain words, each rule's id in details */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description settings_conflict: another save came first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    previewSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsDraft"];
+            };
+        };
+        responses: {
+            /** @description The values, the timeout tree and the problems */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeSettingsPreview"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    revertSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsRevert"];
+            };
+        };
+        responses: {
+            /** @description The new version, what it changed, the settings now */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeSettingsSaved"];
+                };
+            };
+            /** @description settings_invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description settings_version_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description settings_conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    settingsVersions: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeSettingsVersions"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    platformUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopePlatformUsage"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
