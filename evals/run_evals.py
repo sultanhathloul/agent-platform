@@ -107,6 +107,12 @@ def fold(text: str) -> str:
     return _DIACRITICS.sub("", unicodedata.normalize("NFKC", text).replace("ـ", "")).translate(_FOLD).casefold()
 
 
+def fold_pattern(pattern: str) -> str:
+    """A regular expression folded as fold() folds text, but not casefolded (`\\W` would become
+    `\\w`); match it with re.IGNORECASE against fold()ed text (phase 06)."""
+    return _DIACRITICS.sub("", unicodedata.normalize("NFKC", pattern).replace("ـ", "")).translate(_FOLD)
+
+
 def script_share(text: str, script: str) -> float:
     letters = [c for c in text if c.isalpha()]
     if not letters:
@@ -714,14 +720,22 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
         folded = fold(answer)
         if any(contains(answer, text) for text in expected or []):
             return False
-        return not any(re.search(pattern, folded) for pattern in check.get("patterns", []))
+        # `patterns_from`: more patterns from the case (phase 06), e.g. only where a field was not given.
+        patterns = list(check.get("patterns", [])) + list(
+            (case_value(case, check["patterns_from"]) or []) if "patterns_from" in check else [])
+        return not any(re.search(fold_pattern(pattern), folded, re.I) for pattern in patterns)
     if scorer == "text_present":
         # Every expected text (or one of its alternatives) is in the answer, folded (phase 06, I9).
         items = list(expected or []) + list(check.get("texts", []))
         return all(any(contains(answer, alt) for alt in _alternatives(item)) for item in items)
     if scorer == "sections_in_order":
-        return sections_in_order(answer, case_value(case, check["expected"]) if "expected" in check
-                                 else check["sections"])
+        if "expected" in check:
+            sections = case_value(case, check["expected"])
+        elif "by" in check:  # one layout per value of a case field, e.g. its locale
+            sections = check["sections"].get(case_value(case, check["by"]))
+        else:
+            sections = check["sections"]
+        return sections_in_order(answer, sections)
     if scorer == "length_between":
         words = len(re.findall(r"\w+", answer))
         return int(check.get("min", 0)) <= words <= int(check.get("max", 10**9))
@@ -730,10 +744,11 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
 
 def sections_in_order(answer: str, sections: list) -> bool:
     """Each section, an Arabic-folded regular expression (or a list of alternatives), is found in
-    the answer after the previous one (phase 06, I9): the layout's headings in their order."""
+    the answer after the previous one (phase 06, I9): the layout's headings in their order. A
+    pattern is Arabic-folded like the answer and matched case-insensitively, line by line (re.M)."""
     folded, at = fold(answer), 0
     for section in sections or []:
-        found = [m for m in (re.search(fold(p), folded[at:]) for p in _alternatives(section)) if m]
+        found = [m for m in (re.search(fold_pattern(p), folded[at:], re.I | re.M) for p in _alternatives(section)) if m]
         if not found:
             return False
         at += min(m.end() for m in found)

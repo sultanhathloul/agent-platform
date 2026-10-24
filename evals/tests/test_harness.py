@@ -289,3 +289,17 @@ def test_the_applied_skill_and_expected_skill():
     assert harness.skill_problems({"expected_skill": None}, None) == []
     assert harness.skill_problems({"expected_skill": "x_form"}, None) == ["skill None != x_form"]
     assert harness.skill_problems({"id": "no key"}, "x_form") == []
+
+
+def test_layouts_by_a_case_field_and_patterns_from_the_case():
+    harness = _harness()
+    layouts = {"scorer": "sections_in_order", "by": "locale",
+               "sections": {"ar": ["(?m)^\\W*الرقم[\\s*_]*:", "(?m)^\\W*الموضوع[\\s*_]*:"], "en": ["(?m)^\\W*ref", "subject"]}}
+    assert harness.score_check(layouts, {"locale": "ar"}, "**الرقم:** [الرقم]\nالموضوع: إجازة", {})
+    assert not harness.score_check(layouts, {"locale": "ar"}, "الموضوع: إجازة\nالرقم: [الرقم]", {})
+    assert harness.score_check(layouts, {"locale": "en"}, "Ref: [Reference number]\nSubject: leave", {})
+    absent = {"scorer": "text_absent", "patterns_from": "expect.absent_patterns"}
+    case = {"expect": {"absent_patterns": ["\\d{1,4}\\s*[/\\-.]\\s*\\d{1,2}\\s*[/\\-.]\\s*\\d{1,4}"]}}
+    assert harness.score_check(absent, case, "التاريخ: [التاريخ]", {})
+    assert not harness.score_check(absent, case, "التاريخ: ١٤٤٧/٠٣/١٢", {})  # an invented date
+    assert harness.score_check(absent, {"expect": {}}, "التاريخ: ١٤٤٧/٠٣/١٢", {})
