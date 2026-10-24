@@ -12,7 +12,12 @@ precedent; owner decision S8) by the router prompts' versions, the model alias t
 resolves to for this principal, the locale, the candidates, the conversation's file names, the
 normalized message and the window it saw: one user's decision is never another's, and a new
 alias or ceiling never reuses an old answer. The file names and the message reach the
-model as delimited data in the user role (`router.request`, ADR-0068)."""
+model as delimited data in the user role (`router.request`, ADR-0068).
+
+Phase 06 (ADR-0299): when skills are candidates (a keyword of theirs is in the message), their
+slugs, descriptions and when-to-use lines enter `router.request`, and the model also returns
+`skill`: one of them or null. The candidates (slug and version) are part of the cache key, and a
+cached skill is kept only while it is still a candidate."""
 
 import contextlib
 import hashlib
@@ -24,6 +29,7 @@ from dataclasses import dataclass
 from opentelemetry import trace
 
 from app.capabilities.registry import LoadedCapability
+from app.skills.registry import LoadedSkill
 from app.context.messages import visible
 from app.context.package import AssemblyRequest
 from app.errors import TurnError
@@ -85,7 +91,9 @@ def _files(state: dict) -> list[str]:
     return [a["name"] for a in state.get("attachments") or [] if a.get("status") == "indexed"]
 
 
-async def _cache_key(ctx: TurnContext, state: dict, allowed: Sequence[str], window: list[str]) -> str:
+async def _cache_key(
+    ctx: TurnContext, state: dict, allowed: Sequence[str], window: list[str], skills: Sequence[LoadedSkill] = ()
+) -> str:
     services = ctx.services
     prompts = [services.prompts.ref(p, state["locale"]) for p in ("router.system", "router.request")]
     decision = await services.resolver.resolve("router", principal=ctx.principal)
@@ -100,6 +108,7 @@ async def _cache_key(ctx: TurnContext, state: dict, allowed: Sequence[str], wind
             _files(state),
             normalize(state["user_message"]),
             window,
+            [s.manifest.ref for s in skills],
         ],
         ensure_ascii=False,
     )
@@ -113,15 +122,18 @@ async def choose(
     candidates: Sequence[LoadedCapability],
     fallback: Sequence[LoadedCapability],
     config: RouterConfig,
+    skills: Sequence[LoadedSkill] = (),
 ) -> RouterDecision:
-    """The router model's choice among `candidates` and `fallback`, cached for an hour."""
+    """The router model's choice among `candidates` and `fallback`, and of at most one skill among
+    `skills`, cached for an hour. An unusable answer or a model failure: the candidates, no skill."""
     services = ctx.services
     span = trace.get_current_span()
     pool = [*candidates, *(c for c in fallback if c not in candidates)]
     allowed = [c.slug for c in pool]
+    skill_slugs = [s.slug for s in skills]
     default = RouterDecision([c.slug for c in candidates], None, None, "router_default")
     window = _window(state, config.window_messages)
-    key = await _cache_key(ctx, state, allowed, window)
+    key = await _cache_key(ctx, state, allowed, window, skills)
     redis = services.redis
     if redis is not None:
         try:
@@ -131,7 +143,8 @@ async def choose(
         if cached:
             raw = json.loads(cached)
             span.set_attribute("route.router.cached", True)
-            return RouterDecision(raw["capabilities"], raw.get("complexity"), raw.get("risk"), "cache")
+            skill = raw.get("skill") if raw.get("skill") in skill_slugs else None
+            return RouterDecision(raw["capabilities"], raw.get("complexity"), raw.get("risk"), "cache", skill=skill)
     span.set_attribute("route.router.cached", False)
     locale = state["locale"]
     node = services.assembler.node("router")
@@ -150,6 +163,14 @@ async def choose(
                 {"slug": c.slug, "description": getattr(c.manifest.routing_hints.description, locale)}
                 for c in pool
             ],
+            "skills": [
+                {
+                    "slug": s.slug,
+                    "description": getattr(s.manifest.description, locale),
+                    "when_to_use": getattr(s.manifest.when_to_use, locale),
+                }
+                for s in skills
+            ],
         },
     )
     try:
@@ -159,7 +180,7 @@ async def choose(
             raise
         span.add_event("route.router.unavailable")
         return default
-    decision = parse_decision(result.text, allowed)
+    decision = parse_decision(result.text, allowed, skill_slugs)
     if decision is None:
         span.add_event("route.router.unusable_answer")
         return default
@@ -172,6 +193,7 @@ async def choose(
                         "capabilities": decision.capabilities,
                         "complexity": decision.complexity,
                         "risk": decision.risk,
+                        "skill": decision.skill,
                     }
                 ),
                 ex=config.cache_ttl_s,

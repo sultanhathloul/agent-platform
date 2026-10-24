@@ -6,9 +6,12 @@ conversation holds indexed files) or `keyword_candidate` (when one of their keyw
 message) become candidates, and the router model chooses among them and the fallback
 capabilities (phase 04, ADR-0139, ADR-0145; phase 05, ADR-0216). A keyword alone never selects
 such a capability, and a turn with no candidate costs no router call.
+Phase 06 (ADR-0299): the same node selects at most one skill: the picker's, or one the router
+model chooses among the skills whose keywords match. A turn with neither adds no router call.
 The core has no capability-specific branch: adding a capability changes the
 candidates, not this code."""
 
+import logging
 from collections.abc import Sequence
 
 from langgraph.runtime import Runtime
@@ -20,9 +23,12 @@ from app.graph.deps import TurnContext
 from app.graph.nodes import traced
 from app.graph.router import choose
 from app.graph.state import AgentState
+from app.skills.registry import LoadedSkill
 from app.text.arabic import contains_keyword
 
 MAX_CAPABILITIES = 3
+
+log = logging.getLogger(__name__)
 
 
 def select_capabilities(
@@ -80,32 +86,82 @@ def router_candidates(
     return pool
 
 
+def _skill_state(skill: LoadedSkill | None) -> dict | None:
+    return None if skill is None else {"slug": skill.slug, "version": skill.manifest.version}
+
+
+def _drop(span, slug: str, reason: str) -> None:
+    """A skill the router named that cannot apply (ADR-0299): dropped, logged and on the span."""
+    log.info("skill_dropped skill=%s reason=%s", slug, reason)
+    span.add_event("skill_dropped", {"skill": slug, "reason": reason})
+
+
 @traced("route")
 async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
-    candidates = runtime.context.services.registry.available_for(runtime.context.principal)
+    ctx = runtime.context
+    services = ctx.services
+    candidates = services.registry.available_for(ctx.principal)
     if not candidates:
         raise TurnError("no_capability_available")
+    span = trace.get_current_span()
+    message = state["user_message"]
     # The turn request carries no capability toggles until plugin toggles land (phase 05).
     slugs, reasons = select_capabilities(
-        candidates, message=state["user_message"], has_attachments=bool(state.get("turn_attachment_ids"))
+        candidates, message=message, has_attachments=bool(state.get("turn_attachment_ids"))
     )
     complexity = risk = None
-    if all(reason.endswith(":fallback") for reason in reasons):
-        has_indexed = any(a["status"] == "indexed" for a in state.get("attachments") or [])
-        pool = router_candidates(candidates, has_indexed=has_indexed, message=state["user_message"])
+    # Skills (phase 06, ADR-0299): (a) the picker's skill, applied with no router decision on it;
+    # (b) otherwise the available skills whose keywords match are candidates the router model may
+    # choose one of; (c) no picker and no candidate: no skill and no router call added.
+    available = services.skills.available_for(ctx.principal, [c.slug for c in candidates])
+    requested = state.get("requested_skill")
+    skill: LoadedSkill | None = None
+    skill_source = None
+    skill_candidates: list[LoadedSkill] = []
+    if requested:
+        skill = next((s for s in available if s.slug == requested), None)
+        skill_source = "picker"
+        if skill is None:  # admission refused it already (skill_forbidden); defense in depth
+            _drop(span, requested, "not_available")
+    else:
+        skill_candidates = services.skills.candidates(available, message)
+    fallback_only = all(reason.endswith(":fallback") for reason in reasons)
+    has_indexed = any(a["status"] == "indexed" for a in state.get("attachments") or [])
+    pool = router_candidates(candidates, has_indexed=has_indexed, message=message) if fallback_only else []
+    if pool or skill_candidates:
         if pool:
             fallback = [
                 c for c in candidates if any(r.when == "fallback" for r in c.manifest.routing_hints.rules)
             ]
-            decision = await choose(
-                runtime.context, dict(state), pool, fallback, runtime.context.services.router
-            )
+            choice, others = pool, fallback
+        else:
+            # The rules decided the capabilities; the router model is asked for the skill only, among
+            # the capabilities already chosen (its capability answer is not used).
+            choice, others = [services.registry.get(slug) for slug in slugs], []
+        decision = await choose(ctx, dict(state), choice, others, services.router, skills=skill_candidates)
+        if pool:
             slugs = decision.capabilities[:MAX_CAPABILITIES]
             reasons = [f"{slug}:{decision.source}" for slug in slugs]
             complexity, risk = decision.complexity, decision.risk
+        if decision.dropped_skill:
+            _drop(span, decision.dropped_skill, "not_a_candidate")
+        if decision.skill:
+            skill = services.skills.get(decision.skill)
+            skill_source = decision.source
     if not slugs:
         raise TurnError("no_capability_available", detail="rules matched nothing and no router candidate")
-    span = trace.get_current_span()
+    if skill is not None and skill_source != "picker":
+        missing = set(skill.manifest.requires.capabilities) - set(slugs)
+        if missing:
+            _drop(span, skill.slug, "required_capability_not_selected")
+            skill = None
     span.set_attribute("route.capabilities", ",".join(slugs))
     span.set_attribute("route.decided_by", ",".join(reasons))
-    return {"intent": {"capabilities": slugs, "decided_by": reasons, "complexity": complexity, "risk": risk}}
+    span.set_attribute("route.skill_candidates", ",".join(s.slug for s in skill_candidates))
+    if skill is not None:
+        span.set_attribute("route.skill", skill.manifest.ref)  # id@version, never its text (G8)
+        span.set_attribute("route.skill.decided_by", skill_source or "")
+    return {
+        "intent": {"capabilities": slugs, "decided_by": reasons, "complexity": complexity, "risk": risk},
+        "skill": _skill_state(skill),
+    }

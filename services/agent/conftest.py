@@ -177,6 +177,20 @@ async def probe_services(settings, database_url) -> AsyncIterator:
     await stop_services(started)
 
 
+FIXTURE_SKILLS = Path(__file__).resolve().parent / "tests" / "fixtures" / "skills"
+
+
+@pytest.fixture(scope="session")
+async def skill_services(settings, database_url) -> AsyncIterator:
+    """Services with the test-only skills of tests/fixtures/skills beside the shipped ones; no
+    core file names them (phase 06, G5)."""
+    from app.main import stop_services
+
+    started = await _started(settings, database_url, extra_skills=[FIXTURE_SKILLS])
+    yield started
+    await stop_services(started)
+
+
 @pytest.fixture
 def spans():
     SPANS.clear()

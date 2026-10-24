@@ -82,6 +82,7 @@ from app.observability.otel import current_trace_id, tracer
 from app.platform_settings import effective
 from app.resilience import deadline
 from app.resilience.limits import Slot
+from app.skills.registry import available_skills
 
 log = logging.getLogger(__name__)
 
@@ -95,10 +96,17 @@ BOOKKEEPING_TIMEOUT_S = 5.0
 # A refusal before any stream: its HTTP status at the route, and whether a retry may succeed.
 _REFUSALS: dict[str, tuple[int, bool]] = {
     "conversation_forbidden": (403, False),
+    # The picked skill is not available to the principal (phase 06, G6): refused before any stream.
+    "skill_forbidden": (403, False),
     "turn_in_flight": (409, True),
     "too_many_turns": (429, True),
     "service_busy": (503, True),
 }
+
+
+def _skill_ref(skill: dict | None) -> str | None:
+    """slug@version of the turn's applied skill (G8): never its text."""
+    return f"{skill['slug']}@{skill['version']}" if skill else None
 
 
 class TurnRefused(Exception):
@@ -234,6 +242,11 @@ class TurnRunner:
             turn = effective.turn(self.services.turn)
         ends_at = (deadline.now() if arrived is None else arrived) + turn.deadline_s
         principal = req.principal
+        if req.skill is not None and req.skill not in {
+            s.slug for s in available_skills(self.services, principal)
+        }:
+            # The gateway checked the permission; the agent checks it again with availability (G6).
+            raise TurnRefused("skill_forbidden")
         slot = self.services.turn_limits.try_acquire(principal.tenant_id, principal.user_id)
         if isinstance(slot, str):
             raise TurnRefused("service_busy" if slot == "platform" else "too_many_turns")
@@ -339,6 +352,8 @@ class TurnRunner:
             "turn_attachment_ids": list(req.attachment_ids),
             # Defense in depth (README §9.4): the gateway filtered already; filter again.
             "selected_kbs": [kb for kb in req.selected_kbs if principal.can_read_kb(kb)],
+            # The picked skill (phase 06): admission checked it is available; route applies it.
+            "requested_skill": req.skill,
         }
         with tracer.start_as_current_span("turn", context=parent) as span:
             set_trace_attributes(
@@ -450,9 +465,15 @@ class TurnRunner:
             guard_events=self._guard_data(ctx),
             guard_audit=self._guard_audit(ctx),
             tool_audit=[ToolAuditData.model_validate(entry) for entry in ctx.tool_audit],
-            state_digest=StateDigest(turn=final["turn"], capabilities=final["intent"]["capabilities"]),
+            state_digest=StateDigest(
+                turn=final["turn"],
+                capabilities=final["intent"]["capabilities"],
+                skill=_skill_ref(final.get("skill")),
+            ),
             trace_id=current_trace_id(),
         )
+        if done.state_digest.skill:
+            span.set_attribute("turn.skill", done.state_digest.skill)  # id@version only (G8)
         if self.services.settings.observability_capture_content:
             span.set_attribute("langfuse.trace.output", done.answer)
         await self._record_turn(req.conversation_id, final.get("messages") or [])

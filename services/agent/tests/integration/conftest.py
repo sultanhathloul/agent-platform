@@ -40,8 +40,9 @@ async def role(services, request):
     name = f"t-{uuid.uuid4().hex[:10]}"
     created: list[str] = []
     stores = [services.policies]
-    if "probe_services" in request.fixturenames:
-        stores.append(request.getfixturevalue("probe_services").policies)
+    for other in ("probe_services", "skill_services"):
+        if other in request.fixturenames:
+            stores.append(request.getfixturevalue(other).policies)
 
     async def add(**fields) -> Policy:
         base = {"name_ar": "سياسة اختبار", "name_en": "test", "scope": f"role:{name}", "severity": "medium"}

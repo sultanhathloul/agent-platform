@@ -30,6 +30,9 @@ def history(messages: Sequence[Any]) -> list[dict]:
         else:
             entry["turn_id"] = kwargs.get("turn_id")
             entry["citations"] = [c for c in kwargs.get("citations") or [] if isinstance(c, dict)]
+            skill = kwargs.get("skill")
+            if isinstance(skill, dict) and isinstance(skill.get("slug"), str):
+                entry["skill"] = skill["slug"]
         shown.append(entry)
     return shown
 

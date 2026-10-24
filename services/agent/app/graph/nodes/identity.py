@@ -26,6 +26,7 @@ async def load_identity_and_state(state: AgentState, runtime: Runtime[TurnContex
         "turn": (state.get("turn") or 0) + 1,
         "turn_id": runtime.context.turn_id,
         "intent": {},
+        "skill": None,
         "plan": None,
         "iteration": 0,
         "tool_calls": [],

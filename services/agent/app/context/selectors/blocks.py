@@ -23,6 +23,7 @@ class SystemInstructions(Step):
             has_evidence=any(f.get("findings") for f in req.findings)
             or bool(req.retrieved or req.tool_results),
             policy_hints=req.policy_hints,
+            has_skill=req.skill is not None and "skill" in req.needs,
             **req.prompt_vars,
         )
         package.blocks.append(self.make_block("system", "system", prompt.text, prompt=prompt.ref))

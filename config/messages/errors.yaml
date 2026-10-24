@@ -33,6 +33,9 @@ data_blocked:
 conversation_forbidden:
   ar: "هذه المحادثة تخص مستخدمًا آخر، فلا يمكنك متابعتها."
   en: "This conversation belongs to another user, so you cannot continue it."
+skill_forbidden:
+  ar: "النموذج المختار غير متاح لك."
+  en: "The chosen template is not available to you."
 turn_not_found:
   ar: "لم يُعثر على هذه الإجابة في المحادثة."
   en: "This reply was not found in the conversation."

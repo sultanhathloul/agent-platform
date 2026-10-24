@@ -82,6 +82,10 @@ class PromptLibrary:
         paths = sorted(p for root in roots if root.is_dir() for p in root.rglob("*.md.j2"))
         return cls([_parse(path, env) for path in paths])
 
+    def ids(self) -> set[str]:
+        """Every prompt id in the library (a skill's folder may hold only its instructions)."""
+        return {prompt_id for prompt_id, _ in self._entries}
+
     def require(self, prompt_id: str) -> None:
         """Fails fast at startup when a prompt the code depends on is missing a locale."""
         missing = [locale for locale in _LOCALES if (prompt_id, locale) not in self._entries]

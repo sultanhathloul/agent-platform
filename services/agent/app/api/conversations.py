@@ -39,6 +39,15 @@ BACKFILL_PER_REQUEST = 50
 _ERRORS = {400: {"model": ErrorEnvelope}, 401: {"model": ErrorEnvelope}}
 
 
+def _skill_label(services, slug: str | None) -> dict | None:
+    """The reply's skill with its names from SKILL.md; a skill no longer shipped keeps its slug."""
+    if not slug:
+        return None
+    skill = services.skills.get(slug)
+    label = skill.manifest.name.model_dump() if skill is not None else {"ar": slug, "en": slug}
+    return {"slug": slug, "label": label}
+
+
 def _thread(conversation_id: str) -> dict:
     return {"configurable": {"thread_id": conversation_id}}
 
@@ -126,6 +135,7 @@ async def conversation_messages(
                 HistoryAttachment(id=i, name=names[i]) for i in m.get("attachment_ids", []) if i in names
             ],
             citations=m.get("citations", []),
+            skill=_skill_label(services, m.get("skill")),
         )
         for m in shown
     ]

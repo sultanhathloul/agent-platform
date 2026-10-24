@@ -141,3 +141,10 @@ class SkillRegistry:
     def candidates(self, available: Sequence[LoadedSkill], message: str) -> list[LoadedSkill]:
         """The available skills whose keywords are in the message: router-model candidates (ADR-0299)."""
         return [s for s in available if s.matches(message)]
+
+
+def available_skills(services, principal: Principal) -> list[LoadedSkill]:
+    """The skills a principal may use (ADR-0298): its permission held, and every capability it
+    requires available to the principal (enabled and permitted). `services`: app.graph.deps.Services."""
+    capabilities = [c.slug for c in services.registry.available_for(principal)]
+    return services.skills.available_for(principal, capabilities)

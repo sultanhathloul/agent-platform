@@ -26,6 +26,7 @@ from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
 from app.api.settings import internal as internal_router
 from app.api.settings import router as settings_router
+from app.api.skills import router as skills_router
 from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
@@ -76,6 +77,7 @@ from app.rag.setup import build_documents
 from app.rag.types import Owner
 from app.resilience.turn import load_turn_config
 from app.settings import Settings, get_settings
+from app.skills.setup import check_instruction_budgets, discover_skills
 from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
@@ -87,15 +89,22 @@ CORE_PROMPTS = (
     "context.retrieval",
     "context.tool_result",
     "context.findings",
+    "context.skill",
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
 API_VERSION = "2.5.0"
 
 
-def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
+def build_services(
+    settings: Settings,
+    *,
+    extra_capabilities: Sequence[tuple[Path, str]] = (),
+    extra_skills: Sequence[Path] = (),
+) -> Services:
     """`extra_capabilities` adds (directory, import package) roots discovered beside
-    app/capabilities, e.g. the test-only capabilities under tests/fixtures."""
+    app/capabilities, e.g. the test-only capabilities under tests/fixtures; `extra_skills` adds
+    skill roots beside SKILLS_DIR, e.g. tests/fixtures/skills."""
     models_config = load_models_config(settings.config_dir)
     core_prompts = PromptLibrary.load(settings.config_dir / "prompts")
     registry = CapabilityRegistry.discover(models_config, core_prompts=core_prompts)
@@ -108,7 +117,10 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         registry = CapabilityRegistry(loaded)
     for cap in registry.all():
         cap.config = load_capability_config(settings.config_dir, cap.slug)
-    prompts = PromptLibrary.load(settings.config_dir / "prompts", *registry.prompt_dirs())
+    skills = discover_skills(settings.skills_dir, extra_skills, capabilities=[c.slug for c in registry.all()])
+    prompts = PromptLibrary.load(
+        settings.config_dir / "prompts", *registry.prompt_dirs(), *skills.prompt_dirs()
+    )
     context_config = load_context_config(settings.config_dir)
     memory_config = load_memory_config(settings.config_dir)
 
@@ -125,6 +137,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
                 raise ManifestError(f"{cap.path}: context.needs has 'system' but {exc}") from exc
 
     counter = default_counter()
+    check_instruction_budgets(skills, prompts, context_config, counter)
     db = Database(settings.database_url)
     redis = _redis(settings)
     guard_config = load_guardrails_config(settings.config_dir)
@@ -245,6 +258,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         embeddings=embeddings,
         guard=guard,
         registry=registry,
+        skills=skills,
         tools=tools,
         broker=broker,
         messages=ErrorMessages.load(settings.config_dir),
@@ -403,6 +417,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(attachments_router)
     app.include_router(conversations_router)
     app.include_router(settings_router)
+    app.include_router(skills_router)
     app.include_router(internal_router)
 
     @app.exception_handler(RequestValidationError)
