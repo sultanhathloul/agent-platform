@@ -83,13 +83,13 @@ Timeout budget findings (`docs/RESILIENCE.md`, timeout budget table), most sever
 
 ## Skills → phase 06 (owner decision, 2026-10-14)
 
-Status: not started. Done-check in `CLAUDE.md` (phase 06).
+Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0316; docs/PROGRESS.md "Phase 06: Skills"). Done-check in `CLAUDE.md` (phase 06). Reference skills: official_memo and official_letter; the other candidates below stay for later PRs.
 
 ### Tech debt: first item of phase 06, before any new eval suite (owner decision, PR #10 review round 2, 2026-10-19)
-- **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.
+- → done in phase 06 (D5, ADR-0293, ADR-0314). **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.
 
 ### Tech debt: phase 06 (PR #10 fix session, smoke attempt 2)
-- **Smoke's G7 checks measure platform-side time**, outside model generation spans, not the whole turn, so provider slowness neither fails them nor hides a stall. Smoke attempt 2 of the narrow fix session (2026-10-19) failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the MCP server (`docs/PROGRESS.md`, phase 05, narrow fix session).
+- → done in phase 06 (D6, ADR-0294, ADR-0314). **Smoke's G7 checks measure platform-side time**, outside model generation spans, not the whole turn, so provider slowness neither fails them nor hides a stall. Smoke attempt 2 of the narrow fix session (2026-10-19) failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the MCP server (`docs/PROGRESS.md`, phase 05, narrow fix session).
 
 ### What a skill is
 - A skill describes **how** to produce an output or carry out a task: the form, the template, worked examples. It never says **where** information comes from; that stays in capabilities. Example: the docs capability finds the facts in an uploaded file; the "official memo" skill says how the memo is laid out (heading, reference, body, closing, signature block).

@@ -2840,3 +2840,78 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: decided
 - Decision: A selected skill is applied when the answer is written (the answer node), never inside run_capabilities: a skill shapes the output and fetches nothing. The router selects at most one skill automatically; the composer also offers an optional picker with no confirmation prompt. docs/BACKLOG.md records these under "Skills → phase 06" and, under "Planner → phase 07", where the planner sits: a plan node after route and before guard(TOOL_LIST) reached only for compound requests, guard(TOOL_LIST) over every step, run_capabilities as the plan executor, skill steps in the answer node, plan steps capabilities or skills, never MCP tools. Docs only: no code in this phase; the phase 07 build changes the CLAUDE.md phase 07 row, PROGRESS phase 07 and README §5.2 with its own ADR.
 - Consequences: Phase 07 starts from a recorded graph shape.
+
+### ADR-0309: How a skill folder is checked at startup (details of I1, I2)
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: ADR-0295 and ADR-0296 name what a skill folder holds; the checks around them were left open.
+- Decision:
+  - The skills root holds only skill folders. A folder holds only `SKILL.md`, `prompts/*.md.j2` and `evals/{<slug>.jsonl, metrics.yaml}`; anything else (a nested folder, a hidden file, a symbolic link, a script) and any executable bit fail startup naming the path.
+  - A skill's prompts are its instructions only: id `<slug>.instructions`, both locales, front-matter `role: skill`. They render with no variable, so the startup size check (ADR-0300) measures exactly what the answer receives.
+  - A skill's slug may not be a capability's slug; a slug used twice fails; `requires.capabilities` must name capabilities that exist.
+  - SKILL.md is front-matter between `---` lines; its body is never read by code.
+  - `SKILLS_DIR` (compose: `/srv/skills`, the repository's `skills/` read-only); a missing root is no skill.
+- Consequences: A skill can only add text the answer node reads; the registry is in memory, so listing skills reads nothing outside the process.
+
+### ADR-0310: GET /v1/skills: permissions in a header, labels only, not audited; TOOL_LIST filters the turn, not the list
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: I7 gives the endpoint; the agent's GET endpoints name their caller in headers (ADR-0059) and the agent is role-blind (ADR-0046).
+- Decision: The gateway's `GET /v1/skills` calls the agent with X-User-Id, X-Tenant-Id and X-User-Permissions (the caller's `cap:*`, `kb:*:read` and `skill:*`, comma-separated, from the verified token; nothing else leaves). The agent answers `{skills: [{slug, name, description}]}` from its in-memory registries (permission held, required capabilities available). It is a read of labels, like `/v1/me`, and is not audited. TOOL_LIST policies are not run for the list (a judge policy would make it a model call, against G7); they run on the turn's skill in guard(TOOL_LIST), where a removed skill leaves silently and the removal is in the audit record (ADR-0121). So a policy-hidden skill can still show in the picker; picked, the turn goes on without it.
+- Consequences: The picker costs no database, Redis or model call. An admin who hides a skill by policy and wants it out of the picker too needs the realm role removed.
+
+### ADR-0311: The skill's name for policies, and where the picker is checked
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: I4 names the skill `skill:{slug}` to TOOL_LIST policies; a policy scope value may not hold `:` (ADR-0078), and G6 asks for the refusal at the gateway and the agent.
+- Decision:
+  - guard(TOOL_LIST) evaluates the turn's skill as the payload `skill:{slug}` beside the capability slugs; policies select it by their pattern under global, tenant or role scopes. There is no `tool:` scope for a skill. A skill whose required capability a policy removed leaves the turn too.
+  - The gateway refuses a picked skill the caller holds no `skill:{slug}` role for with 403 `skill_forbidden`, audited denied with `skill_requested`, before the agent is called. The agent refuses it again at admission (permission and availability), 403 `skill_forbidden` before any stream; the gateway maps an agent 403 by its error code (`skill_forbidden` or `conversation_forbidden`).
+- Consequences: A scoped exception for one skill is a pattern, not a scope.
+
+### ADR-0312: The router asked for the skill only; the cache key holds the candidates
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: I5 adds the skill to the router's answer. The router used to be called only when the capability rules left a choice open.
+- Decision:
+  - When the rules decided the capabilities (attachments, a keyword) and a skill is a candidate, the router model is called with those capabilities only, and only its `skill` is used. When the rules left the choice open, one call decides both, as before plus the skill.
+  - An unusable answer or a model failure means no skill. A skill outside the candidates is dropped as `not_a_candidate`; one whose required capability was not selected as `required_capability_not_selected`; each drop is a `skill_dropped` span event and a log line.
+  - The cache key adds the candidates' `slug@version`; a cached skill is used only while it is still a candidate.
+  - The picker's skill is checked again in the route node (defense in depth); with a picker the router is never asked for a skill.
+- Consequences: A turn with a skill keyword pays one fast router call (L, measured). A skill's new version misses the cache.
+
+### ADR-0313: What the turn records of its skill
+- Date: 2026-10-24
+- Phase: 06 (G8, ADR-0301)
+- Status: assumed
+- Decision: The done event's `state_digest.skill` (additive) is `slug@version` or null; the gateway copies it into the audit record's `detail.skill`, and `detail.skill_requested` when a skill was picked. Spans: `route.skill`, `route.skill.decided_by`, `answer.skill` and `turn.skill`, each `slug@version`; `route.skill_candidates`. The skill's text reaches no audit field and no span attribute; it is in the answer model call's own input, which content capture records for every prompt (`OBSERVABILITY_CAPTURE_CONTENT`). The persisted reply keeps `{slug, version}`; the history returns `{slug, label}` from SKILL.md, the slug as label for a skill no longer shipped. The answer system prompt's precedence line appears only on a turn with a skill, so the prompt of every other turn is unchanged.
+- Consequences: An audit row says which skill wrote an answer without holding its instructions.
+
+### ADR-0314: The eval harness for D5, D6 and the skill suites
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Decision:
+  - D5: a case is lost under the terminal event's code, `http_<status>` for a refusal before any stream, `transport_<error>`, `upload_failed` or `not_indexed`; the run goes on. The rag metrics a case counts in come from its kind, so a lost case counts in the same ones (Ragas metrics as 0). `--rescore <run>` rescored the recorded runs into `build/evals/<run>.rescored.json`.
+  - D6: smoke's G7 measure is the turn's wall time minus the union of its `model.call` spans, clipped to a window that starts at the trace's `turn` span and lasts the wall time, so only the trace's own clock is read (scripts/platform_time.py). Bound: the median of three such turns in the run + 2 s (was the wall time's median + 3 s). A platform stall inside a model call's span counts as generation by this definition.
+  - The skill suites send each case with the skill picked, so they measure the layout apart from routing (routing.jsonl measures the choice). Scorer options: `by` (a layout per case field, the locale) and `patterns_from` (absent patterns from the case, only where a field was not given). Patterns are Arabic-folded without casefolding and matched case-insensitively. Turn fields: `capabilities`, `skill`, `cited`.
+  - The injection cases use a new generated circular, evals/docs/format-injected.txt (fake, phase 04's invented authority).
+- Consequences: A pass now means every case was answered.
+
+### ADR-0315: The phase 05 checkpoint fixture
+- Date: 2026-10-24
+- Phase: 06 (G9; ADR-0243 precedent)
+- Status: assumed
+- Decision: tests/fixtures/checkpoints/phase05_docs_conversation.json holds the checkpoint rows (36 checkpoints, 62 blobs, 142 writes) of a docs turn and a general turn written by main at 09464df, the code before this phase, with its generator beside it. Its replies carry their citations (ADR-0193). The G9 tests reopen it and the phase 04 one unchanged, with no skill, and continue the phase 05 one with a picked skill.
+- Consequences: A change to how a reply or the state is persisted fails a test against data this code did not write.
+
+### ADR-0316: The picker's and the chip's words
+- Date: 2026-10-24
+- Phase: 06 (D4)
+- Status: assumed
+- Decision: The picker is a select labelled «نموذج الإجابة» / "Answer template" with «تلقائي» / "Automatic" first and selected by default, then the caller's skills by their SKILL.md names, each description as its tooltip. It is hidden when the caller has none, disabled while an answer streams, and reset to automatic after each send. The reply's chip reads «مكتوبة بنموذج» / "Written as" and the skill's name. Neither shows a number, so ADR-0288's Western digits hold trivially. A refusal reads «النموذج المختار غير متاح لك.» / "The chosen template is not available to you."
+- Consequences: The owner may prefer another word than «نموذج» for a skill.
