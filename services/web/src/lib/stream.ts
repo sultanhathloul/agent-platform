@@ -28,12 +28,16 @@ export type Chip =
 
 export type AssistantStatus = "streaming" | "done" | "error" | "aborted";
 
+/** The skill an answer is written with (phase 06): its slug and its name per locale. */
+export type AppliedSkill = { slug: string; label: { ar: string; en: string } };
+
 export type AssistantMessage = {
   text: string;
   status: AssistantStatus;
   receivedTokens: boolean;
   chips: Chip[];
   citations: Citation[];
+  skill?: AppliedSkill;
   usage?: Usage;
   traceId?: string;
   requestId?: string;
@@ -127,6 +131,9 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
     }
     case "citation":
       return { ...m, citations: mergeCitations(m.citations, [event.data]) };
+    case "skill":
+      // Sent before the answer's first token (ADR-0301): the reply's chip names the skill.
+      return { ...m, skill: { slug: event.data.slug, label: { ar: event.data.label.ar, en: event.data.label.en } } };
     case "done":
       return {
         ...m,

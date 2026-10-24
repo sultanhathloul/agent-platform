@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
-import type { AttachmentLimits, ChatTurnRequest } from "@/lib/api/types";
+import type { AttachmentLimits, ChatTurnRequest, SkillView } from "@/lib/api/types";
 import {
   POLL_INTERVAL_MS,
   type ComposerFile,
@@ -16,7 +16,7 @@ import {
   uploadAttachment,
 } from "@/lib/attachments";
 import { type Turn, turnsFromHistory } from "@/lib/conversations";
-import { GatewayError, getConversationMessages, isAbortError, streamTurn } from "@/lib/gateway";
+import { GatewayError, getConversationMessages, isAbortError, listSkills, streamTurn } from "@/lib/gateway";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 import {
   applyEvent,
@@ -26,11 +26,13 @@ import {
   markError,
   type AssistantMessage,
 } from "@/lib/stream";
+import { NO_SKILL, withSkill } from "@/lib/skills";
 import { newUuid } from "@/lib/uuid";
 import { AssistantMessageView } from "./AssistantMessageView";
 import { AttachmentTray, LimitsHint } from "./AttachmentTray";
 import { useAuth } from "./AuthProvider";
 import { useRuntimeConfig } from "./ConfigProvider";
+import { SkillPicker } from "./SkillPicker";
 
 // The conversation's earlier messages load from the gateway when it opens (ADR-0193); new turns
 // are added in memory as they stream.
@@ -50,6 +52,8 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
   const [sentFiles, setSentFiles] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [history, setHistory] = useState<"loading" | "ready" | "failed">("loading");
+  const [skills, setSkills] = useState<SkillView[]>([]);
+  const [skill, setSkill] = useState(NO_SKILL);
   const controllerRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -95,6 +99,24 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
         if (!cancelled) setLimits(loaded);
       } catch {
         // the composer works without the hint; the gateway still enforces the limits
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, config.gatewayUrl]);
+
+  // The caller's skills for the picker (phase 06); without them the picker is not shown.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = await auth.getAccessToken();
+      if (!token) return;
+      try {
+        const loaded = await listSkills({ gatewayUrl: config.gatewayUrl, token });
+        if (!cancelled) setSkills(loaded.skills);
+      } catch {
+        // the composer works without the picker; the skill is then chosen automatically
       }
     })();
     return () => {
@@ -193,6 +215,8 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
     setSentFiles((n) => n + attachmentIds.length);
     setFiles([]);
     setDraft("");
+    const picked = skill;
+    setSkill(NO_SKILL); // a pick goes with one turn only
     setStreaming(true);
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -204,13 +228,11 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
         await auth.login(pathname);
         return;
       }
-      const body: ChatTurnRequest = {
-        conversation_id: conversationId,
-        message,
-        selected_kbs: [],
-        attachment_ids: attachmentIds,
-        locale,
-      };
+      const body: ChatTurnRequest = withSkill(
+        { conversation_id: conversationId, message, selected_kbs: [], attachment_ids: attachmentIds, locale },
+        picked,
+        skills,
+      );
       for await (const event of streamTurn({ gatewayUrl: config.gatewayUrl, token, body, signal: controller.signal })) {
         updateAnswer(id, (m) => applyEvent(m, event));
       }
@@ -349,6 +371,9 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
               {t("chat.send")}
             </button>
           )}
+        </div>
+        <div className="mt-1.5">
+          <SkillPicker skills={skills} value={skill} onChange={setSkill} disabled={streaming} />
         </div>
         {busy && <p className="mt-1.5 text-xs text-amber-700">{t("chat.sendWaiting")}</p>}
         {limits && <div className="mt-1.5"><LimitsHint limits={limits} /></div>}

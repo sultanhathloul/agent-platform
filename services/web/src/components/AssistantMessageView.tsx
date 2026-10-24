@@ -119,8 +119,15 @@ export function AssistantMessageView({ message }: { message: AssistantMessage })
     <article className="max-w-[90%] self-start rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
       <h2 className="mb-1 text-xs font-medium text-slate-500">{t("chat.assistant")}</h2>
 
-      {message.chips.length > 0 && (
+      {(message.chips.length > 0 || message.skill) && (
         <ul className="mb-2 flex flex-wrap gap-1.5">
+          {message.skill && (
+            // The skill the answer was written with (phase 06): from the `skill` event or the history.
+            <li className={chipClass} data-skill={message.skill.slug}>
+              <span>{t("chips.skill")}</span>
+              <span className="font-medium">{locale === "ar" ? message.skill.label.ar : message.skill.label.en}</span>
+            </li>
+          )}
           {message.chips.map((chip) => (
             <ChipView key={chip.key} chip={chip} />
           ))}

@@ -1,12 +1,13 @@
 // A conversation's history as chat turns (ADR-0193). Pure, so the pairing is tested without a
 // browser: each question opens a turn and the reply after it is that turn's finished answer.
 import type { Citation, HistoryMessage } from "@/lib/api/types";
-import type { AssistantMessage } from "./stream";
+import type { AppliedSkill, AssistantMessage } from "./stream";
 
 export type Turn = { id: string; question: string; files: string[]; answer: AssistantMessage };
 
-function finished(text: string, citations: Citation[]): AssistantMessage {
-  return { text, status: "done", receivedTokens: text.length > 0, chips: [], citations };
+function finished(text: string, citations: Citation[], skill?: AppliedSkill | null): AssistantMessage {
+  const message: AssistantMessage = { text, status: "done", receivedTokens: text.length > 0, chips: [], citations };
+  return skill ? { ...message, skill } : message;
 }
 
 export function turnsFromHistory(messages: HistoryMessage[]): Turn[] {
@@ -20,7 +21,7 @@ export function turnsFromHistory(messages: HistoryMessage[]): Turn[] {
     const open = turns.at(-1);
     // A reply without its question is never stored (persist_state writes both); drop it.
     if (!open || open.answer.text) return;
-    open.answer = finished(message.text, message.citations as Citation[]);
+    open.answer = finished(message.text, message.citations as Citation[], message.skill);
   });
   return turns;
 }
