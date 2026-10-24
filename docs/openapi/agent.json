@@ -6667,7 +6667,7 @@
             },
             "type": "array",
             "title": "Parents",
-            "description": "The rules whose inner bound is this pair's outer one: the tree's parent rows (ADR-0286)."
+            "description": "The rules whose inner bound is this pair's outer one: its parent rows (ADR-0286)."
           }
         },
         "type": "object",
