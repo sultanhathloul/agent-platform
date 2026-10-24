@@ -2618,7 +2618,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0282: The usage section reads the process's counters only; counts, never who
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed — Accepted on 2026-10-24
+- Status: assumed — Accepted on 2026-10-24 — Superseded in part by ADR-0287 on 2026-10-24
 - Context: Item 7b: usage from in-memory counters only, no database and no per-request cost, counts only.
 - Decision: `GET /v1/admin/usage` (agent, admin only) answers:
   - turns in flight (the platform, each tenant with something in flight, the busiest user's count) against their limits, from `ConcurrencyLimiter.snapshot`;

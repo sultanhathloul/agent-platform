@@ -1941,9 +1941,50 @@ Results (rule 11):
 
 ## Phase 06: Skills
 
-- Branch: `phase/06-skills`
-- Status: not started
-- Done when: `skills/<slug>/SKILL.md` registry (name and description in Arabic and English, when to use, the capabilities or MCP tools it needs, the Keycloak role that may use it); the router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block; text outputs only; no scripts; per-skill evals for format adherence plus routing cases; two reference skills (official memo, official letter); adding a third skill needs no core change.
+- Branch: `phase/06-skills`, from `main` at 09464df (PR #12 and PR #13 merged). The session prompt is kept verbatim in `docs/PHASE-06-BUILD-PROMPT.md` (both messages, joined in order).
+- Status: in progress (started 2026-10-24).
+- Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- Done when (CLAUDE.md phase 06 row): `skills/<slug>/SKILL.md` registry (name and description in Arabic and English, when to use, the capabilities or MCP tools it needs, the Keycloak role that may use it); the router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block; text outputs only; no scripts; per-skill evals for format adherence plus routing cases; two reference skills (official memo, official letter); adding a third skill needs no core change. Plus: the eval harness counts lost or interrupted cases as failures in every metric (first item); smoke's G7 checks measure platform-side time; the skill picker of D4; `make test`, `make eval` once, `make smoke` and `make smoke-airgap` green, recorded per rule 11.
+- Baseline on `main` (rule 11). main at 09464df carries the code of 7394647 (5c59769 changed docs/PROGRESS.md only), so the last recorded runs of that code are the baseline:
+  - `make test` at 7394647 (2026-10-24T17:09:14Z–17:22:56Z): agent 947 / 0 / 0, gateway 171 / 0 / 0, gateway-db 5 / 0 / 0, web 166 / 0 / 0, evals harness 12 / 0 / 0, timeout budget 32 / 0 / 0, budget tests (scripts/tests) 10 / 0 / 0.
+  - `make smoke` at 7394647: 199/199. `make smoke-airgap`, last recorded at 23a9dfc: 207/207.
+  - No layer may end lower unless an ADR names each removed test and why.
+
+Restated (session 2026-10-24):
+1. Harness first (D5): every metric of every suite scores a lost or interrupted case as a failure and each suite reports its lost cases by code; four recorded runs rescored. Then smoke's G7 bounds on platform-side time (D6): wall time minus the union of the turn's generation spans from Langfuse.
+2. Contracts first (G2): SKILL.md schema and registry validation, router output with `skill`, the `skill` block, the chat request field, the `skill` event, the history field, the new metrics.yaml scorers.
+3. A skill-agnostic core: `skills/<slug>/` registry mounted read-only, `skill:{slug}` permissions forwarded by the gateway, availability, `GET /v1/skills`, selection (picker → keyword candidates → router model, at most one skill, `skill_dropped`), the `skill` block in the system role after the system instructions, never dropped; state, event, history field; web picker and reply chip.
+4. Two reference skills, official_memo then official_letter, each in its own commit with ≥ 18 eval cases; the letter's commit touches only the I11 paths (zero core change); routing.jsonl gains `expected_skill` and the skill cases.
+5. Done = the done-check above: make test, make eval once (all suites, G10), make smoke, make smoke-airgap green, recorded per rule 11 and G1, with measurements (L) and the files and pages for review listed.
+
+Phase 06 ground rules (from the phase prompt, verbatim):
+- G1. Counts per CLAUDE.md rule 11 after every green run, plus each eval suite's per-metric scores, lost cases and its build/evals record path (ADR-0188).
+- G2. Contracts first, as types with tests before any implementation: the SKILL.md schema and registry validation; the router output with `skill`; the Context Assembly `skill` block; the chat request field `skill`; the `skill` event; the additive history field; the metrics.yaml scorers.
+- G3. Fake data only (ADR-0065): generated documents of phase 04, the directions fixture, invented names and entities.
+- G4. Arabic first: every skill in ar and en; Arabic, Gulf and English eval and routing cases; keywords matched through app/text/arabic.py.
+- G5. Core changes allowed only in parts C to F and I below, all skill-agnostic. No core, gateway or web file names official_memo, official_letter or any skill slug (a lint test). Anything else that seems to need a core change: stop and explain.
+- G6. Permission is the first test of every new path: a principal without skill:{slug} never gets that skill's instructions loaded, by picker, router or request field, refused at the gateway AND the agent.
+- G7. Rule 12 for all new code. Skills add no outbound dependency; GET /v1/skills reads the in-memory registry. Router calls keep the timeout-budget bounds and the turn limits of PR #12. Any new shared resource needs rule 12h tests.
+- G8. Traces and audit record the applied skill as id@version; no skill text in audit.
+- G9. Conversation history keeps working: conversations persisted before this phase (the phase 04 checkpoint fixture and a phase 05 one) reopen unchanged. Tested.
+- G10. Rule 13: router prompts, the answer prompt, routing and eval datasets change in this phase, so the affected suites run (all suites, since the router's prompt changes); once in this build session; three times before merge.
+
+Checklist:
+- [ ] ADRs: D1–D6 and I1–I12 (decided); assumptions of this session (assumed). Status note on ADR-0282 (this commit).
+- [ ] A. D5 harness: a lost or interrupted case fails every metric of every suite (rag and rag@mcp hit@8, citation page accuracy, faithfulness, answer correctness, abstention; metrics.yaml metrics; routing, general, guardrails rates); lost cases reported by code per suite; harness tests with synthetic records; rescore make-eval-20261018T131835Z, make-eval-20261019T125706Z, …135251Z, …150722Z, old and new per metric and suite verdicts recorded.
+- [ ] B. D6 smoke G7: platform-side time = turn wall time − union of the turn's generation span intervals (Langfuse trace); bounds rewritten against it.
+- [ ] C. Contracts (G2), types and tests first: SKILL.md schema and registry validation; router output with `skill`; the `skill` block; chat request `skill`; `skill` event; history `skill`; metrics.yaml scorers `sections_in_order`, `text_present`, `length_between`.
+- [ ] D. Registry (I1, I2): `skills/` mounted read-only, allowed files only, no executable bit, fail fast; permissions (I3: realm roles, gateway forwards `skill:*`, seed analyst/evaluator, viewer none); availability (I4, TOOL_LIST `skill:{slug}`, silent removal audited); `GET /v1/skills` agent and gateway; the request-field check at the gateway and the agent; G6 negative tests first; lint: no core, gateway or web file names a skill slug.
+- [ ] E. Selection (I5): picker; keyword candidacy for skills; router.system and router.request version bumps; cache key; `skill_dropped`.
+- [ ] F. Context Assembly `skill` block (I6, budget 1500, never dropped, startup size check); answer.system precedence line; AgentState `skill`, `skill` event, history `skill` (I7); API minor bump, `make openapi`; G8 (id@version in trace and audit, no text); G9 tests (phase 04 fixture and a phase 05 fixture).
+- [ ] G. official_memo (I8) and its evals (I9), own commit.
+- [ ] H. official_letter (I8, I9), own commit touching only the I11 paths; `git diff --name-only` recorded.
+- [ ] I. Web: picker in the composer, reply chip (event and history), ar.json/en.json, Western digits (ADR-0288), component tests; pages for the visual check.
+- [ ] J. Routing evals (I10): `expected_skill`; ≥ 12 positives, ≥ 8 keyword negatives, ≥ 6 `skill_keyword_free` (reported, ungated).
+- [ ] K. Smoke: memo turn (skill event, sections in order); viewer gets no skill; picker for a lacking skill refused at the gateway; keyword negative gets no skill; history chip.
+- [ ] L. Measurements (n=20): router call added on skill-candidate turns (p50/p95); memo TTFT and terminal event vs the same request without the skill.
+- [ ] M. Docs: README §5.3, §7, §18 "Skills", §20 phase 06 keys; BACKLOG Skills → phase 06, the two tech debt items done.
+- [ ] N. make test; make eval once; make smoke; make smoke-airgap; rule 11 and G1.
 
 ## Phase 07: Planner
 
