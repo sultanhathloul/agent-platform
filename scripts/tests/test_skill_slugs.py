@@ -17,18 +17,30 @@ SKIPPED_PARTS = {"node_modules", "__pycache__", ".next", "build"}
 REFERENCE = {"official_memo", "official_letter"}
 
 
-def slugs() -> set[str]:
-    roots = [REPO / "skills", REPO / "services" / "agent" / "tests" / "fixtures" / "skills"]
-    found = {p.name for root in roots if root.is_dir() for p in root.iterdir() if p.is_dir()}
-    return REFERENCE | found
+def _folders(root: Path) -> set[str]:
+    return {p.name for p in root.iterdir() if p.is_dir()} if root.is_dir() else set()
 
 
-def named(paths: list[Path], names: set[str]) -> list[str]:
+def shipped() -> set[str]:
+    """The reference skills and every folder of skills/: named in no scanned file, tests included."""
+    return REFERENCE | _folders(REPO / "skills")
+
+
+def fixtures() -> set[str]:
+    """The agent's test-only skills: a gateway or web test may use their names, code may not."""
+    return _folders(REPO / "services" / "agent" / "tests" / "fixtures" / "skills")
+
+
+def is_test(path: Path) -> bool:
+    return "test" in path.parts or ".test." in path.name or path.name.endswith("Test.java")
+
+
+def named(paths: list[Path], names: set[str], *, skip_tests: bool = False) -> list[str]:
     pattern = re.compile(r"(?<![a-z0-9_])(" + "|".join(sorted(map(re.escape, names))) + r")(?![a-z0-9_])")
     hits = []
     for root in paths:
         for path in sorted(p for p in root.rglob("*") if p.is_file()):
-            if SKIPPED_PARTS & set(path.parts):
+            if SKIPPED_PARTS & set(path.parts) or (skip_tests and is_test(path)):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
@@ -41,7 +53,8 @@ def named(paths: list[Path], names: set[str]) -> list[str]:
 
 
 def test_no_core_gateway_or_web_file_names_a_skill():
-    assert named(SCANNED, slugs()) == []
+    assert named(SCANNED, shipped()) == []
+    assert named(SCANNED, fixtures(), skip_tests=True) == []
 
 
 def test_the_check_catches_a_named_slug(tmp_path):
