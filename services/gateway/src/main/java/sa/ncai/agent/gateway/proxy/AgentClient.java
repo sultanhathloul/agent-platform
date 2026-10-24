@@ -1,5 +1,6 @@
 package sa.ncai.agent.gateway.proxy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
@@ -44,6 +45,8 @@ public class AgentClient {
     public static final String USER_DISPLAY_NAME_HEADER = "X-User-Display-Name";
     /** On admin calls only: whether the verified token holds the admin role; the agent checks it too (ADR-0284). */
     public static final String USER_ADMIN_HEADER = "X-User-Admin";
+    /** The caller's permissions, comma-separated, from the verified token (phase 06, GET /v1/skills). */
+    public static final String USER_PERMISSIONS_HEADER = "X-User-Permissions";
 
     /** Consumes the agent's SSE body; runs only after a 2xx response. */
     @FunctionalInterface
@@ -106,8 +109,9 @@ public class AgentClient {
                     .header(RequestIdFilter.HEADER, requestId)
                     .body(request)
                     .exchange((clientRequest, response) -> {
-                        AgentRefusedException refused =
-                                AgentRefusedException.forStatus(response.getStatusCode().value());
+                        int status = response.getStatusCode().value();
+                        AgentRefusedException refused = AgentRefusedException.forStatus(
+                                status, status == 403 ? errorCode(response.getBody().readNBytes(4096)) : null);
                         if (refused != null) {
                             throw refused;
                         }
@@ -237,6 +241,19 @@ public class AgentClient {
                 new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
     }
 
+    /**
+     * The skills the caller may use (phase 06, ADR-0301), filtered by the agent from the caller's
+     * permissions, which only the verified token gives.
+     *
+     * @throws AgentUnavailableException if the agent is unreachable or answers non-2xx
+     */
+    public AgentReply listSkills(GatewayPrincipal caller, String requestId) {
+        return reach(() -> identified(client.get().uri("/v1/skills"), caller, requestId)
+                .header(USER_PERMISSIONS_HEADER, String.join(",", caller.permissions()))
+                .exchange((clientRequest, response) ->
+                        new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
+    }
+
     private RestClient.RequestHeadersSpec<?> identified(
             RestClient.RequestHeadersSpec<?> spec, GatewayPrincipal caller, String requestId) {
         return spec.header(INTERNAL_TOKEN_HEADER, internalToken)
@@ -244,6 +261,17 @@ public class AgentClient {
                 .header(USER_HEADER, caller.userId())
                 .header(TENANT_HEADER, caller.tenantId());
     }
+
+    /** The {@code error.code} of an agent error envelope, or null (at most the bytes given are read). */
+    static String errorCode(byte[] body) {
+        try {
+            return ERROR_READER.readTree(body).path("error").path("code").asText(null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static final ObjectMapper ERROR_READER = new ObjectMapper();
 
     /** A name as an HTTP header value: UTF-8, percent-encoded (a display name may be Arabic). */
     static String encoded(String value) {

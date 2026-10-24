@@ -16,6 +16,7 @@ export type AgentEvent =
   | ToolEndEvent
   | CitationEvent
   | ProgressEvent
+  | SkillEvent
   | DoneEvent
   | ErrorEvent
   | RetractEvent;
@@ -136,7 +137,17 @@ export type TurnId7 = string | null;
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
 export type Seq7 = number;
-export type Type7 = "done";
+export type Type7 = "skill";
+export type Slug = string;
+export type Ar1 = string;
+export type En1 = string;
+export type RequestId8 = string;
+export type TurnId8 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq8 = number;
+export type Type8 = "done";
 export type Answer = string;
 export type Citations = Citation[];
 export type TokensIn = number;
@@ -215,14 +226,18 @@ export type Turn = number;
  * Capability slugs that ran this turn, in order.
  */
 export type Capabilities = string[];
+/**
+ * slug@version of the skill applied to the answer, if any (phase 06, G8).
+ */
+export type Skill = string | null;
 export type TraceId = string | null;
-export type RequestId8 = string;
-export type TurnId8 = string | null;
+export type RequestId9 = string;
+export type TurnId9 = string | null;
 /**
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
-export type Seq8 = number;
-export type Type8 = "error";
+export type Seq9 = number;
+export type Type9 = "error";
 export type Code = string;
 export type MessageAr2 = string;
 export type MessageEn2 = string;
@@ -243,13 +258,13 @@ export type GuardAudit1 = GuardAuditData[];
  * Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
  */
 export type ToolAudit1 = ToolAuditData[];
-export type RequestId9 = string;
-export type TurnId9 = string | null;
+export type RequestId10 = string;
+export type TurnId10 = string | null;
 /**
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
-export type Seq9 = number;
-export type Type9 = "retract";
+export type Seq10 = number;
+export type Type10 = "retract";
 /**
  * Error code of the check that withdrew the streamed text (ADR-0039).
  */
@@ -366,11 +381,33 @@ export interface ProgressData {
   current?: Current;
   total?: Total;
 }
-export interface DoneEvent {
+/**
+ * The skill the answer is written with (phase 06); precedes the answer's tokens.
+ */
+export interface SkillEvent {
   request_id: RequestId7;
   turn_id: TurnId7;
   seq: Seq7;
   type: Type7;
+  data: SkillData;
+}
+/**
+ * The skill applied to this turn's answer (phase 06, ADR-0301): its slug and its name per
+ * locale, from its SKILL.md. Sent before the answer's first token; never the skill's text.
+ */
+export interface SkillData {
+  slug: Slug;
+  label: SkillLabel;
+}
+export interface SkillLabel {
+  ar: Ar1;
+  en: En1;
+}
+export interface DoneEvent {
+  request_id: RequestId8;
+  turn_id: TurnId8;
+  seq: Seq8;
+  type: Type8;
   data: DoneData;
 }
 export interface DoneData {
@@ -444,12 +481,13 @@ export interface ToolAuditData {
 export interface StateDigest {
   turn: Turn;
   capabilities: Capabilities;
+  skill?: Skill;
 }
 export interface ErrorEvent {
-  request_id: RequestId8;
-  turn_id: TurnId8;
-  seq: Seq8;
-  type: Type8;
+  request_id: RequestId9;
+  turn_id: TurnId9;
+  seq: Seq9;
+  type: Type9;
   data: ErrorData;
 }
 export interface ErrorData {
@@ -466,10 +504,10 @@ export interface ErrorData {
  * Withdraws every answer token streamed so far in this turn.
  */
 export interface RetractEvent {
-  request_id: RequestId9;
-  turn_id: TurnId9;
-  seq: Seq9;
-  type: Type9;
+  request_id: RequestId10;
+  turn_id: TurnId10;
+  seq: Seq10;
+  type: Type10;
   data: RetractData;
 }
 export interface RetractData {

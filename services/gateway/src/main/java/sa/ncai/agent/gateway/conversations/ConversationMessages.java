@@ -18,7 +18,20 @@ public record ConversationMessages(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String text,
             String turnId,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryAttachment> attachments,
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryCitation> citations) {}
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryCitation> citations,
+            @Schema(nullable = true, description = "The skill applied to a reply, when one was (phase 06).")
+            HistorySkill skill) {}
+
+    /** The skill a reply was written with: its slug and its names from SKILL.md (phase 06, ADR-0301). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record HistorySkill(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String slug,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) SkillLabel label) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SkillLabel(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String ar,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String en) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record HistoryAttachment(

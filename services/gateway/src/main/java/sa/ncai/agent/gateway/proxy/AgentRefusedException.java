@@ -23,6 +23,17 @@ public class AgentRefusedException extends RuntimeException {
 
     /** The refusal a status stands for, or null when the status is not one. */
     public static AgentRefusedException forStatus(int status) {
+        return forStatus(status, null);
+    }
+
+    /**
+     * The refusal a status and the agent's error code stand for: a 403 is skill_forbidden when the
+     * agent says so (phase 06), conversation_forbidden otherwise.
+     */
+    public static AgentRefusedException forStatus(int status, String agentCode) {
+        if (status == 403 && ErrorCode.SKILL_FORBIDDEN.code().equals(agentCode)) {
+            return new AgentRefusedException(ErrorCode.SKILL_FORBIDDEN);
+        }
         return switch (status) {
             case 403 -> new AgentRefusedException(ErrorCode.CONVERSATION_FORBIDDEN);
             case 409 -> new AgentRefusedException(ErrorCode.TURN_IN_FLIGHT);

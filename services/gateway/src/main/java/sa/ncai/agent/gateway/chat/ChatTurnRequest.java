@@ -38,9 +38,16 @@ public record ChatTurnRequest(
 
         @Pattern(regexp = "^(ar|en)$")
         @Schema(allowableValues = {"ar", "en"}, defaultValue = "ar")
-        String locale) {
+        String locale,
+
+        @Pattern(regexp = SKILL)
+        @Schema(nullable = true, pattern = SKILL,
+                description = "The skill picked in the composer (phase 06, ADR-0292); absent: chosen automatically. "
+                        + "A skill the caller holds no skill:{slug} role for is 403 skill_forbidden.")
+        String skill) {
 
     public static final int MAX_MESSAGE_CHARS = 8000;
+    static final String SKILL = "^[a-z][a-z0-9_]{0,62}$";
     static final String UUID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     public ChatTurnRequest {

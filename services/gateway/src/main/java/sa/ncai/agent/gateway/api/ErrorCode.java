@@ -6,6 +6,8 @@ public enum ErrorCode {
     FORBIDDEN("forbidden", 403),
     KB_FORBIDDEN("kb_forbidden", 403),
     CONVERSATION_FORBIDDEN("conversation_forbidden", 403),
+    /** A picked skill the caller holds no skill:{slug} role for, or the agent finds unavailable (phase 06). */
+    SKILL_FORBIDDEN("skill_forbidden", 403),
     INVALID_REQUEST("invalid_request", 400),
     NOT_FOUND("not_found", 404),
     MEMORY_NOT_FOUND("memory_not_found", 404),

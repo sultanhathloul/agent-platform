@@ -104,7 +104,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "conversation_forbidden: another owner's conversation",
+            "description": "conversation_forbidden: another owner's conversation; skill_forbidden: the picked skill is not available to the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -4086,6 +4086,120 @@
         }
       }
     },
+    "/v1/skills": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "List Skills",
+        "operationId": "list_skills_v1_skills_get",
+        "parameters": [
+          {
+            "name": "x-user-permissions",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "The caller's permissions, comma-separated, from the verified token.",
+              "default": "",
+              "title": "X-User-Permissions"
+            },
+            "description": "The caller's permissions, comma-separated, from the verified token."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillList"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/v1/internal/settings/limits": {
       "get": {
         "tags": [
@@ -6602,6 +6716,45 @@
           "en"
         ],
         "title": "SkillLabel"
+      },
+      "SkillList": {
+        "properties": {
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillView"
+            },
+            "type": "array",
+            "title": "Skills",
+            "description": "The skills available to the caller, by slug."
+          }
+        },
+        "type": "object",
+        "required": [
+          "skills"
+        ],
+        "title": "SkillList"
+      },
+      "SkillView": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "$ref": "#/components/schemas/SkillLabel"
+          },
+          "description": {
+            "$ref": "#/components/schemas/SkillLabel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "description"
+        ],
+        "title": "SkillView",
+        "description": "A skill the caller may use, for the composer's picker (phase 06, ADR-0301): labels from its\nSKILL.md, so a new skill needs no web change."
       },
       "SpanView": {
         "properties": {

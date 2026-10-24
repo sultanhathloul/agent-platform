@@ -106,7 +106,8 @@ public class ChatController {
                 @ApiResponse(responseCode = "401", description = "unauthorized",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
-                @ApiResponse(responseCode = "403", description = "kb_forbidden or conversation_forbidden",
+                @ApiResponse(responseCode = "403",
+                        description = "kb_forbidden, conversation_forbidden or skill_forbidden",
                         content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                                 schema = @Schema(implementation = ApiErrorEnvelope.class))),
                 @ApiResponse(responseCode = "409",
@@ -140,9 +141,20 @@ public class ChatController {
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("selected_kbs", body.selectedKbs());
         detail.put("attachment_ids", body.attachmentIds());
+        if (body.skill() != null) {
+            detail.put("skill_requested", body.skill());
+        }
         AtomicBoolean audited = new AtomicBoolean();
         AuditStatus status = AuditStatus.ERROR;
         try {
+            // A picked skill needs its skill:{slug} role; the agent checks it again with the skill's
+            // availability (phase 06, G6).
+            if (body.skill() != null && !principal.maySkill(body.skill())) {
+                detail.put("error_code", ErrorCode.SKILL_FORBIDDEN.code());
+                refuse(request, response, ErrorCode.SKILL_FORBIDDEN,
+                        auditEvent(requestId, principal, body, AuditStatus.DENIED, detail, started), audited);
+                return;
+            }
             List<String> denied = kbAccess.denied(principal, body.selectedKbs());
             if (!denied.isEmpty()) {
                 detail.put("denied_kbs", denied);
@@ -226,7 +238,8 @@ public class ChatController {
                 body.message(),
                 body.attachmentIds(),
                 body.selectedKbs(),
-                body.locale());
+                body.locale(),
+                body.skill());
     }
 
     private static Map<String, Object> outcomeDetail(RelayOutcome outcome) {
@@ -243,6 +256,11 @@ public class ChatController {
                 }
                 if (data.hasNonNull("trace_id")) {
                     detail.put("trace_id", data.get("trace_id").asText());
+                }
+                // The applied skill as slug@version, never its text (phase 06, G8).
+                JsonNode skill = data.path("state_digest").path("skill");
+                if (skill.isTextual()) {
+                    detail.put("skill", skill.asText());
                 }
                 detail.put("guard_events", data.path("guard_events").size());
                 detail.put("guard_policies", guardPolicies(auditedGuards(data)));

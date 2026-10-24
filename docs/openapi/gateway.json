@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.4.0"
+    "version" : "2.5.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -1053,7 +1053,7 @@
                 }
               }
             },
-            "description" : "kb_forbidden or conversation_forbidden"
+            "description" : "kb_forbidden, conversation_forbidden or skill_forbidden"
           },
           "409" : {
             "content" : {
@@ -1102,7 +1102,7 @@
     },
     "/v1/conversations" : {
       "get" : {
-        "operationId" : "list_2",
+        "operationId" : "list_3",
         "parameters" : [ {
           "description" : "Page size, 1 to 100; 30 when absent.",
           "in" : "query",
@@ -1632,7 +1632,7 @@
     },
     "/v1/memory" : {
       "get" : {
-        "operationId" : "list_1",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "content" : {
@@ -1816,6 +1816,45 @@
         },
         "summary" : "Deletes one of the caller's memory items",
         "tags" : [ "memory" ]
+      }
+    },
+    "/v1/skills" : {
+      "get" : {
+        "operationId" : "list_1",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeSkillList"
+                }
+              }
+            },
+            "description" : "The caller's skills, by slug"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          }
+        },
+        "summary" : "The skills the caller may pick",
+        "tags" : [ "skills" ]
       }
     }
   },
@@ -2143,6 +2182,20 @@
         },
         "required" : [ "request_id" ]
       },
+      "ApiEnvelopeSkillList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/SkillList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiError" : {
         "properties" : {
           "code" : {
@@ -2302,6 +2355,11 @@
             },
             "maxItems" : 20,
             "minItems" : 0
+          },
+          "skill" : {
+            "type" : "string",
+            "description" : "The skill picked in the composer (phase 06, ADR-0292); absent: chosen automatically. A skill the caller holds no skill:{slug} role for is 403 skill_forbidden.",
+            "pattern" : "^[a-z][a-z0-9_]{0,62}$"
           }
         },
         "required" : [ "conversation_id", "message" ]
@@ -2421,6 +2479,9 @@
             "type" : "string",
             "enum" : [ "user", "assistant" ]
           },
+          "skill" : {
+            "$ref" : "#/components/schemas/HistorySkill"
+          },
           "text" : {
             "type" : "string"
           },
@@ -2429,6 +2490,18 @@
           }
         },
         "required" : [ "attachments", "citations", "role", "text" ]
+      },
+      "HistorySkill" : {
+        "description" : "The skill applied to a reply, when one was (phase 06).",
+        "properties" : {
+          "label" : {
+            "$ref" : "#/components/schemas/SkillLabel"
+          },
+          "slug" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "label", "slug" ]
       },
       "InducedFlag" : {
         "description" : "Policies whose exception flag this change set or cleared (ADR-0115)",
@@ -2444,6 +2517,17 @@
       },
       "JsonNode" : {
         "description" : "The checker's settings; DATA policies may name `targets`."
+      },
+      "Label" : {
+        "properties" : {
+          "ar" : {
+            "type" : "string"
+          },
+          "en" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "ar", "en" ]
       },
       "MeResponse" : {
         "properties" : {
@@ -3376,6 +3460,42 @@
             "minLength" : 1
           }
         }
+      },
+      "SkillLabel" : {
+        "properties" : {
+          "ar" : {
+            "type" : "string"
+          },
+          "en" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "ar", "en" ]
+      },
+      "SkillList" : {
+        "properties" : {
+          "skills" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SkillView"
+            }
+          }
+        },
+        "required" : [ "skills" ]
+      },
+      "SkillView" : {
+        "properties" : {
+          "description" : {
+            "$ref" : "#/components/schemas/Label"
+          },
+          "name" : {
+            "$ref" : "#/components/schemas/Label"
+          },
+          "slug" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "description", "name", "slug" ]
       },
       "TenantUsage" : {
         "properties" : {
