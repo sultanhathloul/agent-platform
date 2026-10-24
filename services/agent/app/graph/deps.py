@@ -64,6 +64,9 @@ class Services:
     turn: TurnConfig  # the whole-turn deadline and its reserves (config/turn.yaml, I2, ADR-0255)
     # Turns in flight per user, per tenant and platform-wide (config/turn.yaml, ADR-0262).
     turn_limits: ConcurrencyLimiter
+    # The platform settings in force: the files' values with the administrator's overrides
+    # (owner decision 2026-10-22, ADR-0276); every request pins the snapshot current at its start.
+    platform: Any = None  # app.platform_settings.store.SettingsStore
     redis: Any = None  # redis.asyncio client, or None without REDIS_URL
     closers: tuple = ()  # async close() callables run by stop_services
     # The compiled main graph, set by app.main.start_services once the database is open:

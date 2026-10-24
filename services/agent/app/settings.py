@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     mcp_config: Path | None = None
     mcp_profile: str = "default"
     mcp_allow_external: bool = False
+    # The deployment's uploads per user per minute (UPLOADS_PER_MINUTE in .env), which the gateway
+    # applies over config/docs.yaml's baseline; the settings page shows it as that setting's default
+    # (ADR-0276). Empty or unset: the file's value.
+    docs_uploads_per_minute: int | None = Field(default=None, gt=0)
+
+    @field_validator("docs_uploads_per_minute", mode="before")
+    @classmethod
+    def _empty_is_none(cls, value):
+        return None if value == "" else value
 
 
 @lru_cache

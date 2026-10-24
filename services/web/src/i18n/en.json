@@ -8,7 +8,8 @@
     "memory": "Memory",
     "signOut": "Sign out",
     "switchLanguage": "Change language",
-    "policies": "Guard policies"
+    "policies": "Guard policies",
+    "settings": "Platform settings"
   },
   "locale": {
     "ar": "العربية",
@@ -139,7 +140,10 @@
     "unknown": "An unknown error occurred.",
     "tool_unavailable": "The service this step needs is unavailable right now. Try again later.",
     "tool_timeout": "The service this step needs took longer than allowed, so the step did not complete.",
-    "tool_result_too_large": "The service this step needs returned a result larger than allowed, so it was not used."
+    "tool_result_too_large": "The service this step needs returned a result larger than allowed, so it was not used.",
+    "settings_invalid": "The settings were not saved: they break a timeout rule or a limit. See the details.",
+    "settings_conflict": "Another administrator saved the settings first. Reload the page, review your change and save it again.",
+    "settings_version_not_found": "This settings version was not found."
   },
   "policies": {
     "title": "Guard policies",
@@ -479,5 +483,235 @@
     "empty": "No conversations yet.",
     "untitled": "Untitled conversation",
     "loadMore": "Show more"
+  },
+  "settings": {
+    "title": "Platform settings",
+    "description": "The capacity and time limit values the administrator sets. The defaults come from the configuration files; every save is a new version that can be reverted, and it applies to requests that start after it.",
+    "loading": "Loading the settings…",
+    "versionInForce": "Version in force: {version}",
+    "versionFiles": "In force: the defaults from the configuration files.",
+    "ignored": "The saved version is not applied: it breaks the timeout rules since the configuration files changed, so the defaults are in force. Save valid values or restore the defaults.",
+    "groups": {
+      "turns": "Questions",
+      "models": "Models",
+      "uploads": "File uploads",
+      "mcp": "Tool servers",
+      "capacity": "Platform capacity (read only)",
+      "tree": "Timeout tree",
+      "usage": "Usage now",
+      "history": "Version history"
+    },
+    "groupHints": {
+      "turns": "Limits on questions in progress, and a question's time limit from its arrival to the end of its answer.",
+      "models": "The longest each model call waits before it is cut.",
+      "uploads": "Upload limits per user and per tenant.",
+      "mcp": "Concurrent requests to each tool server; they may be lowered, never raised above the file's value.",
+      "capacity": "These values change only with a redeploy, not from this page.",
+      "tree": "Every inner time limit must end before the one around it.",
+      "usage": "Refreshed every five seconds while the page is open. Counts only, no user names or ids.",
+      "history": "Every save and revert is a new version; nothing is deleted."
+    },
+    "units": {
+      "s": "seconds",
+      "count": "count",
+      "per_minute": "per minute",
+      "MiB": "MiB",
+      "cpu_s": "CPU seconds"
+    },
+    "fieldLabel": "{label} ({unit})",
+    "default": "Default: {value}",
+    "defaultNone": "Default: no limit of its own",
+    "defaultTenants": "Default: no specific limits",
+    "restore": "Restore default",
+    "overridden": "Changed",
+    "noLimit": "No limit of its own (the platform's capacity applies)",
+    "maximum": "Allowed: {minimum} to {maximum}",
+    "maximumFile": "Never above the file's value: {maximum}",
+    "tenants": {
+      "add": "Add a tenant",
+      "remove": "Remove",
+      "tenantId": "Tenant id",
+      "limit": "Limit",
+      "none": "No tenant has a limit of its own."
+    },
+    "problems": {
+      "number": "Enter a number.",
+      "integer": "Enter a whole number.",
+      "range": "The value must be from {minimum} to {maximum}.",
+      "tenant": "The tenant id is not valid."
+    },
+    "fields": {
+      "turn_per_user_max": {
+        "label": "Questions in progress per user",
+        "help": "How many questions one user may have in progress at once. Example: 2 refuses a third until one of the two ends."
+      },
+      "turn_per_tenant_max": {
+        "label": "Questions in progress per tenant",
+        "help": "Each tenant's share of the questions in progress. Example: 10 per tenant, or no limit of its own so the platform's capacity applies."
+      },
+      "turn_per_tenant_overrides": {
+        "label": "Limits for specific tenants",
+        "help": "A limit for one tenant in place of the general one. Example: one tenant with 15."
+      },
+      "turn_deadline_s": {
+        "label": "Whole-question time limit",
+        "help": "The longest a question may take, from its arrival to the end of its answer; then it is stopped. Example: 120."
+      },
+      "turn_answer_reserve_s": {
+        "label": "Time kept for the answer",
+        "help": "Time kept for the answer and what follows it, however long the capabilities before it take. Example: 45."
+      },
+      "turn_post_answer_reserve_s": {
+        "label": "Time kept after the answer",
+        "help": "Time kept after the answer's last word for checks, saving and memory. Example: 30."
+      },
+      "turn_evidence_fetch_s": {
+        "label": "Time to fetch the sources' text",
+        "help": "The longest time to fetch the sources' text before the answer; past it the answer goes on without what did not arrive. Example: 10."
+      },
+      "models_helper_s": {
+        "label": "Helper models' time limit",
+        "help": "The time limit of each routing, summary, judging and extraction call. Example: 20."
+      },
+      "models_reasoning_s": {
+        "label": "Answering model's time limit",
+        "help": "The time limit of each answering and reflection call. Example: 90."
+      },
+      "models_embed_query_s": {
+        "label": "Time to embed a question",
+        "help": "The time limit to embed a question or a memory item for a search. Example: 15."
+      },
+      "models_embed_batch_s": {
+        "label": "Time to embed a batch of file passages",
+        "help": "The time limit to embed one batch of an uploaded file's passages while it is indexed. Example: 60."
+      },
+      "models_rerank_s": {
+        "label": "Time to rerank results",
+        "help": "The time limit to rerank file passages by their relevance to the question. Example: 20."
+      },
+      "docs_max_concurrent_uploads": {
+        "label": "Uploads in progress per user",
+        "help": "How many files one user may upload at once. Example: 2."
+      },
+      "docs_max_concurrent_uploads_per_tenant": {
+        "label": "Uploads in progress per tenant",
+        "help": "Each tenant's share of the uploads in progress. Example: 20, or no limit of its own."
+      },
+      "docs_tenant_concurrent_uploads": {
+        "label": "Upload limits for specific tenants",
+        "help": "An upload limit for one tenant in place of the general one. Example: one tenant with 5."
+      },
+      "docs_uploads_per_minute": {
+        "label": "Uploads per minute per user",
+        "help": "How many files one user may upload in any minute. Example: 20."
+      },
+      "docs_register_response_s": {
+        "label": "Time an upload waits for its answer",
+        "help": "How long an upload waits for the file to be taken before it answers that it is being processed. Example: 20."
+      },
+      "mcp_max_concurrency": {
+        "label": "Concurrent requests to the tool server",
+        "help": "How many requests are sent to it at once; it may be lowered, never raised above the file's value agreed with the server's owner. Example: 6."
+      }
+    },
+    "review": {
+      "open": "Review the change before saving",
+      "title": "What will change",
+      "none": "Nothing has changed yet.",
+      "line": "{field}: from {before} to {after}",
+      "valid": "Every timeout rule holds after this change.",
+      "invalid": "This cannot be saved:",
+      "confirm": "Confirm and save",
+      "discard": "Discard the changes",
+      "stale": "The values changed after the review; review them again before saving.",
+      "saved": "Version {version} is saved; it applies to requests that start from now.",
+      "noneValue": "no limit of its own",
+      "tenantsValue": "{count} tenant limits"
+    },
+    "tree": {
+      "holds": "Holds",
+      "fails": "Conflict",
+      "failsBelow": "Conflict below",
+      "strict": "{inner} shorter than {outer}",
+      "loose": "{inner} no longer than {outer}",
+      "previewing": "The tree shows the values after the proposed change, before it is saved.",
+      "other": "Timeout rule"
+    },
+    "rules": {
+      "turn-in-relay": "The question's time limit within the gateway's relay limit",
+      "headers-in-relay": "The wait for the reply to start within the relay limit",
+      "admission-in-headers": "Admitting the question before the gateway stops waiting for the reply",
+      "answer-reserve-in-turn": "The time kept for the answer within the question's time limit",
+      "post-answer-in-answer-reserve": "The time kept after the answer within the time kept for it",
+      "persist-in-post-answer": "Saving the conversation within the time kept after the answer",
+      "judge-and-persist-in-post-answer": "Judging then saving within the time kept after the answer",
+      "evidence-in-room": "Fetching the sources' text within the time before the answer",
+      "reasoning-in-turn": "The answering model's call within the question's time limit",
+      "litellm-backstop-in-longest-call": "The model gateway's backstop within the longest model time limit",
+      "helper-in-shortest-capability": "The helper models within the shortest capability time limit",
+      "register-in-gateway-call": "An upload's answer within the gateway's limit for platform requests",
+      "upload-stall-in-deadline": "An upload's stall within the time to receive the whole file",
+      "keep-alive": "The gateway's idle connection shorter than the agent service's",
+      "keep-alive-dev": "The gateway's idle connection shorter than the agent service's in development",
+      "capability-in-room": "The capability's time limit within the time before the answer",
+      "tool-in-capability": "The tool's time limit within its capability's",
+      "facade-search-in-tool": "A file search within the tool's time limit",
+      "document-server-in-tool": "A document server call within the tool's time limit",
+      "slot-and-attempt-in-broker": "A tool server's wait and attempt within the broker's limit"
+    },
+    "readOnly": {
+      "source": "Source: {source}",
+      "redeploy": "Changing it needs a redeploy",
+      "labels": {
+        "lock_pool_size": "The platform's capacity of questions at once",
+        "mem_limit_ingest": "Memory limit of the file indexing service",
+        "mem_limit_mcp-rag-ref": "Memory limit of the reference document server",
+        "sandbox_workers": "File parsers running at once",
+        "sandbox_memory_mb": "Memory of one file parser",
+        "sandbox_cpu_seconds": "Processing time of one file parser",
+        "sandbox_timeout_seconds": "Time limit of one file parser",
+        "sandbox_parent_reserve_mb": "Memory kept for the indexing service itself",
+        "turn_gateway_margin_s": "The gateway's margin after the question's time limit",
+        "keep_alive_gateway_s": "How long the gateway keeps an idle connection to the agent",
+        "keep_alive_agent_s": "How long the agent service keeps an idle connection"
+      }
+    },
+    "usage": {
+      "turns": "Questions in progress on the platform",
+      "ofLimit": "{count} of {limit}",
+      "noOwnLimit": "{count} (no limit of its own)",
+      "topUser": "The busiest user now",
+      "perTenant": "Questions in progress per tenant",
+      "noTenants": "No question is in progress now.",
+      "slots": "Requests in progress",
+      "background": "Background requests",
+      "breaker": "Server state",
+      "closed": "Working",
+      "open": "Stopped for {seconds} s",
+      "half_open": "Being tried after a stop",
+      "noServers": "No tool server in this environment.",
+      "registrations": "File registrations in the background",
+      "abandoned": "Tasks that ignored a stop since the start",
+      "updated": "Updated: {time}",
+      "failed": "The usage could not be refreshed; the last counts are shown.",
+      "labelled": "{label}: {value}"
+    },
+    "history": {
+      "version": "Version {version}",
+      "current": "In force",
+      "changes": {
+        "seed": "The first values, from the files",
+        "save": "Save",
+        "restore": "Restore default",
+        "revert": "Revert to version {version}"
+      },
+      "overrides": "Changed values: {count}",
+      "revert": "Revert to this version",
+      "revertConfirm": "Confirm: revert in a new version",
+      "cancel": "Cancel",
+      "reverted": "Version {from}'s values are back, as new version {version}.",
+      "empty": "No version yet.",
+      "filesActor": "configuration files"
+    }
   }
 }

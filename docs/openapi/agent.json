@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.3.0"
+    "version": "2.4.0"
   },
   "paths": {
     "/v1/health": {
@@ -3087,6 +3087,1070 @@
           }
         }
       }
+    },
+    "/v1/admin/settings": {
+      "get": {
+        "tags": [
+          "admin-settings"
+        ],
+        "summary": "Get Settings",
+        "operationId": "get_settings_v1_admin_settings_get",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSettingsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, or settings_invalid with the conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-settings"
+        ],
+        "summary": "Save Settings",
+        "description": "Saves the draft's overrides as the next version, when every rule accepts them; refused with\n400 settings_invalid otherwise, and nothing changes. Applies to requests that start after it.",
+        "operationId": "save_settings_v1_admin_settings_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, or settings_invalid with the conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "settings_conflict: another save came first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/settings/preview": {
+      "post": {
+        "tags": [
+          "admin-settings"
+        ],
+        "summary": "Preview Settings",
+        "description": "What the draft would produce: every field's value, the timeout tree on those values, and why\nit cannot be saved, if it cannot. Nothing is written.",
+        "operationId": "preview_settings_v1_admin_settings_preview_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, or settings_invalid with the conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/settings/revert": {
+      "post": {
+        "tags": [
+          "admin-settings"
+        ],
+        "summary": "Revert Settings",
+        "description": "Brings an earlier version's overrides back as a new version (nothing is deleted); refused\nlike a save when they no longer pass the rules.",
+        "operationId": "revert_settings_v1_admin_settings_revert_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsRevert"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, or settings_invalid with the conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "settings_version_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "settings_conflict: another save came first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/settings/versions": {
+      "get": {
+        "tags": [
+          "admin-settings"
+        ],
+        "summary": "Settings Versions",
+        "operationId": "settings_versions_v1_admin_settings_versions_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsVersions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, or settings_invalid with the conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/usage": {
+      "get": {
+        "tags": [
+          "admin-settings"
+        ],
+        "summary": "Platform Usage",
+        "description": "What is in use now, from the process's counters only: no database read, counts only.",
+        "operationId": "platform_usage_v1_admin_usage_get",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, or settings_invalid with the conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/internal/settings/limits": {
+      "get": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Effective Limits",
+        "description": "The values the gateway enforces itself, in force now; it reads them at most every 10 s and\nkeeps the last ones it read when this cannot be reached (ADR-0283).",
+        "operationId": "effective_limits_v1_internal_settings_limits_get",
+        "parameters": [
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveLimits"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3515,6 +4579,35 @@
         ],
         "title": "DebugContext"
       },
+      "EffectiveLimits": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "deadline_s": {
+            "type": "number",
+            "title": "Deadline S"
+          },
+          "uploads_per_minute": {
+            "type": "integer",
+            "title": "Uploads Per Minute"
+          },
+          "max_concurrent_uploads": {
+            "type": "integer",
+            "title": "Max Concurrent Uploads"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "deadline_s",
+          "uploads_per_minute",
+          "max_concurrent_uploads"
+        ],
+        "title": "EffectiveLimits",
+        "description": "What the gateway enforces itself, from the settings in force (ADR-0283)."
+      },
       "ErrorEnvelope": {
         "properties": {
           "request_id": {
@@ -3818,6 +4911,84 @@
           "enabled"
         ],
         "title": "MemorySettings"
+      },
+      "PlatformSettingsView": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "The stored version in force; 0 for none."
+          },
+          "ignored": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ignored",
+            "description": "When the stored version fails the rules against the files: the rules it fails, and the files' values are in force."
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SettingField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "read_only": {
+            "items": {
+              "$ref": "#/components/schemas/ReadOnlySetting"
+            },
+            "type": "array",
+            "title": "Read Only"
+          },
+          "tree": {
+            "items": {
+              "$ref": "#/components/schemas/TimeoutPair"
+            },
+            "type": "array",
+            "title": "Tree"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "ignored",
+          "fields",
+          "read_only",
+          "tree"
+        ],
+        "title": "PlatformSettingsView"
+      },
+      "PlatformUsage": {
+        "properties": {
+          "turns": {
+            "$ref": "#/components/schemas/TurnsUsage"
+          },
+          "mcp": {
+            "items": {
+              "$ref": "#/components/schemas/ServerUsage"
+            },
+            "type": "array",
+            "title": "Mcp"
+          },
+          "registrations_in_background": {
+            "type": "integer",
+            "title": "Registrations In Background"
+          },
+          "tasks_abandoned": {
+            "type": "integer",
+            "title": "Tasks Abandoned",
+            "description": "Tasks that ignored their cancellation since the agent started."
+          }
+        },
+        "type": "object",
+        "required": [
+          "turns",
+          "mcp",
+          "registrations_in_background",
+          "tasks_abandoned"
+        ],
+        "title": "PlatformUsage"
       },
       "PolicyChangeView": {
         "properties": {
@@ -4695,6 +5866,51 @@
         ],
         "title": "Principal"
       },
+      "ReadOnlySetting": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "s",
+              "count",
+              "MiB",
+              "cpu_s"
+            ],
+            "title": "Unit"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Where it is set; changing it needs a redeploy."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "value",
+          "unit",
+          "source"
+        ],
+        "title": "ReadOnlySetting"
+      },
       "RecordedContext": {
         "properties": {
           "node": {
@@ -4740,6 +5956,578 @@
           "reason"
         ],
         "title": "RetractRequest"
+      },
+      "ServerUsage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "title": "Max Concurrency"
+          },
+          "file_max_concurrency": {
+            "type": "integer",
+            "title": "File Max Concurrency"
+          },
+          "in_use": {
+            "type": "integer",
+            "title": "In Use"
+          },
+          "background_max": {
+            "type": "integer",
+            "title": "Background Max"
+          },
+          "background_in_use": {
+            "type": "integer",
+            "title": "Background In Use"
+          },
+          "breaker": {
+            "type": "string",
+            "enum": [
+              "closed",
+              "open",
+              "half_open"
+            ],
+            "title": "Breaker"
+          },
+          "open_for_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open For S",
+            "description": "Seconds since the breaker opened."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "max_concurrency",
+          "file_max_concurrency",
+          "in_use",
+          "background_max",
+          "background_in_use",
+          "breaker"
+        ],
+        "title": "ServerUsage"
+      },
+      "SettingChange": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "before",
+          "after"
+        ],
+        "title": "SettingChange"
+      },
+      "SettingField": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "The setting's id, e.g. turn.per_user_max or mcp.rag.max_concurrency."
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "turns",
+              "models",
+              "uploads",
+              "mcp"
+            ],
+            "title": "Group"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "s",
+              "count",
+              "per_minute"
+            ],
+            "title": "Unit"
+          },
+          "integer": {
+            "type": "boolean",
+            "title": "Integer"
+          },
+          "nullable": {
+            "type": "boolean",
+            "title": "Nullable",
+            "description": "null is a value: no limit of its own."
+          },
+          "per_tenant": {
+            "type": "boolean",
+            "title": "Per Tenant",
+            "description": "The value is a map from tenant id to a count."
+          },
+          "minimum": {
+            "type": "number",
+            "title": "Minimum"
+          },
+          "maximum": {
+            "type": "number",
+            "title": "Maximum"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default",
+            "description": "The files' value (the environment's, where it sets one)."
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value",
+            "description": "The value in force: the override, or the default."
+          },
+          "overridden": {
+            "type": "boolean",
+            "title": "Overridden"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "The file and key of the default."
+          },
+          "server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server",
+            "description": "An MCP server's id, for its max_concurrency."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "group",
+          "unit",
+          "integer",
+          "nullable",
+          "per_tenant",
+          "minimum",
+          "maximum",
+          "default",
+          "value",
+          "overridden",
+          "source"
+        ],
+        "title": "SettingField"
+      },
+      "SettingsDraft": {
+        "properties": {
+          "overrides": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Overrides",
+            "description": "Every override the new version holds; a key left out is its default."
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version",
+            "description": "The version the draft was made from; another save first is 409."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "overrides"
+        ],
+        "title": "SettingsDraft"
+      },
+      "SettingsPreview": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsProblem"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SettingField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "tree": {
+            "items": {
+              "$ref": "#/components/schemas/TimeoutPair"
+            },
+            "type": "array",
+            "title": "Tree"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed",
+            "description": "The keys whose value in force the draft changes."
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "problems",
+          "fields",
+          "tree",
+          "changed"
+        ],
+        "title": "SettingsPreview"
+      },
+      "SettingsProblem": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "family": {
+            "type": "string",
+            "title": "Family"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Params"
+          },
+          "inner_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Value"
+          },
+          "outer_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outer Value"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "message_ar": {
+            "type": "string",
+            "title": "Message Ar"
+          },
+          "message_en": {
+            "type": "string",
+            "title": "Message En"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "family",
+          "params",
+          "message_ar",
+          "message_en"
+        ],
+        "title": "SettingsProblem",
+        "description": "Why a draft cannot be saved: a rule it breaks or a range it leaves, in plain words."
+      },
+      "SettingsRevert": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version",
+            "description": "The version whose overrides come back, as a new version."
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "SettingsRevert"
+      },
+      "SettingsSaved": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "save",
+              "revert",
+              "restore"
+            ],
+            "title": "Change"
+          },
+          "reverted_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverted To"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/SettingChange"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "Each value in force the save changed, before and after."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/PlatformSettingsView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "change",
+          "changes",
+          "settings"
+        ],
+        "title": "SettingsSaved"
+      },
+      "SettingsVersionView": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "seed",
+              "save",
+              "revert",
+              "restore"
+            ],
+            "title": "Change"
+          },
+          "reverted_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverted To"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Overrides"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Username"
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "change",
+          "overrides",
+          "created_at",
+          "created_by"
+        ],
+        "title": "SettingsVersionView"
+      },
+      "SettingsVersions": {
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsVersionView"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "versions"
+        ],
+        "title": "SettingsVersions"
       },
       "SimulatedPrincipal": {
         "properties": {
@@ -4800,6 +6588,103 @@
         ],
         "title": "SpanView"
       },
+      "TenantUsage": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "in_flight": {
+            "type": "integer",
+            "title": "In Flight"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "in_flight",
+          "limit"
+        ],
+        "title": "TenantUsage"
+      },
+      "TimeoutPair": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "family": {
+            "type": "string",
+            "title": "Family"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Params",
+            "description": "The ids the rule names: capability, tool, server."
+          },
+          "inner": {
+            "type": "string",
+            "title": "Inner"
+          },
+          "inner_value": {
+            "type": "number",
+            "title": "Inner Value"
+          },
+          "outer": {
+            "type": "string",
+            "title": "Outer"
+          },
+          "outer_value": {
+            "type": "number",
+            "title": "Outer Value"
+          },
+          "strict": {
+            "type": "boolean",
+            "title": "Strict",
+            "description": "inner < outer when true, inner ≤ outer when false."
+          },
+          "holds": {
+            "type": "boolean",
+            "title": "Holds"
+          },
+          "parents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Parents",
+            "description": "The rules whose inner bound is this pair's outer one: its parent rows (ADR-0286)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "family",
+          "params",
+          "inner",
+          "inner_value",
+          "outer",
+          "outer_value",
+          "strict",
+          "holds"
+        ],
+        "title": "TimeoutPair",
+        "description": "One nested pair of the timeout budget's rules (app/resilience/budget.py), on the values in force\nor on a draft's."
+      },
       "TurnRequest": {
         "properties": {
           "conversation_id": {
@@ -4854,6 +6739,50 @@
           "message"
         ],
         "title": "TurnRequest"
+      },
+      "TurnsUsage": {
+        "properties": {
+          "in_flight": {
+            "type": "integer",
+            "title": "In Flight"
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity"
+          },
+          "per_user_max": {
+            "type": "integer",
+            "title": "Per User Max"
+          },
+          "top_user_in_flight": {
+            "type": "integer",
+            "title": "Top User In Flight",
+            "description": "The busiest user's turns in flight: a count, never who."
+          },
+          "tenants": {
+            "items": {
+              "$ref": "#/components/schemas/TenantUsage"
+            },
+            "type": "array",
+            "title": "Tenants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "in_flight",
+          "capacity",
+          "per_user_max",
+          "top_user_in_flight",
+          "tenants"
+        ],
+        "title": "TurnsUsage"
       }
     }
   }

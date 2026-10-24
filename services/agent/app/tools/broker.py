@@ -130,6 +130,15 @@ class ToolBroker:
     def mcp_health(self) -> list[dict[str, Any]]:
         return self.mcp.health() if self.mcp is not None else []
 
+    def mcp_usage(self) -> list[dict[str, Any]]:
+        """Each MCP server's slots in use and breaker state, counts only (ADR-0282)."""
+        return self.mcp.usage() if self.mcp is not None else []
+
+    def mcp_resize(self, limits: dict[str, int]) -> None:
+        """Each MCP server's max_concurrency in force, lowered only (ADR-0281)."""
+        if self.mcp is not None:
+            self.mcp.set_max_concurrency(limits)
+
     def facade_for(self, caller: str, scope: ToolScope):
         """The scope-bound document facade of `caller`'s tools; None when its manifest declares no
         collection kind (ADR-0231)."""

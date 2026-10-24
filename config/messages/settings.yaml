@@ -1,0 +1,132 @@
+# Why a platform settings save was refused, in plain words (owner decision 2026-10-22, ADR-0278).
+# One sentence per rule of services/agent/app/resilience/budget.py (`rules` by name, `families` by
+# the part of a generated rule's name before its first colon) and per range problem. The agent puts
+# them in the refusal's message_ar / message_en; the web page renders the same conflicts from its
+# own catalogs (services/web/src/i18n). Placeholders: {inner} and {outer} are the rule's two values,
+# {capability} a capability's name, {tool} a tool's label, {field} a setting's label, {value},
+# {minimum} and {maximum} a range. No technical id inside an Arabic sentence: a server or a tenant
+# is named in the refusal's details instead.
+rules:
+  turn-in-relay:
+    ar: "مهلة السؤال كله ({inner} ثانية) لا تقل عن مهلة البوابة في نقل الإجابة ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The whole-question time limit ({inner} s) is not shorter than the gateway's limit for relaying the answer ({outer} s)."
+  headers-in-relay:
+    ar: "مهلة انتظار البوابة لبدء الرد ({inner} ثانية) لا تقل عن مهلة نقل الإجابة ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The gateway's wait for the reply to start ({inner} s) is not shorter than its limit for relaying the answer ({outer} s)."
+  admission-in-headers:
+    ar: "مهلة قبول السؤال ({inner} ثانية) لا تقل عن مهلة انتظار البوابة لبدء الرد ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The time to admit a question ({inner} s) is not shorter than the gateway's wait for the reply to start ({outer} s)."
+  answer-reserve-in-turn:
+    ar: "مهلة الإجابة ({inner} ثانية) أطول من مهلة السؤال كله ({outer} ثانية) أو تساويها، ويجب أن تكون أقصر منها."
+    en: "The time kept for the answer ({inner} s) is not shorter than the whole-question time limit ({outer} s)."
+  post-answer-in-answer-reserve:
+    ar: "الوقت المحجوز بعد الإجابة ({inner} ثانية) لا يقل عن الوقت المحجوز للإجابة ({outer} ثانية)، ويجب أن يكون أقصر منه."
+    en: "The time kept after the answer ({inner} s) is not shorter than the time kept for the answer ({outer} s)."
+  persist-in-post-answer:
+    ar: "مهلة حفظ المحادثة ({inner} ثانية) لا تقل عن الوقت المحجوز بعد الإجابة ({outer} ثانية)، ويجب أن تكون أقصر منه."
+    en: "The time to save the conversation ({inner} s) is not shorter than the time kept after the answer ({outer} s)."
+  judge-and-persist-in-post-answer:
+    ar: "مهلة النماذج المساعدة مع مهلة حفظ المحادثة ({inner} ثانية) تزيد على الوقت المحجوز بعد الإجابة ({outer} ثانية)، ويجب ألا تزيد عليه."
+    en: "The helper models' time limit plus the time to save the conversation ({inner} s) is longer than the time kept after the answer ({outer} s)."
+  evidence-in-room:
+    ar: "مهلة جلب نصوص المصادر ({inner} ثانية) لا تقل عن الوقت المتاح قبل الإجابة ({outer} ثانية)، ويجب أن تكون أقصر منه."
+    en: "The time to fetch the sources' text ({inner} s) is not shorter than the time available before the answer ({outer} s)."
+  reasoning-in-turn:
+    ar: "مهلة نموذج الإجابة ({inner} ثانية) لا تقل عن مهلة السؤال كله ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The answering model's time limit ({inner} s) is not shorter than the whole-question time limit ({outer} s)."
+  litellm-backstop-in-longest-call:
+    ar: "أطول مهلة لنماذج المنصة ({outer} ثانية) لا تزيد على المهلة الاحتياطية لبوابة النماذج ({inner} ثانية)، ويجب أن تزيد عليها؛ وتغيير المهلة الاحتياطية يحتاج إلى إعادة نشر."
+    en: "The platform's longest model time limit ({outer} s) is not longer than the model gateway's backstop ({inner} s); changing the backstop needs a redeploy."
+  litellm-no-retries:
+    ar: "بوابة النماذج تعيد المحاولة ({inner} مرة)، ويجب ألا تعيد أي محاولة؛ فالمنصة هي التي تعيدها داخل مهلتها."
+    en: "The model gateway retries ({inner} times); it must retry none, since the platform retries within its own time limit."
+  litellm-margin-used:
+    ar: "لا تترك شيفرة المنصة الهامش المطلوب قبل مهلة بوابة النماذج."
+    en: "The platform's code does not keep the required margin before the model gateway's time limit."
+  client-margin-used:
+    ar: "لا تترك شيفرة المنصة الهامش المطلوب بعد مهلة طلب النموذج."
+    en: "The platform's code does not keep the required margin after a model request's time limit."
+  helper-in-shortest-capability:
+    ar: "مهلة النماذج المساعدة ({inner} ثانية) لا تقل عن أقصر مهلة لقدرات المنصة ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The helper models' time limit ({inner} s) is not shorter than the shortest capability time limit ({outer} s)."
+  register-in-gateway-call:
+    ar: "مهلة الرد على رفع الملف ({inner} ثانية) لا تقل عن مهلة البوابة لطلبات المنصة ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The time an upload waits for its answer ({inner} s) is not shorter than the gateway's limit for platform requests ({outer} s)."
+  upload-stall-in-deadline:
+    ar: "مهلة توقف استقبال الملف ({inner} ثانية) لا تقل عن مهلة استقبال الملف كاملًا ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The time an upload may stall ({inner} s) is not shorter than the time to receive the whole file ({outer} s)."
+  keep-alive:
+    ar: "مدة إبقاء اتصال البوابة مفتوحًا ({inner} ثانية) لا تقل عن مدة إبقائه في خدمة الوكيل ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The gateway keeps an idle connection open ({inner} s) no shorter than the agent service does ({outer} s)."
+  keep-alive-dev:
+    ar: "مدة إبقاء اتصال البوابة مفتوحًا ({inner} ثانية) لا تقل عن مدة إبقائه في خدمة الوكيل في بيئة التطوير ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The gateway keeps an idle connection open ({inner} s) no shorter than the agent service does in development ({outer} s)."
+  sdk-read-margin-used:
+    ar: "لا تترك شيفرة المنصة الهامش المطلوب بين مهلة خادم الأدوات ومهلة القراءة منه."
+    en: "The platform's code does not keep the required margin between a tool server's time limit and its read limit."
+  attempt-margin-used:
+    ar: "لا تترك شيفرة المنصة الهامش المطلوب لمحاولة خادم الأدوات داخل مهلة الطلب."
+    en: "The platform's code does not keep the required margin for a tool server attempt within its caller's time limit."
+families:
+  sandbox-memory:
+    ar: "ذاكرة عمليات تحليل الملفات مع احتياطي الخدمة ({inner} ميغابايت) تزيد على حد ذاكرة الحاوية ({outer} ميغابايت)."
+    en: "The file parsers' memory plus the service's reserve ({inner} MiB) is more than the container's memory limit ({outer} MiB)."
+  capability-in-room:
+    ar: "مهلة قدرة «{capability}» ({inner} ثانية) لا تقل عن الوقت المتاح قبل الإجابة ({outer} ثانية)، ويجب أن تكون أقصر منه."
+    en: "The time limit of the capability \"{capability}\" ({inner} s) is not shorter than the time available before the answer ({outer} s)."
+  tool-in-capability:
+    ar: "مهلة أداة «{tool}» ({inner} ثانية) لا تقل عن مهلة قدرة «{capability}» ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The time limit of the tool \"{tool}\" ({inner} s) is not shorter than that of the capability \"{capability}\" ({outer} s)."
+  facade-search-in-tool:
+    ar: "مهلة تحويل السؤال إلى تمثيل رقمي مع مهلة إعادة ترتيب النتائج ({inner} ثانية) لا تقل عن مهلة أداة «{tool}» ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The time to embed a question plus the time to rerank the results ({inner} s) is not shorter than the time limit of the tool \"{tool}\" ({outer} s)."
+  document-server-in-tool:
+    ar: "مهلة خادم المستندات ({inner} ثانية) لا تقل عن مهلة أداة «{tool}» ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The document server's time limit ({inner} s) is not shorter than the time limit of the tool \"{tool}\" ({outer} s)."
+  slot-and-attempt-in-broker:
+    ar: "انتظار خادم الأدوات ثم محاولته ({inner} ثانية) لا يقلان عن مهلة الوسيط له ({outer} ثانية)، ويجب أن يكونا أقصر منها."
+    en: "A tool server's wait plus its attempt ({inner} s) is not shorter than the broker's limit for it ({outer} s)."
+  missing:
+    ar: "قاعدة من قواعد المهلات لم تعد تنطبق على الإعدادات بعد هذا التغيير."
+    en: "A timeout rule no longer applies to the settings after this change."
+ranges:
+  required:
+    ar: "{field}: القيمة مطلوبة."
+    en: "{field}: a value is required."
+  number:
+    ar: "{field}: يجب أن تكون القيمة رقمًا."
+    en: "{field}: the value must be a number."
+  integer:
+    ar: "{field}: يجب أن تكون القيمة عددًا صحيحًا."
+    en: "{field}: the value must be a whole number."
+  range:
+    ar: "{field}: القيمة {value} خارج المدى المسموح، من {minimum} إلى {maximum}."
+    en: "{field}: the value {value} is outside the allowed range, {minimum} to {maximum}."
+  tenant:
+    ar: "{field}: معرّف الجهة غير صالح."
+    en: "{field}: the tenant id is not valid."
+  map:
+    ar: "{field}: يجب أن تكون القيمة قائمة بالجهات وحدودها."
+    en: "{field}: the value must be a list of tenants and their limits."
+  unknown:
+    ar: "إعداد غير معروف، فلا يمكن حفظه."
+    en: "An unknown setting cannot be saved."
+fields:
+  turn.per_user_max: {ar: "الأسئلة الجارية للمستخدم الواحد", en: "Questions in progress per user"}
+  turn.per_tenant_max: {ar: "الأسئلة الجارية للجهة الواحدة", en: "Questions in progress per tenant"}
+  turn.per_tenant_overrides: {ar: "حدود خاصة لبعض الجهات", en: "Limits for specific tenants"}
+  turn.deadline_s: {ar: "مهلة السؤال كله", en: "Whole-question time limit"}
+  turn.answer_reserve_s: {ar: "الوقت المحجوز للإجابة", en: "Time kept for the answer"}
+  turn.post_answer_reserve_s: {ar: "الوقت المحجوز بعد الإجابة", en: "Time kept after the answer"}
+  turn.evidence_fetch_s: {ar: "مهلة جلب نصوص المصادر", en: "Time to fetch the sources' text"}
+  models.helper_s: {ar: "مهلة النماذج المساعدة", en: "Helper models' time limit"}
+  models.reasoning_s: {ar: "مهلة نموذج الإجابة", en: "Answering model's time limit"}
+  models.embed_query_s: {ar: "مهلة تحويل السؤال إلى تمثيل رقمي", en: "Time to embed a question"}
+  models.embed_batch_s: {ar: "مهلة تحويل دفعة من مقاطع الملفات", en: "Time to embed a batch of file passages"}
+  models.rerank_s: {ar: "مهلة إعادة ترتيب النتائج", en: "Time to rerank results"}
+  docs.max_concurrent_uploads: {ar: "عمليات الرفع الجارية للمستخدم الواحد", en: "Uploads in progress per user"}
+  docs.max_concurrent_uploads_per_tenant: {ar: "عمليات الرفع الجارية للجهة الواحدة", en: "Uploads in progress per tenant"}
+  docs.tenant_concurrent_uploads: {ar: "حدود رفع خاصة لبعض الجهات", en: "Upload limits for specific tenants"}
+  docs.uploads_per_minute: {ar: "عمليات الرفع في الدقيقة للمستخدم الواحد", en: "Uploads per minute per user"}
+  docs.register_response_s: {ar: "مهلة الرد على رفع الملف", en: "Time an upload waits for its answer"}
+  mcp.max_concurrency: {ar: "الطلبات المتزامنة على خادم الأدوات", en: "Concurrent requests to the tool server"}

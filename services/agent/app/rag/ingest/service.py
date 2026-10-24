@@ -11,6 +11,7 @@ import logging
 import signal
 from datetime import timedelta
 
+from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.store import AttachmentStore
 from app.attachments.sweeper import OrphanSweeper
@@ -19,9 +20,12 @@ from app.db import Database
 from app.models.config import load_models_config
 from app.models.embeddings import EmbeddingGateway
 from app.observability.otel import setup_tracing, shutdown_tracing
+from app.platform_settings.setup import build_defaults
+from app.platform_settings.store import SettingsStore
 from app.rag.config import load_docs_config
 from app.rag.ingest.sandbox import MemoryBudgetExceeded, check_memory_budget
 from app.rag.setup import build_documents
+from app.resilience.turn import load_turn_config
 from app.settings import Settings, get_settings
 
 log = logging.getLogger("app.rag.ingest.service")
@@ -74,6 +78,21 @@ async def run(settings: Settings, stop: asyncio.Event) -> None:
         attachments,
         min_age=timedelta(minutes=sweeping.min_age_minutes),
     )
+    # The administrator's overrides (ADR-0276): read, never seeded, reloaded on the agent's notice.
+    platform = SettingsStore(
+        db,
+        build_defaults(
+            settings,
+            turn=load_turn_config(settings.config_dir),
+            models_config=models_config,
+            upload=load_upload_limits(settings.config_dir),
+            register_response_s=documents.config.register_response_s,
+        ),
+        redis,
+        namespace=settings.redis_namespace,
+    )
+    await platform.start(seed=False)
+    documents.worker.settings = lambda: platform.current
     await documents.worker.start()
     sweep = asyncio.create_task(sweeper.run(timedelta(minutes=sweeping.interval_minutes)))
     health = await _health(settings.ingest_health_port)
@@ -86,6 +105,7 @@ async def run(settings: Settings, stop: asyncio.Event) -> None:
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await sweep
         await documents.worker.stop()
+        await platform.stop()
         await redis.aclose()
         await db.close()
 

@@ -20,6 +20,7 @@ from app.models.config import ModelsConfig
 from app.models.gateway import DEADLINE_EDGE_S, ModelUnavailable, backoff, request_bounds, retryable
 from app.models.transport import AnswerTooLarge, CappedTransport
 from app.observability.otel import tracer
+from app.platform_settings import effective
 from app.resilience import deadline
 from app.settings import Settings
 
@@ -71,7 +72,7 @@ class EmbeddingGateway:
         with tracer.start_as_current_span("model.embed") as span:
             span.set_attribute("model.alias", self._alias)
             span.set_attribute("model.embedding.inputs", len(texts))
-            ceiling = self._config.timeouts.embedding[purpose]
+            ceiling = effective.timeouts(self._config.timeouts).embedding[purpose]
             try:
                 with deadline.within(ceiling) as budget:
                     for attempt in range(2):

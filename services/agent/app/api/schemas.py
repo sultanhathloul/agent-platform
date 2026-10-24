@@ -428,3 +428,173 @@ class HistoryMessage(BaseModel):
 class ConversationMessages(BaseModel):
     conversation_id: str
     messages: list[HistoryMessage] = Field(description="Oldest first; a retracted exchange is left out.")
+
+
+# ------------------------------------------------------------------ admin: platform settings (ADR-0276)
+
+# A setting's value: seconds or a count, a map from tenant id to a count, or null (no limit of its own).
+SettingValue = int | float | dict[str, int] | None
+
+
+class SettingField(BaseModel):
+    key: str = Field(description="The setting's id, e.g. turn.per_user_max or mcp.rag.max_concurrency.")
+    group: Literal["turns", "models", "uploads", "mcp"]
+    unit: Literal["s", "count", "per_minute"]
+    integer: bool
+    nullable: bool = Field(description="null is a value: no limit of its own.")
+    per_tenant: bool = Field(description="The value is a map from tenant id to a count.")
+    minimum: float
+    maximum: float
+    default: SettingValue = Field(description="The files' value (the environment's, where it sets one).")
+    value: SettingValue = Field(description="The value in force: the override, or the default.")
+    overridden: bool
+    source: str = Field(description="The file and key of the default.")
+    server: str | None = Field(default=None, description="An MCP server's id, for its max_concurrency.")
+
+
+class ReadOnlySetting(BaseModel):
+    key: str
+    value: int | float | str
+    unit: Literal["s", "count", "MiB", "cpu_s"]
+    source: str = Field(description="Where it is set; changing it needs a redeploy.")
+
+
+class TimeoutPair(BaseModel):
+    """One nested pair of the timeout budget's rules (app/resilience/budget.py), on the values in force
+    or on a draft's."""
+
+    rule: str
+    family: str
+    params: dict[str, str] = Field(description="The ids the rule names: capability, tool, server.")
+    inner: str
+    inner_value: float
+    outer: str
+    outer_value: float
+    strict: bool = Field(description="inner < outer when true, inner ≤ outer when false.")
+    holds: bool
+    parents: list[str] = Field(
+        default_factory=list,
+        description="The rules whose inner bound is this pair's outer one: its parent rows (ADR-0286).",
+    )
+
+
+class SettingsProblem(BaseModel):
+    """Why a draft cannot be saved: a rule it breaks or a range it leaves, in plain words."""
+
+    rule: str
+    family: str
+    params: dict[str, str]
+    inner_value: float | None = None
+    outer_value: float | None = None
+    minimum: float | None = None
+    message_ar: str
+    message_en: str
+
+
+class PlatformSettingsView(BaseModel):
+    version: int = Field(description="The stored version in force; 0 for none.")
+    ignored: list[str] = Field(
+        description="When the stored version fails the rules against the files: the rules it fails, "
+        "and the files' values are in force."
+    )
+    fields: list[SettingField]
+    read_only: list[ReadOnlySetting]
+    tree: list[TimeoutPair]
+
+
+class SettingsDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overrides: dict[str, Any] = Field(
+        description="Every override the new version holds; a key left out is its default."
+    )
+    expected_version: int | None = Field(
+        default=None, ge=0, description="The version the draft was made from; another save first is 409."
+    )
+
+
+class SettingsRevert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, description="The version whose overrides come back, as a new version.")
+    expected_version: int | None = Field(default=None, ge=0)
+
+
+class SettingsPreview(BaseModel):
+    valid: bool
+    problems: list[SettingsProblem]
+    fields: list[SettingField]
+    tree: list[TimeoutPair]
+    changed: list[str] = Field(description="The keys whose value in force the draft changes.")
+
+
+class SettingChange(BaseModel):
+    key: str
+    before: SettingValue
+    after: SettingValue
+
+
+class SettingsSaved(BaseModel):
+    version: int
+    change: Literal["save", "revert", "restore"]
+    reverted_to: int | None = None
+    changes: list[SettingChange] = Field(
+        description="Each value in force the save changed, before and after."
+    )
+    settings: PlatformSettingsView
+
+
+class SettingsVersionView(BaseModel):
+    version: int
+    change: Literal["seed", "save", "revert", "restore"]
+    reverted_to: int | None = None
+    overrides: dict[str, SettingValue]
+    created_at: datetime
+    created_by: str
+    created_by_username: str | None = None
+    created_by_name: str | None = None
+
+
+class SettingsVersions(BaseModel):
+    versions: list[SettingsVersionView]
+
+
+class TenantUsage(BaseModel):
+    tenant_id: str
+    in_flight: int
+    limit: int | None
+
+
+class TurnsUsage(BaseModel):
+    in_flight: int
+    capacity: int | None
+    per_user_max: int
+    top_user_in_flight: int = Field(description="The busiest user's turns in flight: a count, never who.")
+    tenants: list[TenantUsage]
+
+
+class ServerUsage(BaseModel):
+    id: str
+    max_concurrency: int
+    file_max_concurrency: int
+    in_use: int
+    background_max: int
+    background_in_use: int
+    breaker: Literal["closed", "open", "half_open"]
+    open_for_s: float | None = Field(default=None, description="Seconds since the breaker opened.")
+
+
+class PlatformUsage(BaseModel):
+    turns: TurnsUsage
+    mcp: list[ServerUsage]
+    registrations_in_background: int
+    tasks_abandoned: int = Field(description="Tasks that ignored their cancellation since the agent started.")
+
+
+class EffectiveLimits(BaseModel):
+    """What the gateway enforces itself, from the settings in force (ADR-0283)."""
+
+    version: int
+    deadline_s: float
+    uploads_per_minute: int
+    max_concurrent_uploads: int

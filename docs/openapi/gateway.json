@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.3.0"
+    "version" : "2.4.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -658,6 +658,327 @@
         },
         "summary" : "The realm's policy:* roles, which role-scoped policies name (ADR-0107)",
         "tags" : [ "admin-policies" ]
+      }
+    },
+    "/v1/admin/settings" : {
+      "get" : {
+        "operationId" : "getSettings",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePlatformSettingsView"
+                }
+              }
+            },
+            "description" : "The settings"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Every editable setting (default, value in force, range), the read-only ones and the timeout tree",
+        "tags" : [ "admin-settings" ]
+      },
+      "post" : {
+        "operationId" : "saveSettings",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SettingsDraft"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeSettingsSaved"
+                }
+              }
+            },
+            "description" : "The saved version, what it changed, the settings now"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "settings_invalid: the conflicts in plain words, each rule's id in details"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "settings_conflict: another save came first"
+          }
+        },
+        "summary" : "Saves a draft as the next version; applies to requests that start after it",
+        "tags" : [ "admin-settings" ]
+      }
+    },
+    "/v1/admin/settings/preview" : {
+      "post" : {
+        "operationId" : "previewSettings",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SettingsDraft"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeSettingsPreview"
+                }
+              }
+            },
+            "description" : "The values, the timeout tree and the problems"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "What a draft would produce, and why it cannot be saved if it cannot; nothing is written",
+        "tags" : [ "admin-settings" ]
+      }
+    },
+    "/v1/admin/settings/revert" : {
+      "post" : {
+        "operationId" : "revertSettings",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SettingsRevert"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeSettingsSaved"
+                }
+              }
+            },
+            "description" : "The new version, what it changed, the settings now"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "settings_invalid"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "settings_version_not_found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "settings_conflict"
+          }
+        },
+        "summary" : "Brings an earlier version's overrides back as a new version",
+        "tags" : [ "admin-settings" ]
+      }
+    },
+    "/v1/admin/settings/versions" : {
+      "get" : {
+        "operationId" : "settingsVersions",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 50
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeSettingsVersions"
+                }
+              }
+            },
+            "description" : "The versions"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "The versions of the overrides, newest first, with who made each",
+        "tags" : [ "admin-settings" ]
+      }
+    },
+    "/v1/admin/usage" : {
+      "get" : {
+        "operationId" : "platformUsage",
+        "parameters" : [ {
+          "description" : "The page's random id for one page load: its first read is audited, then at most one read per 10 minutes per admin (ADR-0287)",
+          "in" : "query",
+          "name" : "page_session",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopePlatformUsage"
+                }
+              }
+            },
+            "description" : "The counts"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request: a malformed page_session"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          }
+        },
+        "summary" : "What is in use now: turns, MCP slots and breakers, background registrations; counts only",
+        "tags" : [ "admin-settings" ]
       }
     },
     "/v1/attachments/limits" : {
@@ -1612,6 +1933,34 @@
         },
         "required" : [ "request_id" ]
       },
+      "ApiEnvelopePlatformSettingsView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PlatformSettingsView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopePlatformUsage" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/PlatformUsage"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiEnvelopePolicyChanges" : {
         "properties" : {
           "data" : {
@@ -1742,6 +2091,48 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/PolicyYaml"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeSettingsPreview" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/SettingsPreview"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeSettingsSaved" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/SettingsSaved"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeSettingsVersions" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/SettingsVersions"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -2127,6 +2518,65 @@
           }
         },
         "required" : [ "enabled" ]
+      },
+      "PlatformSettingsView" : {
+        "properties" : {
+          "fields" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SettingField"
+            }
+          },
+          "ignored" : {
+            "type" : "array",
+            "description" : "When the stored version fails the rules against the files: the rules it fails, and the files' values are in force",
+            "items" : {
+              "type" : "string",
+              "description" : "When the stored version fails the rules against the files: the rules it fails, and the files' values are in force"
+            }
+          },
+          "read_only" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ReadOnlySetting"
+            }
+          },
+          "tree" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/TimeoutPair"
+            }
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64",
+            "description" : "The stored version in force; 0 for none"
+          }
+        },
+        "required" : [ "fields", "ignored", "read_only", "tree", "version" ]
+      },
+      "PlatformUsage" : {
+        "properties" : {
+          "mcp" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ServerUsage"
+            }
+          },
+          "registrations_in_background" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "tasks_abandoned" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Tasks that ignored their cancellation since the agent started"
+          },
+          "turns" : {
+            "$ref" : "#/components/schemas/TurnsUsage"
+          }
+        },
+        "required" : [ "mcp", "registrations_in_background", "tasks_abandoned", "turns" ]
       },
       "PolicyChange" : {
         "properties" : {
@@ -2611,6 +3061,301 @@
         },
         "required" : [ "yaml" ]
       },
+      "ReadOnlySetting" : {
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string",
+            "description" : "Where it is set; changing it needs a redeploy"
+          },
+          "unit" : {
+            "type" : "string",
+            "enum" : [ "s", "count", "MiB", "cpu_s" ]
+          },
+          "value" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          }
+        },
+        "required" : [ "key", "source", "unit", "value" ]
+      },
+      "ServerUsage" : {
+        "properties" : {
+          "background_in_use" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "background_max" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "breaker" : {
+            "type" : "string",
+            "enum" : [ "closed", "open", "half_open" ]
+          },
+          "file_max_concurrency" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "in_use" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "max_concurrency" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "open_for_s" : {
+            "type" : "number",
+            "format" : "double",
+            "description" : "Seconds since the breaker opened"
+          }
+        },
+        "required" : [ "background_in_use", "background_max", "breaker", "file_max_concurrency", "id", "in_use", "max_concurrency" ]
+      },
+      "SettingChange" : {
+        "properties" : {
+          "after" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          },
+          "before" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          },
+          "key" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "key" ]
+      },
+      "SettingField" : {
+        "properties" : {
+          "default" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          },
+          "group" : {
+            "type" : "string",
+            "enum" : [ "turns", "models", "uploads", "mcp" ]
+          },
+          "integer" : {
+            "type" : "boolean"
+          },
+          "key" : {
+            "type" : "string",
+            "description" : "The setting's id, e.g. turn.per_user_max or mcp.rag.max_concurrency"
+          },
+          "maximum" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "minimum" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "nullable" : {
+            "type" : "boolean",
+            "description" : "null is a value: no limit of its own"
+          },
+          "overridden" : {
+            "type" : "boolean"
+          },
+          "per_tenant" : {
+            "type" : "boolean",
+            "description" : "The value is a map from tenant id to a count"
+          },
+          "server" : {
+            "type" : "string",
+            "description" : "An MCP server's id, for its max_concurrency"
+          },
+          "source" : {
+            "type" : "string",
+            "description" : "The file and key of the default"
+          },
+          "unit" : {
+            "type" : "string",
+            "enum" : [ "s", "count", "per_minute" ]
+          },
+          "value" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          }
+        },
+        "required" : [ "group", "integer", "key", "maximum", "minimum", "nullable", "overridden", "per_tenant", "source", "unit" ]
+      },
+      "SettingsDraft" : {
+        "properties" : {
+          "expected_version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "The version the draft was made from; another save first is 409 settings_conflict"
+          },
+          "overrides" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "$ref" : "#/components/schemas/JsonNode"
+            }
+          }
+        },
+        "required" : [ "overrides" ]
+      },
+      "SettingsPreview" : {
+        "properties" : {
+          "changed" : {
+            "type" : "array",
+            "description" : "The keys whose value in force the draft changes",
+            "items" : {
+              "type" : "string",
+              "description" : "The keys whose value in force the draft changes"
+            }
+          },
+          "fields" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SettingField"
+            }
+          },
+          "problems" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SettingsProblem"
+            }
+          },
+          "tree" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/TimeoutPair"
+            }
+          },
+          "valid" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "changed", "fields", "problems", "tree", "valid" ]
+      },
+      "SettingsProblem" : {
+        "properties" : {
+          "family" : {
+            "type" : "string"
+          },
+          "inner_value" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "message_ar" : {
+            "type" : "string"
+          },
+          "message_en" : {
+            "type" : "string"
+          },
+          "minimum" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "outer_value" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "params" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "rule" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "family", "message_ar", "message_en", "params", "rule" ]
+      },
+      "SettingsRevert" : {
+        "properties" : {
+          "expected_version" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          }
+        },
+        "required" : [ "version" ]
+      },
+      "SettingsSaved" : {
+        "properties" : {
+          "change" : {
+            "type" : "string",
+            "enum" : [ "save", "revert", "restore" ]
+          },
+          "changes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SettingChange"
+            }
+          },
+          "reverted_to" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "settings" : {
+            "$ref" : "#/components/schemas/PlatformSettingsView"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        },
+        "required" : [ "change", "changes", "settings", "version" ]
+      },
+      "SettingsVersionView" : {
+        "properties" : {
+          "change" : {
+            "type" : "string",
+            "enum" : [ "seed", "save", "revert", "restore" ]
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "created_by" : {
+            "type" : "string"
+          },
+          "created_by_name" : {
+            "type" : "string"
+          },
+          "created_by_username" : {
+            "type" : "string"
+          },
+          "overrides" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "$ref" : "#/components/schemas/JsonNode"
+            }
+          },
+          "reverted_to" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        },
+        "required" : [ "change", "created_at", "created_by", "overrides", "version" ]
+      },
+      "SettingsVersions" : {
+        "properties" : {
+          "versions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SettingsVersionView"
+            }
+          }
+        },
+        "required" : [ "versions" ]
+      },
       "SimulatedPrincipal" : {
         "description" : "Whom to evaluate for; default: the admin, with no policy roles.",
         "properties" : {
@@ -2631,6 +3376,98 @@
             "minLength" : 1
           }
         }
+      },
+      "TenantUsage" : {
+        "properties" : {
+          "in_flight" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "limit" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "tenant_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "in_flight", "tenant_id" ]
+      },
+      "TimeoutPair" : {
+        "properties" : {
+          "family" : {
+            "type" : "string"
+          },
+          "holds" : {
+            "type" : "boolean"
+          },
+          "inner" : {
+            "type" : "string"
+          },
+          "inner_value" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "outer" : {
+            "type" : "string"
+          },
+          "outer_value" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "params" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string",
+              "description" : "The ids the rule names: capability, tool, server"
+            },
+            "description" : "The ids the rule names: capability, tool, server"
+          },
+          "parents" : {
+            "type" : "array",
+            "description" : "The rules whose inner bound is this pair's outer one: the tree's parent rows (ADR-0286)",
+            "items" : {
+              "type" : "string",
+              "description" : "The rules whose inner bound is this pair's outer one: the tree's parent rows (ADR-0286)"
+            }
+          },
+          "rule" : {
+            "type" : "string"
+          },
+          "strict" : {
+            "type" : "boolean",
+            "description" : "inner < outer when true, inner ≤ outer when false"
+          }
+        },
+        "required" : [ "family", "holds", "inner", "inner_value", "outer", "outer_value", "params", "parents", "rule", "strict" ]
+      },
+      "TurnsUsage" : {
+        "properties" : {
+          "capacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "in_flight" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "per_user_max" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "tenants" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/TenantUsage"
+            }
+          },
+          "top_user_in_flight" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "The busiest user's turns in flight: a count, never who"
+          }
+        },
+        "required" : [ "in_flight", "per_user_max", "tenants", "top_user_in_flight" ]
       },
       "Warning" : {
         "description" : "Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF.",

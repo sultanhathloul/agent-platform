@@ -10,6 +10,7 @@ import org.springframework.util.unit.DataSize;
 import sa.ncai.agent.gateway.GatewayProperties;
 import sa.ncai.agent.gateway.api.ErrorResponses;
 import sa.ncai.agent.gateway.audit.AuditTrail;
+import sa.ncai.agent.gateway.settings.PlatformLimits;
 
 /**
  * Loads the upload limits once at startup; a bad docs config fails the gateway. The multipart caps
@@ -29,9 +30,10 @@ class AttachmentsConfig {
         return perMinute == null ? limits : limits.withUploadsPerMinute(perMinute);
     }
 
+    /** Per user, the value in force at the agent (the settings page, ADR-0283); gateway-wide, the file's. */
     @Bean
-    UploadConcurrency uploadConcurrency(DocsLimits limits) {
-        return new UploadConcurrency(limits.maxConcurrentUploads(), limits.maxConcurrentUploadsTotal());
+    UploadConcurrency uploadConcurrency(DocsLimits limits, PlatformLimits platform) {
+        return new UploadConcurrency(platform::maxConcurrentUploads, limits.maxConcurrentUploadsTotal());
     }
 
     @Bean
@@ -44,8 +46,8 @@ class AttachmentsConfig {
     }
 
     @Bean
-    UploadRateLimiter uploadRateLimiter(DocsLimits limits) {
-        return new UploadRateLimiter(limits.uploadsPerMinute(), java.time.Clock.systemUTC());
+    UploadRateLimiter uploadRateLimiter(PlatformLimits platform) {
+        return new UploadRateLimiter(platform::uploadsPerMinute, java.time.Clock.systemUTC());
     }
 
     @Bean

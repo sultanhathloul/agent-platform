@@ -41,16 +41,24 @@ public class ErrorResponses {
     public void write(
             HttpServletRequest request, HttpServletResponse response, ErrorCode code, int status, List<String> details)
             throws IOException {
+        write(request, response, status, messages.error(code).withDetails(details));
+    }
+
+    /**
+     * A prepared error: a settings save the agent refused carries the agent's own sentences, which
+     * name the conflict in plain words (config/messages/settings.yaml, ADR-0278).
+     */
+    public void write(HttpServletRequest request, HttpServletResponse response, int status, ApiError error)
+            throws IOException {
         if (response.isCommitted()) {
-            log.warn("response already committed; cannot send error {}", code.code());
+            log.warn("response already committed; cannot send error {}", error.code());
             return;
         }
         response.resetBuffer();
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        ApiErrorEnvelope body =
-                new ApiErrorEnvelope(RequestIdFilter.requestId(request), messages.error(code).withDetails(details));
+        ApiErrorEnvelope body = new ApiErrorEnvelope(RequestIdFilter.requestId(request), error);
         response.getOutputStream().write(mapper.writeValueAsBytes(body));
         response.flushBuffer();
     }

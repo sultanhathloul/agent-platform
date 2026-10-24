@@ -21,6 +21,11 @@ public enum ErrorCode {
     POLICY_NOT_FOUND("policy_not_found", 404),
     POLICY_EXISTS("policy_exists", 409),
     POLICY_INVALID("policy_invalid", 400),
+    /** A platform settings save the timeout budget's rules or ranges refuse (ADR-0278). */
+    SETTINGS_INVALID("settings_invalid", 400),
+    /** Another administrator saved the settings first (ADR-0276). */
+    SETTINGS_CONFLICT("settings_conflict", 409),
+    SETTINGS_VERSION_NOT_FOUND("settings_version_not_found", 404),
     TURN_IN_FLIGHT("turn_in_flight", 409),
     /** The caller's or its tenant's turns in flight at their limit (config/turn.yaml; ADR-0262). */
     TOO_MANY_TURNS("too_many_turns", 429),

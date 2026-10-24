@@ -18,6 +18,7 @@ from app.attachments.limits import UploadLimits
 from app.attachments.objects import ObjectStore
 from app.attachments.store import AttachmentRecord, AttachmentStore
 from app.db import Database
+from app.platform_settings import effective
 from app.rag.backend import DocumentBackend, DocumentScope, StoredFile
 from app.rag.types import Owner
 from app.resilience.deadline import detached_context
@@ -77,9 +78,15 @@ class AttachmentService:
         self._reads: dict[str, asyncio.Task[AttachmentRecord]] = {}
         # Hand-overs to a backend in flight, by attachment id: at most one each (ADR-0254).
         self._registrations: dict[str, asyncio.Task[None]] = {}
+        # Those the upload stopped waiting for, answered `pending`: in the background (the usage section).
+        self._in_background: set[str] = set()
         # Each counts toward its user's uploads in flight until it ends (ADR-0265); none without
         # limits (a service that only reads statuses).
         self.in_flight = limits.registrations() if limits is not None else None
+
+    def registrations_in_background(self) -> int:
+        """Hand-overs still running after their upload answered `pending` (the usage section)."""
+        return len(self._in_background)
 
     async def register(
         self, owner: Owner, conversation_id: str, *, name: str, mime: str, size: int, object_key: str
@@ -112,11 +119,14 @@ class AttachmentService:
             slot.release()
             raise
         handover = self._register(record, slot)
-        done, _ = await asyncio.wait([handover], timeout=self.register_response_s)
+        response_s = effective.register_response_s(self.register_response_s)
+        done, _ = await asyncio.wait([handover], timeout=response_s)
         if handover not in done:
+            if not handover.done():
+                self._in_background.add(record.id)
             log.warning(
                 "attachment registration past %.1f s: answered pending, it goes on in the background",
-                self.register_response_s,
+                response_s,
             )
             return record
         if handover.cancelled():
@@ -140,6 +150,7 @@ class AttachmentService:
 
         def ended(done: asyncio.Task) -> None:
             self._registrations.pop(record.id, None)
+            self._in_background.discard(record.id)
             slot.release()
             if not done.cancelled():
                 done.exception()  # retrieved: a background failure is logged and kept on the record

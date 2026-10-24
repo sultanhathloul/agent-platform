@@ -50,6 +50,9 @@ x-agent-env: &agent-env
   RERANK_ENABLED: ${RERANK_ENABLED:-false}
   RERANK_CANDIDATES: ${RERANK_CANDIDATES:-16}
   RERANK_MAX_CHARS: ${RERANK_MAX_CHARS:-1070}
+  # The uploads per user per minute the gateway applies over config/docs.yaml (GATEWAY_DOCS_UPLOADS_PER_MINUTE
+  # below): the settings page shows it as that setting's default (ADR-0276).
+  DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}
   # No MinIO credentials: the agent reads no upload; the ingest service does (S7, R4).
 
 services:

@@ -78,6 +78,11 @@ class ConcurrencyLimiter:
             return self._tenants[tenant_id]
         return self._total
 
+    def snapshot(self) -> tuple[int, dict[str, int], int]:
+        """What is in flight now, counts only (the settings page's usage section, ADR-0282): the
+        whole process, each tenant with something in flight, and the busiest user's count."""
+        return self._total, dict(self._tenants), max(self._users.values(), default=0)
+
     def _release(self, tenant_id: str, user_id: str) -> None:
         self._users[(tenant_id, user_id)] -= 1
         if self._users[(tenant_id, user_id)] <= 0:

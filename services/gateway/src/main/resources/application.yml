@@ -81,6 +81,10 @@ gateway:
     # The relay's bound on a turn stream, deadline_s + gateway_margin_s (I3, ADR-0256); compose
     # mounts config/turn.yaml and sets GATEWAY_TURN_CONFIG.
     config: ../../config/turn.yaml
+  settings:
+    # The platform settings the gateway enforces (a turn's deadline, upload caps) are read from the
+    # agent this often, so an administrator's change reaches the gateway within 10 s (ADR-0283).
+    refresh: 5s
   storage:
     # MinIO on the compose network (ADR-0129); GATEWAY_STORAGE_* in compose.
     endpoint: http://localhost:9000

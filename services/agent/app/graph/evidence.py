@@ -26,6 +26,7 @@ from app.graph.deps import TurnContext
 from app.graph.guarding import guard_context
 from app.graph.state import AgentState
 from app.guardrails.checkpoints import Checkpoint
+from app.platform_settings import effective
 from app.rag.backend import DocumentScope
 from app.resilience import deadline
 from app.tools.broker import auditing
@@ -111,7 +112,7 @@ async def load_evidence(state: AgentState, ctx: TurnContext) -> list[dict[str, A
         for output in state.get("capability_outputs") or []
     ]
     fetched: dict[str, dict[tuple[str, str], str]] = {}
-    turn = ctx.services.turn
+    turn = effective.turn(ctx.services.turn)
     try:
         with deadline.within(turn.evidence_fetch_s, margin_s=turn.answer_reserve_s):
             for output, sources in wanted:

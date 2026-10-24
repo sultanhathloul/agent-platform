@@ -19,6 +19,12 @@ import type {
   PolicyTestResult,
   PolicyView,
   PolicyYaml,
+  PlatformSettingsView,
+  PlatformUsage,
+  SettingsDraft,
+  SettingsPreview,
+  SettingsSaved,
+  SettingsVersions,
   StreamEvent,
 } from "@/lib/api/types";
 import type { ErrorInfo } from "./errors";
@@ -260,6 +266,67 @@ export async function policyMetrics({
 }: Authorized & { days: number }): Promise<PolicyMetrics> {
   const url = `${gatewayUrl}${POLICIES}/metrics?days=${days}`;
   return required(await callJson<PolicyMetrics>(url, token, { method: "GET", signal }), 200);
+}
+
+const SETTINGS = "/v1/admin/settings";
+
+/** The platform settings page (ADR-0276): every editable value, the read-only ones, the timeout tree. */
+export async function getSettings({ gatewayUrl, token, signal }: Authorized): Promise<PlatformSettingsView> {
+  return required(await callJson<PlatformSettingsView>(`${gatewayUrl}${SETTINGS}`, token, { method: "GET", signal }), 200);
+}
+
+/** What a draft would produce, and why it cannot be saved if it cannot; nothing is written. */
+export async function previewSettings({
+  gatewayUrl,
+  token,
+  signal,
+  draft,
+}: Authorized & { draft: SettingsDraft }): Promise<SettingsPreview> {
+  const init = { method: "POST", body: JSON.stringify(draft), signal };
+  return required(await callJson<SettingsPreview>(`${gatewayUrl}${SETTINGS}/preview`, token, init), 200);
+}
+
+/** Saves a draft as the next version; refused (settings_invalid) when a rule does not hold. */
+export async function saveSettings({
+  gatewayUrl,
+  token,
+  signal,
+  draft,
+}: Authorized & { draft: SettingsDraft }): Promise<SettingsSaved> {
+  const init = { method: "POST", body: JSON.stringify(draft), signal };
+  return required(await callJson<SettingsSaved>(`${gatewayUrl}${SETTINGS}`, token, init), 201);
+}
+
+/** Brings an earlier version's overrides back, as a new version. */
+export async function revertSettings({
+  gatewayUrl,
+  token,
+  signal,
+  version,
+  expectedVersion,
+}: Authorized & { version: number; expectedVersion: number }): Promise<SettingsSaved> {
+  const body = JSON.stringify({ version, expected_version: expectedVersion });
+  return required(await callJson<SettingsSaved>(`${gatewayUrl}${SETTINGS}/revert`, token, { method: "POST", body, signal }), 201);
+}
+
+export async function listSettingsVersions({ gatewayUrl, token, signal }: Authorized): Promise<SettingsVersions> {
+  const url = `${gatewayUrl}${SETTINGS}/versions?limit=50`;
+  return required(await callJson<SettingsVersions>(url, token, { method: "GET", signal }), 200);
+}
+
+/** What is in use now: counts only (ADR-0282). */
+/** The usage counts; `pageSession` is the page load's random id, so the gateway audits its first read (ADR-0287). */
+export async function getUsage({
+  gatewayUrl,
+  token,
+  signal,
+  pageSession,
+}: Authorized & { pageSession?: string }): Promise<PlatformUsage> {
+  const query = pageSession ? `?page_session=${encodeURIComponent(pageSession)}` : "";
+  return required(
+    await callJson<PlatformUsage>(`${gatewayUrl}/v1/admin/usage${query}`, token, { method: "GET", signal }),
+    200,
+  );
 }
 
 type StreamTurnArgs = {

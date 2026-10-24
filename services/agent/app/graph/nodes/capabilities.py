@@ -52,6 +52,7 @@ from app.guardrails.schema import GuardOutcome
 from app.memory.types import MemoryScope
 from app.models.gateway import ModelResult
 from app.observability.otel import tracer
+from app.platform_settings import effective
 from app.resilience import deadline
 from app.tools.spec import ToolResult
 
@@ -389,7 +390,7 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
             )
             try:
                 payload = await _invoke_isolated(
-                    cap, cap_input, runtime_context, reserve_s=services.turn.answer_reserve_s
+                    cap, cap_input, runtime_context, reserve_s=effective.turn(services.turn).answer_reserve_s
                 )
                 output = _output(cap, payload)
                 # Events returned in the output rather than streamed arrive after the capability ends.

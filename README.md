@@ -261,6 +261,7 @@ POST /v1/kb/{slug}/ingest   body: {object_key, metadata}      ← admin ingestio
 GET  /v1/health
 ```
 > **Amendment 2026-10-15 (phase 05, ADR-0209, ADR-0214, ADR-0219).** Agent and gateway API version 2.2.0, additive: `tool_start` carries the tool's `label {ar, en}`; an attachment carries `warnings` (`[{code: pages_without_text, count}]`, ADR-0201); the terminal `done` and `error` events carry `tool_audit`, every tool call of the turn without content, from the agent to the gateway only (the gateway writes it into the audit record as `tool_calls` and removes it, like `guard_audit`); `GET /v1/health` lists each MCP server and each disabled tool, content-free.
+> **Amendment 2026-10-22 (platform settings, standalone PR before phase 06, ADR-0276 to ADR-0284).** Agent and gateway API version 2.4.0, additive: the admin-only `/v1/admin/settings` (read, `preview`, save, `revert`, `versions`) and `/v1/admin/usage`, checked at the gateway and, through `X-User-Admin`, at the agent; the agent's `GET /v1/internal/settings/limits`, which the gateway reads every 5 s. The events schema is unchanged.
 > **Amendment 2026-10-21 (fix session on the PR #12 review, ADR-0262, ADR-0265).** Agent and gateway API version 2.3.0, additive: `POST /v1/turns` (agent) and `POST /v1/chat/turns` (gateway) may answer 429 `too_many_turns` before any stream; the agent's attachment registration may answer 429 `too_many_uploads`, which the gateway's upload already documented. The events schema is unchanged.
 
 ### 6.3 API standards
@@ -785,6 +786,23 @@ Rules:
 | `config/docs.yaml` (PR #12 review) | `limits.max_concurrent_uploads_per_tenant` (null), `limits.tenant_concurrent_uploads` | A registration counts toward its user's `max_concurrent_uploads` until it ends, in the background too; a tenant's share is optional; past one, 429 `too_many_uploads` (ADR-0265) |
 
 `scripts/check_timeout_budget.py`, run by `make test`, checks that every nested bound these keys set is shorter than the one around it, with its rules in services/agent/app/resilience/budget.py (ADR-0261, ADR-0269).
+
+### 20.6 Platform settings: defaults and overrides (standalone PR before phase 06, owner decision 2026-10-22)
+
+> **Amendment 2026-10-22 (ADR-0276 to ADR-0285).** The platform administrator manages the capacity and timeout values from the web page `/admin/settings`. The files of the table above stay the **defaults**, versioned in git and validated at startup. An administrator's **overrides** live in the database and apply without a deploy.
+>
+> - **Editable:** config/turn.yaml `per_user_max`, `per_tenant_max` and `per_tenant_overrides`, `deadline_s`, `answer_reserve_s`, `post_answer_reserve_s`, `evidence_fetch_s`; the config/models.yaml timeouts helper, reasoning, embedding query and batch, and rerank; the config/docs.yaml upload caps per user and per tenant, uploads per minute and `register_response_s`; and each config/mcp.yaml server's `max_concurrency`, lowered only.
+> - **Read-only on the page, with their source:** what only a redeploy changes (LOCK_POOL_SIZE, container and sandbox limits, `gateway_margin_s`, keep-alive values).
+> - **Storage:** overrides are append-only versions in `agent.platform_settings`; a save, a revert and a restore each make a new one. The agent reloads them through Redis pub/sub; the gateway reads what it enforces every 5 s. A change applies to requests that start after it.
+> - **Validation:** every save is checked by the timeout budget's validator (services/agent/app/resilience/budget.py), with ranges, and refused with the conflict in plain Arabic and English words. A stored version that fails it after a file changed is ignored and logged.
+> - **The page also shows** the timeout tree and live usage, read-only.
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/messages/settings.yaml` (new) | `rules`, `families`, `ranges`, `fields` | Each conflict and range problem of a refused save in plain Arabic and English, and each setting's label (ADR-0278) |
+| `config/deploy-values.yaml` (new, generated) | `gateway`, `agent_keep_alive_s`, `agent_keep_alive_dev_s`, `litellm`, `mcp_rag_ref_workers`, `mem_limits_mb`, `sources` | The redeploy-only bounds the agent cannot read, copied from their files by `uv run scripts/check_timeout_budget.py --write-deploy-values`; `make test` fails on drift (ADR-0277) |
+| gateway `application.yml` | `gateway.settings.refresh` (5 s) | How often the gateway reads the values it enforces from the agent (ADR-0283) |
+| `.env` (through compose) | `DOCS_UPLOADS_PER_MINUTE` (from `UPLOADS_PER_MINUTE`) | The deployment's uploads per minute, shown as that setting's default |
 
 ## 21. Getting started on a new machine
 
