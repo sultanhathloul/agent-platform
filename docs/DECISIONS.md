@@ -2694,3 +2694,149 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The page wrote numbers in Arabic-Indic digits in Arabic (the `ar-SA` locale). The agent's refusal sentences followed it (commit 464d256). The owner's check: Western digits (0–9) everywhere on `/admin/settings`, in both languages, inputs and text alike.
 - Decision: The page has one formatter, `pageFormat(locale)` in `services/web/src/lib/settings.ts`. It formats numbers and times with `ar-SA-u-nu-latn` in Arabic and `en-GB` in English, without digit grouping. A digit typed in Arabic-Indic or Persian form becomes its Western digit in the field. The catalog's help lines on the page use Western digits. The agent's Arabic refusal sentences write their numbers in Western digits again (464d256 reverted).
 - Consequences: Other pages keep their own digit choices. Dates in Arabic keep the `ar-SA` calendar, with Western digits.
+
+### ADR-0289: A skill shapes the output; it never says where information comes from (D1)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D1)
+- Status: decided
+- Context: docs/BACKLOG.md "Skills": the platform needs reusable ways to produce a kind of output (an official memo, a letter) over whatever the capabilities found.
+- Decision: A skill describes how the answer is laid out: its form, its template, a worked example. It never names a source of information, a tool or a retrieval; that stays in capabilities. A skill composes with any capability: the same memo skill writes over docs, directions or general findings.
+- Consequences: A skill has no tools, no state namespace and no model step of its own; it is text the answer node reads.
+
+### ADR-0290: Skills are developer-written files in the repository, reviewed by PR with evals (D2)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D2)
+- Status: decided
+- Context: README §20: prompts and configuration are code, versioned and covered by an eval.
+- Decision: A skill is a folder in the repository, added or changed by a PR that carries its evals. There is no admin editing of skills, no database copy and no upload path.
+- Consequences: Changing a skill needs a deploy. An entity's approved template replaces a reference layout by PR.
+
+### ADR-0291: No scripts until a sandbox exists; skills produce text only (D3)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D3)
+- Status: decided
+- Context: ADR-0054: in-process code is trusted first-party code; process isolation comes in phase 12. File outputs arrive with artifact outputs in phase 11.
+- Decision: A skill holds no executable file and runs nothing. Its output is the answer's text; it returns no file.
+- Consequences: A skill that would need a computation or a file waits for phase 11 or 12.
+
+### ADR-0292: An optional skill picker in the composer, beside automatic selection (D4)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D4)
+- Status: decided
+- Decision: The composer offers a picker listing only the skills the user may use (from `GET /v1/skills`). Nothing is selected by default and nothing asks the user to confirm. A picked skill is applied to that turn; without one, selection is automatic (ADR-0299).
+- Consequences: A user can force the form; the router never overrides the picker.
+
+### ADR-0293: A lost or interrupted eval case is a failure in every metric (D5)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D5; docs/BACKLOG.md, phase 06 first item)
+- Status: decided
+- Context: `rag_scores` averaged only the cases that produced a result: a case lost to `agent_stream_interrupted` or a provider error dropped out of every denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed.
+- Decision: The first item of the phase, before any new eval suite. In every suite, a case that ended without a usable result counts in each metric it would have counted in, as a failure: rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness (score 0), abstention; every metrics.yaml metric; the routing, general and guardrails rates. Each suite reports its lost cases by code. The four runs named in the phase prompt are rescored and both scores recorded.
+- Consequences: A provider outage can now fail a suite; that is the intent: a pass means the cases were answered.
+
+### ADR-0294: Smoke's G7 bounds measure platform-side time, outside model generation (D6)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D6; docs/BACKLOG.md, phase 06 tech debt)
+- Status: decided
+- Context: Smoke attempt 2 of 2026-10-19 failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the server.
+- Decision: A G7 check's measure is the turn's wall time minus the union of its model generation span intervals, read from the turn's Langfuse trace. The bounds are rewritten against that number.
+- Consequences: Provider slowness neither fails a G7 check nor hides a platform stall.
+
+### ADR-0295: Skills live in skills/<slug>/ at the repository root, mounted read-only; only three entries allowed (I1)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I1)
+- Status: decided
+- Decision: `skills/<slug>/` at the repository root, mounted read-only into the agent like `config/`. A skill folder may hold only `SKILL.md`, `prompts/` (the instructions, one file per locale, front-matter `id`, `version`, `locale`, following the prompt-file convention) and `evals/` (`<slug>.jsonl`, `metrics.yaml`). Any other file, or an executable bit on any file, fails startup with an error naming the path.
+- Consequences: A skill cannot smuggle code in; the startup check is the first test of ADR-0291.
+
+### ADR-0296: SKILL.md front-matter (I2)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I2, amended by the owner's decision of 2026-10-22, ADR-0307)
+- Status: decided
+- Decision: `slug`, `version`, `name {ar, en}`, `description {ar, en}`, `when_to_use {ar, en}`, `permission` (`skill:{slug}`), `requires {capabilities: [] | [slugs]}`, `routing_hints {keywords {ar, en}, rules: [keyword_candidate]}`, `max_instruction_tokens`. The body is notes for reviewers and is never loaded. An invalid file fails fast at startup. The phase prompt's `requires.mcp_tools` is not part of the schema (ADR-0307): an unknown key is refused like any other.
+- Consequences: Labels for the picker and the reply chip come from SKILL.md, so the web needs no change for a new skill.
+
+### ADR-0297: A skill's permission is the realm role skill:{slug}, forwarded by the gateway (I3)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I3; ADR-0006, ADR-0046)
+- Status: decided
+- Decision: Keycloak realm roles `skill:{slug}`. The gateway forwards `skill:*` into `permissions[]` beside `cap:*` and `kb:*:read`. Seed: `analyst` and `evaluator` hold both reference skills; `viewer` holds none (the negative case).
+- Consequences: The agent stays role-blind; it sees `skill:{slug}` as a permission string.
+
+### ADR-0298: When a skill is available to a turn (I4)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I4, amended by ADR-0307)
+- Status: decided
+- Decision: A skill is available to a turn when the principal holds its permission and every capability in `requires.capabilities` is available to the principal. TOOL_LIST policies apply to skills as to capabilities, the skill named `skill:{slug}` to policies; a removal is silent and audited (ADR-0121).
+- Consequences: An admin can hide a skill from a tenant with a TOOL_LIST policy, no code.
+
+### ADR-0299: Skill selection: the picker, then keyword candidates and the router model, at most one skill (I5)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I5; ADR-0216, ADR-0169)
+- Status: decided
+- Decision: In order: (a) the chat request's optional `skill`, checked ⊆ available at the gateway and the agent, applied with no router decision on the skill; (b) otherwise a skill whose keywords match becomes a candidate (`keyword_candidate`) and the router model returns `{capabilities, skill: slug | null, complexity, risk}`, choosing at most one skill among the candidates; (c) no picker and no candidate: no skill and no router call added. A router answer naming a skill that is not a candidate, or whose required capability is not selected, is dropped and logged (`skill_dropped`). The candidate skills and their descriptions enter `router.request` (version bump) and the router cache key. `router.system` gets a version bump with the rule "a skill is chosen only when the user asks for that kind of document, never for a question about the word".
+- Consequences: A turn with no skill keyword costs nothing new.
+
+### ADR-0300: Context Assembly block `skill`, in the system role, never dropped (I6)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I6; ADR-0068)
+- Status: decided
+- Decision: A new block `skill`, requested only by the answer node, rendered in the system role inside `<skill id= version=>` after the system instructions; never dropped by the budget guard; budget `config/context.yaml` `blocks.skill.max_tokens` 1500; a skill whose rendered instructions exceed min(that, its `max_instruction_tokens`) fails startup. `answer.system` gets a version bump with one precedence line: guard policies and the citation rules come before any skill instruction.
+- Consequences: Skill text is reviewed developer text, so the system role is right for it (ADR-0068 binds user-derived text only).
+
+### ADR-0301: State, event, history and API for skills (I7)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I7; ADR-0046)
+- Status: decided
+- Decision: `AgentState` gains `skill {slug, version} | None` per turn (the answer node reads it). A `skill` event `{slug, label {ar, en}}` precedes the answer's tokens. The history endpoint adds an optional `skill` on the reply, additive. `GET /v1/skills` (gateway → agent) returns the available skills' slug, name and description, filtered by principal. Agent and gateway move one minor version (2.4.0 → 2.5.0), additive, with `make openapi`.
+- Consequences: Clients of 2.4.0 keep working.
+
+### ADR-0302: Two reference skills, official_memo and official_letter (I8)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I8)
+- Status: decided
+- Decision: `official_memo` (internal memo: entity header placeholders, «مذكرة داخلية», الرقم، التاريخ، المرفقات، إلى، من، الموضوع، السلام عليكم ورحمة الله وبركاته، the body, the closing «وتقبلوا خالص التحية والتقدير»، the signature block الاسم، المسمى الوظيفي، التوقيع) and `official_letter` (between entities: الرقم، التاريخ، المرفقات، «صاحب السعادة/ … المحترم»، «السلام عليكم ورحمة الله وبركاته، وبعد:»، the body، «وتقبلوا سعادتكم وافر التحية والتقدير»، the signature block); English layouts for English requests. `requires: {capabilities: []}`. Never invent a reference number, date, name or title: what the user did not give is a bracketed placeholder. Facts come only from the capability's findings. Keywords as the phase prompt lists them.
+- Consequences: Reference layouts only; the entity's approved templates replace them by PR with their evals.
+
+### ADR-0303: Skill evals with generic scorers; the harness names no skill (I9)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I9; ADR-0240)
+- Status: decided
+- Decision: run_evals.py globs `skills/*/evals` beside `capabilities/*/evals`. New generic scorers for metrics.yaml: `sections_in_order` (ordered patterns, Arabic-folded), `text_present`, `length_between` (words). Per skill ≥ 18 cases (Arabic MSA, Gulf, English; fields given and not given; over general, docs and directions; one injection case). Thresholds: format_adherence ≥ 0.90, no_invented_fields 1.00, facts_kept ≥ 0.90, citations_kept (docs cases) ≥ 0.90.
+- Consequences: A third skill's evals need no harness change.
+
+### ADR-0304: Routing evals gain expected_skill (I10)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I10; ADR-0241)
+- Status: decided
+- Decision: routing.jsonl gains `expected_skill` (null when none). ≥ 12 skill positives, ≥ 8 keyword negatives, and ≥ 6 keyword-free skill requests as the reported, ungated set `skill_keyword_free`. Existing cases keep `expected_skill` null and must not regress.
+- Consequences: The router's skill judgment is gated; the keyword rule's blind spot is reported.
+
+### ADR-0305: The second skill proves zero core change (I11)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I11)
+- Status: decided
+- Decision: `official_letter` lands in its own commit touching only `skills/official_letter/**`, `infra/keycloak/realm-export.json`, `evals/golden/routing.jsonl` and `evals/thresholds.yaml`; its `git diff --name-only` is recorded in PROGRESS.
+- Consequences: A skill that needs more than these paths is a core change and must be argued first.
+
+### ADR-0306: Tiers do not change for skills in this phase (I12)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I12)
+- Status: decided
+- Decision: A skill sets no tier, floor or escalation. The answer's tier is resolved as before.
+- Consequences: Phase 11 decides whether a skill may raise the answer's tier.
+
+### ADR-0307: A skill names the capabilities it needs, never MCP tools (amends I2 and I4; CLAUDE.md phase 06 row)
+- Date: 2026-10-24
+- Phase: 06 (owner decisions of 2026-10-21 and 2026-10-22, sent during this session)
+- Status: decided
+- Context: The phase prompt's I2 and I4 let a skill require MCP tools directly (`requires.mcp_tools`). ADR-0196: an MCP tool is reached only through the capability that declares it, which carries its role, policies and evals.
+- Decision: `requires` holds `capabilities` only; `mcp_tools` is removed from the SKILL.md schema (ADR-0296) and from availability (ADR-0298). The CLAUDE.md phase 06 row "the capabilities or MCP tools it needs" becomes "the capabilities it needs" (rule 10).
+- Consequences: A skill that needs an MCP tool requires the capability that declares it.
+
+### ADR-0308: A selected skill is applied in the answer node; the planner's place in the graph is recorded for phase 07 (docs only)
+- Date: 2026-10-24
+- Phase: 06 (owner decisions of 2026-10-21 and 2026-10-22, sent during this session)
+- Status: decided
+- Decision: A selected skill is applied when the answer is written (the answer node), never inside run_capabilities: a skill shapes the output and fetches nothing. The router selects at most one skill automatically; the composer also offers an optional picker with no confirmation prompt. docs/BACKLOG.md records these under "Skills → phase 06" and, under "Planner → phase 07", where the planner sits: a plan node after route and before guard(TOOL_LIST) reached only for compound requests, guard(TOOL_LIST) over every step, run_capabilities as the plan executor, skill steps in the answer node, plan steps capabilities or skills, never MCP tools. Docs only: no code in this phase; the phase 07 build changes the CLAUDE.md phase 07 row, PROGRESS phase 07 and README §5.2 with its own ADR.
+- Consequences: Phase 07 starts from a recorded graph shape.
