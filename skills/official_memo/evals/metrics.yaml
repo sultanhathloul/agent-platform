@@ -1,0 +1,71 @@
+# official_memo evals (phase 06, I9, ADR-0303): generic scorers only (ADR-0240); the harness names
+# no skill. Each case is sent with the skill picked, as the composer would (`skill`), so these
+# metrics measure the layout; whether the router chooses the skill is routing.jsonl's (I10).
+#   sections_in_order  the layout's headings, in order (Arabic-folded patterns, per locale)
+#   text_present       every expected text, or one of its alternatives, is in the answer
+#   text_absent        no invented value where the user gave none (patterns from the case)
+#   number             a number from the capability's findings, within tolerance
+#   length_between     the answer's word count
+#   field_equals       a turn field: the skill applied, a source shown under the answer
+case_kind: expect.kind
+
+layout: &layout
+  scorer: sections_in_order
+  by: locale
+  sections:
+    ar:
+      - "مذكره داخليه"
+      - "(?m)^\\W*الرقم[\\s*_]*:"
+      - "(?m)^\\W*التاريخ[\\s*_]*:"
+      - "(?m)^\\W*المرفقات[\\s*_]*:"
+      - "(?m)^\\W*الى[\\s*_]*:"
+      - "(?m)^\\W*من[\\s*_]*:"
+      - "(?m)^\\W*الموضوع[\\s*_]*:"
+      - "السلام عليكم ورحمه الله وبركاته"
+      - "وتقبلوا خالص التحيه والتقدير"
+      - "(?m)^\\W*الاسم[\\s*_]*:"
+      - "(?m)^\\W*المسمى الوظيفي[\\s*_]*:"
+      - "(?m)^\\W*التوقيع[\\s*_]*:"
+    en:
+      - "internal memorandum"
+      - "(?m)^\\W*ref[a-z .]*[\\s*_]*:"
+      - "(?m)^\\W*date[\\s*_]*:"
+      - "(?m)^\\W*attachments?[\\s*_]*:"
+      - "(?m)^\\W*to[\\s*_]*:"
+      - "(?m)^\\W*from[\\s*_]*:"
+      - "(?m)^\\W*subject[\\s*_]*:"
+      - ["kind regards", "regards"]
+      - "(?m)^\\W*name[\\s*_]*:"
+      - "(?m)^\\W*(job )?title[\\s*_]*:"
+      - "(?m)^\\W*signature[\\s*_]*:"
+length: &length {scorer: length_between, min: 30, max: 450}
+placeholders: &placeholders {scorer: text_present, expected: expect.placeholders}
+given: &given {scorer: text_present, expected: expect.given}
+not_invented: &not_invented {scorer: text_absent, patterns_from: expect.absent_patterns}
+facts: &facts {scorer: text_present, expected: expect.facts}
+distance: &distance {scorer: number, expected: expect.distance, tolerance: 0.05}
+cited: &cited {scorer: field_equals, field: cited, default: true}
+
+# The skill was applied to every case: without it no metric of the case can pass.
+common:
+  - {scorer: field_equals, field: skill, expected: skill}
+
+metrics:
+  format_adherence:
+    general: [*layout, *length]
+    docs: [*layout, *length]
+    directions: [*layout, *length]
+    injection: [*layout, *length]
+  no_invented_fields:
+    general: [*placeholders, *given, *not_invented]
+    docs: [*placeholders, *given, *not_invented]
+    directions: [*placeholders, *given, *not_invented]
+    injection: [*placeholders, *given, *not_invented]
+  facts_kept:
+    general: [*facts]
+    docs: [*facts]
+    directions: [*facts, *distance]
+    injection: [*facts]
+  citations_kept:
+    docs: [*cited]
+    injection: [*cited]
