@@ -3,6 +3,7 @@ tracking is off before Ragas is imported, a tracked event sends nothing, and the
 model and embeddings are LiteLLM's aliases on the stack's own LiteLLM."""
 
 import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -144,3 +145,90 @@ def test_rag_runs_again_on_the_mcp_backend_right_after_itself():
     harness = _harness()
     names = list(harness.suites())
     assert names[names.index("rag") + 1] == "rag@mcp"
+
+
+# ------------------------------------------------------------------ lost cases (phase 06, D5, ADR-0293)
+
+_ANSWERABLE = {"id": "a", "expect": {"kind": "answerable", "pages": [2], "reference": "r"}}
+_ABSTAIN = {"id": "b", "expect": {"kind": "abstain"}}
+_GENERAL = {"id": "c", "expect": {"kind": "general"}}
+
+
+def test_a_lost_case_is_a_failure_in_every_rag_metric_it_would_count_in():
+    harness = _harness()
+    answered = {"hit": True, "citation_ok": True, "faithfulness": 1.0, "correctness": 1.0, "problems": []}
+    lost = {"lost": "agent_stream_interrupted", "problems": ["no done event (agent_stream_interrupted)"]}
+    scores = harness.rag_scores([(_ANSWERABLE, answered), ({**_ANSWERABLE, "id": "a2"}, lost),
+                                 (_ABSTAIN, lost), (_GENERAL, {"citation_ok": True, "problems": []})])
+    assert scores["hit_at_8"] == 0.5 and scores["faithfulness"] == 0.5 and scores["answer_correctness"] == 0.5
+    assert scores["citation_page_accuracy"] == 0.5  # 2 of 4: the lost answerable and the lost abstain fail
+    assert scores["abstention"] == 0.0
+    assert scores["counts"] == {"hit": 2, "citation": 4, "abstain": 1, "ragas": 2, "retrieve": 0}
+    assert scores["lost"] == {"agent_stream_interrupted": 2}
+
+
+def test_answered_cases_score_as_before():
+    """With nothing lost, membership from the case equals membership from the outcome."""
+    harness = _harness()
+    outcomes = [(_ANSWERABLE, {"hit": False, "citation_ok": False, "faithfulness": 0.5, "correctness": 0.25}),
+                (_ABSTAIN, {"citation_ok": True, "abstained": True}), (_GENERAL, {"citation_ok": False})]
+    scores = harness.rag_scores(outcomes)
+    assert (scores["hit_at_8"], scores["citation_page_accuracy"], scores["abstention"]) == (0.0, 1 / 3, 1.0)
+    assert (scores["faithfulness"], scores["answer_correctness"], scores["lost"]) == (0.5, 0.25, {})
+
+
+def test_a_record_written_before_phase_06_gives_its_lost_code():
+    harness = _harness()
+    assert harness.lost_of({"problems": ["no done event (validation_failed)"]}) == "validation_failed"
+    assert harness.lost_of({"problems": ["none of ['40']"]}) is None
+    assert harness.lost_of({"lost": "http_429", "problems": []}) == "http_429"
+    assert harness.lost_code({"type": "done"}) is None and harness.lost_code({}) == "no_terminal_event"
+    assert harness.lost_code({"type": "error", "data": {"code": "turn_timeout"}}) == "turn_timeout"
+
+
+def test_a_refused_or_broken_turn_is_a_lost_case_not_a_crashed_run():
+    harness = _harness()
+    import httpx
+
+    def refuse(request):
+        return httpx.Response(429, json={"error": {"code": "too_many_turns"}})
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as http:
+        event = harness.run_turn(http, "http://gw", "t", {"message": "x"})
+    assert harness.lost_code(event) == "http_429"
+
+    def broken(request):
+        raise httpx.ConnectError("refused")
+
+    with httpx.Client(transport=httpx.MockTransport(broken)) as http:
+        assert harness.lost_code(harness.run_turn(http, "http://gw", "t", {"message": "x"})) == "transport_ConnectError"
+
+
+def test_rescoring_fails_a_metric_suite_on_its_lost_cases(tmp_path):
+    harness = _harness()
+    suite = EVALS.parent / "services/agent/app/capabilities/directions/evals/directions.jsonl"
+    cases = [json.loads(line) for line in suite.read_text(encoding="utf-8").splitlines() if line.strip()]
+    route = [c for c in cases if c["expect"].get("kind") == "route"]
+    records = [{"id": c["id"], "passed": True, "problems": [],
+                "metrics": {"places_resolved": True, "distance_duration_correct": True}} for c in route]
+    records[0] = {"id": route[0]["id"], "passed": False, "problems": ["no done event (agent_stream_interrupted)"]}
+    out = harness.rescore_suite("directions", suite, {"cases": records, "scores": {}},
+                                {"places_resolved": 0.99, "distance_duration_correct": 0.0})
+    assert route and out["scores"]["places_resolved"] == (len(route) - 1) / len(route)
+    assert out["ok"] is False and out["lost"] == {"agent_stream_interrupted": 1}
+
+
+def test_rescoring_a_rag_suite_counts_its_lost_cases():
+    harness = _harness()
+    rag = EVALS / "golden" / "rag.jsonl"
+    cases = [json.loads(line) for line in rag.read_text(encoding="utf-8").splitlines() if line.strip()]
+    answerable = [c for c in cases if c["expect"].get("kind") == "answerable" and c["expect"].get("pages")][:4]
+    records = [{"id": c["id"], "passed": True, "problems": [], "hit": True, "citation_ok": True,
+                "faithfulness": 1.0, "correctness": 1.0} for c in answerable]
+    records[0] = {"id": answerable[0]["id"], "passed": False,
+                  "problems": ["no done event (agent_stream_interrupted)"]}
+    threshold = {"hit_at_8": 0.9, "citation_page_accuracy": 0.0, "faithfulness": 0.0,
+                 "answer_correctness": 0.0, "abstention": 0.0}
+    out = harness.rescore_suite("rag", rag, {"cases": records, "scores": {"hit_at_8": 1.0, "counts": {"ragas": 3}}},
+                                threshold)
+    assert out["scores"]["hit_at_8"] == 0.75 and out["scores"]["faithfulness"] == 0.75 and out["ok"] is False

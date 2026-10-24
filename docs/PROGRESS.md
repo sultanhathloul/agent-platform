@@ -1972,7 +1972,7 @@ Phase 06 ground rules (from the phase prompt, verbatim):
 Checklist:
 - [x] ADRs: D1–D6 and I1–I12 (decided, ADR-0289 to ADR-0306); the owner's addition of this session (ADR-0307: capabilities only, no `requires.mcp_tools`, CLAUDE.md phase 06 row; ADR-0308: skill applied in the answer node, planner placement in BACKLOG, docs only); assumptions as they arise. Status note on ADR-0282.
 - [x] BACKLOG: the owner's skills decisions and "Where the planner sits in the graph" (own docs commit, c9f40cd).
-- [ ] A. D5 harness: a lost or interrupted case fails every metric of every suite (rag and rag@mcp hit@8, citation page accuracy, faithfulness, answer correctness, abstention; metrics.yaml metrics; routing, general, guardrails rates); lost cases reported by code per suite; harness tests with synthetic records; rescore make-eval-20261018T131835Z, make-eval-20261019T125706Z, …135251Z, …150722Z, old and new per metric and suite verdicts recorded.
+- [x] A. D5 harness: a lost or interrupted case fails every metric of every suite (rag and rag@mcp hit@8, citation page accuracy, faithfulness, answer correctness, abstention; metrics.yaml metrics; routing, general, guardrails rates); lost cases reported by code per suite; harness tests with synthetic records; rescore make-eval-20261018T131835Z, make-eval-20261019T125706Z, …135251Z, …150722Z, old and new per metric and suite verdicts recorded.
 - [ ] B. D6 smoke G7: platform-side time = turn wall time − union of the turn's generation span intervals (Langfuse trace); bounds rewritten against it.
 - [ ] C. Contracts (G2), types and tests first: SKILL.md schema and registry validation; router output with `skill`; the `skill` block; chat request `skill`; `skill` event; history `skill`; metrics.yaml scorers `sections_in_order`, `text_present`, `length_between`.
 - [ ] D. Registry (I1, I2): `skills/` mounted read-only, allowed files only, no executable bit, fail fast; permissions (I3: realm roles, gateway forwards `skill:*`, seed analyst/evaluator, viewer none); availability (I4, TOOL_LIST `skill:{slug}`, silent removal audited); `GET /v1/skills` agent and gateway; the request-field check at the gateway and the agent; G6 negative tests first; lint: no core, gateway or web file names a skill slug.
@@ -1986,6 +1986,15 @@ Checklist:
 - [ ] L. Measurements (n=20): router call added on skill-candidate turns (p50/p95); memo TTFT and terminal event vs the same request without the skill.
 - [ ] M. Docs: README §5.3, §7, §18 "Skills", §20 phase 06 keys; BACKLOG Skills → phase 06, the two tech debt items done.
 - [ ] N. make test; make eval once; make smoke; make smoke-airgap; rule 11 and G1.
+
+Part A results (D5, ADR-0293). `uv run evals/run_evals.py --rescore <run>` scores a recorded run again from its per-case records and its cases files (unchanged since 2026-10-18), writing build/evals/<run>.rescored.json. Old → new:
+- make-eval-20261018T131835Z (7 rag and 5 rag@mcp cases lost to `agent_stream_interrupted`):
+  - rag: PASS → **FAIL**. hit@8 1.00 → 0.84; citation page accuracy 0.93 → 0.74; faithfulness 0.93 → 0.77; answer correctness 0.90 → 0.75; abstention 1.00 → 1.00. Lost: agent_stream_interrupted 7.
+  - rag@mcp: PASS → **FAIL**. hit@8 1.00 → 0.89; citation page accuracy 0.97 → 0.83; faithfulness 0.94 → 0.83; answer correctness 0.88 → 0.77; abstention 1.00 → 1.00. Lost: agent_stream_interrupted 5.
+  - guardrails 142/142, routing 67/67, directions 27/27 (every metric 1.00), general 28/28: PASS → PASS, unchanged, nothing lost.
+- make-eval-20261019T125706Z, make-eval-20261019T135251Z, make-eval-20261019T150722Z (the three merge runs of PR #10): every suite PASS → PASS with identical scores; no rag or rag@mcp case was lost in them. Lost cases, now reported by code: routing validation_failed 2 in each run (already failures in its rate: 65/67 = 0.97); 135251Z directions agent_stream_interrupted 1 (already a failure in its metrics: places resolved and distance/duration 0.94).
+- What changed in the harness: rag metrics take their cases from the case kind, so a lost case counts in hit@8, citation page accuracy, abstention and (as 0) the Ragas metrics; metrics.yaml suites and the routing, general and guardrails rates already counted a lost case as failed and keep doing so; a refusal before the stream (`http_<status>`), a transport error, a document that never uploaded or indexed, and a guard call that broke are lost cases with their codes, not a crashed run; every suite prints and records `lost` by code.
+- Harness tests: evals harness 12 → 18 (six new, synthetic records).
 
 ## Phase 07: Planner
 
