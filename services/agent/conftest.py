@@ -160,6 +160,7 @@ async def services(settings, database_url) -> AsyncIterator:
     await stop_services(started)
 
 
+FIXTURE_SKILLS = Path(__file__).resolve().parent / "tests" / "fixtures" / "skills"
 PROBE_CAPABILITIES = (
     Path(__file__).resolve().parent / "tests" / "fixtures" / "capabilities",
     "tests.fixtures.capabilities",
@@ -169,26 +170,22 @@ PROBE_CAPABILITIES = (
 @pytest.fixture(scope="session")
 async def probe_services(settings, database_url) -> AsyncIterator:
     """Services with the test-only `probe` capability discovered beside the real
-    ones; no core file names it (ADR-0038)."""
+    ones; no core file names it (ADR-0038). They also hold the test-only skills."""
     from app.main import stop_services
 
-    started = await _started(settings, database_url, extra_capabilities=[PROBE_CAPABILITIES])
+    started = await _started(
+        settings, database_url, extra_capabilities=[PROBE_CAPABILITIES], extra_skills=[FIXTURE_SKILLS]
+    )
     yield started
     await stop_services(started)
-
-
-FIXTURE_SKILLS = Path(__file__).resolve().parent / "tests" / "fixtures" / "skills"
 
 
 @pytest.fixture(scope="session")
-async def skill_services(settings, database_url) -> AsyncIterator:
-    """Services with the test-only skills of tests/fixtures/skills beside the shipped ones; no
-    core file names them (phase 06, G5)."""
-    from app.main import stop_services
-
-    started = await _started(settings, database_url, extra_skills=[FIXTURE_SKILLS])
-    yield started
-    await stop_services(started)
+def skill_services(probe_services):
+    """The test-only skills of tests/fixtures/skills beside the shipped ones (phase 06, G5), on the
+    probe services: one more started instance would add its background tasks to every later test's
+    event loop."""
+    return probe_services
 
 
 @pytest.fixture
