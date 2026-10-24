@@ -2538,7 +2538,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0277: One loader builds the timeout budget's values for the script and the agent; the redeploy-only values are copied into config/deploy-values.yaml
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 4 has the save use the same validator as scripts/check_timeout_budget.py. The validator's rules read values the agent's container cannot see: the gateway's application.yml (response-timeout, keep-alive, Tomcat's upload timeout), the agent's Dockerfile and the dev overlay (uvicorn keep-alive), docker-compose.yml (memory limits), infra/litellm/config.yaml (request_timeout, num_retries) and the reference RAG server's WORKERS. Item 2 also shows several of them read-only.
 - Decision:
   - The loader moves from the script to services/agent/app/resilience/budget_values.py (PyYAML and the standard library, so the script still imports it). It builds the values from config/, the capability manifests and tool modules under app/, and the agent modules whose margins the rules check.
@@ -2555,7 +2555,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0278: Each editable setting has a range; a refusal names each conflict in plain Arabic and English words
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 4 requires ranges (positive, sane maximums) next to the nested pairs, and a refusal message naming the conflict in plain words.
 - Decision:
   - **Ranges.** budget.py holds the catalog of editable settings (`editable`), each with its range:
@@ -2577,7 +2577,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0279: A request pins the settings current at its start; a lowered shared limit applies to what starts after it
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 3: a change applies to requests that start after it; requests in flight keep their values. The values are read in many places: the runner, the capability and answer nodes, the guards, the summary and memory steps, the model, embedding and rerank gateways, the upload service and the ingest worker.
 - Decision:
   - **Pinning.** One immutable snapshot (`app/platform_settings/effective.py`) holds the overrides in force and what they change in each configuration object. A request pins the snapshot current when it starts, in a ContextVar, and the tasks it starts inherit it:
@@ -2591,7 +2591,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0280: A stored version that no longer passes the rules is ignored as a whole
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 3: a stored override that fails validation at startup (for example after a file default changed) is ignored, the file value used, and an error logged. Rules span several values, so one value's override cannot always be judged alone.
 - Decision: Every load of the version in force (start, notice, refresh) checks its overrides with `evaluate` against the files' values. When any problem is found, the whole version is ignored: the files' values are in force, an error is logged with the rules it fails, and the page says so (`ignored`). The version stays in the history, and the next save or revert replaces it.
 - Consequences: One stale value voids the other overrides of its version until the administrator saves again. Dropping only the values a failing rule names would need each rule to say which of its inputs to drop; the simplest consistent option is the files' values.
@@ -2599,7 +2599,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0281: An MCP server's max_concurrency is lowered by holding back permits of its own semaphore
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 1: a server's max_concurrency may be lowered from the page, never raised above the file's value, which is the figure agreed in the ICD. The client sizes an `asyncio.Semaphore` (and the background half, ADR-0265) at startup. asyncio's semaphore cannot be resized. Replacing it while calls hold the old one would let old holders and new callers together pass the file's value.
 - Decision: The semaphore stays asyncio's, so its waiting, FIFO fairness and cancellation stay the library's. A `_Holdback` (app/mcp/client.py) keeps `file − limit` of its permits out of use:
   - It takes the permits free now at once, and the rest in the semaphore's own queue as calls return theirs.
@@ -2618,7 +2618,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0282: The usage section reads the process's counters only; counts, never who
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 7b: usage from in-memory counters only, no database and no per-request cost, counts only.
 - Decision: `GET /v1/admin/usage` (agent, admin only) answers:
   - turns in flight (the platform, each tenant with something in flight, the busiest user's count) against their limits, from `ConcurrencyLimiter.snapshot`;
@@ -2632,7 +2632,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0283: The gateway reads the values it enforces every 5 s, each read bounded by 4 s; the last values read stay in force
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 3: the gateway enforces some of the values itself, so it reads them from an internal agent endpoint, cached at most 10 s. The values are the turn deadline (its relay bound), uploads per minute and uploads in flight per user.
 - Decision:
   - `PlatformLimits` (gateway) reads `GET /v1/internal/settings/limits` (internal token, no caller) every `gateway.settings.refresh`, 5 s, on a thread of its own. Each read is bounded 4 s from request to body, so a change reaches the gateway within 10 s.
@@ -2645,7 +2645,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0284: The agent checks the admin role too, from the gateway's X-User-Admin on admin calls
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Item 5: admin only, checked at the gateway and the agent. The agent is role-blind (ADR-0046); its admin policy API trusts the internal token, and the gateway alone checks the role.
 - Decision: The gateway's admin proxy (`AgentClient.exchangeAdmin`, used by the policy and settings controllers) sends `X-User-Admin`, `true` or `false`, read from the same verified token as X-User-Id. Every settings and usage endpoint of the agent refuses a call without `true` (403 `forbidden`, new in config/messages/errors.yaml), after the internal token. A gateway route that forwarded a user's call there by mistake is still refused. The agent's policy endpoints are unchanged.
 - Consequences: Defence in depth within the compose network's trust (the internal token): it does not protect against a forged internal call, which the network policy and the token do. The internal limits endpoint the gateway polls has no caller and needs no role.
@@ -2653,7 +2653,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0285: The details this PR filled in
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed
+- Status: assumed — Accepted on 2026-10-24
 - Context: Details the owner's decision left open.
 - Decision:
   1. The models.yaml "helper" timeout sets the router, summarizer, judge and extractor ceilings together, and "reasoning" sets reasoning and reflection. Each default is the longest of its roles.
@@ -2664,3 +2664,33 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   6. The page's save goes through a review step: a preview (`POST /v1/admin/settings/preview`) shows what changes, each conflict and the timeout tree on the draft's values, and only a valid preview of the current draft can be confirmed.
   7. Uploads per minute's default is the deployment's UPLOADS_PER_MINUTE where set (the gateway's own override), else config/docs.yaml's.
 - Consequences: The owner may prefer separate helper roles, per-key restore rows, or a save without the review step.
+
+### ADR-0286: The timeout tree nests each pair under the pair whose inner bound is its outer one
+- Date: 2026-10-24
+- Phase: standalone PR before phase 06 (`feat/platform-settings`), the owner's visual check, item 4
+- Status: decided
+- Context: The owner's check: the timeout tree must be a tree, each inner bound indented under its outer one (turn → capability → tool → MCP server, gateway stream → turn), with a warning mark on the ancestors of a failing row. The page showed a flat list. The rules in `app/resilience/budget.py` already link their pairs by name: one pair's outer bound is another pair's inner bound.
+- Decision:
+  1. `budget.parents(values, checks)` gives each timeout pair the pairs whose `inner` equals its `outer`. Three outer bounds are derived from another bound and resolve to it: the room before the answer (`deadline_s − answer_reserve_s`) to `deadline_s`; the longest role ceiling to that role's ceiling; the shortest capability's limit to that capability's limit. The slot-and-attempt rule's broker bound is matched to the tool rules' name for the same bound.
+  2. A pair of one capability nests only under a pair of the same capability. An MCP server's pair nests under each tool on that server, so it shows under both of a capability's two tools. A pair with no parent is a root.
+  3. `TimeoutPair` gains `parents` (agent and gateway API 2.4.0, additive; the version has not left this PR, ADR-0046). The page indents each row by its depth and keeps the pass or fail mark per row. A row with a failing pair anywhere under it also shows "تعارض تحته" / "Conflict below".
+- Consequences: On the shipped configuration the roots are the gateway's relay (turn, answer reserve, the model call, each capability with its tools and servers), the header bound, the upload pairs, the keep-alive pairs and the document server's broker pair. A new rule nests with no page change when its outer label is another rule's inner label. A new derived bound needs a line in `parents`, or its pair shows as a root.
+
+### ADR-0287: A usage read is audited when it is a page session's first, then at most once per 10 minutes per admin
+- Date: 2026-10-24
+- Phase: standalone PR before phase 06 (`feat/platform-settings`), the owner's visual check, item 5
+- Status: decided
+- Context: ADR-0282 audited every usage read. The page reads every 5 s, so one open page wrote 720 audit rows an hour. The owner's check: audit the first read of a page session, then at most one row per 10 minutes per admin. Settings changes stay audited on every save.
+- Decision:
+  1. The page sends `page_session` on `GET /v1/admin/usage`: a random id it makes once per page load (`crypto.randomUUID`), letters, digits and hyphens, at most 64 characters. Any other value is refused with 400 `invalid_request` before the agent is called. The id is recorded in the row's detail.
+  2. The gateway's `UsageAuditGate` writes an OK row when the read's page session is new for this admin, or when the admin's last row is 10 minutes old. A read without a page session is due by the interval only. The gate holds at most 1024 admins, each with its 32 latest page sessions, in memory. A row that fails to write is due again on the next read. The read is then answered `audit_unavailable`, as before.
+  3. Unchanged: the audit log's reachability is checked before every read, so reads stay fail-closed. A refused read (not an admin, the agent unavailable) is audited every time. Every settings call other than usage (read, preview, save, revert, versions) is audited on every call.
+- Consequences: An admin with the page open writes one usage row on load and then at most six an hour, however many reads. The gate is per gateway instance, so with more than one instance each writes its own rows. This amends ADR-0282's sentence on auditing; the rest of ADR-0282 stands.
+
+### ADR-0288: The settings page writes numbers, dates and times in Western digits in both languages
+- Date: 2026-10-24
+- Phase: standalone PR before phase 06 (`feat/platform-settings`), the owner's visual check, item 1
+- Status: decided
+- Context: The page wrote numbers in Arabic-Indic digits in Arabic (the `ar-SA` locale). The agent's refusal sentences followed it (commit 464d256). The owner's check: Western digits (0–9) everywhere on `/admin/settings`, in both languages, inputs and text alike.
+- Decision: The page has one formatter, `pageFormat(locale)` in `services/web/src/lib/settings.ts`. It formats numbers and times with `ar-SA-u-nu-latn` in Arabic and `en-GB` in English, without digit grouping. A digit typed in Arabic-Indic or Persian form becomes its Western digit in the field. The catalog's help lines on the page use Western digits. The agent's Arabic refusal sentences write their numbers in Western digits again (464d256 reverted).
+- Consequences: Other pages keep their own digit choices. Dates in Arabic keep the `ar-SA` calendar, with Western digits.
