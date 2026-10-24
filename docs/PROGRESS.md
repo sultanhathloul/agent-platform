@@ -1861,10 +1861,13 @@ Checklist:
 - [x] 13. FINISH, recorded below.
 
 Results (rule 11). FINISH ran at 23a9dfc, in order, nothing started by hand, from `make clean` at 15:42:38Z: `make clean` → `make models` → `make up` (15:44:00Z healthy).
-- `make test`, 15:44:00Z–15:57:22Z:
-  - agent 946 / 0 / 0; gateway 163 / 0 / 0; gateway-db 5 / 0 / 0; web 162 / 0 / 0; evals harness 12 / 0 / 0;
-  - timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, `deploy-values` ok); budget tests (scripts/tests) 10 / 0 / 0.
-  - Against the baseline: agent 901 → 946, gateway 146 → 163, web 149 → 162, scripts/tests 8 → 10. No layer is lower and no test was removed.
+- `make test`, 15:44:00Z–15:57:22Z, passed / failed / skipped per layer (each from the run's own summary line):
+  - agent 946 / 0 / 0 (pytest: "946 passed");
+  - gateway 163 / 0 / 0 (JUnit: tests=163 passed=163 failed=0 errors=0 skipped=0);
+  - gateway-db 5 / 0 / 0 (JUnit, `gateway-db-tests` against the compose Postgres: tests=5 passed=5 failed=0 errors=0 skipped=0);
+  - web 162 / 0 / 0 (vitest: 13 test files passed, Tests 162 passed (162));
+  - evals harness 12 / 0 / 0; timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, `deploy-values` ok); budget tests (scripts/tests) 10 / 0 / 0.
+  - Against the baseline: agent 901 → 946, gateway 146 → 163, gateway-db 5 → 5 (no gateway-db test in this PR), web 149 → 162, scripts/tests 8 → 10. No layer is lower and no test was removed.
 - `make smoke` ×2: 15:57:22Z–16:02:48Z 199/199, and 16:02:48Z–16:08:10Z 199/199 (baseline 178; the 21 platform settings checks added).
   - R3: 1 245 184 and 2 661 248 of 31 457 289 bytes sent before the JSON 413.
   - G7: general turn median 3.90 s and 3.07 s.
@@ -1907,6 +1910,34 @@ Left / for the owner:
   - the agent's admin check through X-User-Admin;
   - usage reads audited every 5 s.
 - The rules also bound lowering: the answering model's ceiling cannot go below LiteLLM's 85 s backstop without a redeploy (ADR-0278).
+
+### UI fix session: the owner's visual check (2026-10-24, same branch, PR #13)
+
+Infrastructure and UI only (rule 13): `make test` and `make smoke` once each, no `make eval`. docs/HANDOFF.md untouched.
+
+- [x] Status notes: ADR-0277 to ADR-0285 "Accepted on 2026-10-24".
+- [x] 1. Western digits everywhere on `/admin/settings` in both languages: one formatter, `pageFormat` (`ar-SA-u-nu-latn` / `en-GB`); typed Arabic-Indic or Persian digits become Western in the field; the help lines' examples in Western digits; the agent's Arabic refusal sentences in Western digits again (464d256 reverted). ADR-0288.
+- [x] 2. Read-only capacity rows: the chip shows the file's name and key (`docker-compose.yml · mem_limit`, `.env · LOCK_POOL_SIZE`), the full source in its tooltip; from 1024 px the value, note and chip stay on one line.
+- [x] 3. Version history: version 1's actor reads "ملفات الإعداد" / "configuration files".
+- [x] 4. Timeout tree: `budget.parents` links each pair to the pairs whose inner bound is its outer one; `TimeoutPair.parents` (2.4.0, additive, ADR-0046); the page indents by depth, keeps the mark per row, and shows "تعارض تحته" / "Conflict below" on each ancestor of a failing row. ADR-0286.
+- [x] 5. Usage audit: the page sends a random `page_session` per page load; the gateway's `UsageAuditGate` audits a page session's first read, then at most one row per 10 minutes per admin; refusals and every settings change stay audited on every call. Tests: UsageAuditGateTest (5) and AdminSettingsProxyTest (+3). ADR-0287.
+- [x] 6. The FINISH record above lists web and gateway-db per layer with their evidence.
+- [x] FINISH: `make test` once, `make smoke` once, recorded per rule 11.
+
+Results (rule 11):
+- Failed attempt at 5d8db69, recorded per rule 13 and not counted. `make up` 16:56:19Z–16:57:15Z, then `make test` 16:57:15Z–17:08:36Z, rc=2.
+  - agent: 1 failed, 946 passed. `tests/unit/test_contracts.py::test_agent_openapi_matches_docs`: "docs/openapi/agent.json is stale". The `parents` description in schemas.py was shortened after `make openapi`.
+  - Fixed in 7394647 (agent.json regenerated, one description line). The later layers and smoke did not run.
+- The run counted, at 7394647, nothing started by hand: `make up` 17:09:04Z–17:09:14Z, then:
+- `make test`, 17:09:14Z–17:22:56Z, passed / failed / skipped per layer:
+  - agent 947 / 0 / 0 (pytest: "947 passed");
+  - gateway 171 / 0 / 0 (JUnit: tests=171 passed=171 failed=0 errors=0 skipped=0);
+  - gateway-db 5 / 0 / 0 (JUnit: tests=5 passed=5 failed=0 errors=0 skipped=0);
+  - web 166 / 0 / 0 (vitest: 13 test files, Tests 166 passed (166));
+  - evals harness 12 / 0 / 0; timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, `deploy-values` ok); budget tests (scripts/tests) 10 / 0 / 0.
+  - Against this PR's earlier FINISH (23a9dfc): agent 946 → 947, gateway 163 → 171, gateway-db 5 → 5, web 162 → 166. No layer is lower and no test was removed.
+- `make smoke` ×1, 17:22:56Z–17:27:20Z: 199/199. R3: 2 644 272 of 31 457 289 bytes sent before the JSON 413. G7: general turn median 1.57 s.
+- No `make eval` (rule 13). Screenshots: taken by the owner.
 
 ## Phase 06: Skills
 
