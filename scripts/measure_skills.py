@@ -10,7 +10,8 @@
 For each: time to the first token and to the terminal event; and, from each turn's Langfuse
 trace, the route node's duration and the router model call inside it (the call the skill adds).
 The topics vary per request, so no router decision comes from the cache. Prints p50 and p95.
-Exits 2 when any turn failed or a skill turn was not written with the skill.
+A provider 429 is retried with the eval harness's backoff and counted. Exits 2 when any turn failed
+or a skill turn was not written with the skill.
 
     uv run scripts/measure_skills.py 20
 """
@@ -101,14 +102,22 @@ def main() -> int:
     stamp = uuid.uuid4().hex[:4]
     samples = {"skill": {"ttft": [], "total": [], "route": [], "router": []},
                "none": {"ttft": [], "total": [], "route": [], "router": []}}
-    failures = 0
+    failures = retries = 0
     with httpx.Client(timeout=300) as http:
         for i in range(n):
             # A distinct message per request and run: no router decision from the cache.
             message = f"اكتب مذكرة داخلية إلى مديري الإدارات بشأن {TOPICS[i % len(TOPICS)]} (طلب {stamp}-{i})."
             for who, user in (("skill", ("evaluator", "evaluator")), ("none", ("viewer", "viewer"))):
                 token = login(*user)["access_token"]
-                first, total, last = turn(http, gateway, token, message)
+                # A provider 429 ends a turn model_unavailable: retried after 5, 10, 20, 40 and 60 s, as
+                # make eval does; only the attempt that completes is timed.
+                for delay in (5, 10, 20, 40, 60, None):
+                    first, total, last = turn(http, gateway, token, message)
+                    code = (last.get("data") or {}).get("code")
+                    if last.get("type") == "done" or code != "model_unavailable" or delay is None:
+                        break
+                    retries += 1
+                    time.sleep(delay)
                 applied = (last.get("data") or {}).get("state_digest", {}).get("skill")
                 if last.get("type") != "done" or (who == "skill") != bool(applied):
                     failures += 1
@@ -127,6 +136,7 @@ def main() -> int:
         for key, name in (("ttft", "time to first token"), ("total", "terminal event"), ("route", "route node"),
                           ("router", "router model call")):
             print("  " + summary(name, samples[who][key]))
+    print(f"provider retries: {retries}")
     print(f"failures: {failures}")
     return 2 if failures else 0
 
