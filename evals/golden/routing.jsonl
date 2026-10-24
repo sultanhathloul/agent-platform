@@ -1,82 +1,104 @@
-{"id": "docs-start", "document": "summer-hours.txt", "message": "متى تبدأ ساعات العمل الصيفية؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-end-time", "document": "summer-hours.txt", "message": "متى ينتهي الدوام في الصيف حسب التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-meetings", "document": "summer-hours.txt", "message": "هل يسمح بعقد الاجتماعات بعد الساعة الواحدة ظهرا؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-summary", "document": "summer-hours.txt", "message": "لخص لي التعميم المرفق.", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-number", "document": "summer-hours.txt", "message": "ما رقم التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-period", "document": "summer-hours.txt", "message": "ما الفترة التي يغطيها التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-highlights", "document": "summer-hours.txt", "message": "اذكر أهم ما ورد في الملف.", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-leave-mention", "document": "summer-hours.txt", "message": "هل يذكر التعميم شيئا عن الإجازات؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-end-month", "document": "summer-hours.txt", "message": "في أي شهر تنتهي فترة الدوام الصيفي؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-gulf-says", "document": "summer-hours.txt", "message": "وش يقول الملف عن الدوام؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"]}
-{"id": "docs-gulf-start", "document": "summer-hours.txt", "message": "متى نبدأ الدوام بالصيف حسب الورقة اللي رفعتها؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"]}
-{"id": "docs-gulf-summary", "document": "summer-hours.txt", "message": "ابي ملخص سريع للملف اللي رفعته", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"]}
-{"id": "docs-gulf-meetings", "document": "summer-hours.txt", "message": "الاجتماعات بعد الظهر مسموحة ولا لا حسب التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"]}
-{"id": "docs-en-meetings", "document": "summer-hours.txt", "message": "What does the attached circular say about meetings?", "locale": "en", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-en-start", "document": "summer-hours.txt", "message": "When does the summer schedule start according to the file?", "locale": "en", "expect": {"capabilities": ["docs"]}}
-{"id": "docs-attach-what", "document": "summer-hours.txt", "message": "ما الذي في هذا الملف؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "attach": true}
-{"id": "docs-attach-start", "document": "summer-hours.txt", "message": "اقرأ الملف وأخبرني بموعد بداية الدوام.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "attach": true}
-{"id": "general-paris", "document": "summer-hours.txt", "message": "ما عاصمة فرنسا؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-leap", "document": "summer-hours.txt", "message": "كم عدد أيام السنة الكبيسة؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-nile", "document": "summer-hours.txt", "message": "ما أطول نهر في العالم؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-ai", "document": "summer-hours.txt", "message": "اشرح لي معنى الذكاء الاصطناعي باختصار.", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-prince", "document": "summer-hours.txt", "message": "من مؤلف كتاب الأمير؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-weather", "document": "summer-hours.txt", "message": "ما الفرق بين الطقس والمناخ؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-water", "document": "summer-hours.txt", "message": "ما فوائد شرب الماء؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-math", "document": "summer-hours.txt", "message": "كم يساوي خمسة عشر في أربعة؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-national-day", "document": "summer-hours.txt", "message": "في أي يوم يوافق اليوم الوطني السعودي؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-poem", "document": "summer-hours.txt", "message": "اكتب لي بيتا من الشعر عن البحر.", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "general-gulf-coding", "document": "summer-hours.txt", "message": "وش أفضل طريقة أتعلم فيها البرمجة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "tags": ["gulf"]}
-{"id": "general-gulf-flight", "document": "summer-hours.txt", "message": "كم ساعة الطيران من الرياض لجدة تقريبا؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "tags": ["gulf"]}
-{"id": "general-gulf-word", "document": "summer-hours.txt", "message": "شنو معنى كلمة تعميم في اللغة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "tags": ["gulf"]}
-{"id": "general-en-boil", "document": "summer-hours.txt", "message": "What is the boiling point of water at sea level?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "general-en-translate", "document": "summer-hours.txt", "message": "Translate good morning into Arabic.", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "general-en-planet", "document": "summer-hours.txt", "message": "Which planet is the largest in the solar system?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "general-photosynthesis", "document": "summer-hours.txt", "message": "ما هي عملية البناء الضوئي؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "directions-msa-distance", "message": "كم المسافة من برج المملكة إلى مطار الملك خالد الدولي؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-msa-route", "message": "ما أقرب طريق من قصر المصمك إلى الدرعية؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-msa-how-far", "message": "كم يبعد المتحف الوطني عن واجهة الرياض؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-msa-path-walk", "message": "ما المسار مشيًا من قصر المربع إلى قصر المصمك؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-gulf-wadeeni", "message": "ودني البوليفارد من غرناطة مول", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-gulf-wasselni", "message": "وصلني للمطار من جامعة الملك سعود", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-gulf-kaif-arooh", "message": "كيف أروح كافد من برج الفيصلية؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-gulf-agrab-tareeg", "message": "وش أقرب طريق للدره من النخيل مول؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-en-directions", "message": "Directions from Riyadh Park to Diriyah, please.", "locale": "en", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-en-how-far", "message": "How far is Masmak Fortress from Riyadh Front?", "locale": "en", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-en-route", "message": "What is the fastest route from Kingdom Centre to the airport?", "locale": "en", "expect": {"capabilities": ["directions"]}}
-{"id": "negative-msa-path-to-success", "message": "ما الطريق إلى النجاح في العمل؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "negative-msa-career-path", "message": "ما خطوات بناء مسار وظيفي في التسويق الرقمي؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "negative-msa-coffee-method", "message": "ما طريقة تحضير القهوة العربية؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "negative-msa-earth-moon", "message": "ما المسافة بين الأرض والقمر؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "negative-msa-learning-path", "message": "اقترح مسار تعلم لمبتدئ في تحليل البيانات.", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "negative-en-moon", "message": "How far is the Moon from the Earth?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "negative-en-career-route", "message": "What career route leads to becoming a data scientist?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "negative-en-directions-recipe", "message": "Give me the directions for baking a simple sponge cake.", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "directions-with-files-msa", "document": "summer-hours.txt", "message": "كم يبعد برج المملكة عن بوليفارد رياض سيتي بالسيارة؟", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "directions-with-files-gulf", "document": "summer-hours.txt", "message": "ودني المطار من قصر المصمك", "locale": "ar", "expect": {"capabilities": ["directions"]}}
-{"id": "docs-with-path-word", "document": "summer-hours.txt", "message": "ما طريقة احتساب ساعات العمل الصيفية في التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}}
-{"id": "general-with-files-path", "document": "summer-hours.txt", "message": "ما الطريق إلى النجاح في الحياة؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-gulf-permit", "message": "كم ياخذ إصدار التصريح؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-en-refund", "message": "How do I get a refund for a cancelled flight?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-en-point", "message": "Please get to the point: what is photosynthesis?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-msa-english", "message": "كم يستغرق تعلم اللغة الإنجليزية؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-msa-walk-health", "message": "كم دقيقة أمشي في اليوم لصحة القلب؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-msa-moon", "message": "ما المسافة بين الأرض والقمر؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-en-moon", "message": "How far is the Moon from Earth?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-gulf-coding", "message": "وش أقرب طريق لتعلم البرمجة؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-en-walking", "message": "Is walking every day good for your health?", "locale": "en", "expect": {"capabilities": ["general"]}}
-{"id": "kw-negative-gulf-passport", "message": "كم ياخذ الجواز الجديد عشان يطلع؟", "locale": "ar", "expect": {"capabilities": ["general"]}}
-{"id": "kw-free-gulf-airport", "message": "أبي أروح للمطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-gulf-airport-kingdom", "message": "أبي أروح للمطار من برج المملكة", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-msa-diriyah-masmak", "message": "متى أوصل الدرعية لو طلعت من قصر المصمك؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-en-take-me", "message": "Take me from Kingdom Centre to the airport", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-en-drive", "message": "I need to drive from KAFD to Diriyah, which way is quickest?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-msa-minutes", "message": "من برج الفيصلية إلى المتحف الوطني بالسيارة، كم دقيقة؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-gulf-head", "message": "ابغى اتجه من البوليفارد الى المطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-gulf-fastest", "message": "وش أسرع شي يوديني الدرعية من المركز المالي؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
-{"id": "kw-free-en-roads", "message": "Which roads lead from Masmak Palace to the National Museum?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "docs-start", "document": "summer-hours.txt", "message": "متى تبدأ ساعات العمل الصيفية؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-end-time", "document": "summer-hours.txt", "message": "متى ينتهي الدوام في الصيف حسب التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-meetings", "document": "summer-hours.txt", "message": "هل يسمح بعقد الاجتماعات بعد الساعة الواحدة ظهرا؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-summary", "document": "summer-hours.txt", "message": "لخص لي التعميم المرفق.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-number", "document": "summer-hours.txt", "message": "ما رقم التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-period", "document": "summer-hours.txt", "message": "ما الفترة التي يغطيها التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-highlights", "document": "summer-hours.txt", "message": "اذكر أهم ما ورد في الملف.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-leave-mention", "document": "summer-hours.txt", "message": "هل يذكر التعميم شيئا عن الإجازات؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-end-month", "document": "summer-hours.txt", "message": "في أي شهر تنتهي فترة الدوام الصيفي؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-gulf-says", "document": "summer-hours.txt", "message": "وش يقول الملف عن الدوام؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "docs-gulf-start", "document": "summer-hours.txt", "message": "متى نبدأ الدوام بالصيف حسب الورقة اللي رفعتها؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "docs-gulf-summary", "document": "summer-hours.txt", "message": "ابي ملخص سريع للملف اللي رفعته", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "docs-gulf-meetings", "document": "summer-hours.txt", "message": "الاجتماعات بعد الظهر مسموحة ولا لا حسب التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "docs-en-meetings", "document": "summer-hours.txt", "message": "What does the attached circular say about meetings?", "locale": "en", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-en-start", "document": "summer-hours.txt", "message": "When does the summer schedule start according to the file?", "locale": "en", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "docs-attach-what", "document": "summer-hours.txt", "message": "ما الذي في هذا الملف؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "attach": true, "expected_skill": null}
+{"id": "docs-attach-start", "document": "summer-hours.txt", "message": "اقرأ الملف وأخبرني بموعد بداية الدوام.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "attach": true, "expected_skill": null}
+{"id": "general-paris", "document": "summer-hours.txt", "message": "ما عاصمة فرنسا؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-leap", "document": "summer-hours.txt", "message": "كم عدد أيام السنة الكبيسة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-nile", "document": "summer-hours.txt", "message": "ما أطول نهر في العالم؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-ai", "document": "summer-hours.txt", "message": "اشرح لي معنى الذكاء الاصطناعي باختصار.", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-prince", "document": "summer-hours.txt", "message": "من مؤلف كتاب الأمير؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-weather", "document": "summer-hours.txt", "message": "ما الفرق بين الطقس والمناخ؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-water", "document": "summer-hours.txt", "message": "ما فوائد شرب الماء؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-math", "document": "summer-hours.txt", "message": "كم يساوي خمسة عشر في أربعة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-national-day", "document": "summer-hours.txt", "message": "في أي يوم يوافق اليوم الوطني السعودي؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-poem", "document": "summer-hours.txt", "message": "اكتب لي بيتا من الشعر عن البحر.", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-gulf-coding", "document": "summer-hours.txt", "message": "وش أفضل طريقة أتعلم فيها البرمجة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "general-gulf-flight", "document": "summer-hours.txt", "message": "كم ساعة الطيران من الرياض لجدة تقريبا؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "general-gulf-word", "document": "summer-hours.txt", "message": "شنو معنى كلمة تعميم في اللغة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "tags": ["gulf"], "expected_skill": null}
+{"id": "general-en-boil", "document": "summer-hours.txt", "message": "What is the boiling point of water at sea level?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-en-translate", "document": "summer-hours.txt", "message": "Translate good morning into Arabic.", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-en-planet", "document": "summer-hours.txt", "message": "Which planet is the largest in the solar system?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "general-photosynthesis", "document": "summer-hours.txt", "message": "ما هي عملية البناء الضوئي؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "directions-msa-distance", "message": "كم المسافة من برج المملكة إلى مطار الملك خالد الدولي؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-msa-route", "message": "ما أقرب طريق من قصر المصمك إلى الدرعية؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-msa-how-far", "message": "كم يبعد المتحف الوطني عن واجهة الرياض؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-msa-path-walk", "message": "ما المسار مشيًا من قصر المربع إلى قصر المصمك؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-gulf-wadeeni", "message": "ودني البوليفارد من غرناطة مول", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-gulf-wasselni", "message": "وصلني للمطار من جامعة الملك سعود", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-gulf-kaif-arooh", "message": "كيف أروح كافد من برج الفيصلية؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-gulf-agrab-tareeg", "message": "وش أقرب طريق للدره من النخيل مول؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-en-directions", "message": "Directions from Riyadh Park to Diriyah, please.", "locale": "en", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-en-how-far", "message": "How far is Masmak Fortress from Riyadh Front?", "locale": "en", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-en-route", "message": "What is the fastest route from Kingdom Centre to the airport?", "locale": "en", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "negative-msa-path-to-success", "message": "ما الطريق إلى النجاح في العمل؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-msa-career-path", "message": "ما خطوات بناء مسار وظيفي في التسويق الرقمي؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-msa-coffee-method", "message": "ما طريقة تحضير القهوة العربية؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-msa-earth-moon", "message": "ما المسافة بين الأرض والقمر؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-msa-learning-path", "message": "اقترح مسار تعلم لمبتدئ في تحليل البيانات.", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-en-moon", "message": "How far is the Moon from the Earth?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-en-career-route", "message": "What career route leads to becoming a data scientist?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "negative-en-directions-recipe", "message": "Give me the directions for baking a simple sponge cake.", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "directions-with-files-msa", "document": "summer-hours.txt", "message": "كم يبعد برج المملكة عن بوليفارد رياض سيتي بالسيارة؟", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "directions-with-files-gulf", "document": "summer-hours.txt", "message": "ودني المطار من قصر المصمك", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "docs-with-path-word", "document": "summer-hours.txt", "message": "ما طريقة احتساب ساعات العمل الصيفية في التعميم؟", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": null}
+{"id": "general-with-files-path", "document": "summer-hours.txt", "message": "ما الطريق إلى النجاح في الحياة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-gulf-permit", "message": "كم ياخذ إصدار التصريح؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-en-refund", "message": "How do I get a refund for a cancelled flight?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-en-point", "message": "Please get to the point: what is photosynthesis?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-msa-english", "message": "كم يستغرق تعلم اللغة الإنجليزية؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-msa-walk-health", "message": "كم دقيقة أمشي في اليوم لصحة القلب؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-msa-moon", "message": "ما المسافة بين الأرض والقمر؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-en-moon", "message": "How far is the Moon from Earth?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-gulf-coding", "message": "وش أقرب طريق لتعلم البرمجة؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-en-walking", "message": "Is walking every day good for your health?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-negative-gulf-passport", "message": "كم ياخذ الجواز الجديد عشان يطلع؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kw-free-gulf-airport", "message": "أبي أروح للمطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-gulf-airport-kingdom", "message": "أبي أروح للمطار من برج المملكة", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-msa-diriyah-masmak", "message": "متى أوصل الدرعية لو طلعت من قصر المصمك؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-en-take-me", "message": "Take me from Kingdom Centre to the airport", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-en-drive", "message": "I need to drive from KAFD to Diriyah, which way is quickest?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-msa-minutes", "message": "من برج الفيصلية إلى المتحف الوطني بالسيارة، كم دقيقة؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-gulf-head", "message": "ابغى اتجه من البوليفارد الى المطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-gulf-fastest", "message": "وش أسرع شي يوديني الدرعية من المركز المالي؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
+{"id": "kw-free-en-roads", "message": "Which roads lead from Masmak Palace to the National Museum?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}, "expected_skill": null}
 {"id": "skill-letter-msa", "message": "اكتب خطابا رسميا إلى وزارة النخيل نطلب فيه موعدا لزيارة ميدانية.", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
 {"id": "skill-letter-gulf", "message": "ابي خطاب رسمي لهيئة الواحة نشكرهم فيه على التعاون", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
 {"id": "skill-letter-en", "message": "Write an official letter to the Ministry of Palms requesting a meeting next week.", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
 {"id": "skill-letter-docs", "document": "leave-regulation.pdf", "attach": true, "message": "اكتب خطابا رسميا إلى هيئة الواحة نوضح فيه مدة إجازة الأمومة حسب اللائحة المرفقة.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": "official_letter"}
 {"id": "skill-letter-directions", "message": "اكتب مخاطبة رسمية لأمانة الرياض بالمسافة من برج المملكة إلى بوليفارد رياض سيتي بالسيارة.", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": "official_letter"}
 {"id": "skill-letter-gulf-directions", "message": "سوّ لي كتاب رسمي لإدارة النقل فيه كم المسافة بالسيارة من المطار إلى قصر المصمك", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": "official_letter"}
+{"id": "skill-memo-msa", "message": "اكتب مذكرة داخلية إلى إدارة الموارد البشرية بشأن جدول الإجازات الصيفية.", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
+{"id": "skill-memo-gulf", "message": "ابي مذكره داخلية للموظفين عن موعد الاجتماع الشهري", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
+{"id": "skill-memo-en", "message": "Write an internal memo to all staff about the new working hours.", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
+{"id": "skill-memo-en-memorandum", "message": "Draft a memorandum to the finance team about travel expense claims.", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
+{"id": "skill-memo-docs", "document": "leave-regulation.pdf", "attach": true, "message": "اكتب مذكرة داخلية بمدة إجازة الأمومة حسب اللائحة المرفقة.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": "official_memo"}
+{"id": "skill-memo-docs-gulf", "document": "internal-policies.docx", "attach": true, "message": "سوّ مذكرة للموظفين عن عدد أيام العمل عن بعد حسب الملف", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": "official_memo"}
+{"id": "skill-memo-directions", "message": "اكتب مذكرة داخلية بالمسافة بالسيارة من برج المملكة إلى بوليفارد رياض سيتي.", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": "official_memo"}
+{"id": "skill-negative-mou", "message": "ما معنى مذكرة تفاهم؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-kings-speech", "message": "ماذا تضمن خطاب الملك في افتتاح مجلس الشورى؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-alphabet", "message": "What letter does the alphabet start with?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-mou-en", "message": "What is a memorandum of understanding between two countries?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-difference", "message": "ما الفرق بين المذكرة والخطاب في المراسلات الحكومية؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-study-notes", "message": "هل تفيد مذكرة المراجعة الطالب قبل الاختبار؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-throne-speech", "message": "من ألقى خطاب العرش في بريطانيا هذا العام؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-gulf-letters", "message": "كم حرف في كلمة خطاب؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-negative-letter-to-editor", "message": "What is a letter to the editor in a newspaper?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "skill-kw-free-letter-risala", "message": "جهز لي رسالة رسمية لوزارة النخيل نطلب فيها موعدا لزيارة", "locale": "ar", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
+{"id": "skill-kw-free-memo-paper", "message": "اكتب لي ورقة داخلية لإدارة المشتريات أطلب فيها كراسي لقاعة الاجتماعات", "locale": "ar", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
+{"id": "skill-kw-free-memo-note", "message": "Draft an internal note to HR in our official format requesting two new laptops.", "locale": "en", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
+{"id": "skill-kw-free-letter-excellency", "message": "Write to His Excellency the Director General asking for a meeting next week.", "locale": "en", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
+{"id": "skill-kw-free-letter-gulf", "message": "ابي أرسل لسعادة المدير العام لهيئة الواحة نطلب اجتماع، صغها لي رسمية", "locale": "ar", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
+{"id": "skill-kw-free-memo-ifada", "message": "اكتب إفادة داخلية إلى إدارة الموارد البشرية عن انتهاء دورة التدريب", "locale": "ar", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "official_memo"}
