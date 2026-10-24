@@ -4,6 +4,7 @@
 // labels with units, a help line with an example under each field, the default beside each value,
 // technical ids only in chips. Each part renders from data alone, so a test renders it as is.
 import { useLocale, useTranslations } from "next-intl";
+import { useMemo } from "react";
 import type {
   PlatformUsage,
   ReadOnlySetting,
@@ -17,13 +18,15 @@ import {
   type SettingValue,
   draftValue,
   fieldKey,
-  formatNumber,
-  formatTime,
+  pageFormat,
   pairChips,
   ruleFamily,
+  sourceChip,
+  treeRows,
   unitKey,
   valueOf,
   type Overrides,
+  type PageFormat,
 } from "@/lib/settings";
 import { ActorName } from "./ActorName";
 
@@ -46,14 +49,20 @@ export function Chip({ children, name }: { children: string; name?: string }) {
   );
 }
 
+/** The page's one formatter (ADR-0288): Western digits in both languages. */
+export function usePageFormat(): PageFormat {
+  const locale = useLocale();
+  return useMemo(() => pageFormat(locale), [locale]);
+}
+
 /** A value as the page shows it: a number with its unit, "no limit of its own", or a count of tenants. */
 export function useValueText() {
   const t = useTranslations("settings");
-  const locale = useLocale();
+  const f = usePageFormat();
   return (value: SettingValue, unit: string): string => {
     if (value === null) return t("review.noneValue");
-    if (typeof value === "object") return t("review.tenantsValue", { count: Object.keys(value).length });
-    return `${formatNumber(value, locale)} ${t(unitKey(unit).replace("settings.", ""))}`;
+    if (typeof value === "object") return t("review.tenantsValue", { count: f.number(Object.keys(value).length) });
+    return `${f.number(value)} ${t(unitKey(unit).replace("settings.", ""))}`;
   };
 }
 
@@ -92,7 +101,7 @@ export function SettingFieldRow({
   onRestore,
 }: FieldProps) {
   const t = useTranslations("settings");
-  const locale = useLocale();
+  const f = usePageFormat();
   const valueText = useValueText();
   const key = fieldKey(field.key);
   const value = draftValue(field, overrides);
@@ -100,7 +109,7 @@ export function SettingFieldRow({
   const edited = field.key in overrides;
   const unit = t(unitKey(field.unit).replace("settings.", ""));
   const id = `setting-${field.key}`;
-  const range = { minimum: formatNumber(field.minimum, locale), maximum: formatNumber(field.maximum, locale) };
+  const range = { minimum: f.number(field.minimum), maximum: f.number(field.maximum) };
   return (
     <div className="border-t border-slate-100 py-3 first:border-t-0" data-field={field.key}>
       <div className="flex flex-wrap items-center gap-2">
@@ -209,15 +218,20 @@ export function ReadOnlyList({ items }: { items: ReadOnlySetting[] }) {
   return (
     <ul className="divide-y divide-slate-100" data-section="capacity">
       {items.map((item) => (
-        <li key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-          <span>{t(`readOnly.labels.${fieldKey(item.key)}`)}</span>
-          <span className="flex flex-wrap items-center gap-2">
+        <li
+          key={item.key}
+          className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm lg:flex-nowrap"
+          data-readonly={item.key}
+        >
+          <span className="min-w-0">{t(`readOnly.labels.${fieldKey(item.key)}`)}</span>
+          {/* At 1024 px and wider the value, the note and the chip stay on one line (the owner's check, item 2). */}
+          <span className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:flex-nowrap lg:whitespace-nowrap">
             <span className="font-medium" data-value="">
               {valueText(typeof item.value === "number" ? item.value : null, item.unit)}
             </span>
             <span className="text-xs text-slate-500">{t("readOnly.redeploy")}</span>
-            <span title={t("readOnly.source")}>
-              <Chip name="source">{item.source}</Chip>
+            <span title={t("readOnly.source", { source: item.source })}>
+              <Chip name="source">{sourceChip(item.source)}</Chip>
             </span>
           </span>
         </li>
@@ -226,16 +240,20 @@ export function ReadOnlyList({ items }: { items: ReadOnlySetting[] }) {
   );
 }
 
-/** "شجرة المهلات": each nested pair with its two values and a pass or fail mark (item 7a). */
+/**
+ * "شجرة المهلات": each pair nested under the pair whose inner bound is its outer one (ADR-0286),
+ * with its two values and a pass or fail mark; a row with a failing pair under it also shows a
+ * warning mark (item 7a, the owner's check, item 4).
+ */
 export function TimeoutTree({ pairs, previewing = false }: { pairs: TimeoutPair[]; previewing?: boolean }) {
   const t = useTranslations("settings");
-  const locale = useLocale();
-  const seconds = (v: number) => `${formatNumber(v, locale)} ${t("units.s")}`;
+  const f = usePageFormat();
+  const seconds = (v: number) => `${f.number(v)} ${t("units.s")}`;
   return (
     <div data-section="tree">
       {previewing && <p className="mb-2 text-xs text-amber-800">{t("tree.previewing")}</p>}
-      <ul className="divide-y divide-slate-100">
-        {pairs.map((pair) => {
+      <ul role="tree" className="divide-y divide-slate-100">
+        {treeRows(pairs).map(({ pair, depth, path, failsBelow }) => {
           const family = ruleFamily(pair.rule);
           const title = t.has(`rules.${pair.rule}`)
             ? t(`rules.${pair.rule}`)
@@ -243,14 +261,31 @@ export function TimeoutTree({ pairs, previewing = false }: { pairs: TimeoutPair[
               ? t(`rules.${family}`)
               : t("tree.other");
           return (
-            <li key={pair.rule} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm" data-rule={pair.rule}>
+            <li
+              key={path}
+              role="treeitem"
+              aria-level={depth + 1}
+              aria-selected={false}
+              className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+              style={{ paddingInlineStart: `${depth * 1.5}rem` }}
+              data-rule={pair.rule}
+              data-depth={depth}
+            >
               <span className="flex flex-wrap items-center gap-1.5">
+                {depth > 0 && (
+                  <span aria-hidden="true" className="mb-1.5 inline-block h-2.5 w-2.5 border-b border-s border-slate-300" />
+                )}
                 <span
                   className={`rounded-full px-1.5 text-[11px] ${pair.holds ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}
                   data-mark={pair.holds ? "holds" : "fails"}
                 >
                   {t(pair.holds ? "tree.holds" : "tree.fails")}
                 </span>
+                {failsBelow && (
+                  <span className="rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-900" data-mark="warning">
+                    {t("tree.failsBelow")}
+                  </span>
+                )}
                 <span>{title}</span>
                 {pairChips(pair).map((id) => (
                   <Chip key={id}>{id}</Chip>
@@ -327,8 +362,8 @@ export function ChangeList({
 /** "الاستهلاك الآن": counts only, from the agent's memory (item 7b). */
 export function UsagePanel({ usage, failed, updatedAt }: { usage: PlatformUsage | null; failed: boolean; updatedAt?: string }) {
   const t = useTranslations("settings.usage");
-  const locale = useLocale();
-  const n = (v: number) => formatNumber(v, locale);
+  const f = usePageFormat();
+  const n = f.number;
   const of = (count: number, limit: number | null | undefined) =>
     limit === null || limit === undefined ? t("noOwnLimit", { count: n(count) }) : t("ofLimit", { count: n(count), limit: n(limit) });
   return (
@@ -396,7 +431,7 @@ export function UsagePanel({ usage, failed, updatedAt }: { usage: PlatformUsage 
               ))}
             </ul>
           )}
-          {updatedAt && <p className="text-xs text-slate-400">{t("updated", { time: formatTime(updatedAt, locale) })}</p>}
+          {updatedAt && <p className="text-xs text-slate-400">{t("updated", { time: f.time(updatedAt) })}</p>}
         </>
       )}
     </div>
@@ -422,7 +457,7 @@ export function VersionHistory({
   onCancel?: () => void;
 }) {
   const t = useTranslations("settings.history");
-  const locale = useLocale();
+  const f = usePageFormat();
   if (versions.length === 0) return <p className="text-sm text-slate-600">{t("empty")}</p>;
   return (
     <ol className="divide-y divide-slate-100" data-section="history">
@@ -431,20 +466,25 @@ export function VersionHistory({
         return (
           <li key={v.version} className="py-2 text-sm" data-version={v.version}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{t("version", { version: formatNumber(v.version, locale) })}</span>
+              <span className="font-medium">{t("version", { version: f.number(v.version) })}</span>
               {v.version === current && (
                 <span className="rounded-full bg-emerald-100 px-1.5 text-[11px] text-emerald-900">{t("current")}</span>
               )}
               <span>
                 {v.change === "revert"
-                  ? t("changes.revert", { version: formatNumber(v.reverted_to ?? 0, locale) })
+                  ? t("changes.revert", { version: f.number(v.reverted_to ?? 0) })
                   : t(`changes.${v.change}`)}
               </span>
-              <ActorName id={v.created_by} username={v.created_by_username} name={v.created_by_name} />
-              <span className="text-xs text-slate-500">{formatTime(v.created_at, locale)}</span>
+              {v.change === "seed" ? (
+                // Version 1 comes from the files, not from a person (the owner's check, item 3).
+                <span data-actor="files">{t("filesActor")}</span>
+              ) : (
+                <ActorName id={v.created_by} username={v.created_by_username} name={v.created_by_name} />
+              )}
+              <span className="text-xs text-slate-500">{f.time(v.created_at)}</span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1">
-              <span className="text-xs text-slate-600">{t("overrides", { count: formatNumber(overrides.length, locale) })}</span>
+              <span className="text-xs text-slate-600">{t("overrides", { count: f.number(overrides.length) })}</span>
               {overrides.map((key) => (
                 <Chip key={key}>{key}</Chip>
               ))}

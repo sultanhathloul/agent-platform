@@ -18,9 +18,13 @@ import {
   draftValue,
   fieldKey,
   overridesOf,
+  pageFormat,
   pairChips,
   restored,
   ruleFamily,
+  sourceChip,
+  treeRows,
+  westernDigits,
   withValue,
 } from "@/lib/settings";
 import { renderIn, type TestLocale } from "@/test/render";
@@ -62,9 +66,27 @@ const TENANTS = field({ key: "turn.per_tenant_overrides", unit: "count", integer
 const RAG = field({ key: "mcp.rag.max_concurrency", group: "mcp", unit: "count", integer: true, maximum: 8, default: 8 as never, value: 8 as never, server: "rag" });
 
 const PAIRS: TimeoutPair[] = [
-  { rule: "answer-reserve-in-turn", family: "answer-reserve-in-turn", params: {}, inner: "answer_reserve_s", inner_value: 45, outer: "deadline_s", outer_value: 120, strict: true, holds: true },
-  { rule: "capability-in-room:docs", family: "capability-in-room", params: { capability: "docs" }, inner: "docs limits.timeout_s", inner_value: 60, outer: "deadline_s − answer_reserve_s", outer_value: 35, strict: true, holds: false },
-  { rule: "judge-and-persist-in-post-answer", family: "judge-and-persist-in-post-answer", params: {}, inner: "timeouts.roles.judge + persist_s", inner_value: 30, outer: "post_answer_reserve_s", outer_value: 30, strict: false, holds: true },
+  { rule: "answer-reserve-in-turn", family: "answer-reserve-in-turn", params: {}, inner: "answer_reserve_s", inner_value: 45, outer: "deadline_s", outer_value: 120, strict: true, holds: true, parents: [] },
+  { rule: "capability-in-room:docs", family: "capability-in-room", params: { capability: "docs" }, inner: "docs limits.timeout_s", inner_value: 60, outer: "deadline_s − answer_reserve_s", outer_value: 35, strict: true, holds: false, parents: [] },
+  { rule: "judge-and-persist-in-post-answer", family: "judge-and-persist-in-post-answer", params: {}, inner: "timeouts.roles.judge + persist_s", inner_value: 30, outer: "post_answer_reserve_s", outer_value: 30, strict: false, holds: true, parents: [] },
+];
+
+// The shape budget.parents gives the shipped configuration (ADR-0286): the gateway's relay → turn →
+// capability → tool → MCP server, turn → answer reserve; the server under each of its two tools.
+function pair(rule: string, parents: string[], holds = true): TimeoutPair {
+  return { rule, family: rule.split(":")[0] ?? rule, params: {}, inner: rule, inner_value: 10, outer: "outer", outer_value: 20, strict: true, holds, parents };
+}
+const TREE: TimeoutPair[] = [
+  pair("turn-in-relay", []),
+  pair("answer-reserve-in-turn", ["turn-in-relay"]),
+  pair("capability-in-room:directions", ["turn-in-relay"]),
+  pair("tool-in-capability:directions:routing.geocode", ["capability-in-room:directions"]),
+  pair("tool-in-capability:directions:routing.route", ["capability-in-room:directions"]),
+  pair("slot-and-attempt-in-broker:routing", [
+    "tool-in-capability:directions:routing.geocode",
+    "tool-in-capability:directions:routing.route",
+  ], false),
+  pair("keep-alive", []),
 ];
 
 const USAGE: PlatformUsage = {
@@ -117,6 +139,52 @@ describe("the settings page's logic", () => {
     expect(changedKeys([PER_USER, DEADLINE], { "turn.deadline_s": 150 })).toEqual(["turn.per_user_max", "turn.deadline_s"]);
   });
 
+  it("writes every number, date and time in Western digits in both languages (ADR-0288)", () => {
+    for (const locale of ["ar", "en"]) {
+      const f = pageFormat(locale);
+      expect(f.number(120)).toBe("120");
+      expect(f.number(1024)).toBe("1024");
+      expect(f.number(12.5)).toBe("12.5");
+      expect(f.time("2026-10-22T10:00:00Z")).toMatch(/[0-9]/);
+      expect(f.time("2026-10-22T10:00:00Z")).not.toMatch(/[\u0660-\u0669\u06F0-\u06F9]/);
+    }
+    expect(westernDigits("١٢٠ و۴۵")).toBe("120 و45");
+  });
+
+  it("names a read-only value's source by its file and key, the full path in the tooltip", () => {
+    expect(sourceChip("docker-compose.yml services.ingest.mem_limit")).toBe("docker-compose.yml · mem_limit");
+    expect(sourceChip(".env LOCK_POOL_SIZE (docker-compose.yml)")).toBe(".env · LOCK_POOL_SIZE");
+    expect(sourceChip("config/docs.yaml ingest.sandbox.memory_mb")).toBe("docs.yaml · memory_mb");
+    expect(sourceChip("services/gateway/src/main/resources/application.yml gateway.agent.keep-alive")).toBe(
+      "application.yml · keep-alive",
+    );
+    expect(sourceChip("services/agent/Dockerfile uvicorn --timeout-keep-alive")).toBe("Dockerfile · --timeout-keep-alive");
+    expect(sourceChip("docker-compose.yml")).toBe("docker-compose.yml");
+  });
+
+  it("nests each pair under its parents and marks the ancestors of a failing one", () => {
+    const rows = treeRows(TREE);
+    expect(rows.map((r) => [r.pair.rule, r.depth])).toEqual([
+      ["turn-in-relay", 0],
+      ["answer-reserve-in-turn", 1],
+      ["capability-in-room:directions", 1],
+      ["tool-in-capability:directions:routing.geocode", 2],
+      ["slot-and-attempt-in-broker:routing", 3],
+      ["tool-in-capability:directions:routing.route", 2],
+      ["slot-and-attempt-in-broker:routing", 3],
+      ["keep-alive", 0],
+    ]);
+    const warned = rows.filter((r) => r.failsBelow).map((r) => r.pair.rule);
+    expect(warned).toEqual([
+      "turn-in-relay",
+      "capability-in-room:directions",
+      "tool-in-capability:directions:routing.geocode",
+      "tool-in-capability:directions:routing.route",
+    ]);
+    // A parent the list does not hold (a draft's tree may lose a rule) makes the pair a root.
+    expect(treeRows([pair("tool-in-capability:docs:docs_search", ["capability-in-room:docs"])])[0]?.depth).toBe(0);
+  });
+
   it("checks a typed value before anything is sent, Arabic digits included", () => {
     expect(checkNumber("١٢٠", DEADLINE)).toEqual({ value: 120, problem: null });
     expect(checkNumber("1.5", PER_USER).problem).toBe("integer");
@@ -150,7 +218,7 @@ describe("the settings page's parts", () => {
     const html = renderIn("ar", <SettingFieldRow field={PER_USER} overrides={{ "turn.per_user_max": 1 }} text="1" problem={null} />);
     const visible = sentences(html);
     expect(visible).toContain("الأسئلة الجارية للمستخدم الواحد (عدد)");
-    expect(visible).toContain("الافتراضي: ٢ عدد");
+    expect(visible).toContain("الافتراضي: 2 عدد");
     expect(visible).toContain("مثال:");
     expect(visible).toContain("استعادة الافتراضي");
     expect(visible).toContain("معدّل");
@@ -173,8 +241,8 @@ describe("the settings page's parts", () => {
     const html = renderIn("ar", <SettingFieldRow field={RAG} overrides={{}} text="8" problem="range" />);
     expect(html).toMatch(/<bdi dir="ltr"[^>]*data-chip="server"[^>]*>rag<\/bdi>/);
     const visible = sentences(html);
-    expect(visible).toContain("لا يُرفع فوق قيمة ملف الإعداد: ٨");
-    expect(visible).toContain("القيمة يجب أن تكون من ١ إلى ٨.");
+    expect(visible).toContain("لا يُرفع فوق قيمة ملف الإعداد: 8");
+    expect(visible).toContain("القيمة يجب أن تكون من 1 إلى 8.");
     expect(hasLatin(visible)).toBe(false);
   });
 
@@ -184,11 +252,17 @@ describe("the settings page's parts", () => {
     expect(html.match(/data-mark="fails"/g)).toHaveLength(1);
     const visible = sentences(html);
     expect(visible).toContain("الوقت المحجوز للإجابة داخل مهلة السؤال");
-    expect(visible).toContain("٤٥ ثانية أقصر من ١٢٠ ثانية");
-    expect(visible).toContain("٣٠ ثانية لا تزيد على ٣٠ ثانية");
+    expect(visible).toContain("45 ثانية أقصر من 120 ثانية");
+    expect(visible).toContain("30 ثانية لا تزيد على 30 ثانية");
     expect(hasLatin(visible)).toBe(false);
     expect(html).toMatch(/<bdi dir="ltr"[^>]*>docs<\/bdi>/);
     expect(sentences(renderIn("ar", <TimeoutTree pairs={PAIRS} previewing />))).toContain("قبل حفظه");
+    const tree = renderIn("ar", <TimeoutTree pairs={TREE} />);
+    expect(tree).toMatch(/data-rule="slot-and-attempt-in-broker:routing" data-depth="3"/);
+    expect(tree).toMatch(/padding-inline-start:4.5rem/);
+    expect(tree.match(/data-mark="warning"/g)).toHaveLength(4);
+    expect(sentences(tree)).toContain("تعارض تحته");
+    expect(text(renderIn("en", <TimeoutTree pairs={TREE} />))).toContain("Conflict below");
   });
 
   it("has a title for every timeout rule and a label for every setting the agent may name", () => {
@@ -224,16 +298,30 @@ describe("the settings page's parts", () => {
     expect(visible).toContain("يحتاج تغييرها إلى إعادة نشر");
     expect(hasLatin(visible)).toBe(false);
     expect(html).toContain("docker-compose.yml");
+    const sources = renderIn("ar", (
+      <ReadOnlyList
+        items={[
+          { key: "lock_pool_size", value: 20, unit: "count", source: ".env LOCK_POOL_SIZE (docker-compose.yml)" },
+          { key: "mem_limit.ingest", value: 1024, unit: "MiB", source: "docker-compose.yml services.ingest.mem_limit" },
+        ] as ReadOnlySetting[]}
+      />
+    ));
+    expect(sources).toMatch(/data-chip="source"[^>]*>\.env · LOCK_POOL_SIZE<\/bdi>/);
+    expect(sources).toMatch(/data-chip="source"[^>]*>docker-compose.yml · mem_limit<\/bdi>/);
+    expect(sources).toContain('title="المصدر: docker-compose.yml services.ingest.mem_limit"');
+    // No row wraps its value onto a second line at 1280 px or wider (the owner's check, item 2).
+    expect(sources.match(/lg:flex-nowrap/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(sources).toContain("lg:whitespace-nowrap");
   });
 
   it("shows the usage as counts against their limits and each server's breaker", () => {
     const html = renderIn("ar", <UsagePanel usage={USAGE} failed={false} />);
     const visible = sentences(html);
-    expect(visible).toContain("٣ من ٢٠");
-    expect(visible).toContain("٢ من ٢");
-    expect(visible).toContain("متوقف منذ ١٢ ثانية");
+    expect(visible).toContain("3 من 20");
+    expect(visible).toContain("2 من 2");
+    expect(visible).toContain("متوقف منذ 12 ثانية");
     expect(visible).toContain("في التجربة بعد توقف");
-    expect(visible).toContain("١ من ٦");
+    expect(visible).toContain("1 من 6");
     expect(hasLatin(visible)).toBe(false);
     expect(html).toMatch(/data-usage-tenant="default"/);
     const english = text(renderIn("en", <UsagePanel usage={USAGE} failed />));
@@ -244,10 +332,16 @@ describe("the settings page's parts", () => {
   it("lists the versions with their actor and time, a revert for older ones and none for the seed", () => {
     const html = renderIn("ar", <VersionHistory versions={VERSIONS} current={3} confirming={null} />);
     const visible = sentences(html);
-    expect(visible).toContain("النسخة ٣");
+    expect(visible).toContain("النسخة 3");
     expect(visible).toContain("المعمول بها");
-    expect(visible).toContain("استعادة النسخة ٢");
+    expect(visible).toContain("استعادة النسخة 2");
     expect(visible).toContain("مديرة المنصة");
+    // Version 1 comes from the files: its actor reads so, never "seed" (the owner's check, item 3).
+    expect(visible).toContain("ملفات الإعداد");
+    expect(html).not.toMatch(/>seed</);
+    expect(text(renderIn("en", <VersionHistory versions={VERSIONS} current={3} confirming={null} />))).toContain(
+      "configuration files",
+    );
     expect(html).toContain('data-revert="2"');
     expect(html).not.toContain('data-revert="1"');
     expect(html).not.toContain('data-revert="3"');
@@ -261,7 +355,7 @@ describe("the settings page's parts", () => {
         rule: "answer-reserve-in-turn",
         family: "answer-reserve-in-turn",
         params: {},
-        message_ar: "مهلة الإجابة (١٣٠ ثانية) أطول من مهلة السؤال كله (١٢٠ ثانية) أو تساويها، ويجب أن تكون أقصر منها.",
+        message_ar: "مهلة الإجابة (130 ثانية) أطول من مهلة السؤال كله (120 ثانية) أو تساويها، ويجب أن تكون أقصر منها.",
         message_en: "The time kept for the answer (130 s) is not shorter than the whole-question time limit (120 s).",
       } as SettingsProblem,
     ];
@@ -273,6 +367,21 @@ describe("the settings page's parts", () => {
     const changes = sentences(
       renderIn("ar", <ChangeList fields={[PER_USER]} inForce={{ "turn.per_user_max": 1 }} overrides={{}} changed={["turn.per_user_max"]} />),
     );
-    expect(changes).toContain("الأسئلة الجارية للمستخدم الواحد: من ١ عدد إلى ٢ عدد");
+    expect(changes).toContain("الأسئلة الجارية للمستخدم الواحد: من 1 عدد إلى 2 عدد");
+  });
+
+  it("shows no Arabic-Indic digit anywhere on the page's parts (ADR-0288)", () => {
+    const parts = [
+      <SettingFieldRow key="a" field={PER_USER} overrides={{ "turn.per_user_max": 1 }} text="1" problem="range" />,
+      <SettingFieldRow key="b" field={DEADLINE} overrides={{}} text="120" problem={null} />,
+      <TimeoutTree key="c" pairs={[...PAIRS, ...TREE]} />,
+      <UsagePanel key="d" usage={USAGE} failed={false} updatedAt="2026-10-22T10:00:00Z" />,
+      <VersionHistory key="e" versions={VERSIONS} current={3} confirming={null} />,
+      <ReadOnlyList key="f" items={READ_ONLY} />,
+      <ChangeList key="g" fields={[PER_USER]} inForce={{}} overrides={{ "turn.per_user_max": 1 }} changed={["turn.per_user_max"]} />,
+    ];
+    for (const part of parts) expect(renderIn("ar", part)).not.toMatch(/[\u0660-\u0669\u06F0-\u06F9]/);
+    const help = Object.values(ar.settings.fields as Record<string, { help: string }>).map((f) => f.help);
+    for (const line of help) expect(line).not.toMatch(/[\u0660-\u0669\u06F0-\u06F9]/);
   });
 });

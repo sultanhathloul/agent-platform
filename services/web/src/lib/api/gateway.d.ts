@@ -1116,6 +1116,8 @@ export interface components {
             params: {
                 [key: string]: string;
             };
+            /** @description The rules whose inner bound is this pair's outer one: the tree's parent rows (ADR-0286) */
+            parents: string[];
             rule: string;
             /** @description inner < outer when true, inner ≤ outer when false */
             strict: boolean;
@@ -1954,7 +1956,10 @@ export interface operations {
     };
     platformUsage: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The page's random id for one page load: its first read is audited, then at most one read per 10 minutes per admin (ADR-0287) */
+                page_session?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1968,6 +1973,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelopePlatformUsage"];
+                };
+            };
+            /** @description invalid_request: a malformed page_session */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
             /** @description forbidden: not an admin */

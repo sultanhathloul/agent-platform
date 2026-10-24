@@ -631,6 +631,7 @@
     "tree": {
       "holds": "Holds",
       "fails": "Conflict",
+      "failsBelow": "Conflict below",
       "strict": "{inner} shorter than {outer}",
       "loose": "{inner} no longer than {outer}",
       "previewing": "The tree shows the values after the proposed change, before it is saved.",
@@ -659,7 +660,7 @@
       "slot-and-attempt-in-broker": "A tool server's wait and attempt within the broker's limit"
     },
     "readOnly": {
-      "source": "Source",
+      "source": "Source: {source}",
       "redeploy": "Changing it needs a redeploy",
       "labels": {
         "lock_pool_size": "The platform's capacity of questions at once",
@@ -709,7 +710,8 @@
       "revertConfirm": "Confirm: revert in a new version",
       "cancel": "Cancel",
       "reverted": "Version {from}'s values are back, as new version {version}.",
-      "empty": "No version yet."
+      "empty": "No version yet.",
+      "filesActor": "configuration files"
     }
   }
 }

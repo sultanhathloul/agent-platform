@@ -30,6 +30,7 @@ import {
   overridesOf,
   restored,
   validTenantId,
+  westernDigits,
   withValue,
   type FieldProblem,
   type Overrides,
@@ -48,6 +49,7 @@ import {
   button,
   card,
   quiet,
+  usePageFormat,
 } from "./SettingsParts";
 
 type Texts = Record<string, string>;
@@ -75,6 +77,7 @@ function rowsOf(fields: SettingField[], overrides: Overrides): TenantRows {
 export function SettingsAdmin() {
   const t = useTranslations();
   const locale = useLocale();
+  const f = usePageFormat();
   const { getAccessToken } = useAuth();
   const { gatewayUrl } = useRuntimeConfig();
   const [view, setView] = useState<PlatformSettingsView | null>(null);
@@ -131,12 +134,14 @@ export function SettingsAdmin() {
   }, [load]);
 
   // "الاستهلاك الآن": every 5 s while the page is open and visible; a failed read keeps the last counts.
+  // One random id per page load: the gateway audits its first read, then one per 10 minutes (ADR-0287).
+  const [pageSession] = useState(() => crypto.randomUUID());
   useEffect(() => {
     let active = true;
     const read = async () => {
       if (typeof document !== "undefined" && document.hidden) return;
       try {
-        const next = await getUsage(await authorized());
+        const next = await getUsage({ ...(await authorized()), pageSession });
         if (!active) return;
         setUsage(next);
         setUsageFailed(false);
@@ -151,7 +156,7 @@ export function SettingsAdmin() {
       active = false;
       clearInterval(timer);
     };
-  }, [authorized]);
+  }, [authorized, pageSession]);
 
   const fields = useMemo(() => view?.fields ?? [], [view]);
   const inForce = useMemo(() => overridesOf(fields), [fields]);
@@ -159,7 +164,8 @@ export function SettingsAdmin() {
   const draftKey = JSON.stringify(overrides);
   const hasProblems = Object.values(problems).some((p) => p !== null);
 
-  const setText = (field: SettingField, text: string) => {
+  const setText = (field: SettingField, typed: string) => {
+    const text = westernDigits(typed);
     setTexts((all) => ({ ...all, [field.key]: text }));
     const checked = checkNumber(text, field);
     setProblems((all) => ({ ...all, [field.key]: checked.problem }));
@@ -178,7 +184,8 @@ export function SettingsAdmin() {
     }
   };
 
-  const setTenants = (field: SettingField, next: Array<[string, string]>) => {
+  const setTenants = (field: SettingField, typed: Array<[string, string]>) => {
+    const next = typed.map(([tenant, count]): [string, string] => [tenant, westernDigits(count)]);
     setRows((all) => ({ ...all, [field.key]: next }));
     const map: Record<string, number> = {};
     let problem: FieldProblem = null;
@@ -225,7 +232,7 @@ export function SettingsAdmin() {
       });
       reset(saved.settings);
       setVersions((await listSettingsVersions(await authorized())).versions);
-      setNotice(t("settings.review.saved", { version: saved.version }));
+      setNotice(t("settings.review.saved", { version: f.number(saved.version) }));
       setError(null);
     } catch (e) {
       setError(e instanceof GatewayError ? e.info : { code: "unknown" });
@@ -241,7 +248,7 @@ export function SettingsAdmin() {
       const saved = await revertSettings({ ...(await authorized()), version: confirming, expectedVersion: view.version });
       reset(saved.settings);
       setVersions((await listSettingsVersions(await authorized())).versions);
-      setNotice(t("settings.history.reverted", { from: confirming, version: saved.version }));
+      setNotice(t("settings.history.reverted", { from: f.number(confirming), version: f.number(saved.version) }));
       setConfirming(null);
       setError(null);
     } catch (e) {
@@ -272,7 +279,7 @@ export function SettingsAdmin() {
         <h1 className="text-xl font-semibold">{t("settings.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">{t("settings.description")}</p>
         <p className="mt-1 text-xs text-slate-500">
-          {view.version > 0 ? t("settings.versionInForce", { version: view.version }) : t("settings.versionFiles")}
+          {view.version > 0 ? t("settings.versionInForce", { version: f.number(view.version) }) : t("settings.versionFiles")}
         </p>
         {view.ignored.length > 0 && (
           <p role="alert" className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900">

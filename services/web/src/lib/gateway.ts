@@ -315,8 +315,18 @@ export async function listSettingsVersions({ gatewayUrl, token, signal }: Author
 }
 
 /** What is in use now: counts only (ADR-0282). */
-export async function getUsage({ gatewayUrl, token, signal }: Authorized): Promise<PlatformUsage> {
-  return required(await callJson<PlatformUsage>(`${gatewayUrl}/v1/admin/usage`, token, { method: "GET", signal }), 200);
+/** The usage counts; `pageSession` is the page load's random id, so the gateway audits its first read (ADR-0287). */
+export async function getUsage({
+  gatewayUrl,
+  token,
+  signal,
+  pageSession,
+}: Authorized & { pageSession?: string }): Promise<PlatformUsage> {
+  const query = pageSession ? `?page_session=${encodeURIComponent(pageSession)}` : "";
+  return required(
+    await callJson<PlatformUsage>(`${gatewayUrl}/v1/admin/usage${query}`, token, { method: "GET", signal }),
+    200,
+  );
 }
 
 type StreamTurnArgs = {

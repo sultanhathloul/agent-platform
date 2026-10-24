@@ -67,7 +67,7 @@ export type FieldProblem = "number" | "integer" | "range" | "tenant" | null;
 
 /** What a typed number cannot be for this field, before any call; null when it may be sent. */
 export function checkNumber(text: string, field: SettingField): { value: number | null; problem: FieldProblem } {
-  const trimmed = text.trim().replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+  const trimmed = westernDigits(text.trim());
   if (trimmed === "" || !/^\d+(\.\d+)?$/.test(trimmed)) return { value: null, problem: "number" };
   const value = Number(trimmed);
   if (field.integer && !Number.isInteger(value)) return { value, problem: "integer" };
@@ -105,13 +105,65 @@ export function byGroup(fields: SettingField[], group: Group): SettingField[] {
   return fields.filter((f) => f.group === group);
 }
 
-/** A number as the page shows it: up to one decimal, in the locale's digits. */
-export function formatNumber(value: number, locale: string): string {
-  return new Intl.NumberFormat(locale === "ar" ? "ar-SA" : "en-GB", { maximumFractionDigits: 1 }).format(value);
+// Western digits (0-9) everywhere on the page, in both languages (the owner's visual check,
+// ADR-0288): one formatter for every number, date and time the page shows.
+const TAGS = { ar: "ar-SA-u-nu-latn", en: "en-GB" } as const;
+
+export type PageFormat = { number: (value: number) => string; time: (iso: string) => string };
+
+export function pageFormat(locale: string): PageFormat {
+  const tag = locale === "ar" ? TAGS.ar : TAGS.en;
+  const numbers = new Intl.NumberFormat(tag, { maximumFractionDigits: 1, useGrouping: false });
+  const times = new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeStyle: "medium" });
+  return { number: (value) => numbers.format(value), time: (iso) => times.format(new Date(iso)) };
 }
 
-export function formatTime(iso: string, locale: string): string {
-  return new Date(iso).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB");
+/** Arabic-Indic and Persian digits typed into a field, as Western digits. */
+export function westernDigits(text: string): string {
+  return text.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => String((d.charCodeAt(0) - 0x0660) % 0x90));
+}
+
+/** A read-only value's chip: the file's name and the key ("docker-compose.yml · mem_limit"); the full source is its tooltip. */
+export function sourceChip(source: string): string {
+  const [path = source, ...rest] = source.replace(/\s*\(.*\)\s*$/, "").trim().split(/\s+/);
+  const file = path.split("/").pop() ?? path;
+  const last = rest.at(-1);
+  if (!last) return file;
+  return `${file} · ${last.split(".").pop() ?? last}`;
+}
+
+/** One row of the timeout tree: a pair with its depth, and whether a pair under it fails. */
+export type TreeRow = { pair: TimeoutPair; depth: number; path: string; failsBelow: boolean };
+
+/**
+ * The pairs as a tree (ADR-0286): each pair under each pair it names as a parent, in the rules'
+ * order; a pair whose parents are all missing is a root. A pair under two parents (an MCP server
+ * under each tool on it) shows under both.
+ */
+export function treeRows(pairs: TimeoutPair[]): TreeRow[] {
+  const known = new Set(pairs.map((p) => p.rule));
+  const children = new Map<string, TimeoutPair[]>();
+  const roots: TimeoutPair[] = [];
+  for (const pair of pairs) {
+    const parents = (pair.parents ?? []).filter((p) => known.has(p) && p !== pair.rule);
+    if (parents.length === 0) roots.push(pair);
+    for (const parent of parents) children.set(parent, [...(children.get(parent) ?? []), pair]);
+  }
+  const out: TreeRow[] = [];
+  const visit = (pair: TimeoutPair, depth: number, path: string, seen: Set<string>): boolean => {
+    const row: TreeRow = { pair, depth, path, failsBelow: false };
+    out.push(row);
+    let fails = false;
+    for (const child of children.get(pair.rule) ?? []) {
+      if (seen.has(child.rule)) continue;
+      const below = visit(child, depth + 1, `${path}/${child.rule}`, new Set([...seen, child.rule]));
+      fails = below || !child.holds || fails;
+    }
+    row.failsBelow = fails;
+    return fails || !pair.holds;
+  };
+  for (const root of roots) visit(root, 0, root.rule, new Set([root.rule]));
+  return out;
 }
 
 /** The usage section refreshes this often while the page is open (item 7b). */
