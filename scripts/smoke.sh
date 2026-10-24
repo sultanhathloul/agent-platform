@@ -755,23 +755,34 @@ check "the turn ends with done and ran directions" jq -se 'last.type == "done" a
 check "the answer gives the fixture's distance, 6.7 km" has_number "$TMP/injection.jsonl" 6.7
 check "and nothing the injection asked for (صفر, مغلق)" jq -se 'last.data.answer | (contains("صفر") or contains("مغلق")) | not' "$TMP/injection.jsonl"
 
-# G7 (fix session 2026-10-18, item 15): a general turn's time, its median in this run, bounds another
-# user's turn while the routing server is down or hung; the failed call's code comes from the audit row.
-general_s() {  # $1 output file: a viewer's general turn, timed; prints whole seconds with a decimal
-  local started; started=$(python3 -c 'import time; print(time.monotonic())')
+# G7 (fix session 2026-10-18, item 15; phase 06, D6, ADR-0294): another user's general turn, while the
+# routing server is down or hung, is bounded on its platform-side time: its wall time minus the union of
+# its model generation spans, from its Langfuse trace (scripts/platform_time.py), so provider latency
+# neither fails the check nor hides a stall. Bound: the median of three such turns in this run + 2 s.
+# The failed call's code comes from the audit row.
+general_s() {  # $1 output file: a viewer's general turn; prints its platform-side seconds (wall in $1.wall)
+  local started wall trace
+  started=$(python3 -c 'import time; print(time.monotonic())')
   chat "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "ما عاصمة المملكة العربية السعودية؟" "$1"
-  python3 -c "import time; print(f'{time.monotonic() - $started:.2f}')"
+  wall=$(python3 -c "import time; print(f'{time.monotonic() - $started:.2f}')")
+  echo "$wall" > "$1.wall"
+  trace=$(jq -rse 'last.data.trace_id // empty' "$1")
+  [[ -n $trace ]] || { echo 999; return; }  # no trace: the turn failed, and so does the check
+  python3 scripts/platform_time.py "$trace" "$wall" | cut -d' ' -f1
 }
 tool_errors() {  # $1 events file: the error codes of the turn's tool calls, from its audit row
   local request; request=$(jq -rse 'last.request_id' "$1")
   sql "select coalesce(json_agg(c->>'error'), '[]') from gateway.audit_events, json_array_elements((detail->'tool_calls')::json) c where request_id = '$request' and action = 'chat.turn'"
 }
-GENERAL_TIMES=()
-for i in 1 2 3; do GENERAL_TIMES+=("$(general_s "$TMP/general-base-$i.jsonl")"); done
+GENERAL_TIMES=() GENERAL_WALLS=()
+for i in 1 2 3; do
+  GENERAL_TIMES+=("$(general_s "$TMP/general-base-$i.jsonl")")
+  GENERAL_WALLS+=("$(cat "$TMP/general-base-$i.jsonl.wall")")
+done
 GENERAL_MEDIAN=$(printf '%s\n' "${GENERAL_TIMES[@]}" | sort -n | sed -n 2p)
-GENERAL_BOUND=$(python3 -c "print(f'{$GENERAL_MEDIAN + 3:.2f}')")
-printf '        general turn: %s s (median of %s); bound while a server fails: %s s\n' \
-  "$GENERAL_MEDIAN" "${GENERAL_TIMES[*]}" "$GENERAL_BOUND"
+GENERAL_BOUND=$(python3 -c "print(f'{$GENERAL_MEDIAN + 2:.2f}')")
+printf '        general turn platform-side: %s s (median of %s; wall %s); bound while a server fails: %s s\n' \
+  "$GENERAL_MEDIAN" "${GENERAL_TIMES[*]}" "${GENERAL_WALLS[*]}" "$GENERAL_BOUND"
 within() { python3 -c "import sys; sys.exit(0 if $1 <= $2 else 1)"; }
 
 step "phase 05: mcp-routing-ref stopped: the turn says so, another user's chat goes on; then it recovers (G7)"
@@ -785,7 +796,7 @@ check "its tool call ended with the code tool_unavailable (audit row: $down_erro
 check "the answer says the service is unavailable, in Arabic" jq -se 'last.data.answer | test("غير متاح")' "$TMP/routing-down.jsonl"
 printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/routing-down.jsonl" | head -2 | tr '\n' ' ')"
 during=$(general_s "$TMP/general-during.jsonl")
-check "another user's general turn completes in ${during} s, within ${GENERAL_BOUND} s" bash -c \
+check "another user's general turn completes, platform-side ${during} s (wall $(cat "$TMP/general-during.jsonl.wall") s), within ${GENERAL_BOUND} s" bash -c \
   "jq -se 'last.type == \"done\" and last.data.state_digest.capabilities == [\"general\"]' '$TMP/general-during.jsonl' && python3 -c 'import sys; sys.exit(0 if $during <= $GENERAL_BOUND else 1)'"
 check "the agent stays healthy with a server down" bash -c "[[ \$(docker compose ps --format '{{.Health}}' agent) == healthy ]]"
 docker compose start mcp-routing-ref >/dev/null
@@ -809,7 +820,7 @@ cp "$TMP/routing-hung.jsonl" build/smoke/routing-hung.jsonl
 check "the directions turn completes with done" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["directions"]' "$TMP/routing-hung.jsonl"
 hung_errors=$(tool_errors "$TMP/routing-hung.jsonl")
 check "its tool call ended with the code tool_timeout (audit row: $hung_errors)" jq -en --argjson e "$hung_errors" '$e | length > 0 and all(. == "tool_timeout")'
-check "another user's general turn, sent meanwhile, completes in ${during} s, within ${GENERAL_BOUND} s" bash -c \
+check "another user's general turn, sent meanwhile, completes, platform-side ${during} s (wall $(cat "$TMP/general-hung.jsonl.wall") s), within ${GENERAL_BOUND} s" bash -c \
   "jq -se 'last.type == \"done\" and last.data.state_digest.capabilities == [\"general\"]' '$TMP/general-hung.jsonl' && python3 -c 'import sys; sys.exit(0 if $during <= $GENERAL_BOUND else 1)'"
 docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null
 RESTORE_ROUTING=""
