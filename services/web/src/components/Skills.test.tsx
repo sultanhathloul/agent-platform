@@ -67,6 +67,19 @@ describe("the reply's skill chip", () => {
     expect(text(en)).toContain("Written as Test form");
   });
 
+  it("leaves with the answer when the turn fails", () => {
+    const started = applyEvent(initialAssistant(), {
+      type: "skill", request_id: "r", turn_id: "t", seq: 1,
+      data: { slug: "fixture_form", label: { ar: "نموذج الاختبار", en: "Test form" } },
+    } as const);
+    const failed = applyEvent(started, {
+      type: "error", request_id: "r", turn_id: "t", seq: 2,
+      data: { code: "turn_timeout", message_ar: "م", message_en: "m", retryable: true },
+    } as never);
+    expect(failed.status).toBe("error");
+    expect(failed.skill).toBeUndefined();
+  });
+
   it("comes from the history, and a reply without a skill shows none", () => {
     const turns = turnsFromHistory([
       { role: "user", text: "س", attachments: [], citations: [] },

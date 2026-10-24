@@ -64,7 +64,8 @@ function mergeCitations(current: Citation[], incoming: Citation[]): Citation[] {
 // A turn that ends in an error has no answer: text streamed before it is withdrawn, not left
 // on screen beside the error (ADR-0048).
 function failed(message: AssistantMessage, error: ErrorInfo): AssistantMessage {
-  return { ...message, status: "error", text: "", receivedTokens: false, error };
+  // No answer, so no skill chip either: nothing was written with it.
+  return { ...message, skill: undefined, status: "error", text: "", receivedTokens: false, error };
 }
 
 export function applyEvent(message: AssistantMessage, event: StreamEvent): AssistantMessage {
