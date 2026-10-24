@@ -154,7 +154,10 @@ def _fields(store: SettingsStore, values: dict, overrides: dict) -> list[Setting
 
 
 def _tree(values: dict) -> list[TimeoutPair]:
-    """The nested timeout pairs, in the rules' order (a margin the code must use is no pair)."""
+    """The nested timeout pairs, in the rules' order (a margin the code must use is no pair), each
+    with the pairs it nests under (ADR-0286)."""
+    found = budget.checks(values)
+    links = budget.parents(values, found)
     return [
         TimeoutPair(
             rule=check.name,
@@ -166,8 +169,9 @@ def _tree(values: dict) -> list[TimeoutPair]:
             outer_value=check.outer_v,
             strict=check.strict,
             holds=check.holds,
+            parents=links.get(check.name, []),
         )
-        for check in budget.checks(values)
+        for check in found
         if check.unit == "s"
     ]
 

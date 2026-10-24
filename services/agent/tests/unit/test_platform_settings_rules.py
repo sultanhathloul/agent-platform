@@ -118,7 +118,9 @@ def test_evaluate_never_changes_the_files_values(values):
 
 
 def test_a_snapshot_writes_the_overrides_over_the_default_a_caller_holds(defaults):
-    snapshot = build(defaults, 3, {"turn.per_user_max": 1, "models.helper_s": 15, "docs.register_response_s": 12})
+    snapshot = build(
+        defaults, 3, {"turn.per_user_max": 1, "models.helper_s": 15, "docs.register_response_s": 12}
+    )
     assert snapshot.turn.per_user_max == 1
     assert snapshot.turn_caps().per_user == 1
     with effective.pin(snapshot):
@@ -166,7 +168,7 @@ def test_a_refusal_names_the_conflict_in_plain_words(values, messages):
     _, problems = budget.evaluate(values, {"turn.answer_reserve_s": 130})
     check = next(p for p in problems if p.name == "answer-reserve-in-turn")
     ar, en = messages.describe(check, lambda kind, ident: (ident, ident))
-    assert ar.startswith("مهلة الإجابة (١٣٠ ثانية) أطول من مهلة السؤال كله (١٢٠ ثانية)")
+    assert ar.startswith("مهلة الإجابة (130 ثانية) أطول من مهلة السؤال كله (120 ثانية)")
     assert "130 s" in en and "120 s" in en
     _, problems = budget.evaluate(values, {"turn.deadline_s": 80})
     room = next(p for p in problems if p.name.startswith("capability-in-room:"))
@@ -175,4 +177,38 @@ def test_a_refusal_names_the_conflict_in_plain_words(values, messages):
     assert "«الملفات المرفقة»" in ar
     _, problems = budget.evaluate(values, {"turn.per_user_max": 0})
     ar, en = messages.describe(problems[0], lambda kind, ident: ("", ""), minimum=1)
-    assert ar == "الأسئلة الجارية للمستخدم الواحد: القيمة ٠ خارج المدى المسموح، من ١ إلى ٢٠."
+    assert ar == "الأسئلة الجارية للمستخدم الواحد: القيمة 0 خارج المدى المسموح، من 1 إلى 20."
+
+
+def test_the_timeout_tree_nests_each_bound_under_the_one_that_encloses_it(values):
+    """ADR-0286: gateway relay → turn → capability → tool → MCP server, turn → answer reserve, and a
+    pair of one capability never under another's."""
+    found = budget.checks(values)
+    links = budget.parents(values, found)
+    pairs = {c.name for c in found if c.unit == "s"}
+    assert set(links) == pairs
+    assert links["turn-in-relay"] == [] and links["headers-in-relay"] == []
+    assert links["admission-in-headers"] == ["headers-in-relay"]
+    assert links["answer-reserve-in-turn"] == ["turn-in-relay"]
+    assert links["post-answer-in-answer-reserve"] == ["answer-reserve-in-turn"]
+    assert links["reasoning-in-turn"] == ["turn-in-relay"]
+    slugs = sorted(values["manifests"])
+    for slug in slugs:
+        assert links[f"capability-in-room:{slug}"] == ["turn-in-relay"]
+    tools = [n for n in pairs if n.startswith("tool-in-capability:")]
+    assert tools
+    for name in tools:
+        slug = name.split(":")[1]
+        assert links[name] == [f"capability-in-room:{slug}"]
+    for name in (n for n in pairs if n.startswith(("facade-search-in-tool:", "document-server-in-tool:"))):
+        _, slug, tool = name.split(":", 2)
+        assert links[name] == [f"tool-in-capability:{slug}:{tool}"]
+    servers = [n for n in pairs if n.startswith("slot-and-attempt-in-broker:")]
+    assert servers and any(links[n] for n in servers)
+    for name in servers:
+        sid = name.split(":", 1)[1]
+        assert all(
+            p.startswith("tool-in-capability:") and p.split(":")[2].startswith(f"{sid}.") for p in links[name]
+        )
+    # Every parent is itself a pair, so the page can nest each row.
+    assert all(p in pairs for ps in links.values() for p in ps)

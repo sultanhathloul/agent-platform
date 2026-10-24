@@ -400,6 +400,51 @@ _FAMILIES: dict[str, Callable[..., Check]] = {
 }
 
 
+# The bounds a pair's outer side derives from another bound (ADR-0286): the turn's room before the
+# answer lies in the turn; the longest and shortest of several are that one; the slot-and-attempt
+# rule names the broker bound with its constant, the tool rules with "margin".
+_BROKER_OUTER = re.compile(r"broker bound 2 × (\S+)\.timeout_s \+ _BROKER_MARGIN_S")
+_PER_CAPABILITY = (
+    "capability-in-room",
+    "tool-in-capability",
+    "facade-search-in-tool",
+    "document-server-in-tool",
+)
+
+
+def _capability_of(name: str) -> str | None:
+    family, _, rest = name.partition(":")
+    return rest.split(":", 1)[0] if family in _PER_CAPABILITY else None
+
+
+def parents(v: dict, found: list[Check]) -> dict[str, list[str]]:
+    """The timeout tree (ADR-0286): for each timeout pair, the pairs whose inner bound is its outer
+    one, so a bound is shown nested under the bound that encloses it (turn → capability → tool →
+    MCP server; the gateway's relay → turn → answer). A pair of one capability nests only under a
+    pair of the same capability; an MCP server's pair under each tool on it. A pair with no parent
+    is a root."""
+    pairs = [c for c in found if c.unit == "s" and c.inner is not None]
+    roles, manifests = v["models"]["timeouts"]["roles"], v["manifests"]
+    derived = {
+        "deadline_s − answer_reserve_s": "deadline_s",
+        "longest role ceiling": f"timeouts.roles.{max(roles, key=lambda r: roles[r])}",
+        "shortest capability limits.timeout_s": (
+            f"{min(manifests, key=lambda s: manifests[s]['limits']['timeout_s'])} limits.timeout_s"
+        ),
+    }
+    out: dict[str, list[str]] = {}
+    for pair in pairs:
+        outer = derived.get(pair.outer, pair.outer)
+        outer = _BROKER_OUTER.sub(r"broker bound 2 × \1.timeout_s + margin", outer)
+        mine = _capability_of(pair.name)
+        out[pair.name] = [
+            q.name
+            for q in pairs
+            if q is not pair and q.inner == outer and (mine is None or _capability_of(q.name) in (None, mine))
+        ]
+    return out
+
+
 def _limit_to_bound(v: dict, slug: str, tool: str) -> None:
     bound = _tool_bound(v, tool)
     v["manifests"][slug]["limits"]["timeout_s"] = bound[1] if bound else 0.0

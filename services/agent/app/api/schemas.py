@@ -472,6 +472,10 @@ class TimeoutPair(BaseModel):
     outer_value: float
     strict: bool = Field(description="inner < outer when true, inner ≤ outer when false.")
     holds: bool
+    parents: list[str] = Field(
+        default_factory=list,
+        description="The rules whose inner bound is this pair's outer one: its parent rows (ADR-0286).",
+    )
 
 
 class SettingsProblem(BaseModel):
