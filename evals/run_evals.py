@@ -51,6 +51,13 @@ under that set and never counts toward its suite's rate (ADR-0241). The rag suit
 afterwards, pass or fail. A provider 429 (a `model_unavailable` turn, or a rate-limited judge
 call) is retried with bounded exponential backoff, and each suite records its retries.
 
+Phase 06 (I9, I10, ADR-0303, ADR-0304): suites are also globbed from skills/*/evals, and the
+harness names no skill. A case may name `skill`, sent as the composer's picker would send it; a
+metrics suite's case may name a `document`, uploaded and attached first. The turn fields a
+metrics.yaml check reads are `capabilities`, `skill` (the applied skill's slug, or null) and
+`cited` (the answer shows a source). A case with `expected_skill` (routing.jsonl) also checks
+the applied skill. New generic scorers: sections_in_order, text_present, length_between.
+
 Phase 06 (D5, ADR-0293): a case lost or interrupted (no `done` event: `agent_stream_interrupted`,
 a provider error, an HTTP refusal, a document that never indexed) is a failure in every metric it
 would have counted in, never a case dropped from a denominator; each suite reports its lost cases
@@ -138,6 +145,19 @@ def has_label(answer: str) -> bool:
     return _LABEL.search(answer or "") is not None
 
 
+def applied_skill(data: dict) -> str | None:
+    """The slug of the skill a done event's answer was written with (state_digest.skill, slug@version)."""
+    ref = (data.get("state_digest") or {}).get("skill")
+    return ref.split("@", 1)[0] if isinstance(ref, str) and ref else None
+
+
+def skill_problems(case: dict, skill: str | None) -> list[str]:
+    """routing.jsonl's `expected_skill` (null when none, phase 06, I10)."""
+    if "expected_skill" not in case or case["expected_skill"] == skill:
+        return []
+    return [f"skill {skill} != {case['expected_skill']}"]
+
+
 def check(case: dict, answer: str) -> list[str]:
     expect, failures = case.get("expect", {}), []
     if "contains_any" in expect and not any(contains(answer, s) for s in expect["contains_any"]):
@@ -223,6 +243,8 @@ def run_turn(
         "locale": case.get("locale", "ar"),
         "attachment_ids": attachment_ids or [],
     }
+    if case.get("skill"):
+        body["skill"] = case["skill"]  # the composer's picker (phase 06, ADR-0292)
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
 
     def once() -> dict:
@@ -415,6 +437,21 @@ def expected_section_sha(document: str, section: str, sections: dict) -> str | N
     return None
 
 
+def metric_document_turn(http, cfg, token: str, case: dict) -> dict:
+    """A metrics suite's case over a document (phase 06, I9): a new conversation, the document
+    uploaded and indexed, then the turn with it attached (unless `attach` is false). The terminal
+    event, or a lost one when the upload failed."""
+    gateway = cfg["GATEWAY_PUBLIC_URL"]
+    conversation = str(uuid.uuid4())
+    try:
+        attachment = upload(http, gateway, token, conversation, case["document"])
+    except (RuntimeError, httpx.HTTPError) as exc:
+        code = "upload_failed" if isinstance(exc, httpx.HTTPError) else "not_indexed"
+        return {"type": "error", "data": {"code": code}}
+    return run_turn(http, gateway, token, case, conversation_id=conversation,
+                    attachment_ids=[attachment] if case.get("attach", True) else [])
+
+
 def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", sections: dict, auth) -> dict:
     """One routing or rag case in a new conversation with its document indexed first."""
     gateway = cfg["GATEWAY_PUBLIC_URL"]
@@ -432,12 +469,14 @@ def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", 
         return {"event": event, "lost": code, "problems": [f"no done event ({code})"]}
     data = event["data"]
     outcome = {"event": event, "answer": data["answer"], "trace_id": data.get("trace_id"),
-               "capabilities": data["state_digest"]["capabilities"], "citations": data.get("citations") or []}
+               "capabilities": data["state_digest"]["capabilities"], "citations": data.get("citations") or [],
+               "skill": applied_skill(data)}
     expect = case["expect"]
     problems: list[str] = []
     if "capabilities" in expect:  # routing
         if outcome["capabilities"] != expect["capabilities"]:
             problems.append(f"capabilities {outcome['capabilities']} != {expect['capabilities']}")
+        problems += skill_problems(case, outcome["skill"])
         outcome["problems"] = problems
         return outcome
     kind = expect["kind"]
@@ -757,6 +796,7 @@ def use_backend(name: str) -> None:
 def suites() -> dict[str, Path]:
     files = sorted((REPO / "evals" / "golden").glob("*.jsonl"))
     files += sorted((REPO / "services" / "agent" / "app" / "capabilities").glob("*/evals/*.jsonl"))
+    files += sorted((REPO / "skills").glob("*/evals/*.jsonl"))  # phase 06 (I9): names no skill
     found = {path.stem: path for path in files}
     # rag.jsonl runs on both document backends; the second run is `rag@mcp` (phase 05, I11).
     ordered: dict[str, Path] = {}
@@ -817,7 +857,7 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
     case_records: list[dict] = []
     for case in cases:
         item_id = f"{name}:{case['id']}"
-        if "document" in case:
+        if "document" in case and metrics is None:
             langfuse(
                 http, cfg, auth, "dataset-items",
                 {"datasetName": name, "id": item_id,
@@ -910,7 +950,8 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
         )
         # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
         token = login(*EVAL_USER)["access_token"]
-        event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
+        event = metric_document_turn(http, cfg, token, case) if "document" in case else \
+            run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
         scored: dict[str, bool] = {}
         capabilities: list[str] | None = None
         lost = lost_code(event)
@@ -918,13 +959,16 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
             answer = event["data"]["answer"]
             capabilities = event["data"]["state_digest"]["capabilities"]
             trace_id = event["data"].get("trace_id")
+            turn_fields = {"capabilities": capabilities, "skill": applied_skill(event["data"]),
+                           "cited": bool(event["data"].get("citations"))}
             if metrics is not None:
-                scored, problems = metric_outcome(metrics, case, answer, {"capabilities": capabilities})
+                scored, problems = metric_outcome(metrics, case, answer, turn_fields)
             else:
                 problems = check(case, answer)
                 wanted = case.get("expect", {}).get("capabilities")
                 if wanted is not None and capabilities != wanted:
                     problems.append(f"capabilities {capabilities} != {wanted}")
+                problems += skill_problems(case, turn_fields["skill"])
         else:
             answer, problems, trace_id = "", [f"no done event ({lost})"], None
             if metrics is not None:

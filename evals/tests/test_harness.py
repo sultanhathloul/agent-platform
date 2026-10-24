@@ -267,3 +267,25 @@ def test_turn_fields_score_the_applied_skill_and_citations():
     assert not harness.score_check(check, {"expect": {"skill": "x"}}, "", {"skill": None})
     cited = {"scorer": "field_equals", "field": "cited", "default": True}
     assert harness.score_check(cited, {}, "", {"cited": True}) and not harness.score_check(cited, {}, "", {"cited": False})
+
+
+def test_the_harness_names_no_skill_and_globs_their_evals():
+    """Zero core change for skill evals (phase 06, I9): skills/*/evals are suites, none named."""
+    harness = _harness()
+    source = (EVALS / "run_evals.py").read_text(encoding="utf-8").lower()
+    skills = EVALS.parent / "skills"
+    slugs = [p.name for p in skills.iterdir() if p.is_dir()] if skills.is_dir() else []
+    assert not [slug for slug in slugs + ["official_memo", "official_letter"] if slug in source]
+    found = harness.suites()
+    for slug in slugs:
+        if (skills / slug / "evals" / f"{slug}.jsonl").is_file():
+            assert found[slug] == skills / slug / "evals" / f"{slug}.jsonl"
+
+
+def test_the_applied_skill_and_expected_skill():
+    harness = _harness()
+    assert harness.applied_skill({"state_digest": {"skill": "x_form@1.2.0"}}) == "x_form"
+    assert harness.applied_skill({"state_digest": {"skill": None}}) is None and harness.applied_skill({}) is None
+    assert harness.skill_problems({"expected_skill": None}, None) == []
+    assert harness.skill_problems({"expected_skill": "x_form"}, None) == ["skill None != x_form"]
+    assert harness.skill_problems({"id": "no key"}, "x_form") == []
