@@ -111,6 +111,19 @@ class ToolLabel(_Model):
     en: str
 
 
+class SkillLabel(_Model):
+    ar: str
+    en: str
+
+
+class SkillData(_Model):
+    """The skill applied to this turn's answer (phase 06, ADR-0301): its slug and its name per
+    locale, from its SKILL.md. Sent before the answer's first token; never the skill's text."""
+
+    slug: str
+    label: SkillLabel
+
+
 class ToolStartData(_Model):
     call_id: str
     tool: str
@@ -153,6 +166,9 @@ class Usage(_Model):
 class StateDigest(_Model):
     turn: int
     capabilities: list[str] = Field(description="Capability slugs that ran this turn, in order.")
+    skill: str | None = Field(
+        default=None, description="slug@version of the skill applied to the answer, if any (phase 06, G8)."
+    )
 
 
 class DoneData(_Model):
@@ -249,6 +265,13 @@ class RetractEvent(_Envelope):
     data: RetractData
 
 
+class SkillEvent(_Envelope):
+    """The skill the answer is written with (phase 06); precedes the answer's tokens."""
+
+    type: Literal["skill"]
+    data: SkillData
+
+
 class ProgressEvent(_Envelope):
     """A capability reports how far it got (ADR-0047)."""
 
@@ -264,6 +287,7 @@ AgentEvent = Annotated[
     | ToolEndEvent
     | CitationEvent
     | ProgressEvent
+    | SkillEvent
     | DoneEvent
     | ErrorEvent
     | RetractEvent,
@@ -280,13 +304,14 @@ _PAYLOADS: dict[str, type[_Model]] = {
     "tool_end": ToolEndData,
     "citation": Citation,
     "progress": ProgressData,
+    "skill": SkillData,
     "done": DoneData,
     "error": ErrorData,
     "retract": RetractData,
 }
 
 EventType = Literal[
-    "token", "tier", "guard", "tool_start", "tool_end", "citation", "progress", "done", "error", "retract"
+    "token", "tier", "guard", "tool_start", "tool_end", "citation", "progress", "skill", "done", "error", "retract"
 ]
 
 

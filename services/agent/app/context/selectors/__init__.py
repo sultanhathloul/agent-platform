@@ -7,6 +7,7 @@ from app.context.selectors.blocks import (
     MemoryRetrieval,
     RollingSummary,
     SemanticRetrieval,
+    SkillInstructions,
     SlidingWindow,
     StateDigest,
     SystemInstructions,
@@ -19,6 +20,7 @@ STEPS: dict[str, type[Step]] = {
     step.name: step
     for step in (
         SystemInstructions,
+        SkillInstructions,
         StateDigest,
         RollingSummary,
         SlidingWindow,

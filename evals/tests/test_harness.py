@@ -232,3 +232,38 @@ def test_rescoring_a_rag_suite_counts_its_lost_cases():
     out = harness.rescore_suite("rag", rag, {"cases": records, "scores": {"hit_at_8": 1.0, "counts": {"ragas": 3}}},
                                 threshold)
     assert out["scores"]["hit_at_8"] == 0.75 and out["scores"]["faithfulness"] == 0.75 and out["ok"] is False
+
+
+# ------------------------------------------------------------------ skill scorers (phase 06, I9)
+
+
+def test_sections_in_order_need_every_section_after_the_previous_one():
+    harness = _harness()
+    memo = "مذكرة داخلية\nالرقم: [الرقم]\nإلى: مدير الإدارة\nالموضوع: الإجازات\nالسلام عليكم ورحمة الله وبركاته\n...\nوتقبلوا خالص التحية والتقدير"
+    sections = ["مذكره داخليه", "الرقم", "الى", "الموضوع", "السلام عليكم", "وتقبلوا خالص التحيه"]
+    assert harness.sections_in_order(memo, sections)  # folded: ة/ه, إ/ا
+    assert not harness.sections_in_order(memo, ["الموضوع", "الرقم"])  # wrong order
+    assert not harness.sections_in_order(memo, sections + ["التوقيع"])  # a missing section
+    assert harness.sections_in_order("Subject: x\nTo: y", [["subject", "re:"], "to:"])  # alternatives
+    assert not harness.sections_in_order(memo, [])
+
+
+def test_text_present_and_length_between():
+    harness = _harness()
+    case = {"expect": {"facts": ["30", ["ثلاثون", "ثلاثين"]]}}
+    present = {"scorer": "text_present", "expected": "expect.facts"}
+    assert harness.score_check(present, case, "مدة الإجازة 30 يوما، أي ثلاثين يوما", {})
+    assert not harness.score_check(present, case, "مدة الإجازة 30 يوما", {})
+    assert harness.score_check({"scorer": "text_present", "texts": ["[التاريخ]"]}, {}, "التاريخ: [التاريخ]", {})
+    length = {"scorer": "length_between", "min": 3, "max": 5}
+    assert harness.score_check(length, {}, "one two three four", {})
+    assert not harness.score_check(length, {}, "one two", {}) and not harness.score_check(length, {}, "a b c d e f", {})
+
+
+def test_turn_fields_score_the_applied_skill_and_citations():
+    harness = _harness()
+    check = {"scorer": "field_equals", "field": "skill", "expected": "expect.skill"}
+    assert harness.score_check(check, {"expect": {"skill": "x"}}, "", {"skill": "x"})
+    assert not harness.score_check(check, {"expect": {"skill": "x"}}, "", {"skill": None})
+    cited = {"scorer": "field_equals", "field": "cited", "default": True}
+    assert harness.score_check(cited, {}, "", {"cited": True}) and not harness.score_check(cited, {}, "", {"cited": False})

@@ -73,6 +73,13 @@ class ContextSpec(_Strict):
     needs: list[BlockName] | None = None
     max_input_tokens: int | None = None
 
+    @model_validator(mode="after")
+    def _no_skill_block(self) -> "ContextSpec":
+        # The skill block belongs to the answer node alone, for the turn's selected skill (ADR-0300).
+        if self.needs and "skill" in self.needs:
+            raise ValueError("context.needs may not name 'skill': only the answer node requests it")
+        return self
+
     def needs_or(self, default: Sequence[BlockName]) -> list[BlockName]:
         return list(default) if self.needs is None else list(self.needs)
 

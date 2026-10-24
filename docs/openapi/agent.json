@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.4.0"
+    "version": "2.5.0"
   },
   "paths": {
     "/v1/health": {
@@ -4717,6 +4717,17 @@
             "title": "Citations",
             "description": "A reply's citations, when recorded (ADR-0193).",
             "default": []
+          },
+          "skill": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillData"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The skill applied to a reply, when one was (phase 06, ADR-0301); additive."
           }
         },
         "type": "object",
@@ -6554,6 +6565,44 @@
         "title": "SimulatedPrincipal",
         "description": "A principal for the test panel: which tenant and policy roles to evaluate the policy for."
       },
+      "SkillData": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "$ref": "#/components/schemas/SkillLabel"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "label"
+        ],
+        "title": "SkillData",
+        "description": "The skill applied to this turn's answer (phase 06, ADR-0301): its slug and its name per\nlocale, from its SKILL.md. Sent before the answer's first token; never the skill's text."
+      },
+      "SkillLabel": {
+        "properties": {
+          "ar": {
+            "type": "string",
+            "title": "Ar"
+          },
+          "en": {
+            "type": "string",
+            "title": "En"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ar",
+          "en"
+        ],
+        "title": "SkillLabel"
+      },
       "SpanView": {
         "properties": {
           "start": {
@@ -6729,6 +6778,19 @@
             ],
             "title": "Locale",
             "default": "ar"
+          },
+          "skill": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill",
+            "description": "The skill the user picked in the composer (phase 06, ADR-0292): applied with no router decision on the skill, when it is available to the principal; else 403 skill_forbidden before any stream."
           }
         },
         "additionalProperties": false,

@@ -14,6 +14,7 @@ EVENT_TYPES = {
     "tool_end",
     "citation",
     "progress",
+    "skill",
     "done",
     "error",
     "retract",

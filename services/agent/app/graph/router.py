@@ -42,9 +42,16 @@ class RouterDecision:
     complexity: str | None
     risk: str | None
     source: str  # model | cache | router_default
+    # At most one skill among the turn's skill candidates (phase 06, ADR-0299); None: no skill.
+    skill: str | None = None
+    # A skill the model named that was not a candidate: dropped, reported as `skill_dropped`.
+    dropped_skill: str | None = None
 
 
-def parse_decision(text: str, allowed: Sequence[str]) -> RouterDecision | None:
+def parse_decision(text: str, allowed: Sequence[str], skills: Sequence[str] = ()) -> RouterDecision | None:
+    """The model's JSON `{capabilities, skill, complexity, risk}`. Capabilities outside `allowed`
+    are ignored; a `skill` outside `skills` (the candidates) is dropped and reported; any other
+    value of `skill` (null, a list, a number) is no skill."""
     match = _JSON.search(text or "")
     if not match:
         return None
@@ -62,7 +69,10 @@ def parse_decision(text: str, allowed: Sequence[str]) -> RouterDecision | None:
         return None
     complexity = raw.get("complexity") if raw.get("complexity") in _LEVELS else None
     risk = raw.get("risk") if raw.get("risk") in _LEVELS else None
-    return RouterDecision(chosen, complexity, risk, "model")
+    named = raw.get("skill")
+    skill = named if isinstance(named, str) and named in skills else None
+    dropped = named if isinstance(named, str) and named and skill is None else None
+    return RouterDecision(chosen, complexity, risk, "model", skill=skill, dropped_skill=dropped)
 
 
 def _window(state: dict, size: int) -> list[str]:

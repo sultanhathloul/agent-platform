@@ -5,8 +5,9 @@ records what it cut; the budget guard enforces the tier budget afterwards."""
 from app.context.budget import Budget
 from app.context.compress import extractive, extractive_delimited, truncate
 from app.context.messages import visible
-from app.context.package import ContextPackage
+from app.context.package import ContextPackage, SkillBlockRequest
 from app.context.selectors.base import Step
+from app.models.prompts import PromptLibrary
 
 
 class SystemInstructions(Step):
@@ -27,6 +28,37 @@ class SystemInstructions(Step):
         package.blocks.append(self.make_block("system", "system", prompt.text, prompt=prompt.ref))
         package.prompt_refs.append(prompt.ref)
         return package
+
+
+class SkillInstructions(Step):
+    """The turn's selected skill's instructions (phase 06, ADR-0300), in the system role inside
+    `<skill id= version=>`, right after the system instructions. Reviewed developer text, never
+    user-derived (ADR-0068 binds user text only). Never cut here or by the budget guard: the
+    registry checked at startup that it fits its budget (min of blocks.skill.max_tokens and the
+    skill's max_instruction_tokens)."""
+
+    name = "skill_instructions"
+    block = "skill"
+
+    async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
+        req = package.request
+        if req.skill is None:
+            return package
+        text, refs = render_skill(self.deps.prompts, req.skill, req.locale)
+        ref = f"{req.skill.slug}@{req.skill.version}"
+        package.blocks.append(self.make_block("skill", "system", text, prompt=refs[0], skill=ref))
+        package.prompt_refs.extend(refs)
+        return package
+
+
+def render_skill(prompts: PromptLibrary, skill: SkillBlockRequest, locale: str) -> tuple[str, list[str]]:
+    """`context.skill` around the skill's instructions, and both prompts' `id@version` (the
+    instructions' first). The instructions take no variable. Shared with the startup size check."""
+    instructions = prompts.render(skill.prompt, locale)
+    wrapped = prompts.render(
+        "context.skill", locale, id=skill.slug, version=skill.version, instructions=instructions.text
+    )
+    return wrapped.text, [instructions.ref, wrapped.ref]
 
 
 class StateDigest(Step):

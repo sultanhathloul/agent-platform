@@ -676,7 +676,29 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
         if any(contains(answer, text) for text in expected or []):
             return False
         return not any(re.search(pattern, folded) for pattern in check.get("patterns", []))
+    if scorer == "text_present":
+        # Every expected text (or one of its alternatives) is in the answer, folded (phase 06, I9).
+        items = list(expected or []) + list(check.get("texts", []))
+        return all(any(contains(answer, alt) for alt in _alternatives(item)) for item in items)
+    if scorer == "sections_in_order":
+        return sections_in_order(answer, case_value(case, check["expected"]) if "expected" in check
+                                 else check["sections"])
+    if scorer == "length_between":
+        words = len(re.findall(r"\w+", answer))
+        return int(check.get("min", 0)) <= words <= int(check.get("max", 10**9))
     raise ValueError(f"unknown scorer {scorer!r}")
+
+
+def sections_in_order(answer: str, sections: list) -> bool:
+    """Each section, an Arabic-folded regular expression (or a list of alternatives), is found in
+    the answer after the previous one (phase 06, I9): the layout's headings in their order."""
+    folded, at = fold(answer), 0
+    for section in sections or []:
+        found = [m for m in (re.search(fold(p), folded[at:]) for p in _alternatives(section)) if m]
+        if not found:
+            return False
+        at += min(m.end() for m in found)
+    return bool(sections)
 
 
 def load_metrics(path: Path) -> dict | None:

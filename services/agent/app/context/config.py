@@ -16,6 +16,7 @@ Form = Literal["full", "summary", "reference"]
 
 # Blocks a step produces within a budget of its own; system and user_message are never cut.
 BUDGETED_BLOCKS: tuple[BlockName, ...] = (
+    "skill",
     "state_digest",
     "summary",
     "window",
