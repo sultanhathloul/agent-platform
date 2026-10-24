@@ -177,7 +177,7 @@ async def test_an_invalid_pair_is_refused_in_plain_words_and_nothing_changes(cli
     error = answer.json()["error"]
     assert error["code"] == "settings_invalid"
     assert "answer-reserve-in-turn" in error["details"]
-    assert "مهلة الإجابة (١٣٠ ثانية) أطول من مهلة السؤال كله (١٢٠ ثانية)" in error["message_ar"]
+    assert "مهلة الإجابة (130 ثانية) أطول من مهلة السؤال كله (120 ثانية)" in error["message_ar"]
     assert "130 s" in error["message_en"]
     assert await _version_count(services) == before
     assert services.platform.current is current
