@@ -74,3 +74,9 @@
 {"id": "kw-free-gulf-head", "message": "ابغى اتجه من البوليفارد الى المطار", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
 {"id": "kw-free-gulf-fastest", "message": "وش أسرع شي يوديني الدرعية من المركز المالي؟", "locale": "ar", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
 {"id": "kw-free-en-roads", "message": "Which roads lead from Masmak Palace to the National Museum?", "locale": "en", "report_set": "keyword_free", "expect": {"capabilities": ["directions"]}}
+{"id": "skill-letter-msa", "message": "اكتب خطابا رسميا إلى وزارة النخيل نطلب فيه موعدا لزيارة ميدانية.", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
+{"id": "skill-letter-gulf", "message": "ابي خطاب رسمي لهيئة الواحة نشكرهم فيه على التعاون", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
+{"id": "skill-letter-en", "message": "Write an official letter to the Ministry of Palms requesting a meeting next week.", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": "official_letter"}
+{"id": "skill-letter-docs", "document": "leave-regulation.pdf", "attach": true, "message": "اكتب خطابا رسميا إلى هيئة الواحة نوضح فيه مدة إجازة الأمومة حسب اللائحة المرفقة.", "locale": "ar", "expect": {"capabilities": ["docs"]}, "expected_skill": "official_letter"}
+{"id": "skill-letter-directions", "message": "اكتب مخاطبة رسمية لأمانة الرياض بالمسافة من برج المملكة إلى بوليفارد رياض سيتي بالسيارة.", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": "official_letter"}
+{"id": "skill-letter-gulf-directions", "message": "سوّ لي كتاب رسمي لإدارة النقل فيه كم المسافة بالسيارة من المطار إلى قصر المصمك", "locale": "ar", "expect": {"capabilities": ["directions"]}, "expected_skill": "official_letter"}
