@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -191,13 +192,62 @@ class AdminSettingsProxyTest extends GatewayTestSupport {
 
     @Test
     void theUsageIsCountsOnlyAndAudited() throws Exception {
+        String session = UUID.randomUUID().toString();
         AGENT.enqueue(json(200, USAGE));
-        mvc.perform(get("/v1/admin/usage").header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+        mvc.perform(get("/v1/admin/usage").param("page_session", session)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.turns.in_flight").value(3))
                 .andExpect(jsonPath("$.data.mcp[0].breaker").value("open"))
                 .andExpect(jsonPath("$.data.mcp[0].open_for_s").value(12.5));
-        assertThat(singleAudit().detail()).containsEntry("turns_in_flight", 3);
+        assertThat(singleAudit().detail()).containsEntry("turns_in_flight", 3).containsEntry("page_session", session);
+    }
+
+    @Test
+    void aPageSessionsFirstUsageReadIsAuditedAndItsNextReadsAreNot() throws Exception {
+        String first = UUID.randomUUID().toString();
+        for (int read = 0; read < 3; read++) {
+            AGENT.enqueue(json(200, USAGE));
+            mvc.perform(get("/v1/admin/usage").param("page_session", first)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.turns.in_flight").value(3));
+        }
+        assertThat(singleAudit().detail()).containsEntry("page_session", first);
+        // Another page load is a new page session: its first read is audited too.
+        String second = UUID.randomUUID().toString();
+        AGENT.enqueue(json(200, USAGE));
+        mvc.perform(get("/v1/admin/usage").param("page_session", second)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                .andExpect(status().isOk());
+        assertThat(auditLog().events()).hasSize(2);
+        assertThat(auditLog().events().get(1).detail()).containsEntry("page_session", second);
+    }
+
+    @Test
+    void aMalformedPageSessionIsRefusedBeforeTheAgent() throws Exception {
+        int before = AGENT.getRequestCount();
+        mvc.perform(get("/v1/admin/usage").param("page_session", "not a session!")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_request"));
+        assertThat(AGENT.getRequestCount()).isEqualTo(before);
+    }
+
+    @Test
+    void everySaveIsAuditedEvenWithinTheUsageInterval() throws Exception {
+        for (int save = 0; save < 3; save++) {
+            AGENT.enqueue(json(201, SAVED));
+            mvc.perform(post("/v1/admin/settings")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(adminToken()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"overrides\":{\"turn.per_user_max\":1}}"))
+                    .andExpect(status().isCreated());
+        }
+        assertThat(auditLog().events()).hasSize(3).allSatisfy(event -> {
+            assertThat(event.action()).isEqualTo("settings.save");
+            assertThat(event.status()).isEqualTo(AuditStatus.OK);
+        });
     }
 
     @Test

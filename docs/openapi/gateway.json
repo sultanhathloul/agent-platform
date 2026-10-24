@@ -936,6 +936,15 @@
     "/v1/admin/usage" : {
       "get" : {
         "operationId" : "platformUsage",
+        "parameters" : [ {
+          "description" : "The page's random id for one page load: its first read is audited, then at most one read per 10 minutes per admin (ADR-0287)",
+          "in" : "query",
+          "name" : "page_session",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
         "responses" : {
           "200" : {
             "content" : {
@@ -946,6 +955,16 @@
               }
             },
             "description" : "The counts"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request: a malformed page_session"
           },
           "403" : {
             "content" : {
@@ -3404,6 +3423,14 @@
             },
             "description" : "The ids the rule names: capability, tool, server"
           },
+          "parents" : {
+            "type" : "array",
+            "description" : "The rules whose inner bound is this pair's outer one: the tree's parent rows (ADR-0286)",
+            "items" : {
+              "type" : "string",
+              "description" : "The rules whose inner bound is this pair's outer one: the tree's parent rows (ADR-0286)"
+            }
+          },
           "rule" : {
             "type" : "string"
           },
@@ -3412,7 +3439,7 @@
             "description" : "inner < outer when true, inner ≤ outer when false"
           }
         },
-        "required" : [ "family", "holds", "inner", "inner_value", "outer", "outer_value", "params", "rule", "strict" ]
+        "required" : [ "family", "holds", "inner", "inner_value", "outer", "outer_value", "params", "parents", "rule", "strict" ]
       },
       "TurnsUsage" : {
         "properties" : {

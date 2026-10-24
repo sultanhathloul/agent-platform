@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -50,7 +51,8 @@ import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
  * refused while the audit log is unreachable, answered only once its record is written, and a
  * non-admin's attempt recorded as {@code denied}. A change's record holds every value it changed,
  * before and after, and the actor's username and display name (the policy change log precedent,
- * ADR-0123). The usage section's reads are audited like every admin call.
+ * ADR-0123). A usage read is audited when it is the first of a page session, then at most once per
+ * 10 minutes per admin (ADR-0287); a refused one always.
  */
 @RestController
 @Tag(name = "admin-settings")
@@ -64,17 +66,22 @@ public class AdminSettingsController {
             "settings_version_not_found", ErrorCode.SETTINGS_VERSION_NOT_FOUND,
             "invalid_request", ErrorCode.INVALID_REQUEST,
             "forbidden", ErrorCode.FORBIDDEN);
+    // The page's own random id for one page load (ADR-0287): no user data.
+    private static final Pattern PAGE_SESSION = Pattern.compile("[A-Za-z0-9-]{1,64}");
 
     private final AgentClient agent;
     private final AuditTrail audit;
     private final ErrorResponses errors;
     private final ObjectMapper mapper;
+    private final UsageAuditGate usageAudit;
 
-    public AdminSettingsController(AgentClient agent, AuditTrail audit, ErrorResponses errors, ObjectMapper mapper) {
+    public AdminSettingsController(
+            AgentClient agent, AuditTrail audit, ErrorResponses errors, ObjectMapper mapper, UsageAuditGate usageAudit) {
         this.agent = agent;
         this.audit = audit;
         this.errors = errors;
         this.mapper = mapper;
+        this.usageAudit = usageAudit;
     }
 
     @GetMapping(path = BASE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -192,15 +199,27 @@ public class AdminSettingsController {
     @Operation(summary = "What is in use now: turns, MCP slots and breakers, background registrations; counts only",
             responses = {
         @ApiResponse(responseCode = "200", description = "The counts"),
+        @ApiResponse(responseCode = "400", description = "invalid_request: a malformed page_session", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
         @ApiResponse(responseCode = "403", description = "forbidden: not an admin", content = @Content(
                 mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class)))
     })
     public ResponseEntity<ApiEnvelope<PlatformUsage>> platformUsage(
+            @Parameter(description = "The page's random id for one page load: its first read is audited, then at "
+                    + "most one read per 10 minutes per admin (ADR-0287)")
+            @RequestParam(name = "page_session", required = false) String pageSession,
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             HttpServletRequest request,
             HttpServletResponse response) throws IOException {
+        if (pageSession != null && !PAGE_SESSION.matcher(pageSession).matches()) {
+            return failed(request, response, ErrorCode.INVALID_REQUEST, null);
+        }
+        Map<String, Object> detail = new LinkedHashMap<>();
+        if (pageSession != null) {
+            detail.put("page_session", pageSession);
+        }
         return proxy(jwt, request, response, "settings.usage", HttpMethod.GET, USAGE, null, PlatformUsage.class, 200,
-                new LinkedHashMap<>(), (d, usage) -> d.put("turns_in_flight", usage.turns().inFlight()));
+                detail, (d, usage) -> d.put("turns_in_flight", usage.turns().inFlight()), true, pageSession);
     }
 
     /** Audit check, admin check, agent call, audit record, in that order (ADR-0042). */
@@ -216,6 +235,24 @@ public class AdminSettingsController {
             int okStatus,
             Map<String, Object> detail,
             BiConsumer<Map<String, Object>, T> describe) throws IOException {
+        return proxy(jwt, request, response, action, method, uri, body, type, okStatus, detail, describe, false, null);
+    }
+
+    /** As above; a {@code gated} read's OK record is written only when {@link UsageAuditGate} says it is due. */
+    private <T> ResponseEntity<ApiEnvelope<T>> proxy(
+            Jwt jwt,
+            HttpServletRequest request,
+            HttpServletResponse response,
+            String action,
+            HttpMethod method,
+            String uri,
+            Object body,
+            Class<T> type,
+            int okStatus,
+            Map<String, Object> detail,
+            BiConsumer<Map<String, Object>, T> describe,
+            boolean gated,
+            String pageSession) throws IOException {
         long started = System.nanoTime();
         String requestId = RequestIdFilter.requestId(request);
         GatewayPrincipal caller = GatewayPrincipal.from(jwt);
@@ -253,7 +290,17 @@ public class AdminSettingsController {
         }
         T value = mapper.readValue(reply.body(), type);
         describe.accept(detail, value);
+        UsageAuditGate.Claim claim = null;
+        if (gated) {
+            claim = usageAudit.claim(caller.userId(), pageSession);
+            if (claim == null) {
+                return ResponseEntity.status(okStatus).body(ApiEnvelope.ok(requestId, value));
+            }
+        }
         if (!audit.append(event(requestId, caller, action, AuditStatus.OK, detail, started))) {
+            if (claim != null) {
+                usageAudit.release(claim);
+            }
             return failed(request, response, ErrorCode.AUDIT_UNAVAILABLE, null);
         }
         return ResponseEntity.status(okStatus).body(ApiEnvelope.ok(requestId, value));
