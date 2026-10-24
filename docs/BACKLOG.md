@@ -95,6 +95,7 @@ Status: not started. Done-check in `CLAUDE.md` (phase 06).
 - A skill describes **how** to produce an output or carry out a task: the form, the template, worked examples. It never says **where** information comes from; that stays in capabilities. Example: the docs capability finds the facts in an uploaded file; the "official memo" skill says how the memo is laid out (heading, reference, body, closing, signature block).
 - Skills compose with any capability: the same memo skill works over docs, routing, kb, web or sql findings.
 - A skill is a folder `skills/<slug>/SKILL.md`: name and description in Arabic and English, when to use it, the capabilities or MCP tools it needs, the Keycloak role that may use it. The router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block.
+- Owner decisions (2026-10-21, 2026-10-22): a skill names the capabilities it needs, never MCP tools directly. The router selects at most one skill automatically; the chat composer also offers an optional skill picker, with no confirmation prompt. A selected skill is applied when the answer is written (the answer node), never inside run_capabilities: a skill shapes the output and fetches nothing.
 
 ### Principles
 - Written by the development team as files in the repo, through a PR with evals (README §20: prompts are code). No admin editing.
@@ -126,6 +127,15 @@ The planner fixes the structured-output contract every later capability is built
 - No human approval until phase 11, which adds approval as a step that can pause a plan.
 - **Privacy**: personal locations or personal data in a plan must never reach an external tool. A PRE_TOOL policy on web and external MCP tools enforces it.
 - **Open owner question**: may home addresses be stored in memory? Today the PII policy covers mobile, ID, IBAN and email, not addresses.
+
+### Where the planner sits in the graph (owner decisions, 2026-10-22)
+- Routing and planning are one decision at two sizes: a single capability is a one-step plan. The route node decides first whether a request is simple or compound; for a compound request it selects no capabilities itself.
+- A new plan node sits right after route and before guard(TOOL_LIST), reached only through a conditional edge for compound requests. A simple request goes from route to guard(TOOL_LIST) directly and never pays the planner's latency. The plan node is separate so it shows as its own step in traces.
+- guard(TOOL_LIST) checks every step of the plan; a step the user may not run is removed before execution, and the answer states what is missing.
+- run_capabilities becomes the plan executor: independent steps run together in one super-step (LangGraph Send), dependent steps wait for the outputs they reference; every step through the broker with the same scope injection and guards.
+- A skill step is applied in the answer node, over the outputs of the earlier steps.
+- A plan step is a capability or a skill, never an MCP tool directly: the capability carries the Keycloak role, its policies and its evals, and calling its tool around it would skip all three. This corrects the wording "(capability, MCP tool or skill)" in the Planner section, in CLAUDE.md (phase 07 row) and in docs/PROGRESS.md (phase 07); the phase 07 build changes those lines and README §5.2 (the graph) with an ADR.
+- Example: «كم مدة إجازة الزواج؟» goes route → guard(TOOL_LIST). «ابحث في اللائحة عن مكان الاجتماع، واحسب المسار إليه، واكتب مذكرة» goes route → plan → guard(TOOL_LIST) → run_capabilities (docs, then directions with the place from docs) → answer (official memo skill over both outputs).
 
 ### Reference compound request (owner's example)
 The user uploads a file of companies and their locations, then asks in one message to:
