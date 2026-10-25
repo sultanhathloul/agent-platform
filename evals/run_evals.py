@@ -63,12 +63,23 @@ a provider error, an HTTP refusal, a document that never indexed) is a failure i
 would have counted in, never a case dropped from a denominator; each suite reports its lost cases
 by code. `--rescore <run>` scores a recorded run (build/evals/<run>.json) again under this rule and
 prints the old and new scores and verdicts per suite.
+
+Phase 06 (owner decision of 2026-10-25, ADR-0320): a skill suite gates the mechanism and reports
+the content. The metrics a suite's threshold names are gated; the others are printed and recorded
+as reported. More turn fields: `traced_skill` (the skill whose block the answer's
+`context.assemble` span shows, as name@version, read from the trace) and `refused` (the error
+code of a refusal before any stream). A case may name a seed `user` (default the eval user); a
+refusal it expects (`expect.refused`) is its outcome, not a lost case. Skill suites run one case at
+a time with a longer, jittered 429 backoff; a skill suite with more than 5% of its cases lost to
+the provider's 429s stops the run and reports the rate (a key or tier with more headroom is the
+owner's cost decision).
 """
 
 import asyncio
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -94,6 +105,8 @@ from get_token import env, login  # noqa: E402
 # A dedicated seed user whose memory is switched off before every run, so a case never
 # reads what an earlier case or run stored; the analyst keeps memory for smoke (ADR-0074).
 EVAL_USER = ("evaluator", "evaluator")
+# The seed users a case may run as (`user`), by name: the realm's development users (ADR-0065).
+SEED_USERS = {"evaluator": EVAL_USER, "viewer": ("viewer", "viewer"), "analyst": ("analyst", "analyst")}
 # Guard cases run through the admin-only policy test endpoint (I6).
 ADMIN_USER = ("admin", "admin")
 DETERMINISTIC = {"regex", "presidio", "keyword_list", "tier_ceiling"}
@@ -213,7 +226,10 @@ def lost_by_code(records: list[dict]) -> dict[str, int]:
 # ------------------------------------------------------------------ provider 429s (phase 05, G1)
 
 RETRY_DELAYS_S = (5, 10, 20, 40, 60)  # bounded: five retries, about two minutes
-RETRIES = {"count": 0}  # this suite's retries; reset per suite
+# Skill suites (owner decision of 2026-10-25): longer and jittered, about eight minutes at most.
+SKILL_RETRY_DELAYS_S = (15, 30, 60, 120, 240)
+SKILL_LOST_TO_429_MAX = 0.05  # past this share of a skill suite lost to 429s, the run stops
+RETRIES = {"count": 0, "delays": RETRY_DELAYS_S, "jitter": 0.0}  # this suite's; reset per suite
 
 
 def retryable(event: dict) -> bool:
@@ -224,11 +240,12 @@ def retryable(event: dict) -> bool:
 def with_backoff(call, is_retryable):
     """`call()` again after each delay while `is_retryable(result)`; the last result otherwise."""
     result = call()
-    for delay in RETRY_DELAYS_S:
+    for base in RETRIES["delays"]:
         if not is_retryable(result):
             return result
         RETRIES["count"] += 1
-        print(f"    provider busy; retrying in {delay} s")
+        delay = base * (1 + random.uniform(-RETRIES["jitter"], RETRIES["jitter"]))
+        print(f"    provider busy; retrying in {delay:.0f} s")
         time.sleep(delay)
         result = call()
     return result
@@ -259,8 +276,14 @@ def run_turn(
             with http.stream("POST", f"{gateway}/v1/chat/turns", json=body, headers=headers) as response:
                 if response.status_code >= 400:
                     # A refusal before any stream (429 too_many_turns, 502 agent_unavailable) is a
-                    # lost case under its HTTP status, never a crashed run (D5).
-                    return {"type": "error", "data": {"code": f"http_{response.status_code}"}}
+                    # lost case under its HTTP status, never a crashed run (D5); its error code is
+                    # kept as `refusal` (403 skill_forbidden, phase 06).
+                    response.read()
+                    try:
+                        refusal = (response.json().get("error") or {}).get("code")
+                    except (ValueError, AttributeError):
+                        refusal = None
+                    return {"type": "error", "data": {"code": f"http_{response.status_code}", "refusal": refusal}}
                 for line in response.iter_lines():
                     if line.startswith("data: "):
                         last = json.loads(line[6:])
@@ -363,6 +386,30 @@ def retrieved(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: st
             names = {o.get("name") for o in response.json().get("observations", [])}
             if "model.call" in names and "tool.exec" not in names and "rag.retrieve" not in names:
                 return None
+        time.sleep(2)
+    return None
+
+
+def traced_skill(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: str | None,
+                 ref: str | None) -> str | None:
+    """The slug of the skill whose block the answer's `context.assemble` span shows, from Langfuse
+    (phase 06, ADR-0320): a `skill` block with tokens and the turn's `name@version` (`ref`, the done
+    event's) among the package's prompts. None when the answer's context holds no skill block;
+    `mismatch:<refs>` when its block names another skill or version."""
+    if not trace_id:
+        return None
+    for _ in range(60):
+        response = http.get(f"{cfg['LANGFUSE_PUBLIC_URL']}/api/public/traces/{trace_id}", auth=auth)
+        if response.status_code == 200:
+            for span in response.json().get("observations", []):
+                context = (span.get("metadata") or {}).get("context") or {}
+                if span.get("name") != "context.assemble" or context.get("node") != "answer":
+                    continue
+                tokens = {b.get("name"): b.get("tokens", 0) for b in context.get("blocks") or []}
+                if not tokens.get("skill"):
+                    return None
+                prompts = context.get("prompts") or []
+                return ref.split("@")[0] if ref and ref in prompts else f"mismatch:{','.join(prompts)}"
         time.sleep(2)
     return None
 
@@ -848,12 +895,34 @@ def main() -> int:
                 if only and name not in only and name.removesuffix(MCP_SUFFIX) not in only:
                     continue
                 use_backend("mcp" if name.endswith(MCP_SUFFIX) else "")
-                RETRIES["count"] = 0
+                skill_suite = is_skill_suite(path)
+                RETRIES.update(count=0, delays=SKILL_RETRY_DELAYS_S if skill_suite else RETRY_DELAYS_S,
+                               jitter=0.2 if skill_suite else 0.0)
                 run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows, records)
+                share = lost_to_429(records[name])
+                if skill_suite and share > SKILL_LOST_TO_429_MAX:
+                    print(f"\nSTOP: {name} lost {share:.0%} of its cases to provider 429s "
+                          f"(over {SKILL_LOST_TO_429_MAX:.0%}); a key or tier with more headroom is the "
+                          "owner's cost decision. The suites after it were not run.")
+                    stopped = True
+                    break
+            else:
+                stopped = False
         finally:
             use_backend("")  # pass or fail, the internal backend is restored
-    failed = any(not row[5] for row in rows)
+    failed = stopped or any(not row[5] for row in rows)
     return finish(run_name, rows, records, failed)
+
+
+def is_skill_suite(path: Path) -> bool:
+    """A suite of a skill's own evals (skills/<name>/evals/)."""
+    return path.resolve().is_relative_to((REPO / "skills").resolve())
+
+
+def lost_to_429(suite: dict) -> float:
+    """The share of a suite's cases lost to the provider's 429 (`model_unavailable` after the backoff)."""
+    cases = suite.get("cases_recorded") or 0
+    return (suite.get("lost") or {}).get("model_unavailable", 0) / cases if cases else 0.0
 
 
 def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows, records) -> None:
@@ -866,6 +935,7 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
     checkers: dict[str, str] = {}
     document_outcomes: list[tuple[dict, dict]] = []
     metrics = load_metrics(path)  # the suite's own metrics (a capability's evals/metrics.yaml)
+    threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
     metric_outcomes: list[dict[str, bool]] = []
     report_sets: dict[str, list[bool]] = {}  # cases scored and reported under a set, never gated
     gated = 0
@@ -964,18 +1034,29 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
              "expectedOutput": case.get("expect", {})},
         )
         # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
-        token = login(*EVAL_USER)["access_token"]
+        token = login(*SEED_USERS[case.get("user", "evaluator")])["access_token"]
         event = metric_document_turn(http, cfg, token, case) if "document" in case else \
             run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
         scored: dict[str, bool] = {}
         capabilities: list[str] | None = None
         lost = lost_code(event)
-        if not lost:
+        refusal = (event.get("data") or {}).get("refusal") if event.get("type") == "error" else None
+        if lost and refusal and case_value(case, "expect.refused") is not None:
+            # The refusal the case expects is its outcome, scored like any turn (phase 06, ADR-0320).
+            lost, answer, trace_id = None, "", None
+            turn_fields = {"capabilities": None, "skill": None, "traced_skill": None, "cited": False,
+                           "refused": refusal}
+            scored, problems = metric_outcome(metrics, case, answer, turn_fields) if metrics is not None \
+                else ([], [] if refusal == case_value(case, "expect.refused") else [f"refused {refusal}"])
+        elif not lost:
             answer = event["data"]["answer"]
             capabilities = event["data"]["state_digest"]["capabilities"]
             trace_id = event["data"].get("trace_id")
             turn_fields = {"capabilities": capabilities, "skill": applied_skill(event["data"]),
-                           "cited": bool(event["data"].get("citations"))}
+                           "cited": bool(event["data"].get("citations")), "refused": None}
+            if metrics is not None and "traced_skill" in json.dumps(metrics):
+                turn_fields["traced_skill"] = traced_skill(
+                    http, cfg, auth, trace_id, (event["data"].get("state_digest") or {}).get("skill"))
             if metrics is not None:
                 scored, problems = metric_outcome(metrics, case, answer, turn_fields)
             else:
@@ -990,17 +1071,22 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
                 scored = {m: False for m in metric_outcome(metrics, case, "", {})[0]}
         if metrics is not None:
             metric_outcomes.append(scored)
+        if metrics is not None and isinstance(threshold, dict):
+            # A metric the threshold does not name is reported, never gated (ADR-0320).
+            problems = [p if p.split()[0] in threshold or p.startswith("no done event") else f"{p} (reported)"
+                        for p in problems]
+        gating = [p for p in problems if not p.endswith("(reported)")]
         report_set = case.get("report_set")
         if report_set:
-            report_sets.setdefault(report_set, []).append(not problems)
+            report_sets.setdefault(report_set, []).append(not gating)
         else:
             gated += 1
-            passed += not problems
-        mark = ("pass" if not problems else "FAIL") if not report_set else ("ok  " if not problems else "miss")
+            passed += not gating
+        mark = ("pass" if not gating else "FAIL") if not report_set else ("ok  " if not gating else "miss")
         shown = f"[{report_set}] " if report_set else ""
         print(f"  {mark}  {name}/{shown}{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
         case_records.append({
-            "id": case["id"], "passed": not problems, "problems": problems, "answer": answer,
+            "id": case["id"], "passed": not gating, "problems": problems, "answer": answer,
             "capabilities": capabilities, **({"report_set": report_set} if report_set else {}),
             **({"metrics": scored} if scored else {}), **({"lost": lost} if lost else {}),
         })
@@ -1008,16 +1094,15 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
             langfuse(
                 http, cfg, auth, "dataset-run-items",
                 {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
-                 "metadata": {"passed": not problems, "problems": problems}},
+                 "metadata": {"passed": not gating, "problems": problems}},
             )
             langfuse(
                 http, cfg, auth, "scores",
-                {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                {"traceId": trace_id, "name": "eval_pass", "value": 0 if gating else 1,
                  "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
             )
     total = len(cases) - sum(len(v) for v in report_sets.values())
     rate = passed / total if total else 0.0
-    threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
     scores = None
     if document_outcomes and isinstance(threshold, dict):
         scores = rag_scores(document_outcomes, judged=judge is not None)
@@ -1047,7 +1132,8 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
         ok = all(scores[metric] >= value for metric, value in threshold.items())
         counts = scores["counts"]
         print(f"  {name}: " + ", ".join(
-            f"{metric} {scores[metric]:.2f} ({counts[metric]})" for metric in metrics["metrics"]))
+            f"{metric} {scores[metric]:.2f} ({counts[metric]}){'' if metric in threshold else ', reported'}"
+            for metric in metrics["metrics"]))
     else:
         ok = isinstance(threshold, int | float) and rate >= threshold
     # Reported, never gated (ADR-0241): e.g. the routing suite's keyword-free coverage.

@@ -275,7 +275,7 @@ def test_the_harness_names_no_skill_and_globs_their_evals():
     source = (EVALS / "run_evals.py").read_text(encoding="utf-8").lower()
     skills = EVALS.parent / "skills"
     slugs = [p.name for p in skills.iterdir() if p.is_dir()] if skills.is_dir() else []
-    assert not [slug for slug in slugs + ["official_memo", "official_letter"] if slug in source]
+    assert not [slug for slug in slugs + ["official_memo", "internal-comms"] if slug in source]
     found = harness.suites()
     for slug in slugs:
         if (skills / slug / "evals" / f"{slug}.jsonl").is_file():
@@ -303,3 +303,74 @@ def test_layouts_by_a_case_field_and_patterns_from_the_case():
     assert harness.score_check(absent, case, "التاريخ: [التاريخ]", {})
     assert not harness.score_check(absent, case, "التاريخ: ١٤٤٧/٠٣/١٢", {})  # an invented date
     assert harness.score_check(absent, {"expect": {}}, "التاريخ: ١٤٤٧/٠٣/١٢", {})
+
+
+# ------------------------------------------------------------------ owner decision of 2026-10-25 (ADR-0320)
+
+
+def test_skill_suites_back_off_longer_with_jitter(monkeypatch):
+    harness = _harness()
+    slept: list[float] = []
+    monkeypatch.setattr(harness.time, "sleep", slept.append)
+    harness.RETRIES.update(count=0, delays=harness.SKILL_RETRY_DELAYS_S, jitter=0.2)
+    busy = {"type": "error", "data": {"code": "model_unavailable"}}
+    assert harness.with_backoff(lambda: busy, harness.retryable) == busy
+    assert harness.RETRIES["count"] == 5 and len(slept) == 5
+    for base, delay in zip(harness.SKILL_RETRY_DELAYS_S, slept, strict=True):
+        assert 0.8 * base <= delay <= 1.2 * base
+    assert sum(harness.SKILL_RETRY_DELAYS_S) > 2 * sum(harness.RETRY_DELAYS_S)
+
+
+def test_a_skill_suite_past_five_percent_lost_to_429_stops_the_run():
+    harness = _harness()
+    assert harness.is_skill_suite(harness.REPO / "skills" / "x" / "evals" / "x.jsonl")
+    assert not harness.is_skill_suite(harness.REPO / "evals" / "golden" / "routing.jsonl")
+    assert harness.lost_to_429({"cases_recorded": 20, "lost": {"model_unavailable": 1}}) == 0.05
+    assert harness.lost_to_429({"cases_recorded": 6, "lost": {"model_unavailable": 1}}) > harness.SKILL_LOST_TO_429_MAX
+    # Only the provider's 429: another lost code is a failure, not a reason to stop.
+    assert harness.lost_to_429({"cases_recorded": 6, "lost": {"capability_failed": 3}}) == 0.0
+
+
+class _Trace:
+    def __init__(self, observations):
+        self.observations = observations
+
+    def get(self, url, auth):
+        class Response:
+            status_code = 200
+
+            def json(inner):
+                return {"observations": self.observations}
+
+        return Response()
+
+
+def _assemble(node, blocks, prompts):
+    return {"name": "context.assemble", "metadata": {"context": {
+        "node": node, "blocks": [{"name": n, "tokens": k} for n, k in blocks.items()], "prompts": prompts}}}
+
+
+def test_the_trace_shows_the_skill_block_by_name_and_version():
+    harness = _harness()
+    cfg, auth = {"LANGFUSE_PUBLIC_URL": "http://lf"}, ("p", "s")
+    shown = _Trace([_assemble("router", {"system": 5}, []),
+                    _assemble("answer", {"system": 5, "skill": 400}, ["answer.system@1.5.0", "x-form@1.0.0", "context.skill@1.0.0"])])
+    assert harness.traced_skill(shown, cfg, auth, "t", "x-form@1.0.0") == "x-form"
+    assert harness.traced_skill(shown, cfg, auth, "t", "x-form@2.0.0").startswith("mismatch:")
+    none = _Trace([_assemble("answer", {"system": 5}, ["answer.system@1.5.0"])])
+    assert harness.traced_skill(none, cfg, auth, "t", None) is None
+    assert harness.traced_skill(none, cfg, auth, None, None) is None
+
+
+def test_a_refusal_before_the_stream_keeps_its_error_code():
+    import httpx
+
+    harness = _harness()
+
+    def refuse(request):
+        return httpx.Response(403, json={"error": {"code": "skill_forbidden", "message_ar": "م"}})
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as http:
+        event = harness.run_turn(http, "http://gw", "token", {"message": "س", "skill": "x-form"})
+    assert event == {"type": "error", "data": {"code": "http_403", "refusal": "skill_forbidden"}}
+    assert harness.lost_code(event) == "http_403"  # lost, unless the case expects that refusal
