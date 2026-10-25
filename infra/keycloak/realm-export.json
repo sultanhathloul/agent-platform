@@ -37,7 +37,6 @@
       { "name": "cap:docs", "description": "Capability: chat with uploaded documents" },
       { "name": "cap:directions", "description": "Capability: directions and routes over the routing MCP server (phase 05)" },
       { "name": "skill:official_memo", "description": "Skill: the official internal memo layout (phase 06)" },
-      { "name": "skill:official_letter", "description": "Skill: the official letter layout between bodies (phase 06)" },
       { "name": "cap:kb", "description": "Capability: knowledge-base plugins" },
       { "name": "kb:moe:read", "description": "Knowledge base moe (Ministry of Education): read" },
       { "name": "policy:pii-exempt", "description": "Policy role (ADR-0107): selects role-scoped guard policies; grants nothing" }
@@ -143,7 +142,7 @@
       "lastName": "المحللة",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "analyst", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs", "cap:directions", "skill:official_memo", "skill:official_letter"],
+      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs", "cap:directions", "skill:official_memo"],
       "groups": ["/moe-analysts"]
     },
     {
@@ -166,7 +165,7 @@
       "lastName": "الاختبارات",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "evaluator", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "cap:docs", "cap:directions", "skill:official_memo", "skill:official_letter"]
+      "realmRoles": ["default-roles-agent", "cap:docs", "cap:directions", "skill:official_memo"]
     }
   ],
   "components": {
