@@ -50,7 +50,7 @@
 #             restore are versions with their actor, audited with before and after.
 #   phase 06: the analyst's picker lists both reference skills and the viewer's none; a memo request
 #             gets the memo skill, its event before the first token and its sections in order, audited
-#             as official_memo@1.0.0; the viewer's same request gets no skill; a picked skill the viewer
+#             as official_memo@1.1.0; the viewer's same request gets no skill; a picked skill the viewer
 #             lacks is 403 skill_forbidden at the gateway; a keyword question gets no skill; the
 #             reopened conversation shows the reply's skill.
 set -euo pipefail
@@ -1029,16 +1029,19 @@ skill_chat() {  # $1 token, $2 conversation, $3 message, $4 output file, $5 skil
     "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$4"
 }
 curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/skills" > "$TMP/skills-analyst.json" || fail "the analyst's skills list"
-check "the analyst's picker lists both reference skills with their Arabic names" jq -e \
-  '[.data.skills[] | [.slug, .name.ar]] == [["official_letter", "خطاب رسمي"], ["official_memo", "مذكرة داخلية"]]' "$TMP/skills-analyst.json"
+check "the analyst's picker lists the memo skill with its Arabic name, and only skills it holds" jq -e \
+  '([.data.skills[] | select(.slug == "official_memo") | .name.ar] == ["مذكرة داخلية"])
+   and all(.data.skills[]; (.slug | test("^[a-z][a-z0-9_-]*$")) and (.name.ar | length > 0))' "$TMP/skills-analyst.json"
+check "a public skill loaded unmodified: internal-comms is listed, labelled by its own name (no platform fields)" jq -e \
+  '[.data.skills[] | select(.slug == "internal-comms") | .name] == [{"ar": "internal-comms", "en": "internal-comms"}]' "$TMP/skills-analyst.json"
 curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/skills" > "$TMP/skills-viewer.json" || fail "the viewer's skills list"
 check "the viewer's picker lists none" jq -e '.data.skills == []' "$TMP/skills-viewer.json"
 MEMO_MESSAGE="اكتب مذكرة داخلية إلى مدير إدارة الموارد البشرية بشأن تدريب الموظفين الجدد على أمن المعلومات."
 MEMO_CONV=$(uuidgen | tr 'A-Z' 'a-z')
 skill_chat "$ANALYST" "$MEMO_CONV" "$MEMO_MESSAGE" "$TMP/memo.jsonl"
 mkdir -p build/smoke && cp "$TMP/memo.jsonl" build/smoke/memo.jsonl   # kept for diagnosis
-check "the memo turn ends with done, the memo skill applied (official_memo@1.0.0)" jq -se \
-  'last.type == "done" and last.data.state_digest.skill == "official_memo@1.0.0"' "$TMP/memo.jsonl"
+check "the memo turn ends with done, the memo skill applied (official_memo@1.1.0)" jq -se \
+  'last.type == "done" and last.data.state_digest.skill == "official_memo@1.1.0"' "$TMP/memo.jsonl"
 check "a skill event names it before the first token" jq -se \
   '(map(.type) | index("skill")) as $s | (map(.type) | index("token")) as $t | $s != null and $t != null and $s < $t
    and (.[$s].data == {"slug": "official_memo", "label": {"ar": "مذكرة داخلية", "en": "Internal memo"}})' "$TMP/memo.jsonl"
@@ -1055,7 +1058,7 @@ for section in ["مذكره داخليه", "الموضوع", "السلام عل�
 printf '        memo: %s\n' "$(head -c 300 "$TMP/memo.txt" | tr '\n' ' ')"
 memo_request=$(jq -rse 'last.request_id' "$TMP/memo.jsonl")
 memo_audit=$(sql "select detail->>'skill' from gateway.audit_events where request_id = '$memo_request' and action = 'chat.turn'")
-[[ $memo_audit == official_memo@1.0.0 ]] && ok "the audit row names the skill as official_memo@1.0.0, never its text (G8)" \
+[[ $memo_audit == official_memo@1.1.0 ]] && ok "the audit row names the skill as official_memo@1.1.0, never its text (G8)" \
   || fail "the audit row's skill: $memo_audit"
 check "no instruction text of the skill in the audit row" bash -c \
   "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from gateway.audit_events where request_id = '$memo_request' and detail::text like '%لا تختلق%'\") == 0 ]]"
