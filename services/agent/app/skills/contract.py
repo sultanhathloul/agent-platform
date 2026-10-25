@@ -1,19 +1,27 @@
-"""The skill contract (phase 06, ADR-0289 to ADR-0308). A skill is a folder `skills/<slug>/` at
-the repository root, mounted read-only like config/ (ADR-0295). It shapes the answer's form and
-never says where information comes from (ADR-0289); it holds no code (ADR-0291).
+"""The skill contract (phase 06, ADR-0289 to ADR-0308, ADR-0317 to ADR-0320). A skill is a folder
+`skills/<name>/` at the repository root, mounted read-only like config/ (ADR-0295), in the open
+Agent Skills format (ADR-0317): SKILL.md is YAML front-matter with `name` and `description`, then
+Markdown instructions; the folder may hold further Markdown files that SKILL.md references. A
+public skill loads unmodified. It shapes the answer's form and never says where information comes
+from (ADR-0289); it holds no code (ADR-0291).
 
-SKILL.md is YAML front-matter between `---` lines, then a body of notes for reviewers that is
-never loaded (ADR-0296). The instructions are prompt files under prompts/, one per locale, with
-the id `<slug>.instructions`; the answer node loads only the selected skill's, as the `skill`
-block of its context package (ADR-0300)."""
+The platform's own fields are optional, in the namespaced front-matter block `sovereign`: the
+version, the Arabic (and English) name and description shown in the picker, the permission, the
+capabilities it requires and its routing keywords. Defaults: permission `skill:<name>`, no
+required capability, no keyword (selectable by the picker only), labels from `name` and
+`description`, a version from the loaded files' content."""
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SKILL_PERMISSION_PREFIX = "skill:"
-# The prompt id of a skill's instructions; the registry requires both locales.
-INSTRUCTIONS = "instructions"
+# The front-matter block holding the platform's fields; any other top-level key besides the open
+# format's is kept in the file and ignored by the loader (it is listed in the startup log).
+NAMESPACE = "sovereign"
+# A skill name: the open format's lowercase letters, digits and hyphens, and the underscore of the
+# platform's own slugs; the folder carries the same name.
+NAME_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
 
 
 class _Strict(BaseModel):
@@ -23,6 +31,11 @@ class _Strict(BaseModel):
 class Localized(_Strict):
     ar: str = Field(min_length=1)
     en: str = Field(min_length=1)
+
+
+class OptionalLocalized(_Strict):
+    ar: str | None = Field(default=None, min_length=1)
+    en: str | None = Field(default=None, min_length=1)
 
 
 class LocalizedKeywords(_Strict):
@@ -50,19 +63,43 @@ class SkillRequires(_Strict):
     capabilities: tuple[str, ...] = ()
 
 
-class SkillManifest(_Strict):
-    """SKILL.md's front-matter (ADR-0296). Any unknown key, `requires.mcp_tools` included, is
+class PlatformFields(_Strict):
+    """The `sovereign` block (ADR-0317). Any unknown key in it, `requires.mcp_tools` included, is
     refused at startup."""
 
-    slug: str = Field(pattern=r"^[a-z][a-z0-9_]{0,62}$")
-    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    version: str | None = Field(default=None, pattern=r"^\d+\.\d+\.\d+$")
+    name: OptionalLocalized = OptionalLocalized()
+    description: OptionalLocalized = OptionalLocalized()
+    permission: str | None = None
+    requires: SkillRequires = SkillRequires()
+    routing_hints: SkillRoutingHints = SkillRoutingHints()
+
+
+class FrontMatter(BaseModel):
+    """SKILL.md's front-matter: the open format's required `name` and `description`, the optional
+    `sovereign` block, and any other key, kept and ignored."""
+
+    model_config = ConfigDict(extra="allow", frozen=True, populate_by_name=True)
+
+    name: str = Field(pattern=NAME_PATTERN)
+    description: str = Field(min_length=1, max_length=1024)
+    platform: PlatformFields = Field(default=PlatformFields(), alias=NAMESPACE)
+
+    def ignored_keys(self) -> list[str]:
+        """Top-level keys the loader does not read (the open format's optional ones and others)."""
+        return sorted(k for k in (self.model_extra or {}) if k != NAMESPACE)
+
+
+class SkillManifest(_Strict):
+    """What the platform reads from a skill, its defaults applied (ADR-0317)."""
+
+    slug: str = Field(pattern=NAME_PATTERN)
+    version: str = Field(min_length=1)
     name: Localized
     description: Localized
-    when_to_use: Localized
     permission: str
     requires: SkillRequires = SkillRequires()
     routing_hints: SkillRoutingHints = SkillRoutingHints()
-    max_instruction_tokens: int = Field(gt=0)
 
     @model_validator(mode="after")
     def _derived_names(self) -> "SkillManifest":
@@ -74,14 +111,26 @@ class SkillManifest(_Strict):
             raise ValueError("routing_hints.rules keyword_candidate needs keywords")
         return self
 
+    @classmethod
+    def of(cls, front: FrontMatter, content_version: str) -> "SkillManifest":
+        """The manifest of a front-matter; `content_version` when the `sovereign` block names none."""
+        own = front.platform
+        return cls(
+            slug=front.name,
+            version=own.version or content_version,
+            name=Localized(ar=own.name.ar or front.name, en=own.name.en or front.name),
+            description=Localized(
+                ar=own.description.ar or front.description, en=own.description.en or front.description
+            ),
+            permission=own.permission or f"{SKILL_PERMISSION_PREFIX}{front.name}",
+            requires=own.requires,
+            routing_hints=own.routing_hints,
+        )
+
     @property
     def ref(self) -> str:
         """`slug@version`, as traces and audit record the applied skill (G8)."""
         return f"{self.slug}@{self.version}"
-
-    @property
-    def instructions_prompt(self) -> str:
-        return f"{self.slug}.{INSTRUCTIONS}"
 
     @property
     def policy_name(self) -> str:

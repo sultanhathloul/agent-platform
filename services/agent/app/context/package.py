@@ -56,14 +56,15 @@ class Drop(BaseModel):
 
 
 class SkillBlockRequest(BaseModel):
-    """Which skill's instructions the `skill` block renders: its slug and version (the `id` and
-    `version` of `<skill>`) and its instructions prompt (`<slug>.instructions`)."""
+    """Which skill the `skill` block renders: its name and version (the `id` and `version` of
+    `<skill>`) and its instructions, SKILL.md's body with the Markdown files it names (ADR-0318).
+    The text is never written to state, a trace or the audit (G8)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     slug: str
     version: str
-    prompt: str
+    instructions: str = Field(repr=False)
 
 
 class AssemblyRequest(BaseModel):

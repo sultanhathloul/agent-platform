@@ -1,9 +1,17 @@
-"""Skill discovery (phase 06, ADR-0295 to ADR-0298). Every folder of the skills root is a skill,
-validated at startup: a folder may hold only SKILL.md, prompts/ (prompt files, one per locale) and
-evals/ (`<slug>.jsonl`, `metrics.yaml`); any other entry, or an executable bit, fails startup with
-the path named, so no code can arrive as a skill (ADR-0291). The registry is in memory: listing
-the skills a principal may use reads nothing outside the process (G7)."""
+"""Skill discovery (phase 06, ADR-0295 to ADR-0298, ADR-0317, ADR-0318). Every folder of the skills
+root is a skill in the open Agent Skills format, validated at startup:
+- a script (by its suffix or a `#!` first line), an executable bit or a symbolic link anywhere in
+  the folder fails startup with the path named, so no code can arrive as a skill (ADR-0291, D3);
+- the instructions are SKILL.md's body plus every Markdown file of the folder that the body names
+  by its relative path, loaded together, in the order the body first names them (ADR-0318);
+- every other file (a licence, a SOURCE note, a Markdown file the body does not name, the evals/
+  folder's data) stays in the folder, is skipped and never reaches the model; the startup log
+  lists it.
+The registry is in memory: listing the skills a principal may use reads nothing outside the
+process (G7)."""
 
+import hashlib
+import logging
 import re
 import stat
 from collections.abc import Iterable, Sequence
@@ -14,15 +22,25 @@ import yaml
 from pydantic import ValidationError
 
 from app.identity import Principal
-from app.skills.contract import SkillManifest
+from app.skills.contract import FrontMatter, SkillManifest
 from app.text.arabic import contains_keyword
 
 SKILL_FILE = "SKILL.md"
-PROMPTS_DIR = "prompts"
 EVALS_DIR = "evals"
 METRICS_FILE = "metrics.yaml"
-_FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.S)
-_PROMPT_FILE = re.compile(r"^[a-z0-9_.-]+\.md\.j2$")
+MARKDOWN_SUFFIX = ".md"
+# Files that are code by their suffix; a `#!` first line marks one too (ADR-0318).
+SCRIPT_SUFFIXES = frozenset({
+    ".py", ".pyc", ".pyw", ".sh", ".bash", ".zsh", ".fish", ".ksh", ".csh", ".ps1", ".psm1", ".bat",
+    ".cmd", ".com", ".exe", ".dll", ".so", ".dylib", ".bin", ".js", ".mjs", ".cjs", ".ts", ".mts",
+    ".cts", ".jsx", ".tsx", ".rb", ".pl", ".pm", ".php", ".lua", ".r", ".jar", ".class", ".wasm",
+    ".vbs", ".applescript", ".scpt", ".swift", ".go", ".rs", ".c", ".cc", ".cpp", ".java", ".kt",
+})
+# A skill file is a reviewed text file; one past this size fails startup before it is read.
+MAX_FILE_BYTES = 256 * 1024
+_FRONT_MATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.S)
+
+log = logging.getLogger(__name__)
 
 
 class SkillError(RuntimeError):
@@ -33,6 +51,11 @@ class SkillError(RuntimeError):
 class LoadedSkill:
     manifest: SkillManifest
     path: Path
+    # SKILL.md's body and the Markdown files it names, as the `skill` block renders them.
+    instructions: str = ""
+    # The files loaded into the instructions and those skipped, relative to the folder.
+    loaded: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
 
     @property
     def slug(self) -> str:
@@ -44,54 +67,94 @@ class LoadedSkill:
         return bool(hints.rules) and any(contains_keyword(message, k) for k in hints.keywords.all())
 
 
-def _check_entry(path: Path) -> None:
-    if path.is_symlink():
-        raise SkillError(f"{path}: a skill holds no symbolic link")
-    if path.is_file() and path.stat().st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
-        raise SkillError(f"{path}: a skill file must not be executable (no scripts, ADR-0291)")
+def _is_script(path: Path) -> bool:
+    if path.suffix.lower() in SCRIPT_SUFFIXES:
+        return True
+    with path.open("rb") as handle:
+        return handle.read(2) == b"#!"
 
 
-def _check_layout(directory: Path) -> None:
-    """Only SKILL.md, prompts/*.md.j2 and evals/{<slug>.jsonl, metrics.yaml} (ADR-0295)."""
-    slug = directory.name
-    allowed_evals = {f"{slug}.jsonl", METRICS_FILE}
-    for entry in sorted(directory.iterdir()):
-        _check_entry(entry)
-        if entry.name == SKILL_FILE and entry.is_file():
+def _files(directory: Path) -> list[Path]:
+    """Every file of the folder, checked: no symbolic link, no executable bit, no script (D3)."""
+    found = []
+    for entry in sorted(directory.rglob("*")):
+        if entry.is_symlink():
+            raise SkillError(f"{entry}: a skill holds no symbolic link")
+        if entry.is_dir():
             continue
-        if entry.name in (PROMPTS_DIR, EVALS_DIR) and entry.is_dir() and not entry.is_symlink():
-            for inner in sorted(entry.iterdir()):
-                _check_entry(inner)
-                ok = inner.is_file() and (
-                    _PROMPT_FILE.match(inner.name) if entry.name == PROMPTS_DIR else inner.name in allowed_evals
-                )
-                if not ok:
-                    raise SkillError(
-                        f"{inner}: not allowed in a skill's {entry.name}/ "
-                        f"({'prompt files *.md.j2' if entry.name == PROMPTS_DIR else sorted(allowed_evals)})"
-                    )
-            continue
-        raise SkillError(
-            f"{entry}: not allowed in a skill folder; a skill holds only {SKILL_FILE}, "
-            f"{PROMPTS_DIR}/ and {EVALS_DIR}/ (ADR-0295)"
-        )
-    if not (directory / SKILL_FILE).is_file():
-        raise SkillError(f"{directory}: no {SKILL_FILE}")
+        mode = entry.stat().st_mode
+        if not stat.S_ISREG(mode):
+            raise SkillError(f"{entry}: a skill holds only regular files")
+        if mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+            raise SkillError(f"{entry}: a skill file must not be executable (no scripts, ADR-0291)")
+        if _is_script(entry):
+            raise SkillError(f"{entry}: a skill holds no script (ADR-0291, ADR-0318)")
+        if entry.stat().st_size > MAX_FILE_BYTES:
+            raise SkillError(f"{entry}: over {MAX_FILE_BYTES} bytes")
+        found.append(entry)
+    return found
+
+
+def _named(body: str, candidates: Iterable[str]) -> list[str]:
+    """The candidate paths the body names, in the order it first names them."""
+    positions = {}
+    for rel in candidates:
+        # The whole path, not a part of a longer one (`a.md` is not named by `examples/a.md`).
+        found = re.search(rf"(?<![\w./-]){re.escape(rel)}(?![\w/-])", body)
+        if found:
+            positions[rel] = found.start()
+    return sorted(positions, key=positions.__getitem__)
+
+
+def compose(body: str, references: Sequence[tuple[str, str]]) -> str:
+    """SKILL.md's body, then each named file delimited by its path."""
+    parts = [body.strip()]
+    parts += [f'<file path="{rel}">\n{text.strip()}\n</file>' for rel, text in references]
+    return "\n\n".join(parts)
 
 
 def load_skill(directory: Path) -> LoadedSkill:
-    _check_layout(directory)
+    files = _files(directory)
     path = directory / SKILL_FILE
+    if path not in files:
+        raise SkillError(f"{directory}: no {SKILL_FILE}")
     match = _FRONT_MATTER.match(path.read_text(encoding="utf-8"))
     if not match:
         raise SkillError(f"{path}: missing YAML front-matter between --- lines")
     try:
-        manifest = SkillManifest.model_validate(yaml.safe_load(match.group(1)) or {})
+        front = FrontMatter.model_validate(yaml.safe_load(match.group(1)) or {})
     except (ValidationError, yaml.YAMLError) as exc:
         raise SkillError(f"{path}: invalid SKILL.md\n{exc}") from exc
-    if manifest.slug != directory.name:
-        raise SkillError(f"{path}: slug {manifest.slug!r} must match directory {directory.name!r}")
-    return LoadedSkill(manifest=manifest, path=directory)
+    if front.name != directory.name:
+        raise SkillError(f"{path}: name {front.name!r} must match directory {directory.name!r}")
+    body = match.group(2)
+    relative = [f.relative_to(directory) for f in files]
+    markdown = [
+        rel.as_posix()
+        for rel in relative
+        if rel.as_posix() != SKILL_FILE and rel.suffix.lower() == MARKDOWN_SUFFIX
+        and rel.parts[0] != EVALS_DIR
+    ]
+    named = _named(body, markdown)
+    references = [(rel, (directory / rel).read_text(encoding="utf-8")) for rel in named]
+    loaded = (SKILL_FILE, *named)
+    skipped = tuple(rel.as_posix() for rel in relative if rel.as_posix() not in loaded)
+    digest = hashlib.sha256()
+    for rel in loaded:
+        digest.update(rel.encode() + b"\0" + (directory / rel).read_bytes() + b"\0")
+    try:
+        manifest = SkillManifest.of(front, content_version=f"sha-{digest.hexdigest()[:12]}")
+    except ValidationError as exc:
+        raise SkillError(f"{path}: invalid SKILL.md\n{exc}") from exc
+    # The startup log lists what reaches the model and what never does (ADR-0318).
+    log.info(
+        "skill %s loaded=%s skipped=%s ignored_front_matter=%s",
+        manifest.ref, list(loaded), list(skipped), front.ignored_keys(),
+    )
+    return LoadedSkill(
+        manifest=manifest, path=directory, instructions=compose(body, references),
+        loaded=loaded, skipped=skipped,
+    )
 
 
 class SkillRegistry:
@@ -115,9 +178,6 @@ class SkillRegistry:
 
     def all(self) -> list[LoadedSkill]:
         return list(self._by_slug.values())
-
-    def prompt_dirs(self) -> list[Path]:
-        return [s.path / PROMPTS_DIR for s in self._by_slug.values() if (s.path / PROMPTS_DIR).is_dir()]
 
     def check_requires(self, capabilities: Iterable[str]) -> None:
         """Every capability a skill requires exists (fail fast at startup)."""

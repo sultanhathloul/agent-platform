@@ -2359,7 +2359,7 @@
           "skill" : {
             "type" : "string",
             "description" : "The skill picked in the composer (phase 06, ADR-0292); absent: chosen automatically. A skill the caller holds no skill:{slug} role for is 403 skill_forbidden.",
-            "pattern" : "^[a-z][a-z0-9_]{0,62}$"
+            "pattern" : "^[a-z][a-z0-9_-]{0,63}$"
           }
         },
         "required" : [ "conversation_id", "message" ]

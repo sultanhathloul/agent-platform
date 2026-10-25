@@ -29,13 +29,13 @@ from dataclasses import dataclass
 from opentelemetry import trace
 
 from app.capabilities.registry import LoadedCapability
-from app.skills.registry import LoadedSkill
 from app.context.messages import visible
 from app.context.package import AssemblyRequest
 from app.errors import TurnError
 from app.graph.calls import call_model, prepare_call
 from app.graph.deps import TurnContext
 from app.graph.router_config import RouterConfig
+from app.skills.registry import LoadedSkill
 from app.text.arabic import normalize
 
 _JSON = re.compile(r"\{.*\}", re.S)
@@ -164,11 +164,7 @@ async def choose(
                 for c in pool
             ],
             "skills": [
-                {
-                    "slug": s.slug,
-                    "description": getattr(s.manifest.description, locale),
-                    "when_to_use": getattr(s.manifest.when_to_use, locale),
-                }
+                {"slug": s.slug, "description": getattr(s.manifest.description, locale)}
                 for s in skills
             ],
         },

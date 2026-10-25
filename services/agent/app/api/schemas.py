@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.events import Citation, ErrorData, SkillData, SkillLabel
 from app.identity import Locale, Principal
+from app.skills.contract import NAME_PATTERN
 
 # A conversation id is a UUID in canonical lower-case form; the gateway normalises it (ADR-0050).
 CONVERSATION_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -25,8 +26,8 @@ class RetractRequest(BaseModel):
 
 # An attachment id is a lower-case UUID, as Postgres returns it.
 ATTACHMENT_ID_PATTERN = CONVERSATION_ID_PATTERN
-# A skill slug (phase 06, ADR-0296).
-SKILL_SLUG_PATTERN = r"^[a-z][a-z0-9_]{0,62}$"
+# A skill name (phase 06, ADR-0296, ADR-0317): the open format's names and the platform's slugs.
+SKILL_SLUG_PATTERN = NAME_PATTERN
 
 
 class TurnRequest(BaseModel):

@@ -14,7 +14,7 @@ SCANNED = [
     REPO / "config",
 ]
 SKIPPED_PARTS = {"node_modules", "__pycache__", ".next", "build"}
-REFERENCE = {"official_memo", "official_letter"}
+REFERENCE = {"official_memo", "internal-comms"}
 
 
 def _folders(root: Path) -> set[str]:

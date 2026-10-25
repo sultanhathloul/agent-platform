@@ -1,0 +1,1 @@
+FIXTURE-SKILL-LICENSE: the licence text never reaches the model.

@@ -35,8 +35,7 @@ class SkillInstructions(Step):
     """The turn's selected skill's instructions (phase 06, ADR-0300), in the system role inside
     `<skill id= version=>`, right after the system instructions. Reviewed developer text, never
     user-derived (ADR-0068 binds user text only). Never cut here or by the budget guard: the
-    registry checked at startup that it fits its budget (min of blocks.skill.max_tokens and the
-    skill's max_instruction_tokens)."""
+    registry checked at startup that it fits blocks.skill.max_tokens (ADR-0318)."""
 
     name = "skill_instructions"
     block = "skill"
@@ -53,13 +52,13 @@ class SkillInstructions(Step):
 
 
 def render_skill(prompts: PromptLibrary, skill: SkillBlockRequest, locale: str) -> tuple[str, list[str]]:
-    """`context.skill` around the skill's instructions, and both prompts' `id@version` (the
-    instructions' first). The instructions take no variable. Shared with the startup size check."""
-    instructions = prompts.render(skill.prompt, locale)
+    """`context.skill` around the skill's instructions, and the refs the block records: the skill's
+    `name@version` first, then the wrapper prompt's `id@version` (ADR-0318). Shared with the
+    startup size check."""
     wrapped = prompts.render(
-        "context.skill", locale, id=skill.slug, version=skill.version, instructions=instructions.text
+        "context.skill", locale, id=skill.slug, version=skill.version, instructions=skill.instructions
     )
-    return wrapped.text, [instructions.ref, wrapped.ref]
+    return wrapped.text, [f"{skill.slug}@{skill.version}", wrapped.ref]
 
 
 class StateDigest(Step):

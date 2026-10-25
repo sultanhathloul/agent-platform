@@ -120,6 +120,9 @@ async def test_a_keyword_candidate_chosen_by_the_router_shapes_the_answer(skill_
     system = gateway.answer_system()
     assert f'<skill id="{FORM}" version="1.0.0">' in system and f"{INSTRUCTIONS} {FORM}" in system
     assert system.index("<skill") > system.index("سياسات الحماية")  # after the precedence line
+    # SKILL.md's body and the file it names, never its licence or an unnamed file (ADR-0318).
+    assert '<file path="reference/layout.md">' in system and "FIXTURE-SKILL-REFERENCE" in system
+    assert "FIXTURE-SKILL-LICENSE" not in system and "FIXTURE-SKILL-UNREFERENCED" not in system
     # Only the selected skill's instructions: never another's.
     assert DOCS_FORM not in system
     # The router saw the candidate in the user role, never in its system message.

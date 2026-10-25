@@ -34,7 +34,7 @@ public record GatewayPrincipal(
     private static final Pattern POLICY_ROLE = Pattern.compile("policy:[a-z0-9][a-z0-9_-]{0,63}");
 
     private static final Pattern PERMISSION =
-            Pattern.compile("cap:[a-z0-9_]+|kb:[a-z0-9_-]+:read|skill:[a-z][a-z0-9_]{0,62}");
+            Pattern.compile("cap:[a-z0-9_]+|kb:[a-z0-9_-]+:read|skill:[a-z][a-z0-9_-]{0,63}");
 
     /** The permission a skill picked in the composer needs (phase 06, ADR-0297). */
     public boolean maySkill(String slug) {

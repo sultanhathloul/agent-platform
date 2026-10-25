@@ -82,6 +82,8 @@ from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
 
+log = logging.getLogger(__name__)
+
 CORE_PROMPTS = (
     "context.state_digest",
     "context.summary",
@@ -118,9 +120,7 @@ def build_services(
     for cap in registry.all():
         cap.config = load_capability_config(settings.config_dir, cap.slug)
     skills = discover_skills(settings.skills_dir, extra_skills, capabilities=[c.slug for c in registry.all()])
-    prompts = PromptLibrary.load(
-        settings.config_dir / "prompts", *registry.prompt_dirs(), *skills.prompt_dirs()
-    )
+    prompts = PromptLibrary.load(settings.config_dir / "prompts", *registry.prompt_dirs())
     context_config = load_context_config(settings.config_dir)
     memory_config = load_memory_config(settings.config_dir)
 
@@ -137,7 +137,9 @@ def build_services(
                 raise ManifestError(f"{cap.path}: context.needs has 'system' but {exc}") from exc
 
     counter = default_counter()
-    check_instruction_budgets(skills, prompts, context_config, counter)
+    for slug, tokens in check_instruction_budgets(skills, prompts, context_config, counter).items():
+        log.info("skill %s block tokens=%d (blocks.skill.max_tokens %d)", slug, tokens,
+                 context_config.blocks["skill"].max_tokens)
     db = Database(settings.database_url)
     redis = _redis(settings)
     guard_config = load_guardrails_config(settings.config_dir)

@@ -33,6 +33,7 @@ from app.graph.streaming import DataStream
 from app.memory.types import MemoryScope
 from app.platform_settings import effective
 from app.resilience import deadline
+from app.skills.setup import block_request
 from app.text.script import script_issues
 
 RETRY_REASON = "answer_retry"
@@ -58,9 +59,7 @@ def skill_request(state: AgentState, ctx: TurnContext) -> SkillBlockRequest | No
     skill = ctx.services.skills.get(selected["slug"]) if selected else None
     if skill is None:
         return None
-    return SkillBlockRequest(
-        slug=skill.slug, version=skill.manifest.version, prompt=skill.manifest.instructions_prompt
-    )
+    return block_request(skill)
 
 
 def answer_request(

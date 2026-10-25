@@ -18,7 +18,7 @@ from app.skills.registry import available_skills
 router = APIRouter(prefix="/v1/skills", tags=["skills"])
 
 # The permissions the gateway forwards: cap:*, kb:*:read and skill:* (ADR-0006, ADR-0297).
-_PERMISSION = re.compile(r"^(cap:[a-z0-9_]+|kb:[a-z0-9_-]+:read|skill:[a-z0-9_]+)$")
+_PERMISSION = re.compile(r"^(cap:[a-z0-9_]+|kb:[a-z0-9_-]+:read|skill:[a-z][a-z0-9_-]{0,63})$")
 
 
 @router.get("", response_model=SkillList, responses={400: {"model": ErrorEnvelope}, 401: {"model": ErrorEnvelope}})

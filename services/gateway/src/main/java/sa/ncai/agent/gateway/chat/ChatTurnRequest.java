@@ -47,7 +47,7 @@ public record ChatTurnRequest(
         String skill) {
 
     public static final int MAX_MESSAGE_CHARS = 8000;
-    static final String SKILL = "^[a-z][a-z0-9_]{0,62}$";
+    static final String SKILL = "^[a-z][a-z0-9_-]{0,63}$";
     static final String UUID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     public ChatTurnRequest {

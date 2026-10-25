@@ -1,6 +1,8 @@
 """Phase 06 contracts (G2), as types with tests: the router output with `skill`, the Context
 Assembly `skill` block, the chat request field `skill`, the `skill` event, the history field."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -13,12 +15,11 @@ from app.context.config import BUDGETED_BLOCKS
 from app.context.package import AssemblyRequest, SkillBlockRequest
 from app.graph.router import parse_decision
 from app.identity import Principal
-from app.models.prompts import PromptLibrary
+from app.skills.registry import load_skill
+from app.skills.setup import block_request
 
-INSTRUCTIONS = (
-    "---\nid: demo_form.instructions\nversion: 2.1.0\nrole: skill\nlocale: {locale}\n---\n"
-    "رتّب الإجابة في نموذج: العنوان، ثم البنود، ثم الخاتمة.\n"
-)
+INSTRUCTIONS = "رتّب الإجابة في نموذج: العنوان، ثم البنود، ثم الخاتمة."
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "skills"
 
 
 def _budget(limit: int) -> Budget:
@@ -59,10 +60,8 @@ def test_without_candidates_no_skill_is_ever_chosen():
 
 
 @pytest.fixture
-def skill_prompts(config_dir, tmp_path):
-    for locale in ("ar", "en"):
-        (tmp_path / f"instructions.{locale}.md.j2").write_text(INSTRUCTIONS.format(locale=locale), encoding="utf-8")
-    return PromptLibrary.load(config_dir / "prompts", tmp_path)
+def skill_prompts(prompts):
+    return prompts
 
 
 def _request(state, *, skill=None, needs=("system", "skill", "window", "user_message")):
@@ -71,7 +70,7 @@ def _request(state, *, skill=None, needs=("system", "skill", "window", "user_mes
     )
 
 
-SKILL = SkillBlockRequest(slug="demo_form", version="1.3.0", prompt="demo_form.instructions")
+SKILL = SkillBlockRequest(slug="demo_form", version="1.3.0", instructions=INSTRUCTIONS)
 
 
 async def test_the_skill_block_is_system_role_right_after_the_system_instructions(config_dir, skill_prompts):
@@ -83,11 +82,26 @@ async def test_the_skill_block_is_system_role_right_after_the_system_instruction
     block = package.blocks[1]
     assert block.role == "system" and block.meta["skill"] == "demo_form@1.3.0"
     assert block.content.startswith('<skill id="demo_form" version="1.3.0">') and block.content.endswith("</skill>")
-    assert "demo_form.instructions@2.1.0" in package.prompt_refs
+    assert INSTRUCTIONS in block.content
+    assert package.prompt_refs[package.prompt_refs.index("demo_form@1.3.0") + 1].startswith("context.skill@")
     assert any(ref.startswith("context.skill@") for ref in package.prompt_refs)
     messages = package.to_messages()
     assert messages[0]["role"] == "system" and "<skill id=" in messages[0]["content"]
     assert all("<skill" not in m["content"] for m in messages[1:])
+
+
+async def test_only_skill_md_and_the_files_it_names_reach_the_context(config_dir, skill_prompts):
+    """The licence, an unreferenced Markdown file and the front-matter never reach the model (ADR-0318)."""
+    skill = load_skill(FIXTURES / "fixture_form")
+    assert "LICENSE.txt" in skill.skipped and "reference/unused.md" in skill.skipped
+    assembler = ContextAssembler(load_context_config(config_dir), skill_prompts, CharCounter())
+    package = await assembler.assemble(
+        _request({"turn": 1, "user_message": "اكتب نموذج الاختبار"}, skill=block_request(skill)), _budget(100_000)
+    )
+    sent = "\n".join(m["content"] for m in package.to_messages())
+    assert "FIXTURE-SKILL-INSTRUCTIONS fixture_form" in sent and "FIXTURE-SKILL-REFERENCE" in sent
+    for absent in ("FIXTURE-SKILL-LICENSE", "FIXTURE-SKILL-UNREFERENCED", "keyword_candidate", "sovereign"):
+        assert absent not in sent
 
 
 async def test_no_skill_no_block(config_dir, skill_prompts):
@@ -120,7 +134,7 @@ async def test_the_budget_guard_never_drops_the_skill_block(config_dir, skill_pr
 
 def test_the_skill_block_has_a_budget_and_is_never_droppable(config_dir):
     config = load_context_config(config_dir)
-    assert "skill" in BUDGETED_BLOCKS and config.blocks["skill"].max_tokens == 1500
+    assert "skill" in BUDGETED_BLOCKS and config.blocks["skill"].max_tokens == 3000
     assert "skill" not in config.drop_order
     assert config.pipeline.index("skill_instructions") == config.pipeline.index("system_instructions") + 1
 
@@ -145,7 +159,8 @@ def _turn(**extra):
 def test_the_chat_request_carries_an_optional_skill_slug():
     assert TurnRequest.model_validate(_turn()).skill is None
     assert TurnRequest.model_validate(_turn(skill="official_x")).skill == "official_x"
-    for bad in ("Official", "skill:official_x", "../x", "x" * 64, ""):
+    assert TurnRequest.model_validate(_turn(skill="internal-x")).skill == "internal-x"  # the open format's names
+    for bad in ("Official", "skill:official_x", "../x", "x" * 65, "", "-x", "x y"):
         with pytest.raises(ValidationError):
             TurnRequest.model_validate(_turn(skill=bad))
 
