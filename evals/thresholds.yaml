@@ -29,3 +29,8 @@ official_memo:
   skill_applied: 1.00        # the picked skill applied; no skill on a request that is not a memo
   skill_block_loaded: 1.00   # the answer's context.assemble span shows the skill block as name@version
   permission_refused: 1.00   # the picker refused (403 skill_forbidden) to a user without the role
+# internal-comms (phase 06, ADR-0319, ADR-0320): copied unmodified from github.com/anthropics/skills.
+# The mechanism is gated, every case; format_adherence and facts_kept are reported, not gated.
+internal-comms:
+  skill_applied: 1.00        # the picked skill applied; no skill on a request that is not internal comms
+  skill_block_loaded: 1.00   # the answer's context.assemble span shows the skill block as name@version

@@ -1,0 +1,53 @@
+# internal-comms evals (phase 06, ADR-0319, ADR-0320, ADR-0323): generic scorers only (ADR-0240);
+# the harness names no skill. Gated (evals/thresholds.yaml) is the mechanism: the picked skill
+# applied, its block in the answer's context (the trace's `context.assemble` span shows it as
+# name@version), and no skill on a request that is not internal comms. The content is reported,
+# never gated: the layout of the communication type the request names, and the user's facts kept.
+#   sections_in_order  the type's sections, in order (Arabic-folded patterns, per locale)
+#   text_present       every expected text, or one of its alternatives, is in the answer
+#   length_between     the answer's word count
+#   field_equals       a turn field: the skill applied (`skill`), the skill block the trace shows
+#                      (`traced_skill`)
+case_kind: expect.kind
+
+three_p: &three_p
+  scorer: sections_in_order
+  by: locale
+  sections:
+    en: ["(?m)^\\W*progress\\W*:", "(?m)^\\W*plans\\W*:", "(?m)^\\W*problems\\W*:"]
+    ar:
+      - ["(?m)^\\W*progress\\W*:", "(?m)^\\W*التقدم\\W*:", "(?m)^\\W*الانجازات\\W*:"]
+      - ["(?m)^\\W*plans\\W*:", "(?m)^\\W*الخطط\\W*:"]
+      - ["(?m)^\\W*problems\\W*:", "(?m)^\\W*المشكلات\\W*:", "(?m)^\\W*المشاكل\\W*:", "(?m)^\\W*التحديات\\W*:"]
+newsletter: &newsletter
+  scorer: sections_in_order
+  sections: ["(?m)^\\s*[-*•]\\s+\\S"]
+faq: &faq
+  scorer: sections_in_order
+  sections: ["(?i)question", "(?i)answer"]
+short: &short {scorer: length_between, min: 15, max: 400}
+facts: &facts {scorer: text_present, expected: expect.facts}
+applied: &applied {scorer: field_equals, field: skill, expected: expect.skill}
+traced: &traced {scorer: field_equals, field: traced_skill, expected: expect.skill}
+
+metrics:
+  # Gated: the mechanism.
+  skill_applied:
+    3p: [*applied]
+    newsletter: [*applied]
+    faq: [*applied]
+    negative: [*applied]
+  skill_block_loaded:
+    3p: [*traced]
+    newsletter: [*traced]
+    faq: [*traced]
+    negative: [*traced]
+  # Reported, not gated: the content.
+  format_adherence:
+    3p: [*three_p, *short]
+    newsletter: [*newsletter, *short]
+    faq: [*faq, *short]
+  facts_kept:
+    3p: [*facts]
+    newsletter: [*facts]
+    faq: [*facts]
