@@ -2050,16 +2050,45 @@ FINISH runs after the owner decisions of 2026-10-25 (O9):
   - So a skill-candidate turn waits about 1.5 s (p50) to 3.0 s (p95) longer for its first token; its terminal event comes sooner because the memo is shorter than the free-form answer.
   - Attempt 1 (above) failed on provider 429s; this attempt ran with the script's backoff and needed none.
 
+Before-merge runs (G10, owner instruction of 2026-10-25), all at b72892d:
+- evals/docs/format-injected.txt and its generator code (`FORMAT_INJECTED_TXT` in evals/docs/generate.py) removed (9f1faa3): no eval case, test, script or config named it. The other generated documents are unchanged (the generator was not re-run).
+- Fresh stack, nothing started by hand: `make clean` (every volume deleted; the pgdata, Keycloak's database, redis, minio and clickhouse volumes recreated at 16:17:12Z), `make models`, `make up` (16:16:50Z–16:18:14Z), rc 0 each. No kcadm. The realm export alone gives the skill roles: a password-grant token's realm roles carry `skill:official_memo` and `skill:internal-comms` for analyst and evaluator and no skill role for viewer. The realm export needed no fix.
+- make eval run 1 (16:18:56Z–17:13:03Z; dataset run make-eval-20261025T161856Z, record build/evals/make-eval-20261025T161856Z.json): rc 0, every suite PASS.
+  - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53; 35/35 borderline or Gulf). 0 retries, lost 0.
+  - rag 50/53: hit@8 1.00, citation page accuracy 0.91, faithfulness 0.99, answer correctness 0.89, abstention 1.00; retrieve p50 0.13 s, p95 0.14 s, rerank off. 0 retries. Failed: twenty-past-truncation-p6, -p15, -p18.
+  - rag@mcp 49/53: hit@8 1.00, citation page accuracy 0.89, faithfulness 0.99, answer correctness 0.88, abstention 1.00; p50 0.14 s, p95 0.15 s. 1 retry. Failed: leave-sick-after, twenty-past-truncation-p6, -p15, -p18.
+  - routing 91/91 (1.00 ≥ 0.90). Reported, not gated: keyword_free 0/9, skill_keyword_free 0/3.
+  - directions 26/27: places_resolved 0.94, distance_duration_correct 1.00, unknown_or_ambiguous_handled 1.00, injection_no_effect 1.00. Failed: route-en-airport-masmak (places_resolved).
+  - general 28/28 (1.00 ≥ 0.85).
+  - official_memo 7/7. Gated: skill_applied 1.00, skill_block_loaded 1.00, permission_refused 1.00. Reported: format_adherence 1.00, no_invented_fields 0.60, facts_kept 0.80, citations_kept 1.00. 0 retries, lost 0.
+  - internal-comms 6/6. Gated: skill_applied 1.00, skill_block_loaded 1.00. Reported: format_adherence 1.00, facts_kept 1.00. 0 retries, lost 0.
+- make eval run 2 (17:13:03Z–18:03:36Z; make-eval-20261025T171303Z): rc 0, every suite PASS.
+  - guardrails 142/142 (same scores as run 1). 0 retries.
+  - rag 50/53: citation page accuracy 0.91, faithfulness 0.99, answer correctness 0.88, hit@8 and abstention 1.00; p50 0.13 s, p95 0.14 s. 2 retries. Failed: twenty-past-truncation-p6, -p15, -p18.
+  - rag@mcp 51/53: citation page accuracy 0.94, faithfulness 0.96, answer correctness 0.89; p50 0.14 s, p95 0.15 s. 0 retries. Failed: twenty-past-truncation-p6, -p18.
+  - routing 90/91 (0.99). Lost 1: validation_failed (kw-negative-gulf-passport), counted as a failure. keyword_free 0/9, skill_keyword_free 0/3.
+  - directions 26/27: places_resolved 0.94, the rest 1.00. Failed: route-en-airport-masmak.
+  - general 28/28. official_memo 7/7 and internal-comms 6/6 with the same gated and reported scores as run 1; 0 retries, lost 0.
+- make eval run 3 (18:03:36Z–18:55:26Z; make-eval-20261025T180336Z): rc 0, every suite PASS.
+  - guardrails 142/142 (same scores). 0 retries.
+  - rag 50/53: citation page accuracy 0.91, faithfulness 0.93, answer correctness 0.89; p50 0.13 s, p95 0.14 s. 3 retries. Failed: twenty-past-truncation-p6, -p15, -p18.
+  - rag@mcp 50/53: citation page accuracy 0.91, faithfulness 0.94, answer correctness 0.87; p50 0.14 s, p95 0.15 s. 0 retries. Failed: twenty-past-truncation-p6, -p15, -p18.
+  - routing 90/91 (0.99). Lost 1: validation_failed (negative-msa-career-path). keyword_free 0/9, skill_keyword_free 0/3.
+  - directions 27/27, every metric 1.00.
+  - general 28/28. official_memo 7/7 and internal-comms 6/6, same scores as runs 1 and 2; 0 retries, lost 0.
+- make smoke attempt 1 (18:55:26Z–18:55:46Z): **failed**, rc 2, stopped at 34/35 at "the second turn after the restart ends with done" (ADR-0055 step). Audit row: gateway.audit_events request 5973ccf7-e264-4e28-bcbf-63f65807bae8, 18:55:46Z, chat.turn status error, `model_unavailable`, latency 2017 ms; Langfuse has no turn trace for it. The agent and LiteLLM logs of that minute were lost when smoke-airgap recreated the containers at 19:02Z, so the provider's response is not on record; the same provider error ended earlier smoke attempts (above). Not a skill check.
+- make smoke-airgap (18:55:46Z–19:03:18Z): 220/220. G7: a general turn platform-side 0.27 s (median of 0.24, 0.27, 0.28; wall 1.98, 1.50, 1.70 s), bound 2.27 s; another user's turn with mcp-routing-ref stopped 0.24 s, hung 0.29 s.
+- make smoke attempt 2 (19:04:36Z–19:09:14Z): 212/212. G7: a general turn 0.26 s (median of 0.26, 0.28, 0.26; wall 2.56, 2.08, 2.85 s), bound 2.26 s; with mcp-routing-ref stopped 0.25 s (wall 1.40 s), hung 0.27 s (wall 1.46 s). The memo turn applies official_memo@1.1.0 and its audit row names it; the picker and chip checks pass.
+- make test (19:09:56Z–19:23:05Z), after the fixture removal: rc 0. Agent 1032 / 0 / 0; gateway 180 / 0 / 0; gateway-db 5 / 0 / 0; web 174 / 0 / 0 (14 files); evals harness 28 / 0 / 0; timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, deploy-values ok); scripts/tests 16 / 0 / 0.
+
 How to verify: `make up`, `make test`, `make eval` (or `make eval s=official_memo`, `s=internal-comms`, `s=routing`), `make smoke`, `make smoke-airgap`, `uv run scripts/measure_skills.py 20`. The agent's startup log lists each skill's loaded and skipped files, its block size, and "startup heap frozen".
 
 Left for the owner:
 - ADR-0309 to ADR-0316 and ADR-0321 to ADR-0323 are assumed (the namespace key `sovereign`, the content-hash version, official_memo's English variant not carried over, how references are found, the mechanism metrics and pacing).
-- The running Keycloak got the skill roles through kcadm (skill:official_letter deleted, skill:internal-comms created for analyst and evaluator); the realm export applies on a fresh volume.
-- Make eval runs three times before merge (G10).
-- evals/docs/format-injected.txt is still generated by evals/docs/generate.py but no case uses it since the memo suite was cut to seven cases and the letter removed.
+- G10 done (above): fresh stack from the realm export alone, make eval three times, make smoke-airgap 220/220, make smoke 212/212 on its second attempt.
 - BACKLOG phase 06 items: a provider 429 inside a capability ends `capability_failed`; "driving distance" is not a directions keyword.
 
-Files for human review: skills/** (official_memo/SKILL.md, NOTES.md, evals/; internal-comms/**, with SOURCE.txt), config/context.yaml, config/prompts/router/**, config/prompts/answer/**, config/prompts/context/skill.*, config/messages/errors.yaml, infra/keycloak/realm-export.json, evals/golden/routing.jsonl, evals/thresholds.yaml, docs/openapi/*.json, docs/events.schema.json, evals/docs/format-injected.txt, and services/agent/app/main.py (`freeze_startup_heap`, ADR-0324).
+Files for human review: skills/** (official_memo/SKILL.md, NOTES.md, evals/; internal-comms/**, with SOURCE.txt), config/context.yaml, config/prompts/router/**, config/prompts/answer/**, config/prompts/context/skill.*, config/messages/errors.yaml, infra/keycloak/realm-export.json, evals/golden/routing.jsonl, evals/thresholds.yaml, docs/openapi/*.json, docs/events.schema.json, and services/agent/app/main.py (`freeze_startup_heap`, ADR-0324).
 
 Pages for the visual check: /chat/[id], the composer's picker «نموذج الإجابة» / "Answer template" (ar and en; official_memo «مذكرة داخلية» and internal-comms by its own name, «تلقائي» first); the reply's chip «مكتوبة بنموذج …» / "Written as …" live and in the reopened history; the skill_forbidden message (a user without the role).
 
