@@ -83,7 +83,7 @@ Timeout budget findings (`docs/RESILIENCE.md`, timeout budget table), most sever
 
 ## Skills → phase 06 (owner decision, 2026-10-14)
 
-Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0316; docs/PROGRESS.md "Phase 06: Skills"). Done-check in `CLAUDE.md` (phase 06). Reference skills: official_memo and official_letter; the other candidates below stay for later PRs.
+Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0323; docs/PROGRESS.md "Phase 06: Skills"). Done-check in `CLAUDE.md` (phase 06). Reference skills: official_memo and internal-comms (copied unmodified from github.com/anthropics/skills; official_letter removed on 2026-10-25, ADR-0319); the other candidates below stay for later PRs.
 
 ### Tech debt: first item of phase 06, before any new eval suite (owner decision, PR #10 review round 2, 2026-10-19)
 - → done in phase 06 (D5, ADR-0293, ADR-0314). **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.

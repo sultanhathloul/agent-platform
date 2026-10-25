@@ -236,7 +236,7 @@ Loop behaviour (`reason → tool_decision → guard(PRE_TOOL) → execute → gu
 
 > **Amendment 2026-10-15 (phase 05, ADR-0216).** A manifest rule `keyword_candidate` makes a capability a router-model candidate when one of its keywords is in the message; it never selects it. The router model then chooses among the candidates and the fallback capabilities, as for `conversation_attachments`; a turn with no candidate costs no router call, and the router's cache key is unchanged (ADR-0169).
 
-> **Amendment 2026-10-24 (phase 06, ADR-0299, ADR-0312).** The route node also selects **at most one skill** (§18.6). In order: (a) the skill the user picked in the composer, checked at the gateway and the agent, applied with no router decision on the skill; (b) otherwise the available skills whose keywords are in the message are candidates, and the router model returns `{capabilities, skill: slug | null, complexity, risk}`, choosing a skill only when the user asks for that kind of document; when the rules already decided the capabilities, it is asked for the skill only; (c) no picker and no candidate: no skill and no router call added. A skill that is not a candidate, or whose required capability was not selected, is dropped (`skill_dropped`). The candidates and their descriptions enter `router.request`; their `slug@version` enter the cache key.
+> **Amendment 2026-10-24 (phase 06, ADR-0299, ADR-0312).** The route node also selects **at most one skill** (§18.6). In order: (a) the skill the user picked in the composer, checked at the gateway and the agent, applied with no router decision on the skill; (b) otherwise the available skills whose keywords are in the message are candidates, and the router model returns `{capabilities, skill: slug | null, complexity, risk}`, choosing a skill only when the user asks for that kind of document; when the rules already decided the capabilities, it is asked for the skill only; (c) no picker and no candidate: no skill and no router call added. A skill that is not a candidate, or whose required capability was not selected, is dropped (`skill_dropped`). The candidates and their descriptions enter `router.request` (1.3.0: the description only, ADR-0321); their `name@version` enter the cache key. A skill without keywords (the open format's default, ADR-0317) is selectable by the picker only, until keyword-free routing is decided in phase 08.
 
 ## 6. Gateway (Spring Boot)
 
@@ -297,7 +297,7 @@ Pipeline (each step is a class with `apply(package, budget) -> package`; order i
 
 Expose `GET /v1/debug/context/{turn_id}` (admin only) returning the exact `ContextPackage` — the admin UI shows it as the "what did the model see" panel.
 
-> **Amendment 2026-10-24 (phase 06, ADR-0300).** A block `skill` follows the system instructions (step 1b): the turn's selected skill's instructions, in the system role inside `<skill id= version=>` (`context.skill`). Only the answer node requests it, and only on a turn with a skill; a capability may not name it in `context.needs`. The budget guard never drops it (it is not droppable in `config/context.yaml`); instead a skill whose instructions exceed min(`blocks.skill.max_tokens` 1500, its `max_instruction_tokens`) fails startup. On such a turn the answer's system prompt (`answer.system` 1.5.0 ar, 1.3.0 en) adds one precedence line: guard policies and the citation rules come before any skill instruction.
+> **Amendment 2026-10-24 (phase 06, ADR-0300).** A block `skill` follows the system instructions (step 1b): the turn's selected skill's SKILL.md body and the Markdown files it names (amended 2026-10-25, ADR-0318), in the system role inside `<skill id= version=>` (`context.skill`); its front-matter, its licence and any file it does not name never reach the model. Only the answer node requests it, and only on a turn with a skill; a capability may not name it in `context.needs`. The budget guard never drops it (it is not droppable in `config/context.yaml`); instead a skill whose block exceeds `blocks.skill.max_tokens` (3000 since 2026-10-25; the largest reference block measured 2402 tokens) fails startup. On such a turn the answer's system prompt (`answer.system` 1.5.0 ar, 1.3.0 en) adds one precedence line: guard policies and the citation rules come before any skill instruction.
 
 > **Amendment 2026-10-05 (ADR-0059).** In phase 02 the agent's `GET /v1/debug/context/{turn_id}` is **owner-only**: it answers only the conversation's owner, and only while `DEBUG_CONTEXT_ENABLED` is true. Admin access is deferred to the phase 03 policy layer, which decides who may read another user's packages through the gateway.
 
@@ -624,42 +624,47 @@ class Capability(Protocol):
 - The five v1 capabilities (`general`, `docs`, `kb`, `web`, `sql`) are built with this exact contract from phase 1 — no special-casing for "built-in" ones.
 - `email_proofreader` ships in v1 as a **disabled reference implementation** (Arabic spelling/grammar/formal-tone check producing a diff artifact) to prove the contract; enabling it must require nothing beyond the admin toggle and role assignment.
 
-### 18.6 Skills (phase 06, ADR-0289 to ADR-0316)
+### 18.6 Skills (phase 06, ADR-0289 to ADR-0323)
 
 A **skill** shapes the answer's form (layout, template, worked example) and never says where information comes from; that stays in capabilities, so a skill composes with any capability. Skills are developer-written files reviewed by PR with their evals (no admin editing), text only, no scripts (until phase 12's sandbox); file outputs arrive in phase 11.
 
+Skills use the **open Agent Skills format**, so a public skill loads unmodified (owner decision of 2026-10-25, ADR-0317): `SKILL.md` is YAML front-matter with `name` and `description`, then Markdown instructions; the folder may hold further Markdown files that SKILL.md names. The platform's own fields are optional, in the namespaced block `sovereign`.
+
 ```
-skills/official_memo/            ← at the repository root, mounted read-only into the agent (SKILLS_DIR)
-├── SKILL.md                     ← front-matter below; the body is notes for reviewers, never loaded
-├── prompts/instructions.{ar,en}.md.j2   ← id official_memo.instructions; no variables
-└── evals/{official_memo.jsonl, metrics.yaml}
+skills/internal-comms/           ← at the repository root, mounted read-only into the agent (SKILLS_DIR)
+├── SKILL.md                     ← loaded: the body (never the front-matter)
+├── examples/3p-updates.md       ← loaded: SKILL.md names it by its path (ADR-0318)
+├── examples/…                   ← loaded likewise when named; skipped and logged when not
+├── LICENSE.txt, SOURCE.txt      ← skipped, listed in the startup log, never reach the model
+└── evals/{internal-comms.jsonl, metrics.yaml}   ← the platform's eval cases, never loaded
 ```
 
 ```yaml
-slug: official_memo
-version: 1.0.0
-name: {ar: "مذكرة داخلية", en: "Internal memo"}
-description: {ar: "...", en: "..."}
-when_to_use: {ar: "...", en: "..."}
-permission: skill:official_memo        # Keycloak realm role, forwarded as a permission
-requires: {capabilities: []}           # capabilities only, never MCP tools (ADR-0307); [] = any
-routing_hints:
-  keywords: {ar: ["مذكرة", "مذكره", "مذكرة داخلية"], en: ["memo", "memorandum"]}
-  rules: [{when: keyword_candidate}]
-max_instruction_tokens: 900
+name: official_memo                    # the folder's name; the open format's names, or underscores
+description: >-                        # what it does and when to use it (the router reads it)
+  Writes the answer as an official internal memo ... Use when the user asks for a memo ...
+sovereign:                             # optional; each key has a default
+  version: 1.1.0                       # default: sha-<12 hex> of the loaded files
+  name: {ar: "مذكرة داخلية", en: "Internal memo"}   # default: `name`
+  description: {ar: "..."}             # default: `description`
+  permission: skill:official_memo      # the only allowed value, also the default: skill:<name>
+  requires: {capabilities: []}         # capabilities only, never MCP tools (ADR-0307); default none
+  routing_hints:                       # default none: selectable by the picker only
+    keywords: {ar: ["مذكرة", "مذكره", "مذكرة داخلية"], en: ["memo", "memorandum"]}
+    rules: [{when: keyword_candidate}]
 ```
 
 | Concern | Behaviour |
 |---------|-----------|
-| Discovery | Every folder of `skills/` at startup; any file other than these, an executable bit or a symbolic link, an unknown key (e.g. `requires.mcp_tools`), or instructions over budget fail startup naming the path |
-| AuthZ | The principal holds `skill:{slug}` and every required capability is available to it; TOOL_LIST policies see the skill as `skill:{slug}` and remove it silently (ADR-0121) |
+| Discovery | Every folder of `skills/` at startup. A script (by suffix or `#!`), an executable bit, a symbolic link, a file over 256 KiB, an unknown key in `sovereign` (e.g. `requires.mcp_tools`) or a block over `blocks.skill.max_tokens` fails startup naming the path (D3, ADR-0322); other front-matter keys are ignored and logged |
+| AuthZ | The principal holds `skill:{name}` and every required capability is available to it; TOOL_LIST policies see the skill as `skill:{name}` and remove it silently (ADR-0121) |
 | Selection | §5.3 amendment: the composer's picker, or the router model among keyword candidates; at most one skill per turn |
-| Context | Only the selected skill's instructions, as the answer's `skill` block (§7 amendment) |
+| Context | Only the selected skill's SKILL.md body and the Markdown files it names, as the answer's `skill` block (§7 amendment) |
 | UI | `GET /v1/skills` feeds the composer's picker; the `skill` event and the history give the reply's chip; labels come from SKILL.md, so a new skill needs no web change |
-| Observability, audit | `slug@version` on the route, answer and turn spans and in the audit record; never the skill's text in audit |
-| Evaluation | `evals/run_evals.py` globs `skills/*/evals/*.jsonl` with generic scorers in `metrics.yaml`; routing.jsonl's `expected_skill` measures the choice |
+| Observability, audit | `name@version` on the route, answer and turn spans, in the answer's `context.assemble` prompts and in the audit record; never the skill's text in audit |
+| Evaluation | `evals/run_evals.py` globs `skills/*/evals/*.jsonl` with generic scorers in `metrics.yaml`. Gated: the mechanism (the picked skill applied, its block in the trace, none on a request that is not the skill's, the picker refused without the role) and routing.jsonl's `expected_skill`; the content (format, invented fields, facts, citations) is reported (ADR-0320) |
 
-Adding a skill touches only `skills/<slug>/**`, the realm export, `evals/golden/routing.jsonl` and `evals/thresholds.yaml` (proved by `official_letter`, ADR-0305). Tiers do not change for skills in this phase (phase 11).
+Reference skills: `official_memo` (the Arabic example, ADR-0302) and `internal-comms`, copied unmodified from github.com/anthropics/skills (ADR-0319). Adding a skill touches only `skills/<name>/**`, the realm export, `evals/golden/routing.jsonl` and `evals/thresholds.yaml` (proved by `internal-comms`). Tiers do not change for skills in this phase (phase 11).
 
 ---
 
@@ -850,17 +855,17 @@ Rules:
 
 | File | Keys | Meaning |
 |------|------|---------|
-| `skills/<slug>/SKILL.md` (new) | `slug`, `version`, `name`, `description`, `when_to_use`, `permission`, `requires.capabilities`, `routing_hints.keywords`, `routing_hints.rules`, `max_instruction_tokens` | One skill (§18.6, ADR-0296); reviewed by PR with its evals |
-| `skills/<slug>/prompts/` | `<slug>.instructions` | The skill's instructions, ar and en, front-matter `role: skill` |
-| `skills/<slug>/evals/` | `<slug>.jsonl`, `metrics.yaml` | Its eval cases and metrics; scorers `sections_in_order` (with `by`), `text_present`, `length_between`, `text_absent` (with `patterns_from`), `number`, `field_equals` on `capabilities`, `skill`, `cited` (ADR-0303, ADR-0314) |
-| `config/context.yaml` | `pipeline: skill_instructions`, `blocks.skill.max_tokens` (1500) | The skill block after the system instructions and its budget, never dropped (ADR-0300) |
+| `skills/<name>/SKILL.md` (new) | open format: `name`, `description`; optional `sovereign`: `version`, `name.{ar,en}`, `description.{ar,en}`, `permission`, `requires.capabilities`, `routing_hints.keywords`, `routing_hints.rules` | One skill (§18.6, ADR-0317, ADR-0321); reviewed by PR with its evals |
+| `skills/<name>/*.md` | Markdown files SKILL.md names by path | Loaded with SKILL.md's body; any other file is skipped and logged (ADR-0318) |
+| `skills/<name>/evals/` | `<name>.jsonl`, `metrics.yaml` | Its eval cases and metrics; scorers `sections_in_order` (with `by`), `text_present`, `length_between`, `text_absent` (with `patterns_from`), `number`, `field_equals` on `capabilities`, `skill`, `traced_skill`, `refused`, `cited`; a case may name a seed `user` (ADR-0303, ADR-0314, ADR-0323) |
+| `config/context.yaml` | `pipeline: skill_instructions`, `blocks.skill.max_tokens` (3000) | The skill block after the system instructions and its budget, never dropped (ADR-0300, ADR-0318) |
 | `config/prompts/context/` | `context.skill` | `<skill id= version=>` around the instructions |
-| `config/prompts/router/` | `router.system` 1.2.0, `router.request` 1.2.0 | The skill rule and the reply's `skill`; the candidate skills in the user role (ADR-0299) |
+| `config/prompts/router/` | `router.system` 1.2.0, `router.request` 1.3.0 | The skill rule and the reply's `skill`; the candidate skills with their descriptions in the user role (ADR-0299, ADR-0321) |
 | `config/prompts/answer/` | `answer.system` 1.5.0 (ar), 1.3.0 (en) | The precedence line on a turn with a skill |
 | `config/messages/errors.yaml` | `skill_forbidden` | A picked skill the caller may not use |
-| `infra/keycloak/realm-export.json` | realm roles `skill:official_memo`, `skill:official_letter` | Held by `analyst` and `evaluator`; `viewer` holds none (ADR-0297) |
+| `infra/keycloak/realm-export.json` | realm roles `skill:official_memo`, `skill:internal-comms` | Held by `analyst` and `evaluator`; `viewer` holds none (ADR-0297) |
 | `evals/golden/routing.jsonl` | `expected_skill`; `report_set: skill_keyword_free` | The skill a turn should get (null when none); the keyword-free skill requests, reported, not gated (ADR-0304) |
-| `evals/thresholds.yaml` | `official_memo`, `official_letter` | format_adherence 0.90, no_invented_fields 1.00, facts_kept 0.90, citations_kept 0.90 |
+| `evals/thresholds.yaml` | `official_memo`, `internal-comms` | Gated mechanism metrics at 1.00: `skill_applied`, `skill_block_loaded`, and `permission_refused` for official_memo; content metrics reported (ADR-0320) |
 | `.env` (through compose) | `SKILLS_DIR` (`/srv/skills`) | Where the agent reads the skills, mounted read-only |
 
 ## 21. Getting started on a new machine
