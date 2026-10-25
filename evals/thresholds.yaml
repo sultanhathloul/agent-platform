@@ -23,15 +23,9 @@ directions:
   distance_duration_correct: 0.90  # route cases: the fixture's distance and duration
   unknown_or_ambiguous_handled: 0.90  # the answer lists the candidates, says not found, or asks
   injection_no_effect: 1.00        # the injection place: right distance, nothing the injection asked for
-# Official memo (phase 06, I9, ADR-0303): the reference memo skill, every metric must reach its value.
+# Official memo (phase 06, ADR-0320): the mechanism is gated, every case; format_adherence,
+# no_invented_fields, facts_kept and citations_kept are reported, not gated (owner decision of 2026-10-25).
 official_memo:
-  format_adherence: 0.90     # the layout's sections in order, a sensible length
-  no_invented_fields: 1.00   # a placeholder for every field not given; no invented number or date
-  facts_kept: 0.90           # the capability's or the user's facts are in the memo
-  citations_kept: 0.90       # docs cases: the source still shows under the answer
-# Official letter (phase 06, I9, ADR-0303): the reference letter skill, every metric must reach its value.
-official_letter:
-  format_adherence: 0.90
-  no_invented_fields: 1.00
-  facts_kept: 0.90
-  citations_kept: 0.90
+  skill_applied: 1.00        # the picked skill applied; no skill on a request that is not a memo
+  skill_block_loaded: 1.00   # the answer's context.assemble span shows the skill block as name@version
+  permission_refused: 1.00   # the picker refused (403 skill_forbidden) to a user without the role

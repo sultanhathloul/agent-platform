@@ -1,12 +1,17 @@
-# official_memo evals (phase 06, I9, ADR-0303): generic scorers only (ADR-0240); the harness names
-# no skill. Each case is sent with the skill picked, as the composer would (`skill`), so these
-# metrics measure the layout; whether the router chooses the skill is routing.jsonl's (I10).
+# official_memo evals (phase 06, I9, ADR-0303, ADR-0320): generic scorers only (ADR-0240); the
+# harness names no skill. Gated (evals/thresholds.yaml) is the mechanism: the picked skill applied,
+# its block in the answer's context (the trace's `context.assemble` span shows it as name@version),
+# no skill on a request that is not a memo, and the picker refused to a user without the role.
+# The content metrics are reported, never gated (owner decision of 2026-10-25). Whether the router
+# chooses the skill on its own is routing.jsonl's (I10).
 #   sections_in_order  the layout's headings, in order (Arabic-folded patterns, per locale)
 #   text_present       every expected text, or one of its alternatives, is in the answer
 #   text_absent        no invented value where the user gave none (patterns from the case)
 #   number             a number from the capability's findings, within tolerance
 #   length_between     the answer's word count
-#   field_equals       a turn field: the skill applied, a source shown under the answer
+#   field_equals       a turn field: the skill applied (`skill`), the skill block the trace shows
+#                      (`traced_skill`), the refusal before any stream (`refused`), a source shown
+#                      under the answer (`cited`)
 case_kind: expect.kind
 
 layout: &layout
@@ -46,26 +51,36 @@ facts: &facts {scorer: text_present, expected: expect.facts}
 distance: &distance {scorer: number, expected: expect.distance, tolerance: 0.05}
 cited: &cited {scorer: field_equals, field: cited, default: true}
 
-# The skill was applied to every case: without it no metric of the case can pass.
-common:
-  - {scorer: field_equals, field: skill, expected: skill}
+applied: &applied {scorer: field_equals, field: skill, expected: expect.skill}
+traced: &traced {scorer: field_equals, field: traced_skill, expected: expect.skill}
+refused: &refused {scorer: field_equals, field: refused, expected: expect.refused}
 
 metrics:
+  # Gated: the mechanism.
+  skill_applied:
+    general: [*applied]
+    docs: [*applied]
+    directions: [*applied]
+    negative: [*applied]
+  skill_block_loaded:
+    general: [*traced]
+    docs: [*traced]
+    directions: [*traced]
+    negative: [*traced]
+  permission_refused:
+    permission: [*refused]
+  # Reported, not gated: the content.
   format_adherence:
     general: [*layout, *length]
     docs: [*layout, *length]
     directions: [*layout, *length]
-    injection: [*layout, *length]
   no_invented_fields:
     general: [*placeholders, *given, *not_invented]
     docs: [*placeholders, *given, *not_invented]
     directions: [*placeholders, *given, *not_invented]
-    injection: [*placeholders, *given, *not_invented]
   facts_kept:
     general: [*facts]
     docs: [*facts]
     directions: [*facts, *distance]
-    injection: [*facts]
   citations_kept:
     docs: [*cited]
-    injection: [*cited]
