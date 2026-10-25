@@ -20,6 +20,7 @@ Every request is handled separately, but requests share limited things: a thread
 | PR #12 review | Two users' slow registrations could fill a RAG server's slots | The upload's slot freed while its registration held a server slot | A registration counts until it ends; background work takes half the slots (ADR-0265) |
 | PR #12 review, round 2 | Six users' registrations queued behind each other could open the rag breaker for everyone | A background call's slot wait was taken from its attempt, and that shortened attempt's timeout counted against the server | The wait bounded on its own, the full timeout_s after it; only the server's full timeout_s counts (ADR-0274) |
 | PR #12 review | An answer ending near the deadline was cut after its last token | No room kept for the steps after the answer | A post-answer reserve; never `turn_timeout` once the answer is sent (ADR-0263) |
+| Phase 06 | A full garbage collection held every user's event loop 45–132 ms, failing the 0.1 s lag bound now and then | The collector walked the whole startup heap (300 000 objects) on the event loop | `gc.freeze()` once the services have started (ADR-0324) |
 
 Patterns and names follow the standard literature: Michael Nygard, *Release It!* (timeouts, circuit breaker, bulkhead); Google, *Site Reliability Engineering*, "Handling Overload" and "Addressing Cascading Failures" (load shedding, retry budgets); Amazon Builders' Library, "Timeouts, retries, and backoff with jitter".
 
@@ -39,6 +40,7 @@ Patterns and names follow the standard literature: Michael Nygard, *Release It!*
 | Lowering an MCP server's max_concurrency at runtime (platform settings) | A holdback of the server's own asyncio semaphore permits: free ones taken at once, the rest as calls return theirs; never past the file's value (`_Holdback`) | Agent (app/mcp/client.py) | A resizable semaphore of our own; replacing the semaphore (old holders plus new callers could pass the ICD figure); aiolimiter (a rate) | Keep: the library keeps waiting, fairness and cancellation (ADR-0281) |
 | The gateway's copy of the limits it enforces | A scheduled read of the agent every 5 s, each bounded 4 s, the last values kept on failure (`PlatformLimits`) | Gateway | Spring Cloud Config or a Redis read per request | Keep for one gateway; read per request never (ADR-0283) |
 | Answer size cap under the OpenAI SDK, any status | An httpx2 transport counting bytes as they are read (`CappedTransport`) | Agent (app/models/transport.py) | None: neither httpx nor the SDK caps a response; LiteLLM's proxy relays whatever the provider sends | Keep (ADR-0266) |
+| Garbage-collection pauses on the event loop | `gc.collect()` then `gc.freeze()` at the end of `start_services`; the tests start through it | Agent (app/main.py) | The standard library itself; `gc.disable()` (memory unbounded); higher thresholds (rarer, longer pauses) | Keep: standard library, no custom code (ADR-0324) |
 
 ## Traps when scaling out (more than one gateway or agent replica)
 

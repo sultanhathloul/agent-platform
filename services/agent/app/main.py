@@ -4,6 +4,7 @@ Everything is loaded and validated at startup (config, prompts, manifests), so
 a bad file fails the container immediately instead of at the first turn."""
 
 import dataclasses
+import gc
 import logging
 import uuid
 from collections.abc import Sequence
@@ -369,7 +370,21 @@ async def start_services(services: Services) -> Services:
     if services.broker.mcp is not None:
         # Connects in the background: a server that is down never stops the agent (I8).
         services.broker.mcp.start()
-    return dataclasses.replace(services, graph=build_graph(checkpointer))
+    started = dataclasses.replace(services, graph=build_graph(checkpointer))
+    freeze_startup_heap()
+    return started
+
+
+def freeze_startup_heap() -> None:
+    """Moves every object alive once the registries, configuration and graph are loaded into the
+    collector's permanent generation (ADR-0324). They live as long as the process, yet each full
+    (generation-2) collection walked them all on the event loop: about 45 ms for the agent's 300 000
+    startup objects, up to 132 ms measured under test load, every user's turn stalled meanwhile
+    (rule 12d). Later collections walk only what turns create. The tests start their services
+    through here too, so they measure what production runs."""
+    gc.collect()
+    gc.freeze()
+    log.info("startup heap frozen: %d objects (gc.freeze, ADR-0324)", gc.get_freeze_count())
 
 
 async def stop_services(services: Services) -> None:

@@ -144,6 +144,8 @@ def database_url() -> str:
 
 
 async def _started(settings: Settings, database_url: str, **kwargs):
+    """Started as the service starts, gc.freeze() of the startup heap included (ADR-0324): the
+    lag probes measure the collector's pauses as production has them."""
     from app.main import build_services, start_services
 
     return await start_services(
