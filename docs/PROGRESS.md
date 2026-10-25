@@ -1942,7 +1942,7 @@ Results (rule 11):
 ## Phase 06: Skills
 
 - Branch: `phase/06-skills`, from `main` at 09464df (PR #12 and PR #13 merged). The session prompt is kept verbatim in `docs/PHASE-06-BUILD-PROMPT.md` (both messages, joined in order).
-- Status: in progress (started 2026-10-24).
+- Status: done on 2026-10-25 by the done-check (make test, make eval once, make smoke, make smoke-airgap green at e10bf28, below); MR opened for the owner's review. Before merge, make eval runs three times (G10, rule 13).
 - Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
 - Done when (CLAUDE.md phase 06 row, as amended on 2026-10-25 by ADR-0317 to ADR-0320, rule 10): `skills/<name>/SKILL.md` registry in the open Agent Skills format, so a public skill loads unmodified (`name` and `description`, Markdown instructions; optional namespaced fields: name and description in Arabic and English, the capabilities it needs, the Keycloak role that may use it, routing keywords); the router selects a capability and at most one skill, and the composer offers an optional picker; only the selected skill's SKILL.md and the Markdown files it names are loaded, as a reviewed procedural block; text outputs only; no scripts or executables; per-skill evals gate the mechanism (selection, permission, the skill block loaded, the picker) and report the content, plus routing cases; two reference skills (official memo, and internal-comms copied unmodified from a public repository); adding a skill needs no core change.
 - Done when, as first written (2026-10-24, kept for the record): `skills/<slug>/SKILL.md` registry (name and description in Arabic and English, when to use, the capabilities it needs (ADR-0307), the Keycloak role that may use it); the router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block; text outputs only; no scripts; per-skill evals for format adherence plus routing cases; two reference skills (official memo, official letter); adding a third skill needs no core change. Plus: the eval harness counts lost or interrupted cases as failures in every metric (first item); smoke's G7 checks measure platform-side time; the skill picker of D4; `make test`, `make eval` once, `make smoke` and `make smoke-airgap` green, recorded per rule 11.
@@ -1984,9 +1984,9 @@ Checklist:
 - [x] I. Web: picker in the composer, reply chip (event and history), ar.json/en.json, Western digits (ADR-0288), component tests; pages for the visual check.
 - [x] J. Routing evals (I10): `expected_skill`; ≥ 12 positives, ≥ 8 keyword negatives, ≥ 6 `skill_keyword_free` (reported, ungated).
 - [x] K. Smoke: memo turn (skill event, sections in order); viewer gets no skill; picker for a lacking skill refused at the gateway; keyword negative gets no skill; history chip.
-- [ ] L. Measurements (n=20): router call added on skill-candidate turns (p50/p95); memo TTFT and terminal event vs the same request without the skill.
+- [x] L. Measurements (n=20): router call added on skill-candidate turns (p50/p95); memo TTFT and terminal event vs the same request without the skill.
 - [x] M. Docs: README §5.3, §7, §18 "Skills", §20 phase 06 keys; BACKLOG Skills → phase 06, the two tech debt items done.
-- [ ] N. make test; make eval once; make smoke; make smoke-airgap; rule 11 and G1.
+- [x] N. make test; make eval once; make smoke; make smoke-airgap; rule 11 and G1.
 
 Owner decisions of 2026-10-25 (two messages, verbatim at the end of docs/PHASE-06-BUILD-PROMPT.md; ADR-0317 to ADR-0320 decided, ADR-0321 to ADR-0323 assumed). They change the phase's skill scope; H above is superseded by O4 and O5:
 - [x] O1. grill-me checked before copying (github.com/mattpocock/skills at 5beb35b): MIT, but the folder holds agents/openai.yaml and its body only calls another skill, `grilling`, through a Skill tool; stopped and reported. The owner dropped grill-me and grilling for internal-comms.
@@ -1997,7 +1997,7 @@ Owner decisions of 2026-10-25 (two messages, verbatim at the end of docs/PHASE-0
 - [x] O6. Evals measure the mechanism (6952acc): gated `skill_applied`, `skill_block_loaded` (the trace) and, for official_memo, `permission_refused`; content reported. official_memo 7 cases, internal-comms 6 (a 3P update, a newsletter item, an FAQ answer, an Arabic and a Gulf request, one that is not internal comms). Skill suites one case at a time, 429 backoff 15/30/60/120/240 s ±20%, the run stops past 5% lost to 429s.
 - [x] O7. Reverted (owner decision A4), the eval case changes of 2fd569b made only to make cases pass: memo-dir-en's rewording ("stating how far … by car" back to "with the driving distance from …"; the case is not among the seven kept); the alternatives «وزير النخيل» / "Minister of Palms" in letter-gulf-request, letter-docs-gulf-sick, letter-en-thanks and letter-docs-en-remote, «بتوقيع» in letter-msa-attachments and letter-dir-en's rewording went with official_letter's removal. The 1.1.0 instructions of 2fd569b stay (owner decision A2b, B3).
 - [x] O8. README §5.3, §7, §18.6, §20.7; BACKLOG Skills status (00cf77d); smoke: the memo at 1.1.0, internal-comms listed as loaded unmodified (ba8632a).
-- [ ] O9. FINISH: make test, make eval (all suites), make smoke, make smoke-airgap, the n=20 measurement; rule 11 and G1; push and open the MR.
+- [x] O9. FINISH: make test, make eval (all suites), make smoke, make smoke-airgap, the n=20 measurement; rule 11 and G1; push and open the MR.
 
 Part A results (D5, ADR-0293). `uv run evals/run_evals.py --rescore <run>` scores a recorded run again from its per-case records and its cases files (unchanged since 2026-10-18), writing build/evals/<run>.rescored.json. Old → new:
 - make-eval-20261018T131835Z (7 rag and 5 rag@mcp cases lost to `agent_stream_interrupted`):
@@ -2040,6 +2040,28 @@ FINISH runs after the owner decisions of 2026-10-25 (O9):
   - general 28/28 (1.00 ≥ 0.85). Lost 0.
   - official_memo 7/7. Gated: skill_applied 1.00 (6), skill_block_loaded 1.00 (6), permission_refused 1.00 (1). Reported: format_adherence 1.00 (5), no_invented_fields 0.60 (5), facts_kept 0.80 (5), citations_kept 1.00 (1). 0 retries, lost 0 (no 429 stop).
   - internal-comms 6/6. Gated: skill_applied 1.00 (6), skill_block_loaded 1.00 (6). Reported: format_adherence 1.00 (5), facts_kept 1.00 (5). 0 retries, lost 0.
+- The owner approved the fix of the lag failures on 2026-10-25: `gc.freeze()` at the end of `start_services`, which the tests start through too (ADR-0324, e10bf28; RESILIENCE.md rows). Three agent test runs each with `-rP` (the lag every lag-probed test prints): before, every run passed (1031 / 0 / 0); the slow-register test 36.7, 38.3, 29.0 ms, the hung-capability test 5.0, 94.1, 3.4 ms. After: 1032 / 0 / 0 each (with tests/integration/test_startup_heap.py); 22.3, 39.4, 19.4 ms and 3.8, 4.0, 3.6 ms. Largest of the 31 lag-probed tests per run: before 41.5, 94.1, 42.9 ms; after 50.6, 44.5, 43.1 ms (the flooding-embedding tests). A full collection in the agent container: 45–49 ms before, under 0.1 ms after; the agent logs "startup heap frozen: 305941 objects". `LAG_BOUND_S` is 0.1 in all seven files that assert it, unchanged. Infrastructure only, so no eval (rule 13).
+- make test attempt 4 (e10bf28, 13:48:59Z–14:01:19Z): rc=0. Agent 1032 / 0 / 0; gateway 180 / 0 / 0; gateway-db 5 / 0 / 0; web 174 / 0 / 0 (14 files); evals harness 28 / 0 / 0; timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, deploy-values ok); scripts/tests 16 / 0 / 0.
+- make smoke (e10bf28, 14:01:40Z–14:06:33Z): 212/212. G7, platform-side time (D6): a general turn 0.25 s (median of 0.24, 0.25, 0.27; wall 1.41, 1.72, 1.46 s), bound 2.25 s; another user's turn while mcp-routing-ref was stopped 0.24 s (wall 1.88 s), while it hung 0.32 s (wall 1.41 s). Phase 06 checks: the analyst's picker lists official_memo «مذكرة داخلية» and internal-comms by its own name, the viewer's none; the memo turn applies official_memo@1.1.0 with its event before the first token and its sections in order; the audit row names official_memo@1.1.0, never its text; the viewer gets no skill and its pick is 403 skill_forbidden, audited denied; «ما معنى مذكرة تفاهم؟» gets no skill; the reopened conversation shows the chip.
+- make smoke-airgap (e10bf28, 14:06:55Z–14:14:27Z): 220/220.
+- Measurements (L), attempt 2 (e10bf28, 14:14:40Z–14:19:29Z; `uv run scripts/measure_skills.py 20`): 0 failures, 0 provider retries. 20 memo requests, each in a new conversation, as evaluator (holds the memo skill: a keyword candidate, so the route node calls the router model for the skill) and the same messages as viewer (no skill: no candidate, no router call):
+  - with the skill: time to first token p50 2.65 s, p95 3.78 s (mean 2.67); terminal event p50 4.99 s, p95 5.83 s (mean 4.76); route node p50 1.52 s, p95 3.02 s; the router model call inside it p50 1.52 s, p95 3.02 s (mean 1.69): the call a skill candidate adds.
+  - without: time to first token p50 1.06 s, p95 1.91 s (mean 1.22); terminal event p50 6.51 s, p95 8.37 s (mean 6.54); route node p50 0.00 s; no router call.
+  - So a skill-candidate turn waits about 1.5 s (p50) to 3.0 s (p95) longer for its first token; its terminal event comes sooner because the memo is shorter than the free-form answer.
+  - Attempt 1 (above) failed on provider 429s; this attempt ran with the script's backoff and needed none.
+
+How to verify: `make up`, `make test`, `make eval` (or `make eval s=official_memo`, `s=internal-comms`, `s=routing`), `make smoke`, `make smoke-airgap`, `uv run scripts/measure_skills.py 20`. The agent's startup log lists each skill's loaded and skipped files, its block size, and "startup heap frozen".
+
+Left for the owner:
+- ADR-0309 to ADR-0316 and ADR-0321 to ADR-0323 are assumed (the namespace key `sovereign`, the content-hash version, official_memo's English variant not carried over, how references are found, the mechanism metrics and pacing).
+- The running Keycloak got the skill roles through kcadm (skill:official_letter deleted, skill:internal-comms created for analyst and evaluator); the realm export applies on a fresh volume.
+- Make eval runs three times before merge (G10).
+- evals/docs/format-injected.txt is still generated by evals/docs/generate.py but no case uses it since the memo suite was cut to seven cases and the letter removed.
+- BACKLOG phase 06 items: a provider 429 inside a capability ends `capability_failed`; "driving distance" is not a directions keyword.
+
+Files for human review: skills/** (official_memo/SKILL.md, NOTES.md, evals/; internal-comms/**, with SOURCE.txt), config/context.yaml, config/prompts/router/**, config/prompts/answer/**, config/prompts/context/skill.*, config/messages/errors.yaml, infra/keycloak/realm-export.json, evals/golden/routing.jsonl, evals/thresholds.yaml, docs/openapi/*.json, docs/events.schema.json, evals/docs/format-injected.txt, and services/agent/app/main.py (`freeze_startup_heap`, ADR-0324).
+
+Pages for the visual check: /chat/[id], the composer's picker «نموذج الإجابة» / "Answer template" (ar and en; official_memo «مذكرة داخلية» and internal-comms by its own name, «تلقائي» first); the reply's chip «مكتوبة بنموذج …» / "Written as …" live and in the reopened history; the skill_forbidden message (a user without the role).
 
 ## Phase 07: Planner
 
