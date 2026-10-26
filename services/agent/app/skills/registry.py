@@ -4,6 +4,8 @@ root is a skill in the open Agent Skills format, validated at startup:
   the folder fails startup with the path named, so no code can arrive as a skill (ADR-0291, D3);
 - the instructions are SKILL.md's body plus every Markdown file of the folder that the body names
   by its relative path, loaded together, in the order the body first names them (ADR-0318);
+- the sidecar `skill.platform.yaml`, when present, holds the platform's fields in place of SKILL.md's
+  namespaced block (ADR-0325); it is read by the loader and never reaches the model;
 - every other file (a licence, a SOURCE note, a Markdown file the body does not name, the evals/
   folder's data) stays in the folder, is skipped and never reaches the model; the startup log
   lists it.
@@ -22,7 +24,7 @@ import yaml
 from pydantic import ValidationError
 
 from app.identity import Principal
-from app.skills.contract import FrontMatter, SkillManifest
+from app.skills.contract import PLATFORM_FILE, FrontMatter, PlatformFields, SkillManifest
 from app.text.arabic import contains_keyword
 
 SKILL_FILE = "SKILL.md"
@@ -56,6 +58,8 @@ class LoadedSkill:
     # The files loaded into the instructions and those skipped, relative to the folder.
     loaded: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
+    # The sidecar the platform's fields came from (ADR-0325), or None.
+    platform_file: str | None = None
 
     @property
     def slug(self) -> str:
@@ -113,6 +117,19 @@ def compose(body: str, references: Sequence[tuple[str, str]]) -> str:
     return "\n\n".join(parts)
 
 
+def _sidecar(directory: Path, front: FrontMatter) -> PlatformFields | None:
+    """The platform's fields from `skill.platform.yaml`, or None without one (ADR-0325)."""
+    path = directory / PLATFORM_FILE
+    if not path.is_file():
+        return None
+    if front.declares_platform():
+        raise SkillError(f"{directory}: both {PLATFORM_FILE} and SKILL.md's namespaced block; keep one (ADR-0325)")
+    try:
+        return PlatformFields.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+    except (ValidationError, yaml.YAMLError) as exc:
+        raise SkillError(f"{path}: invalid {PLATFORM_FILE}\n{exc}") from exc
+
+
 def load_skill(directory: Path) -> LoadedSkill:
     files = _files(directory)
     path = directory / SKILL_FILE
@@ -127,6 +144,7 @@ def load_skill(directory: Path) -> LoadedSkill:
         raise SkillError(f"{path}: invalid SKILL.md\n{exc}") from exc
     if front.name != directory.name:
         raise SkillError(f"{path}: name {front.name!r} must match directory {directory.name!r}")
+    platform = _sidecar(directory, front)
     body = match.group(2)
     relative = [f.relative_to(directory) for f in files]
     markdown = [
@@ -138,22 +156,25 @@ def load_skill(directory: Path) -> LoadedSkill:
     named = _named(body, markdown)
     references = [(rel, (directory / rel).read_text(encoding="utf-8")) for rel in named]
     loaded = (SKILL_FILE, *named)
-    skipped = tuple(rel.as_posix() for rel in relative if rel.as_posix() not in loaded)
+    platform_file = PLATFORM_FILE if platform is not None else None
+    skipped = tuple(rel.as_posix() for rel in relative if rel.as_posix() not in (*loaded, platform_file))
     digest = hashlib.sha256()
-    for rel in loaded:
+    # The default version covers the sidecar too: its labels and keywords are part of the skill.
+    for rel in (*loaded, *([platform_file] if platform_file else [])):
         digest.update(rel.encode() + b"\0" + (directory / rel).read_bytes() + b"\0")
     try:
-        manifest = SkillManifest.of(front, content_version=f"sha-{digest.hexdigest()[:12]}")
+        manifest = SkillManifest.of(front, content_version=f"sha-{digest.hexdigest()[:12]}", platform=platform)
     except ValidationError as exc:
-        raise SkillError(f"{path}: invalid SKILL.md\n{exc}") from exc
+        source = directory / platform_file if platform_file else path
+        raise SkillError(f"{source}: invalid {source.name}\n{exc}") from exc
     # The startup log lists what reaches the model and what never does (ADR-0318).
     log.info(
-        "skill %s loaded=%s skipped=%s ignored_front_matter=%s",
-        manifest.ref, list(loaded), list(skipped), front.ignored_keys(),
+        "skill %s loaded=%s platform_file=%s skipped=%s ignored_front_matter=%s",
+        manifest.ref, list(loaded), platform_file, list(skipped), front.ignored_keys(),
     )
     return LoadedSkill(
         manifest=manifest, path=directory, instructions=compose(body, references),
-        loaded=loaded, skipped=skipped,
+        loaded=loaded, skipped=skipped, platform_file=platform_file,
     )
 
 

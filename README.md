@@ -628,11 +628,12 @@ class Capability(Protocol):
 
 A **skill** shapes the answer's form (layout, template, worked example) and never says where information comes from; that stays in capabilities, so a skill composes with any capability. Skills are developer-written files reviewed by PR with their evals (no admin editing), text only, no scripts (until phase 12's sandbox); file outputs arrive in phase 11.
 
-Skills use the **open Agent Skills format**, so a public skill loads unmodified (owner decision of 2026-10-25, ADR-0317): `SKILL.md` is YAML front-matter with `name` and `description`, then Markdown instructions; the folder may hold further Markdown files that SKILL.md names. The platform's own fields are optional, in the namespaced block `sovereign`.
+Skills use the **open Agent Skills format**, so a public skill loads unmodified (owner decision of 2026-10-25, ADR-0317): `SKILL.md` is YAML front-matter with `name` and `description`, then Markdown instructions; the folder may hold further Markdown files that SKILL.md names. The platform's own fields are optional, in the namespaced block `sovereign`, or, for a skill whose SKILL.md stays byte-identical to its source, in a sidecar `skill.platform.yaml` beside it with the same keys (owner decision of 2026-10-26, ADR-0325); a skill has one or the other, never both.
 
 ```
 skills/internal-comms/           ← at the repository root, mounted read-only into the agent (SKILLS_DIR)
-├── SKILL.md                     ← loaded: the body (never the front-matter)
+├── SKILL.md                     ← loaded: the body (never the front-matter); byte-identical to its source
+├── skill.platform.yaml          ← the platform's fields (ADR-0325): read by the loader, never reaches the model
 ├── examples/3p-updates.md       ← loaded: SKILL.md names it by its path (ADR-0318)
 ├── examples/…                   ← loaded likewise when named; skipped and logged when not
 ├── LICENSE.txt, SOURCE.txt      ← skipped, listed in the startup log, never reach the model
@@ -656,7 +657,7 @@ sovereign:                             # optional; each key has a default
 
 | Concern | Behaviour |
 |---------|-----------|
-| Discovery | Every folder of `skills/` at startup. A script (by suffix or `#!`), an executable bit, a symbolic link, a file over 256 KiB, an unknown key in `sovereign` (e.g. `requires.mcp_tools`) or a block over `blocks.skill.max_tokens` fails startup naming the path (D3, ADR-0322); other front-matter keys are ignored and logged |
+| Discovery | Every folder of `skills/` at startup. A script (by suffix or `#!`), an executable bit, a symbolic link, a file over 256 KiB, an unknown key in `sovereign` or `skill.platform.yaml` (e.g. `requires.mcp_tools`), both of them in one skill, or a block over `blocks.skill.max_tokens` fails startup naming the path (D3, ADR-0322); other front-matter keys are ignored and logged |
 | AuthZ | The principal holds `skill:{name}` and every required capability is available to it; TOOL_LIST policies see the skill as `skill:{name}` and remove it silently (ADR-0121) |
 | Selection | §5.3 amendment: the composer's picker, or the router model among keyword candidates; at most one skill per turn |
 | Context | Only the selected skill's SKILL.md body and the Markdown files it names, as the answer's `skill` block (§7 amendment) |
@@ -856,6 +857,7 @@ Rules:
 | File | Keys | Meaning |
 |------|------|---------|
 | `skills/<name>/SKILL.md` (new) | open format: `name`, `description`; optional `sovereign`: `version`, `name.{ar,en}`, `description.{ar,en}`, `permission`, `requires.capabilities`, `routing_hints.keywords`, `routing_hints.rules` | One skill (§18.6, ADR-0317, ADR-0321); reviewed by PR with its evals |
+| `skills/<name>/skill.platform.yaml` (new, ADR-0325) | the keys of `sovereign` | The platform's fields of a skill whose SKILL.md stays unmodified; never both this file and `sovereign` |
 | `skills/<name>/*.md` | Markdown files SKILL.md names by path | Loaded with SKILL.md's body; any other file is skipped and logged (ADR-0318) |
 | `skills/<name>/evals/` | `<name>.jsonl`, `metrics.yaml` | Its eval cases and metrics; scorers `sections_in_order` (with `by`), `text_present`, `length_between`, `text_absent` (with `patterns_from`), `number`, `field_equals` on `capabilities`, `skill`, `traced_skill`, `refused`, `cited`; a case may name a seed `user` (ADR-0303, ADR-0314, ADR-0323) |
 | `config/context.yaml` | `pipeline: skill_instructions`, `blocks.skill.max_tokens` (3000) | The skill block after the system instructions and its budget, never dropped (ADR-0300, ADR-0318) |

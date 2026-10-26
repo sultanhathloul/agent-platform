@@ -9,7 +9,11 @@ The platform's own fields are optional, in the namespaced front-matter block `so
 version, the Arabic (and English) name and description shown in the picker, the permission, the
 capabilities it requires and its routing keywords. Defaults: permission `skill:<name>`, no
 required capability, no keyword (selectable by the picker only), labels from `name` and
-`description`, a version from the loaded files' content."""
+`description`, a version from the loaded files' content.
+
+The same fields may instead sit in a sidecar file `skill.platform.yaml` beside SKILL.md (ADR-0325),
+so a skill copied unmodified gets Arabic labels, keywords and its permission without an edit to its
+SKILL.md. A skill has one or the other, never both."""
 
 from typing import Literal
 
@@ -19,6 +23,9 @@ SKILL_PERMISSION_PREFIX = "skill:"
 # The front-matter block holding the platform's fields; any other top-level key besides the open
 # format's is kept in the file and ignored by the loader (it is listed in the startup log).
 NAMESPACE = "sovereign"
+# The sidecar holding the same fields as the namespaced block, for a skill whose SKILL.md stays
+# untouched (ADR-0325).
+PLATFORM_FILE = "skill.platform.yaml"
 # A skill name: the open format's lowercase letters, digits and hyphens, and the underscore of the
 # platform's own slugs; the folder carries the same name.
 NAME_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
@@ -64,8 +71,8 @@ class SkillRequires(_Strict):
 
 
 class PlatformFields(_Strict):
-    """The `sovereign` block (ADR-0317). Any unknown key in it, `requires.mcp_tools` included, is
-    refused at startup."""
+    """The `sovereign` block (ADR-0317), or the sidecar `skill.platform.yaml` (ADR-0325). Any
+    unknown key in it, `requires.mcp_tools` included, is refused at startup."""
 
     version: str | None = Field(default=None, pattern=r"^\d+\.\d+\.\d+$")
     name: OptionalLocalized = OptionalLocalized()
@@ -84,6 +91,10 @@ class FrontMatter(BaseModel):
     name: str = Field(pattern=NAME_PATTERN)
     description: str = Field(min_length=1, max_length=1024)
     platform: PlatformFields = Field(default=PlatformFields(), alias=NAMESPACE)
+
+    def declares_platform(self) -> bool:
+        """The front-matter holds the namespaced block (even an empty one)."""
+        return "platform" in self.model_fields_set
 
     def ignored_keys(self) -> list[str]:
         """Top-level keys the loader does not read (the open format's optional ones and others)."""
@@ -112,9 +123,12 @@ class SkillManifest(_Strict):
         return self
 
     @classmethod
-    def of(cls, front: FrontMatter, content_version: str) -> "SkillManifest":
-        """The manifest of a front-matter; `content_version` when the `sovereign` block names none."""
-        own = front.platform
+    def of(
+        cls, front: FrontMatter, content_version: str, platform: PlatformFields | None = None
+    ) -> "SkillManifest":
+        """The manifest of a front-matter; `platform` (the sidecar's fields) in place of its
+        `sovereign` block when given; `content_version` when neither names a version."""
+        own = platform if platform is not None else front.platform
         return cls(
             slug=front.name,
             version=own.version or content_version,

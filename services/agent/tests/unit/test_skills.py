@@ -100,6 +100,75 @@ def test_an_invalid_namespaced_field_fails_fast_naming_the_file(tmp_path, platfo
     assert str(directory / "SKILL.md") in str(info.value)
 
 
+# ------------------------------------------------------------------ the sidecar (ADR-0325)
+
+
+def _sidecar(directory: Path, fields: dict) -> Path:
+    path = directory / "skill.platform.yaml"
+    path.write_text(yaml.safe_dump(fields, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def test_the_sidecar_gives_a_public_skill_its_fields_and_leaves_skill_md_untouched(tmp_path, caplog):
+    directory = _skill(tmp_path, "internal-notes")
+    before = (directory / "SKILL.md").read_bytes()
+    _sidecar(directory, PLATFORM)
+    with caplog.at_level(logging.INFO, logger="app.skills.registry"):
+        skill = load_skill(directory)
+    manifest = skill.manifest
+    assert manifest.ref == "internal-notes@1.0.0" and manifest.permission == "skill:internal-notes"
+    assert manifest.name.ar == "نموذج تجريبي" and manifest.description.ar == "يرتب الإجابة في نموذج"
+    assert skill.matches("املأ نموذج الطلب") and not skill.matches("ما عاصمة المملكة؟")
+    assert (directory / "SKILL.md").read_bytes() == before
+    # Read by the loader, never loaded into the model, and not among the skipped files.
+    assert skill.platform_file == "skill.platform.yaml"
+    assert "skill.platform.yaml" not in skill.loaded and "skill.platform.yaml" not in skill.skipped
+    assert "keyword_candidate" not in skill.instructions and "نموذج تجريبي" not in skill.instructions
+    line = next(r.getMessage() for r in caplog.records if "internal-notes@1.0.0" in r.getMessage())
+    assert "platform_file=skill.platform.yaml" in line
+
+
+def test_without_a_sidecar_version_the_content_version_covers_the_sidecar(tmp_path):
+    directory = _skill(tmp_path)
+    plain = load_skill(directory).manifest.version
+    _sidecar(directory, {"name": {"ar": "نموذج"}})
+    first = load_skill(directory).manifest.version
+    assert first.startswith("sha-") and first != plain
+    _sidecar(directory, {"name": {"ar": "نموذج آخر"}})
+    assert load_skill(directory).manifest.version != first
+
+
+def test_a_sidecar_and_the_namespaced_block_together_fail_startup(tmp_path):
+    directory = _skill(tmp_path, platform={"name": {"en": "Demo form"}})
+    _sidecar(directory, PLATFORM)
+    with pytest.raises(SkillError, match="keep one"):
+        load_skill(directory)
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"permission": "skill:other"}, "skill:demo_form"),
+        ({"requires": {"mcp_tools": ["routing.route"]}}, "mcp_tools"),
+        ({"routing_hints": {"rules": [{"when": "keyword_candidate"}]}}, "needs keywords"),
+        ({"unknown": 1}, "unknown"),
+    ],
+)
+def test_an_invalid_sidecar_fails_fast_naming_it(tmp_path, fields, message):
+    directory = _skill(tmp_path)
+    path = _sidecar(directory, fields)
+    with pytest.raises(SkillError, match=message) as info:
+        load_skill(directory)
+    assert str(path) in str(info.value)
+
+
+def test_a_sidecar_that_is_not_yaml_fails_fast(tmp_path):
+    directory = _skill(tmp_path)
+    (directory / "skill.platform.yaml").write_text("name: [unclosed\n", encoding="utf-8")
+    with pytest.raises(SkillError, match="invalid skill.platform.yaml"):
+        load_skill(directory)
+
+
 @pytest.mark.parametrize(
     ("front", "message"),
     [({"description": ""}, "description"), ({"description": "x" * 1025}, "description")],
