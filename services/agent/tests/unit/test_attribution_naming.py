@@ -100,3 +100,17 @@ def test_a_boilerplate_clause_does_not_cite_a_neighbouring_page_before_the_claus
     cited = attribute(answer, sources, {"p": probation, "t3": partners, "t2": CHUNK}, _rule(config_dir),
                       question="كم مدة التجربة للموظف الجديد، وكم كانت صادرات الأسمدة من الواحة سنة 2030؟")
     assert {c["document_id"]: c["pages"] for c in cited} == {"dl": [3], "d1": [2]}
+
+
+def test_the_words_introducing_a_source_do_not_dilute_the_claim(config_dir):
+    # make-eval-20261026T140012Z, cross-remote-unemployment-ar (ADR-0358): «وفقاً لـ … الصادر عن … بتاريخ»
+    # left «يومين» a quarter of the claim, below min_new_word_coverage.
+    remote = {**R_SOURCE, "publisher": "وزارة الموارد البشرية في الواحة", "published_on": "2031-03-05",
+              "title": "دليل العمل عن بعد"}
+    answer = ("يسمح بالعمل عن بعد يومين في الأسبوع وفقاً لدليل العمل عن بعد الصادر عن وزارة الموارد البشرية في الواحة "
+              "بتاريخ 2031-03-05.")
+    [citation] = attribute(answer, [remote], {"r1": REMOTE}, _rule(config_dir),
+                           question="كم يوما في الأسبوع يسمح بالعمل عن بعد؟")
+    assert citation["document_id"] == "dr" and citation["pages"] == [2]
+    without = _rule(config_dir).model_copy(update={"source_phrasing": []})
+    assert attribute(answer, [remote], {"r1": REMOTE}, without, question="كم يوما في الأسبوع يسمح بالعمل عن بعد؟") == []

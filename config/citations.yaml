@@ -13,3 +13,7 @@ attribution:
   min_shared_ngrams: 1
   min_new_word_coverage: 0.35
   relative_to_best: 0.6
+  # The words that introduce a source in an answer that states its source and date (D3, phase 08,
+  # ADR-0358): they say where a fact comes from, not what it is, so they are dropped with the
+  # question's words and the sources' names before attribution.
+  source_phrasing: [وفقا, وفقًا, وفقاً, حسب, بحسب, الصادر, الصادرة, بتاريخ, المنشور, المنشورة, according, published, dated, issued, released]

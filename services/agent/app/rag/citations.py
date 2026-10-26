@@ -58,6 +58,9 @@ class AttributionRule(BaseModel):
     min_shared_ngrams: int = Field(ge=1)
     min_new_word_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
     relative_to_best: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Words that introduce a source ("وفقًا لـ", "الصادر عن", "بتاريخ"): dropped with the sources' names
+    # (ADR-0358).
+    source_phrasing: list[str] = Field(default_factory=list)
 
 
 def load_attribution_rule(config_dir: Path) -> AttributionRule:
@@ -111,6 +114,7 @@ def attribute(
     # not what it is: an answer that states its source and date (D3, phase 08) is attributed on its
     # facts, as the question's own words are dropped (ADR-0354).
     asked |= {term for source in sources for term in search_terms(_naming(source))}
+    asked |= set(search_terms(" ".join(rule.source_phrasing)))
     terms = search_terms(answer or "")
     grams = ngrams(terms, rule.ngram)
     new_grams = {gram for gram in grams if not set(gram) <= asked}
