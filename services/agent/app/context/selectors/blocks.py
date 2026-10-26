@@ -5,8 +5,9 @@ records what it cut; the budget guard enforces the tier budget afterwards."""
 from app.context.budget import Budget
 from app.context.compress import extractive, extractive_delimited, truncate
 from app.context.messages import visible
-from app.context.package import ContextPackage
+from app.context.package import ContextPackage, SkillBlockRequest
 from app.context.selectors.base import Step
+from app.models.prompts import PromptLibrary
 
 
 class SystemInstructions(Step):
@@ -22,11 +23,42 @@ class SystemInstructions(Step):
             has_evidence=any(f.get("findings") for f in req.findings)
             or bool(req.retrieved or req.tool_results),
             policy_hints=req.policy_hints,
+            has_skill=req.skill is not None and "skill" in req.needs,
             **req.prompt_vars,
         )
         package.blocks.append(self.make_block("system", "system", prompt.text, prompt=prompt.ref))
         package.prompt_refs.append(prompt.ref)
         return package
+
+
+class SkillInstructions(Step):
+    """The turn's selected skill's instructions (phase 06, ADR-0300), in the system role inside
+    `<skill id= version=>`, right after the system instructions. Reviewed developer text, never
+    user-derived (ADR-0068 binds user text only). Never cut here or by the budget guard: the
+    registry checked at startup that it fits blocks.skill.max_tokens (ADR-0318)."""
+
+    name = "skill_instructions"
+    block = "skill"
+
+    async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
+        req = package.request
+        if req.skill is None:
+            return package
+        text, refs = render_skill(self.deps.prompts, req.skill, req.locale)
+        ref = f"{req.skill.slug}@{req.skill.version}"
+        package.blocks.append(self.make_block("skill", "system", text, prompt=refs[0], skill=ref))
+        package.prompt_refs.extend(refs)
+        return package
+
+
+def render_skill(prompts: PromptLibrary, skill: SkillBlockRequest, locale: str) -> tuple[str, list[str]]:
+    """`context.skill` around the skill's instructions, and the refs the block records: the skill's
+    `name@version` first, then the wrapper prompt's `id@version` (ADR-0318). Shared with the
+    startup size check."""
+    wrapped = prompts.render(
+        "context.skill", locale, id=skill.slug, version=skill.version, instructions=skill.instructions
+    )
+    return wrapped.text, [f"{skill.slug}@{skill.version}", wrapped.ref]
 
 
 class StateDigest(Step):

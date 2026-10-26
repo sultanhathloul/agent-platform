@@ -37,6 +37,8 @@ x-agent-env: &agent-env
   LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
   AGENT_INTERNAL_TOKEN: ${AGENT_INTERNAL_TOKEN}
   CONFIG_DIR: /srv/config
+  # Skills (phase 06, ADR-0295): skills/<slug>/ at the repository root, mounted read-only.
+  SKILLS_DIR: /srv/skills
   USER_ID_HASH_SALT: ${USER_ID_HASH_SALT}
   # HMAC key of the content hashes in traces (D5, ADR-0110).
   CONTENT_HASH_KEY: ${CONTENT_HASH_KEY}
@@ -372,6 +374,7 @@ services:
       DOCS_BACKEND: ${DOCS_BACKEND:-}
     volumes:
       - ./config:/srv/config:ro
+      - ./skills:/srv/skills:ro
     networks: [default, mcp, mcp-routing]
     depends_on:
       postgres:
@@ -640,6 +643,7 @@ services:
       MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY}
     volumes:
       - ./config:/srv/config:ro
+      - ./skills:/srv/skills:ro
       - ./docs:/srv/docs:ro   # contract drift test (ADR-0044)
       - ./infra/keycloak:/srv/infra/keycloak:ro   # no realm user is in a tenant to serve a policy (ADR-0107)
     depends_on:

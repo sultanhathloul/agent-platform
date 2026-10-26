@@ -79,7 +79,11 @@ async def health(request: Request) -> HealthResponse:
         },
         400: {"model": ErrorEnvelope},
         401: {"model": ErrorEnvelope},
-        403: {"model": ErrorEnvelope, "description": "conversation_forbidden: another owner's conversation"},
+        403: {
+            "model": ErrorEnvelope,
+            "description": "conversation_forbidden: another owner's conversation; skill_forbidden: the picked "
+            "skill is not available to the caller",
+        },
         409: {"model": ErrorEnvelope, "description": "turn_in_flight: another turn holds the conversation"},
         429: {
             "model": ErrorEnvelope,

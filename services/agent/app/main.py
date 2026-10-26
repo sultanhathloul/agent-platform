@@ -4,6 +4,7 @@ Everything is loaded and validated at startup (config, prompts, manifests), so
 a bad file fails the container immediately instead of at the first turn."""
 
 import dataclasses
+import gc
 import logging
 import uuid
 from collections.abc import Sequence
@@ -26,6 +27,7 @@ from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
 from app.api.settings import internal as internal_router
 from app.api.settings import router as settings_router
+from app.api.skills import router as skills_router
 from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
@@ -76,9 +78,12 @@ from app.rag.setup import build_documents
 from app.rag.types import Owner
 from app.resilience.turn import load_turn_config
 from app.settings import Settings, get_settings
+from app.skills.setup import check_instruction_budgets, discover_skills
 from app.text.script import load_validation_config
 from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
+
+log = logging.getLogger(__name__)
 
 CORE_PROMPTS = (
     "context.state_digest",
@@ -87,15 +92,22 @@ CORE_PROMPTS = (
     "context.retrieval",
     "context.tool_result",
     "context.findings",
+    "context.skill",
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.4.0"
+API_VERSION = "2.5.0"
 
 
-def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Path, str]] = ()) -> Services:
+def build_services(
+    settings: Settings,
+    *,
+    extra_capabilities: Sequence[tuple[Path, str]] = (),
+    extra_skills: Sequence[Path] = (),
+) -> Services:
     """`extra_capabilities` adds (directory, import package) roots discovered beside
-    app/capabilities, e.g. the test-only capabilities under tests/fixtures."""
+    app/capabilities, e.g. the test-only capabilities under tests/fixtures; `extra_skills` adds
+    skill roots beside SKILLS_DIR, e.g. tests/fixtures/skills."""
     models_config = load_models_config(settings.config_dir)
     core_prompts = PromptLibrary.load(settings.config_dir / "prompts")
     registry = CapabilityRegistry.discover(models_config, core_prompts=core_prompts)
@@ -108,6 +120,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         registry = CapabilityRegistry(loaded)
     for cap in registry.all():
         cap.config = load_capability_config(settings.config_dir, cap.slug)
+    skills = discover_skills(settings.skills_dir, extra_skills, capabilities=[c.slug for c in registry.all()])
     prompts = PromptLibrary.load(settings.config_dir / "prompts", *registry.prompt_dirs())
     context_config = load_context_config(settings.config_dir)
     memory_config = load_memory_config(settings.config_dir)
@@ -125,6 +138,9 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
                 raise ManifestError(f"{cap.path}: context.needs has 'system' but {exc}") from exc
 
     counter = default_counter()
+    for slug, tokens in check_instruction_budgets(skills, prompts, context_config, counter).items():
+        log.info("skill %s block tokens=%d (blocks.skill.max_tokens %d)", slug, tokens,
+                 context_config.blocks["skill"].max_tokens)
     db = Database(settings.database_url)
     redis = _redis(settings)
     guard_config = load_guardrails_config(settings.config_dir)
@@ -245,6 +261,7 @@ def build_services(settings: Settings, *, extra_capabilities: Sequence[tuple[Pat
         embeddings=embeddings,
         guard=guard,
         registry=registry,
+        skills=skills,
         tools=tools,
         broker=broker,
         messages=ErrorMessages.load(settings.config_dir),
@@ -353,7 +370,21 @@ async def start_services(services: Services) -> Services:
     if services.broker.mcp is not None:
         # Connects in the background: a server that is down never stops the agent (I8).
         services.broker.mcp.start()
-    return dataclasses.replace(services, graph=build_graph(checkpointer))
+    started = dataclasses.replace(services, graph=build_graph(checkpointer))
+    freeze_startup_heap()
+    return started
+
+
+def freeze_startup_heap() -> None:
+    """Moves every object alive once the registries, configuration and graph are loaded into the
+    collector's permanent generation (ADR-0324). They live as long as the process, yet each full
+    (generation-2) collection walked them all on the event loop: about 45 ms for the agent's 300 000
+    startup objects, up to 132 ms measured under test load, every user's turn stalled meanwhile
+    (rule 12d). Later collections walk only what turns create. The tests start their services
+    through here too, so they measure what production runs."""
+    gc.collect()
+    gc.freeze()
+    log.info("startup heap frozen: %d objects (gc.freeze, ADR-0324)", gc.get_freeze_count())
 
 
 async def stop_services(services: Services) -> None:
@@ -403,6 +434,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(attachments_router)
     app.include_router(conversations_router)
     app.include_router(settings_router)
+    app.include_router(skills_router)
     app.include_router(internal_router)
 
     @app.exception_handler(RequestValidationError)

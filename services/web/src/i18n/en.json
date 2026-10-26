@@ -52,13 +52,17 @@
     "citationPageTwo": "pages {pages}",
     "citationPageMany": "pages {pages}",
     "historyLoading": "Loading the conversation…",
-    "historyFailed": "The earlier messages of this conversation could not be loaded."
+    "historyFailed": "The earlier messages of this conversation could not be loaded.",
+    "skillPicker": "Skill",
+    "skillAuto": "Automatic",
+    "skillAutoHint": "The skill is chosen automatically when needed"
   },
   "chips": {
     "tier": "Model tier",
     "guard": "Guardrail",
     "tool": "Tool",
-    "latency": "{ms} ms"
+    "latency": "{ms} ms",
+    "skill": "Written as"
   },
   "guardActions": {
     "allow": "Allowed",
@@ -102,6 +106,7 @@
     "forbidden": "You do not have permission to perform this request.",
     "kb_forbidden": "You do not have access to one of the selected knowledge bases.",
     "conversation_forbidden": "This conversation belongs to another user, so you cannot continue it.",
+    "skill_forbidden": "The chosen template is not available to you.",
     "invalid_request": "The request could not be processed because it is invalid.",
     "agent_unavailable": "The assistant service is currently unavailable. Please try again shortly.",
     "agent_stream_interrupted": "The answer stream was interrupted before it finished. Please try again.",

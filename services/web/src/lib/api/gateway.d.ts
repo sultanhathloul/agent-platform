@@ -323,7 +323,7 @@ export interface paths {
             cookie?: never;
         };
         /** The caller's conversations, newest first */
-        get: operations["list_2"];
+        get: operations["list_3"];
         put?: never;
         post?: never;
         delete?: never;
@@ -446,7 +446,7 @@ export interface paths {
             cookie?: never;
         };
         /** The caller's memory items and memory switch */
-        get: operations["list_1"];
+        get: operations["list_2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -484,6 +484,23 @@ export interface paths {
         post?: never;
         /** Deletes one of the caller's memory items */
         delete: operations["delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The skills the caller may pick */
+        get: operations["list_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -608,6 +625,11 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopeSkillList: {
+            data?: components["schemas"]["SkillList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiError: {
             code: string;
             details?: string[];
@@ -670,6 +692,8 @@ export interface components {
             message: string;
             /** @default [] */
             selected_kbs: string[];
+            /** @description The skill picked in the composer (phase 06, ADR-0292); absent: chosen automatically. A skill the caller holds no skill:{slug} role for is 403 skill_forbidden. */
+            skill?: string;
         };
         ConversationList: {
             conversations: components["schemas"]["ConversationSummary"][];
@@ -712,8 +736,14 @@ export interface components {
             citations: components["schemas"]["HistoryCitation"][];
             /** @enum {string} */
             role: "user" | "assistant";
+            skill?: components["schemas"]["HistorySkill"];
             text: string;
             turn_id?: string;
+        };
+        /** @description The skill applied to a reply, when one was (phase 06). */
+        HistorySkill: {
+            label: components["schemas"]["SkillLabel"];
+            slug: string;
         };
         /** @description Policies whose exception flag this change set or cleared (ADR-0115) */
         InducedFlag: {
@@ -722,6 +752,10 @@ export interface components {
         };
         /** @description The checker's settings; DATA policies may name `targets`. */
         JsonNode: unknown;
+        Label: {
+            ar: string;
+            en: string;
+        };
         MeResponse: {
             display_name?: string;
             is_admin: boolean;
@@ -1095,6 +1129,18 @@ export interface components {
             policy_roles?: string[];
             /** @description Default: default */
             tenant_id?: string;
+        };
+        SkillLabel: {
+            ar: string;
+            en: string;
+        };
+        SkillList: {
+            skills: components["schemas"]["SkillView"][];
+        };
+        SkillView: {
+            description: components["schemas"]["Label"];
+            name: components["schemas"]["Label"];
+            slug: string;
         };
         TenantUsage: {
             /** Format: int32 */
@@ -2055,7 +2101,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorEnvelope"];
                 };
             };
-            /** @description kb_forbidden or conversation_forbidden */
+            /** @description kb_forbidden, conversation_forbidden or skill_forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2102,7 +2148,7 @@ export interface operations {
             };
         };
     };
-    list_2: {
+    list_3: {
         parameters: {
             query?: {
                 /** @description Page size, 1 to 100; 30 when absent. */
@@ -2547,7 +2593,7 @@ export interface operations {
             };
         };
     };
-    list_1: {
+    list_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -2710,6 +2756,44 @@ export interface operations {
             };
             /** @description audit_unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's skills, by slug */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeSkillList"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -15,6 +15,14 @@ def _default_config_dir() -> Path:
     return Path("/srv/config")
 
 
+def _default_skills_dir() -> Path:
+    """<repo>/skills when running from a checkout; /srv/skills (compose mount) otherwise (ADR-0295)."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "config" / "models.yaml").is_file():
+            return parent / "skills"
+    return Path("/srv/skills")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
@@ -22,6 +30,7 @@ class Settings(BaseSettings):
     litellm_api_key: str = ""
     agent_internal_token: str = ""
     config_dir: Path = Field(default_factory=_default_config_dir)
+    skills_dir: Path = Field(default_factory=_default_skills_dir)
     user_id_hash_salt: str = ""
     # Key of the HMAC-SHA256 content hashes in traces (D5, ADR-0110); the agent refuses to start without it.
     content_hash_key: str = ""

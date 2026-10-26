@@ -30,6 +30,7 @@ from app.rag.citations import AttributionRule
 from app.resilience.limits import ConcurrencyLimiter
 from app.resilience.turn import TurnConfig
 from app.settings import Settings
+from app.skills.registry import SkillRegistry
 from app.text.script import ValidationConfig
 from app.tools.broker import ToolBroker
 from app.tools.registry import ToolRegistry
@@ -46,6 +47,7 @@ class Services:
     embeddings: EmbeddingGateway
     guard: GuardEngine
     registry: CapabilityRegistry
+    skills: SkillRegistry  # skills/<slug>/ (phase 06, ADR-0295), in memory
     tools: ToolRegistry
     broker: ToolBroker
     messages: ErrorMessages

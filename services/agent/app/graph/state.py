@@ -51,6 +51,8 @@ class AgentState(TypedDict, total=False):
     turn_attachment_ids: list[str]  # addition: files sent with this turn; the `attachments` rule reads it
     selected_kbs: list[str]
     intent: dict  # {capabilities, complexity, risk, decided_by}
+    requested_skill: str | None  # addition (phase 06): the skill picked in the composer for this turn
+    skill: dict | None  # addition (phase 06, ADR-0301): {slug, version} of the turn's skill; the answer reads it
     plan: list[str] | None
     iteration: int
     tool_calls: list[ToolCall]

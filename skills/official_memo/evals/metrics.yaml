@@ -1,0 +1,88 @@
+# official_memo evals (phase 06, I9, ADR-0303, ADR-0320): generic scorers only (ADR-0240); the
+# harness names no skill. Gated (evals/thresholds.yaml) is the mechanism: the picked skill applied,
+# its block in the answer's context (the trace's `context.assemble` span shows it as name@version),
+# no skill on a request that is not a memo, and the picker refused to a user without the role.
+# The content metrics are reported, never gated (owner decision of 2026-10-25). Whether the router
+# chooses the skill on its own is routing.jsonl's (I10).
+#   sections_in_order  the layout's headings, in order (Arabic-folded patterns, per locale)
+#   text_present       every expected text, or one of its alternatives, is in the answer
+#   text_absent        no invented value where the user gave none (patterns from the case)
+#   number             a number from the capability's findings, within tolerance
+#   length_between     the answer's word count
+#   field_equals       a turn field: the skill applied (`skill`), the skill block the trace shows
+#                      (`traced_skill`), the refusal before any stream (`refused`), a source shown
+#                      under the answer (`cited`)
+case_kind: expect.kind
+
+layout: &layout
+  scorer: sections_in_order
+  by: locale
+  sections:
+    ar:
+      - "مذكره داخليه"
+      - "(?m)^\\W*الرقم[\\s*_]*:"
+      - "(?m)^\\W*التاريخ[\\s*_]*:"
+      - "(?m)^\\W*المرفقات[\\s*_]*:"
+      - "(?m)^\\W*الى[\\s*_]*:"
+      - "(?m)^\\W*من[\\s*_]*:"
+      - "(?m)^\\W*الموضوع[\\s*_]*:"
+      - "السلام عليكم ورحمه الله وبركاته"
+      - "وتقبلوا خالص التحيه والتقدير"
+      - "(?m)^\\W*الاسم[\\s*_]*:"
+      - "(?m)^\\W*المسمى الوظيفي[\\s*_]*:"
+      - "(?m)^\\W*التوقيع[\\s*_]*:"
+    en:
+      - "internal memorandum"
+      - "(?m)^\\W*ref[a-z .]*[\\s*_]*:"
+      - "(?m)^\\W*date[\\s*_]*:"
+      - "(?m)^\\W*attachments?[\\s*_]*:"
+      - "(?m)^\\W*to[\\s*_]*:"
+      - "(?m)^\\W*from[\\s*_]*:"
+      - "(?m)^\\W*subject[\\s*_]*:"
+      - ["kind regards", "regards"]
+      - "(?m)^\\W*name[\\s*_]*:"
+      - "(?m)^\\W*(job )?title[\\s*_]*:"
+      - "(?m)^\\W*signature[\\s*_]*:"
+length: &length {scorer: length_between, min: 30, max: 450}
+placeholders: &placeholders {scorer: text_present, expected: expect.placeholders}
+given: &given {scorer: text_present, expected: expect.given}
+not_invented: &not_invented {scorer: text_absent, patterns_from: expect.absent_patterns}
+facts: &facts {scorer: text_present, expected: expect.facts}
+distance: &distance {scorer: number, expected: expect.distance, tolerance: 0.05}
+cited: &cited {scorer: field_equals, field: cited, default: true}
+
+applied: &applied {scorer: field_equals, field: skill, expected: expect.skill}
+traced: &traced {scorer: field_equals, field: traced_skill, expected: expect.skill}
+refused: &refused {scorer: field_equals, field: refused, expected: expect.refused}
+
+metrics:
+  # Gated: the mechanism.
+  skill_applied:
+    general: [*applied]
+    docs: [*applied]
+    directions: [*applied]
+    negative: [*applied]
+    picked: [*applied]
+  skill_block_loaded:
+    general: [*traced]
+    docs: [*traced]
+    directions: [*traced]
+    negative: [*traced]
+    picked: [*traced]
+  permission_refused:
+    permission: [*refused]
+  # Reported, not gated: the content.
+  format_adherence:
+    general: [*layout, *length]
+    docs: [*layout, *length]
+    directions: [*layout, *length]
+  no_invented_fields:
+    general: [*placeholders, *given, *not_invented]
+    docs: [*placeholders, *given, *not_invented]
+    directions: [*placeholders, *given, *not_invented]
+  facts_kept:
+    general: [*facts]
+    docs: [*facts]
+    directions: [*facts, *distance]
+  citations_kept:
+    docs: [*cited]

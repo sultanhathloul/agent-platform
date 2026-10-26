@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from langgraph.runtime import Runtime
 from opentelemetry import trace
 
-from app.context.package import BLOCK_NAMES, AssemblyRequest, BlockName
+from app.context.package import BLOCK_NAMES, SKILL_BLOCK, AssemblyRequest, BlockName, SkillBlockRequest
 from app.errors import TurnError
 from app.graph.calls import call_model, prepare_call, tier_event
 from app.graph.deps import TurnContext
@@ -33,6 +33,7 @@ from app.graph.streaming import DataStream
 from app.memory.types import MemoryScope
 from app.platform_settings import effective
 from app.resilience import deadline
+from app.skills.setup import block_request
 from app.text.script import script_issues
 
 RETRY_REASON = "answer_retry"
@@ -47,7 +48,18 @@ def answer_needs(state: AgentState, ctx: TurnContext) -> list[BlockName]:
     wanted: set[str] = set()
     for slug in state["intent"]["capabilities"]:
         wanted.update(ctx.services.registry.get(slug).manifest.context.needs_or(default))
+    if state.get("skill"):
+        wanted.add(SKILL_BLOCK)  # the turn's skill: requested by the answer node only (ADR-0300)
     return [block for block in BLOCK_NAMES if block in wanted]
+
+
+def skill_request(state: AgentState, ctx: TurnContext) -> SkillBlockRequest | None:
+    """The turn's selected skill as the `skill` block's request, or None."""
+    selected = state.get("skill")
+    skill = ctx.services.skills.get(selected["slug"]) if selected else None
+    if skill is None:
+        return None
+    return block_request(skill)
 
 
 def answer_request(
@@ -70,6 +82,7 @@ def answer_request(
         ],
         retrieved=list(retrieved),
         policy_hints=list(policy_hints),
+        skill=skill_request(state, ctx),
         memory_scope=MemoryScope.of(ctx.principal),
     )
 
@@ -100,6 +113,11 @@ async def answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     buffered = services.guard.requires_buffering(ctx.principal, guard_context(state, ctx))
     span = trace.get_current_span()
     span.set_attribute("answer.mode", "buffered" if buffered else "streaming")
+    skill = ctx.services.skills.get(state["skill"]["slug"]) if state.get("skill") else None
+    if skill is not None:
+        # Before any token: the client names the skill the answer is written with (ADR-0301).
+        span.set_attribute("answer.skill", skill.manifest.ref)
+        emit(runtime, "skill", {"slug": skill.slug, "label": skill.manifest.name.model_dump()})
 
     prepared = await prepare_answer(state, ctx)
     emit(runtime, "tier", tier_event(prepared.decision))

@@ -2,6 +2,7 @@
 # maps to a step class in services/agent/app/context/selectors/ (ADR-0056).
 pipeline:
   - system_instructions
+  - skill_instructions  # the selected skill's instructions, system role, answer node only (phase 06, ADR-0300)
   - state_digest
   - sliding_window
   - rolling_summary   # after the window: part of the current message, never before history (ADR-0077)
@@ -19,6 +20,7 @@ reserved_loop_headroom_tokens: 1000
 # logs what it cut; the budget guard then enforces the tier budget on the whole package.
 # `top_k` is how many items the memory and retrieval steps take (README §7 steps 5, 6).
 blocks:
+  skill:        {max_tokens: 3000}   # never dropped; a skill whose block exceeds it fails startup (ADR-0318: the largest reference skill block measured 2402 tokens, 2026-10-25)
   state_digest: {max_tokens: 300}
   summary:      {max_tokens: 1200}
   window:       {max_tokens: 8000}

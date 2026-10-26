@@ -144,6 +144,8 @@ def database_url() -> str:
 
 
 async def _started(settings: Settings, database_url: str, **kwargs):
+    """Started as the service starts, gc.freeze() of the startup heap included (ADR-0324): the
+    lag probes measure the collector's pauses as production has them."""
     from app.main import build_services, start_services
 
     return await start_services(
@@ -160,6 +162,7 @@ async def services(settings, database_url) -> AsyncIterator:
     await stop_services(started)
 
 
+FIXTURE_SKILLS = Path(__file__).resolve().parent / "tests" / "fixtures" / "skills"
 PROBE_CAPABILITIES = (
     Path(__file__).resolve().parent / "tests" / "fixtures" / "capabilities",
     "tests.fixtures.capabilities",
@@ -169,12 +172,22 @@ PROBE_CAPABILITIES = (
 @pytest.fixture(scope="session")
 async def probe_services(settings, database_url) -> AsyncIterator:
     """Services with the test-only `probe` capability discovered beside the real
-    ones; no core file names it (ADR-0038)."""
+    ones; no core file names it (ADR-0038). They also hold the test-only skills."""
     from app.main import stop_services
 
-    started = await _started(settings, database_url, extra_capabilities=[PROBE_CAPABILITIES])
+    started = await _started(
+        settings, database_url, extra_capabilities=[PROBE_CAPABILITIES], extra_skills=[FIXTURE_SKILLS]
+    )
     yield started
     await stop_services(started)
+
+
+@pytest.fixture(scope="session")
+def skill_services(probe_services):
+    """The test-only skills of tests/fixtures/skills beside the shipped ones (phase 06, G5), on the
+    probe services: one more started instance would add its background tasks to every later test's
+    event loop."""
+    return probe_services
 
 
 @pytest.fixture

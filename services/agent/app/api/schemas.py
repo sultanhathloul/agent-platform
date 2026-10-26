@@ -5,8 +5,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.events import Citation, ErrorData
+from app.api.events import Citation, ErrorData, SkillData, SkillLabel
 from app.identity import Locale, Principal
+from app.skills.contract import NAME_PATTERN
 
 # A conversation id is a UUID in canonical lower-case form; the gateway normalises it (ADR-0050).
 CONVERSATION_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -25,6 +26,8 @@ class RetractRequest(BaseModel):
 
 # An attachment id is a lower-case UUID, as Postgres returns it.
 ATTACHMENT_ID_PATTERN = CONVERSATION_ID_PATTERN
+# A skill name (phase 06, ADR-0296, ADR-0317): the open format's names and the platform's slugs.
+SKILL_SLUG_PATTERN = NAME_PATTERN
 
 
 class TurnRequest(BaseModel):
@@ -42,6 +45,12 @@ class TurnRequest(BaseModel):
     )
     selected_kbs: list[str] = []
     locale: Locale = "ar"
+    skill: str | None = Field(
+        default=None,
+        pattern=SKILL_SLUG_PATTERN,
+        description="The skill the user picked in the composer (phase 06, ADR-0292): applied with no router "
+        "decision on the skill, when it is available to the principal; else 403 skill_forbidden before any stream.",
+    )
 
 
 class MCPDisabledTool(BaseModel):
@@ -413,6 +422,19 @@ class HistoryAttachment(BaseModel):
     name: str
 
 
+class SkillView(BaseModel):
+    """A skill the caller may use, for the composer's picker (phase 06, ADR-0301): labels from its
+    SKILL.md, so a new skill needs no web change."""
+
+    slug: str
+    name: SkillLabel
+    description: SkillLabel
+
+
+class SkillList(BaseModel):
+    skills: list[SkillView] = Field(description="The skills available to the caller, by slug.")
+
+
 class HistoryMessage(BaseModel):
     role: Literal["user", "assistant"]
     text: str = Field(description="The post-guard text, the text later turns see (ADR-0193).")
@@ -422,6 +444,9 @@ class HistoryMessage(BaseModel):
     )
     citations: list[Citation] = Field(
         default=[], description="A reply's citations, when recorded (ADR-0193)."
+    )
+    skill: SkillData | None = Field(
+        default=None, description="The skill applied to a reply, when one was (phase 06, ADR-0301); additive."
     )
 
 

@@ -28,12 +28,16 @@ export type Chip =
 
 export type AssistantStatus = "streaming" | "done" | "error" | "aborted";
 
+/** The skill an answer is written with (phase 06): its slug and its name per locale. */
+export type AppliedSkill = { slug: string; label: { ar: string; en: string } };
+
 export type AssistantMessage = {
   text: string;
   status: AssistantStatus;
   receivedTokens: boolean;
   chips: Chip[];
   citations: Citation[];
+  skill?: AppliedSkill;
   usage?: Usage;
   traceId?: string;
   requestId?: string;
@@ -60,7 +64,8 @@ function mergeCitations(current: Citation[], incoming: Citation[]): Citation[] {
 // A turn that ends in an error has no answer: text streamed before it is withdrawn, not left
 // on screen beside the error (ADR-0048).
 function failed(message: AssistantMessage, error: ErrorInfo): AssistantMessage {
-  return { ...message, status: "error", text: "", receivedTokens: false, error };
+  // No answer, so no skill chip either: nothing was written with it.
+  return { ...message, skill: undefined, status: "error", text: "", receivedTokens: false, error };
 }
 
 export function applyEvent(message: AssistantMessage, event: StreamEvent): AssistantMessage {
@@ -127,6 +132,9 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
     }
     case "citation":
       return { ...m, citations: mergeCitations(m.citations, [event.data]) };
+    case "skill":
+      // Sent before the answer's first token (ADR-0301): the reply's chip names the skill.
+      return { ...m, skill: { slug: event.data.slug, label: { ar: event.data.label.ar, en: event.data.label.en } } };
     case "done":
       return {
         ...m,

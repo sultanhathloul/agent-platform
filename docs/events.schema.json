@@ -831,6 +831,87 @@
       "title": "RetractEvent",
       "type": "object"
     },
+    "SkillData": {
+      "additionalProperties": false,
+      "description": "The skill applied to this turn's answer (phase 06, ADR-0301): its slug and its name per\nlocale, from its SKILL.md. Sent before the answer's first token; never the skill's text.",
+      "properties": {
+        "slug": {
+          "title": "Slug",
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/SkillLabel"
+        }
+      },
+      "required": [
+        "slug",
+        "label"
+      ],
+      "title": "SkillData",
+      "type": "object"
+    },
+    "SkillEvent": {
+      "additionalProperties": false,
+      "description": "The skill the answer is written with (phase 06); precedes the answer's tokens.",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "skill",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/SkillData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "SkillEvent",
+      "type": "object"
+    },
+    "SkillLabel": {
+      "additionalProperties": false,
+      "properties": {
+        "ar": {
+          "title": "Ar",
+          "type": "string"
+        },
+        "en": {
+          "title": "En",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ar",
+        "en"
+      ],
+      "title": "SkillLabel",
+      "type": "object"
+    },
     "StateDigest": {
       "additionalProperties": false,
       "properties": {
@@ -845,6 +926,19 @@
           },
           "title": "Capabilities",
           "type": "array"
+        },
+        "skill": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "slug@version of the skill applied to the answer, if any (phase 06, G8).",
+          "title": "Skill"
         }
       },
       "required": [
@@ -1308,6 +1402,7 @@
       "guard": "#/$defs/GuardEvent",
       "progress": "#/$defs/ProgressEvent",
       "retract": "#/$defs/RetractEvent",
+      "skill": "#/$defs/SkillEvent",
       "tier": "#/$defs/TierEvent",
       "token": "#/$defs/TokenEvent",
       "tool_end": "#/$defs/ToolEndEvent",
@@ -1336,6 +1431,9 @@
     },
     {
       "$ref": "#/$defs/ProgressEvent"
+    },
+    {
+      "$ref": "#/$defs/SkillEvent"
     },
     {
       "$ref": "#/$defs/DoneEvent"

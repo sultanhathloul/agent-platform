@@ -50,12 +50,36 @@ under that set and never counts toward its suite's rate (ADR-0241). The rag suit
 `rag@mcp` with the agent recreated on DOCS_BACKEND=mcp, and the internal backend is restored
 afterwards, pass or fail. A provider 429 (a `model_unavailable` turn, or a rate-limited judge
 call) is retried with bounded exponential backoff, and each suite records its retries.
+
+Phase 06 (I9, I10, ADR-0303, ADR-0304): suites are also globbed from skills/*/evals, and the
+harness names no skill. A case may name `skill`, sent as the composer's picker would send it; a
+metrics suite's case may name a `document`, uploaded and attached first. The turn fields a
+metrics.yaml check reads are `capabilities`, `skill` (the applied skill's slug, or null) and
+`cited` (the answer shows a source). A case with `expected_skill` (routing.jsonl) also checks
+the applied skill. New generic scorers: sections_in_order, text_present, length_between.
+
+Phase 06 (D5, ADR-0293): a case lost or interrupted (no `done` event: `agent_stream_interrupted`,
+a provider error, an HTTP refusal, a document that never indexed) is a failure in every metric it
+would have counted in, never a case dropped from a denominator; each suite reports its lost cases
+by code. `--rescore <run>` scores a recorded run (build/evals/<run>.json) again under this rule and
+prints the old and new scores and verdicts per suite.
+
+Phase 06 (owner decision of 2026-10-25, ADR-0320): a skill suite gates the mechanism and reports
+the content. The metrics a suite's threshold names are gated; the others are printed and recorded
+as reported. More turn fields: `traced_skill` (the skill whose block the answer's
+`context.assemble` span shows, as name@version, read from the trace) and `refused` (the error
+code of a refusal before any stream). A case may name a seed `user` (default the eval user); a
+refusal it expects (`expect.refused`) is its outcome, not a lost case. Skill suites run one case at
+a time with a longer, jittered 429 backoff; a skill suite with more than 5% of its cases lost to
+the provider's 429s stops the run and reports the rate (a key or tier with more headroom is the
+owner's cost decision).
 """
 
 import asyncio
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -81,6 +105,8 @@ from get_token import env, login  # noqa: E402
 # A dedicated seed user whose memory is switched off before every run, so a case never
 # reads what an earlier case or run stored; the analyst keeps memory for smoke (ADR-0074).
 EVAL_USER = ("evaluator", "evaluator")
+# The seed users a case may run as (`user`), by name: the realm's development users (ADR-0065).
+SEED_USERS = {"evaluator": EVAL_USER, "viewer": ("viewer", "viewer"), "analyst": ("analyst", "analyst")}
 # Guard cases run through the admin-only policy test endpoint (I6).
 ADMIN_USER = ("admin", "admin")
 DETERMINISTIC = {"regex", "presidio", "keyword_list", "tier_ceiling"}
@@ -92,6 +118,12 @@ _DIACRITICS = re.compile("[\u064b-\u065f\u0670]")
 
 def fold(text: str) -> str:
     return _DIACRITICS.sub("", unicodedata.normalize("NFKC", text).replace("ـ", "")).translate(_FOLD).casefold()
+
+
+def fold_pattern(pattern: str) -> str:
+    """A regular expression folded as fold() folds text, but not casefolded (`\\W` would become
+    `\\w`); match it with re.IGNORECASE against fold()ed text (phase 06)."""
+    return _DIACRITICS.sub("", unicodedata.normalize("NFKC", pattern).replace("ـ", "")).translate(_FOLD)
 
 
 def script_share(text: str, script: str) -> float:
@@ -132,6 +164,19 @@ def has_label(answer: str) -> bool:
     return _LABEL.search(answer or "") is not None
 
 
+def applied_skill(data: dict) -> str | None:
+    """The slug of the skill a done event's answer was written with (state_digest.skill, slug@version)."""
+    ref = (data.get("state_digest") or {}).get("skill")
+    return ref.split("@", 1)[0] if isinstance(ref, str) and ref else None
+
+
+def skill_problems(case: dict, skill: str | None) -> list[str]:
+    """routing.jsonl's `expected_skill` (null when none, phase 06, I10)."""
+    if "expected_skill" not in case or case["expected_skill"] == skill:
+        return []
+    return [f"skill {skill} != {case['expected_skill']}"]
+
+
 def check(case: dict, answer: str) -> list[str]:
     expect, failures = case.get("expect", {}), []
     if "contains_any" in expect and not any(contains(answer, s) for s in expect["contains_any"]):
@@ -144,10 +189,47 @@ def check(case: dict, answer: str) -> list[str]:
     return failures
 
 
+# ------------------------------------------------------------------ lost cases (phase 06, D5)
+
+_LOST = re.compile(r"^no done event \((.*)\)$")
+
+
+def lost_code(event: dict) -> str | None:
+    """Why a turn produced no result, or None when it ended `done`: the terminal event's code,
+    or `no_terminal_event` when the stream ended without one."""
+    if event.get("type") == "done":
+        return None
+    return (event.get("data") or {}).get("code") or ("no_terminal_event" if not event else event.get("type", "unknown"))
+
+
+def lost_of(record: dict) -> str | None:
+    """A recorded case's lost code: its `lost` field, or, in a record written before phase 06,
+    the code inside its `no done event (...)` problem."""
+    if record.get("lost"):
+        return record["lost"]
+    for problem in record.get("problems") or []:
+        match = _LOST.match(problem)
+        if match:
+            return match.group(1) or "None"
+    return None
+
+
+def lost_by_code(records: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in records:
+        code = lost_of(record)
+        if code:
+            counts[code] = counts.get(code, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 # ------------------------------------------------------------------ provider 429s (phase 05, G1)
 
 RETRY_DELAYS_S = (5, 10, 20, 40, 60)  # bounded: five retries, about two minutes
-RETRIES = {"count": 0}  # this suite's retries; reset per suite
+# Skill suites (owner decision of 2026-10-25): longer and jittered, about eight minutes at most.
+SKILL_RETRY_DELAYS_S = (15, 30, 60, 120, 240)
+SKILL_LOST_TO_429_MAX = 0.05  # past this share of a skill suite lost to 429s, the run stops
+RETRIES = {"count": 0, "delays": RETRY_DELAYS_S, "jitter": 0.0}  # this suite's; reset per suite
 
 
 def retryable(event: dict) -> bool:
@@ -158,11 +240,12 @@ def retryable(event: dict) -> bool:
 def with_backoff(call, is_retryable):
     """`call()` again after each delay while `is_retryable(result)`; the last result otherwise."""
     result = call()
-    for delay in RETRY_DELAYS_S:
+    for base in RETRIES["delays"]:
         if not is_retryable(result):
             return result
         RETRIES["count"] += 1
-        print(f"    provider busy; retrying in {delay} s")
+        delay = base * (1 + random.uniform(-RETRIES["jitter"], RETRIES["jitter"]))
+        print(f"    provider busy; retrying in {delay:.0f} s")
         time.sleep(delay)
         result = call()
     return result
@@ -183,15 +266,29 @@ def run_turn(
         "locale": case.get("locale", "ar"),
         "attachment_ids": attachment_ids or [],
     }
+    if case.get("skill"):
+        body["skill"] = case["skill"]  # the composer's picker (phase 06, ADR-0292)
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
 
     def once() -> dict:
         last: dict = {}
-        with http.stream("POST", f"{gateway}/v1/chat/turns", json=body, headers=headers) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if line.startswith("data: "):
-                    last = json.loads(line[6:])
+        try:
+            with http.stream("POST", f"{gateway}/v1/chat/turns", json=body, headers=headers) as response:
+                if response.status_code >= 400:
+                    # A refusal before any stream (429 too_many_turns, 502 agent_unavailable) is a
+                    # lost case under its HTTP status, never a crashed run (D5); its error code is
+                    # kept as `refusal` (403 skill_forbidden, phase 06).
+                    response.read()
+                    try:
+                        refusal = (response.json().get("error") or {}).get("code")
+                    except (ValueError, AttributeError):
+                        refusal = None
+                    return {"type": "error", "data": {"code": f"http_{response.status_code}", "refusal": refusal}}
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        last = json.loads(line[6:])
+        except httpx.TransportError as exc:
+            return {"type": "error", "data": {"code": f"transport_{type(exc).__name__}"}}
         return last
 
     return with_backoff(once, retryable)
@@ -293,6 +390,30 @@ def retrieved(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: st
     return None
 
 
+def traced_skill(http: httpx.Client, cfg: dict, auth: tuple[str, str], trace_id: str | None,
+                 ref: str | None) -> str | None:
+    """The slug of the skill whose block the answer's `context.assemble` span shows, from Langfuse
+    (phase 06, ADR-0320): a `skill` block with tokens and the turn's `name@version` (`ref`, the done
+    event's) among the package's prompts. None when the answer's context holds no skill block;
+    `mismatch:<refs>` when its block names another skill or version."""
+    if not trace_id:
+        return None
+    for _ in range(60):
+        response = http.get(f"{cfg['LANGFUSE_PUBLIC_URL']}/api/public/traces/{trace_id}", auth=auth)
+        if response.status_code == 200:
+            for span in response.json().get("observations", []):
+                context = (span.get("metadata") or {}).get("context") or {}
+                if span.get("name") != "context.assemble" or context.get("node") != "answer":
+                    continue
+                tokens = {b.get("name"): b.get("tokens", 0) for b in context.get("blocks") or []}
+                if not tokens.get("skill"):
+                    return None
+                prompts = context.get("prompts") or []
+                return ref.split("@")[0] if ref and ref in prompts else f"mismatch:{','.join(prompts)}"
+        time.sleep(2)
+    return None
+
+
 class Judge:
     """Ragas metrics through LiteLLM's alias for the `judge` role (ADR-0141); `embed` for the
     similarity half of answer correctness. Aliases come from config/models.yaml."""
@@ -369,24 +490,46 @@ def expected_section_sha(document: str, section: str, sections: dict) -> str | N
     return None
 
 
+def metric_document_turn(http, cfg, token: str, case: dict) -> dict:
+    """A metrics suite's case over a document (phase 06, I9): a new conversation, the document
+    uploaded and indexed, then the turn with it attached (unless `attach` is false). The terminal
+    event, or a lost one when the upload failed."""
+    gateway = cfg["GATEWAY_PUBLIC_URL"]
+    conversation = str(uuid.uuid4())
+    try:
+        attachment = upload(http, gateway, token, conversation, case["document"])
+    except (RuntimeError, httpx.HTTPError) as exc:
+        code = "upload_failed" if isinstance(exc, httpx.HTTPError) else "not_indexed"
+        return {"type": "error", "data": {"code": code}}
+    return run_turn(http, gateway, token, case, conversation_id=conversation,
+                    attachment_ids=[attachment] if case.get("attach", True) else [])
+
+
 def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", sections: dict, auth) -> dict:
     """One routing or rag case in a new conversation with its document indexed first."""
     gateway = cfg["GATEWAY_PUBLIC_URL"]
     conversation = str(uuid.uuid4())
-    attachment = upload(http, gateway, token, conversation, case["document"])
+    try:
+        attachment = upload(http, gateway, token, conversation, case["document"])
+    except (RuntimeError, httpx.HTTPError) as exc:  # the case is lost, the run goes on (D5)
+        code = "upload_failed" if isinstance(exc, httpx.HTTPError) else "not_indexed"
+        return {"event": {}, "lost": code, "problems": [f"no done event ({code})"]}
     attach = case.get("attach", "pages" in case["expect"] or case["expect"].get("kind") is not None)
     event = run_turn(http, gateway, token, case, conversation_id=conversation,
                      attachment_ids=[attachment] if attach else [])
-    if event.get("type") != "done":
-        return {"event": event, "problems": [f"no done event ({event.get('data', {}).get('code')})"]}
+    code = lost_code(event)
+    if code:
+        return {"event": event, "lost": code, "problems": [f"no done event ({code})"]}
     data = event["data"]
     outcome = {"event": event, "answer": data["answer"], "trace_id": data.get("trace_id"),
-               "capabilities": data["state_digest"]["capabilities"], "citations": data.get("citations") or []}
+               "capabilities": data["state_digest"]["capabilities"], "citations": data.get("citations") or [],
+               "skill": applied_skill(data)}
     expect = case["expect"]
     problems: list[str] = []
     if "capabilities" in expect:  # routing
         if outcome["capabilities"] != expect["capabilities"]:
             problems.append(f"capabilities {outcome['capabilities']} != {expect['capabilities']}")
+        problems += skill_problems(case, outcome["skill"])
         outcome["problems"] = problems
         return outcome
     kind = expect["kind"]
@@ -436,30 +579,63 @@ def run_document_case(http, cfg, token: str, case: dict, judge: "Judge | None", 
     return outcome
 
 
-def rag_scores(outcomes: list[tuple[dict, dict]]) -> dict:
+def rag_metrics_of(case: dict, judged: bool = True) -> list[str]:
+    """The rag metrics a case counts in, from the case alone, so a lost case counts in the same
+    ones as an answered case would (D5): hit@8 for answerable and pii cases; citation page
+    accuracy for answerable cases with expected pages and for general and abstain cases;
+    abstention for abstain cases; faithfulness and answer correctness for answerable cases."""
+    expect = case.get("expect", {})
+    kind = expect.get("kind")
+    names = []
+    if kind in ("answerable", "pii"):
+        names.append("hit")
+    if (kind == "answerable" and expect.get("pages")) or kind in ("general", "abstain"):
+        names.append("citation")
+    if kind == "abstain":
+        names.append("abstain")
+    if kind == "answerable" and judged:
+        names.append("ragas")
+    return names
+
+
+def rag_scores(outcomes: list[tuple[dict, dict]], judged: bool = True) -> dict:
+    """Each metric over every case that counts in it; a lost case is a failure (0 for Ragas)."""
     def mean(values: list[float]) -> float:
         return sum(values) / len(values) if values else 0.0
 
-    hits = [o["hit"] for _, o in outcomes if "hit" in o]
-    citations = [o["citation_ok"] for _, o in outcomes if "citation_ok" in o]
-    abstentions = [o.get("abstained", False) for c, o in outcomes if c["expect"].get("kind") == "abstain"]
-    faithfulness = [o["faithfulness"] for _, o in outcomes if "faithfulness" in o]
-    correctness = [o["correctness"] for _, o in outcomes if "correctness" in o]
+    hits: list[float] = []
+    citations: list[float] = []
+    abstentions: list[float] = []
+    faithfulness: list[float] = []
+    correctness: list[float] = []
+    for case, outcome in outcomes:
+        names = rag_metrics_of(case, judged)
+        lost = lost_of(outcome) is not None
+        if "hit" in names:
+            hits.append(0.0 if lost else float(bool(outcome.get("hit"))))
+        if "citation" in names:
+            citations.append(0.0 if lost else float(bool(outcome.get("citation_ok"))))
+        if "abstain" in names:
+            abstentions.append(0.0 if lost else float(bool(outcome.get("abstained"))))
+        if "ragas" in names:
+            faithfulness.append(0.0 if lost else float(outcome.get("faithfulness") or 0.0))
+            correctness.append(0.0 if lost else float(outcome.get("correctness") or 0.0))
     latencies = sorted(o["retrieve_ms"] for _, o in outcomes if o.get("retrieve_ms") is not None)
 
     def percentile(share: float) -> float:
         return latencies[min(len(latencies) - 1, int(share * len(latencies)))] if latencies else 0.0
 
     return {
-        "hit_at_8": mean([float(h) for h in hits]),
-        "citation_page_accuracy": mean([float(c) for c in citations]),
+        "hit_at_8": mean(hits),
+        "citation_page_accuracy": mean(citations),
         "faithfulness": mean(faithfulness),
         "answer_correctness": mean(correctness),
-        "abstention": mean([float(a) for a in abstentions]),
+        "abstention": mean(abstentions),
         "retrieve_ms_p50": percentile(0.5),
         "retrieve_ms_p95": percentile(0.95),
         "counts": {"hit": len(hits), "citation": len(citations), "abstain": len(abstentions),
                    "ragas": len(faithfulness), "retrieve": len(latencies)},
+        "lost": lost_by_code([o for _, o in outcomes]),
     }
 
 
@@ -591,8 +767,39 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
         folded = fold(answer)
         if any(contains(answer, text) for text in expected or []):
             return False
-        return not any(re.search(pattern, folded) for pattern in check.get("patterns", []))
+        # `patterns_from`: more patterns from the case (phase 06), e.g. only where a field was not given.
+        patterns = list(check.get("patterns", [])) + list(
+            (case_value(case, check["patterns_from"]) or []) if "patterns_from" in check else [])
+        return not any(re.search(fold_pattern(pattern), folded, re.I) for pattern in patterns)
+    if scorer == "text_present":
+        # Every expected text (or one of its alternatives) is in the answer, folded (phase 06, I9).
+        items = list(expected or []) + list(check.get("texts", []))
+        return all(any(contains(answer, alt) for alt in _alternatives(item)) for item in items)
+    if scorer == "sections_in_order":
+        if "expected" in check:
+            sections = case_value(case, check["expected"])
+        elif "by" in check:  # one layout per value of a case field, e.g. its locale
+            sections = check["sections"].get(case_value(case, check["by"]))
+        else:
+            sections = check["sections"]
+        return sections_in_order(answer, sections)
+    if scorer == "length_between":
+        words = len(re.findall(r"\w+", answer))
+        return int(check.get("min", 0)) <= words <= int(check.get("max", 10**9))
     raise ValueError(f"unknown scorer {scorer!r}")
+
+
+def sections_in_order(answer: str, sections: list) -> bool:
+    """Each section, an Arabic-folded regular expression (or a list of alternatives), is found in
+    the answer after the previous one (phase 06, I9): the layout's headings in their order. A
+    pattern is Arabic-folded like the answer and matched case-insensitively, line by line (re.M)."""
+    folded, at = fold(answer), 0
+    for section in sections or []:
+        found = [m for m in (re.search(fold_pattern(p), folded[at:], re.I | re.M) for p in _alternatives(section)) if m]
+        if not found:
+            return False
+        at += min(m.end() for m in found)
+    return bool(sections)
 
 
 def load_metrics(path: Path) -> dict | None:
@@ -651,6 +858,7 @@ def use_backend(name: str) -> None:
 def suites() -> dict[str, Path]:
     files = sorted((REPO / "evals" / "golden").glob("*.jsonl"))
     files += sorted((REPO / "services" / "agent" / "app" / "capabilities").glob("*/evals/*.jsonl"))
+    files += sorted((REPO / "skills").glob("*/evals/*.jsonl"))  # phase 06 (I9): names no skill
     found = {path.stem: path for path in files}
     # rag.jsonl runs on both document backends; the second run is `rag@mcp` (phase 05, I11).
     ordered: dict[str, Path] = {}
@@ -662,6 +870,8 @@ def suites() -> dict[str, Path]:
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["--rescore"]:
+        return rescore_main(sys.argv[2:])
     cfg = env()
     thresholds = yaml.safe_load((REPO / "evals" / "thresholds.yaml").read_text()) or {}
     found = suites()
@@ -685,12 +895,34 @@ def main() -> int:
                 if only and name not in only and name.removesuffix(MCP_SUFFIX) not in only:
                     continue
                 use_backend("mcp" if name.endswith(MCP_SUFFIX) else "")
-                RETRIES["count"] = 0
+                skill_suite = is_skill_suite(path)
+                RETRIES.update(count=0, delays=SKILL_RETRY_DELAYS_S if skill_suite else RETRY_DELAYS_S,
+                               jitter=0.2 if skill_suite else 0.0)
                 run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows, records)
+                share = lost_to_429(records[name])
+                if skill_suite and share > SKILL_LOST_TO_429_MAX:
+                    print(f"\nSTOP: {name} lost {share:.0%} of its cases to provider 429s "
+                          f"(over {SKILL_LOST_TO_429_MAX:.0%}); a key or tier with more headroom is the "
+                          "owner's cost decision. The suites after it were not run.")
+                    stopped = True
+                    break
+            else:
+                stopped = False
         finally:
             use_backend("")  # pass or fail, the internal backend is restored
-    failed = any(not row[5] for row in rows)
+    failed = stopped or any(not row[5] for row in rows)
     return finish(run_name, rows, records, failed)
+
+
+def is_skill_suite(path: Path) -> bool:
+    """A suite of a skill's own evals (skills/<name>/evals/)."""
+    return path.resolve().is_relative_to((REPO / "skills").resolve())
+
+
+def lost_to_429(suite: dict) -> float:
+    """The share of a suite's cases lost to the provider's 429 (`model_unavailable` after the backoff)."""
+    cases = suite.get("cases_recorded") or 0
+    return (suite.get("lost") or {}).get("model_unavailable", 0) / cases if cases else 0.0
 
 
 def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows, records) -> None:
@@ -703,13 +935,14 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
     checkers: dict[str, str] = {}
     document_outcomes: list[tuple[dict, dict]] = []
     metrics = load_metrics(path)  # the suite's own metrics (a capability's evals/metrics.yaml)
+    threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
     metric_outcomes: list[dict[str, bool]] = []
     report_sets: dict[str, list[bool]] = {}  # cases scored and reported under a set, never gated
     gated = 0
     case_records: list[dict] = []
     for case in cases:
         item_id = f"{name}:{case['id']}"
-        if "document" in case:
+        if "document" in case and metrics is None:
             langfuse(
                 http, cfg, auth, "dataset-items",
                 {"datasetName": name, "id": item_id,
@@ -736,6 +969,7 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
                 **{k: outcome.get(k) for k in ("hit", "citation_ok", "abstained", "faithfulness",
                                                "correctness", "cited_pages", "capabilities",
                                                "retrieve_ms", "answer")},
+                **({"lost": outcome["lost"]} if outcome.get("lost") else {}),
             })
             trace_id = outcome.get("trace_id")
             if trace_id:
@@ -764,16 +998,22 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
             admin = login(*ADMIN_USER)["access_token"]
             if not checkers:
                 checkers = policy_checkers(http, cfg["GATEWAY_PUBLIC_URL"], admin)
-            result, problems = run_guard_case(http, cfg["GATEWAY_PUBLIC_URL"], admin, case)
+            try:
+                result, problems = run_guard_case(http, cfg["GATEWAY_PUBLIC_URL"], admin, case)
+            except httpx.TransportError as exc:  # lost, the run goes on (D5)
+                result, problems = None, [f"no done event (transport_{type(exc).__name__})"]
             checker = checkers.get(case["policy_id"], "unknown")
             guard_results.append((case, not problems, checker))
             passed += not problems
             mark = "pass" if not problems else "FAIL"
             shown = result["action"] if result else "-"
             print(f"  {mark}  {name}/{case['id']}  [{checker}] {shown}  {'; '.join(problems)}")
+            guard_lost = None if result is not None else (
+                lost_of({"problems": problems}) or (problems[0].split(":")[0].replace("HTTP ", "http_") if problems else "unknown"))
             case_records.append({
                 "id": case["id"], "passed": not problems, "problems": problems,
                 "checker": checker, "action": result["action"] if result else None,
+                **({"lost": guard_lost} if guard_lost else {}),
             })
             trace_id = guard_trace(http, cfg, auth, case, result)
             langfuse(
@@ -794,58 +1034,78 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
              "expectedOutput": case.get("expect", {})},
         )
         # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
-        token = login(*EVAL_USER)["access_token"]
-        event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
+        token = login(*SEED_USERS[case.get("user", "evaluator")])["access_token"]
+        event = metric_document_turn(http, cfg, token, case) if "document" in case else \
+            run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
         scored: dict[str, bool] = {}
         capabilities: list[str] | None = None
-        if event.get("type") == "done":
+        lost = lost_code(event)
+        refusal = (event.get("data") or {}).get("refusal") if event.get("type") == "error" else None
+        if lost and refusal and case_value(case, "expect.refused") is not None:
+            # The refusal the case expects is its outcome, scored like any turn (phase 06, ADR-0320).
+            lost, answer, trace_id = None, "", None
+            turn_fields = {"capabilities": None, "skill": None, "traced_skill": None, "cited": False,
+                           "refused": refusal}
+            scored, problems = metric_outcome(metrics, case, answer, turn_fields) if metrics is not None \
+                else ([], [] if refusal == case_value(case, "expect.refused") else [f"refused {refusal}"])
+        elif not lost:
             answer = event["data"]["answer"]
             capabilities = event["data"]["state_digest"]["capabilities"]
             trace_id = event["data"].get("trace_id")
+            turn_fields = {"capabilities": capabilities, "skill": applied_skill(event["data"]),
+                           "cited": bool(event["data"].get("citations")), "refused": None}
+            if metrics is not None and "traced_skill" in json.dumps(metrics):
+                turn_fields["traced_skill"] = traced_skill(
+                    http, cfg, auth, trace_id, (event["data"].get("state_digest") or {}).get("skill"))
             if metrics is not None:
-                scored, problems = metric_outcome(metrics, case, answer, {"capabilities": capabilities})
+                scored, problems = metric_outcome(metrics, case, answer, turn_fields)
             else:
                 problems = check(case, answer)
                 wanted = case.get("expect", {}).get("capabilities")
                 if wanted is not None and capabilities != wanted:
                     problems.append(f"capabilities {capabilities} != {wanted}")
+                problems += skill_problems(case, turn_fields["skill"])
         else:
-            answer, problems, trace_id = "", [f"no done event ({event.get('data', {}).get('code')})"], None
+            answer, problems, trace_id = "", [f"no done event ({lost})"], None
             if metrics is not None:
                 scored = {m: False for m in metric_outcome(metrics, case, "", {})[0]}
         if metrics is not None:
             metric_outcomes.append(scored)
+        if metrics is not None and isinstance(threshold, dict):
+            # A metric the threshold does not name is reported, never gated (ADR-0320).
+            problems = [p if p.split()[0] in threshold or p.startswith("no done event") else f"{p} (reported)"
+                        for p in problems]
+        gating = [p for p in problems if not p.endswith("(reported)")]
         report_set = case.get("report_set")
         if report_set:
-            report_sets.setdefault(report_set, []).append(not problems)
+            report_sets.setdefault(report_set, []).append(not gating)
         else:
             gated += 1
-            passed += not problems
-        mark = ("pass" if not problems else "FAIL") if not report_set else ("ok  " if not problems else "miss")
+            passed += not gating
+        mark = ("pass" if not gating else "FAIL") if not report_set else ("ok  " if not gating else "miss")
         shown = f"[{report_set}] " if report_set else ""
         print(f"  {mark}  {name}/{shown}{case['id']}  {answer[:80]!r}  {'; '.join(problems)}")
         case_records.append({
-            "id": case["id"], "passed": not problems, "problems": problems, "answer": answer,
+            "id": case["id"], "passed": not gating, "problems": problems, "answer": answer,
             "capabilities": capabilities, **({"report_set": report_set} if report_set else {}),
-            **({"metrics": scored} if scored else {}),
+            **({"metrics": scored} if scored else {}), **({"lost": lost} if lost else {}),
         })
         if trace_id:
             langfuse(
                 http, cfg, auth, "dataset-run-items",
                 {"runName": run_name, "datasetItemId": item_id, "traceId": trace_id,
-                 "metadata": {"passed": not problems, "problems": problems}},
+                 "metadata": {"passed": not gating, "problems": problems}},
             )
             langfuse(
                 http, cfg, auth, "scores",
-                {"traceId": trace_id, "name": "eval_pass", "value": 0 if problems else 1,
+                {"traceId": trace_id, "name": "eval_pass", "value": 0 if gating else 1,
                  "dataType": "NUMERIC", "comment": f"{name}/{case['id']}"},
             )
     total = len(cases) - sum(len(v) for v in report_sets.values())
     rate = passed / total if total else 0.0
-    threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
     scores = None
     if document_outcomes and isinstance(threshold, dict):
-        scores = rag_scores(document_outcomes)
+        scores = rag_scores(document_outcomes, judged=judge is not None)
         ok = rag_threshold_ok(scores, threshold)
         counts = scores["counts"]
         print(
@@ -872,17 +1132,21 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
         ok = all(scores[metric] >= value for metric, value in threshold.items())
         counts = scores["counts"]
         print(f"  {name}: " + ", ".join(
-            f"{metric} {scores[metric]:.2f} ({counts[metric]})" for metric in metrics["metrics"]))
+            f"{metric} {scores[metric]:.2f} ({counts[metric]}){'' if metric in threshold else ', reported'}"
+            for metric in metrics["metrics"]))
     else:
         ok = isinstance(threshold, int | float) and rate >= threshold
     # Reported, never gated (ADR-0241): e.g. the routing suite's keyword-free coverage.
     coverage = {key: {"passed": sum(v), "total": len(v), "rate": sum(v) / len(v)} for key, v in report_sets.items()}
     for key, value in coverage.items():
         print(f"  {name}[{key}]: {value['passed']}/{value['total']} ({value['rate']:.2f}), reported, not gated")
-    print(f"  {name}: {RETRIES['count']} provider retries")
+    lost = lost_by_code(case_records)
+    print(f"  {name}: {RETRIES['count']} provider retries; lost cases {sum(lost.values())}"
+          + (f" ({', '.join(f'{code} {n}' for code, n in lost.items())})" if lost else ""))
     rows.append((name, passed, total, rate, threshold, ok))
     records[name] = {
         "passed": passed, "total": total, "cases_recorded": len(case_records), "report_sets": coverage,
+        "lost": lost,
         "rate": rate, "threshold": threshold, "ok": ok, "scores": scores,
         "rerank": rerank_config(), "backend": "mcp" if name.endswith(MCP_SUFFIX) else "internal",
         "retries": RETRIES["count"], "cases": case_records,
@@ -905,6 +1169,68 @@ def finish(run_name: str, rows: list, records: dict, failed: bool) -> int:
     print(f"\nLangfuse dataset run: {run_name}")
     print(f"Eval records: {record_path.relative_to(REPO)}")
     return 1 if failed else 0
+
+
+# ------------------------------------------------------------------ rescoring a recorded run (phase 06, D5)
+
+
+def rescore_suite(name: str, path: Path, suite: dict, threshold) -> dict:
+    """A recorded suite's scores and verdict under D5, from its per-case records and its cases
+    file; the same scoring as run_suite, with every lost case a failure in each metric."""
+    cases = {c["id"]: c for c in (json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip())}
+    recorded = suite["cases"]
+    metrics = load_metrics(path)
+    gated = [r for r in recorded if not r.get("report_set")]
+    passed = sum(bool(r["passed"]) for r in gated)
+    rate = passed / len(gated) if gated else 0.0
+    scores: dict | None = None
+    old = suite.get("scores") or {}
+    if "hit_at_8" in old and isinstance(threshold, dict):
+        pairs = [(cases[r["id"]], r) for r in recorded if r["id"] in cases]
+        scores = rag_scores(pairs, judged=old.get("counts", {}).get("ragas", 1) > 0)
+        ok = rag_threshold_ok(scores, threshold)
+    elif "deterministic" in old and isinstance(threshold, dict):
+        scores = guard_scores([(cases[r["id"]], bool(r["passed"]), r.get("checker", "unknown"))
+                               for r in recorded if r["id"] in cases])
+        ok = guard_threshold_ok(scores, threshold)
+    elif metrics is not None and isinstance(threshold, dict):
+        outcomes = []
+        for r in recorded:
+            if lost_of(r) or "metrics" not in r:
+                outcomes.append({m: False for m in metric_outcome(metrics, cases[r["id"]], "", {})[0]})
+            else:
+                outcomes.append(r["metrics"])
+        scores = metric_scores(metrics, outcomes)
+        ok = all(scores[metric] >= value for metric, value in threshold.items())
+    else:
+        ok = isinstance(threshold, int | float) and rate >= threshold
+    return {"passed": passed, "total": len(gated), "rate": rate, "scores": scores, "ok": ok,
+            "lost": lost_by_code(recorded)}
+
+
+def rescore_main(runs: list[str]) -> int:
+    """`run_evals.py --rescore <run> [...]`: each recorded run scored again under D5, old and new."""
+    thresholds = yaml.safe_load((REPO / "evals" / "thresholds.yaml").read_text()) or {}
+    paths = suites()
+    for run in runs:
+        record_path = REPO / "build" / "evals" / f"{run.removesuffix('.json')}.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        print(f"{record['run']}")
+        out = {}
+        for name, suite in record["suites"].items():
+            threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
+            new = rescore_suite(name, paths[name], suite, threshold)
+            out[name] = new
+            old_scores = {k: v for k, v in (suite.get("scores") or {}).items() if isinstance(v, float)}
+            new_scores = {k: v for k, v in (new["scores"] or {}).items() if isinstance(v, float)}
+            changed = ", ".join(f"{k} {old_scores[k]:.2f}→{new_scores[k]:.2f}" for k in new_scores
+                                if k in old_scores and not k.startswith("retrieve") and k != "llm_judge_borderline_or_gulf")
+            print(f"  {name}: {'PASS' if suite['ok'] else 'FAIL'} → {'PASS' if new['ok'] else 'FAIL'}; "
+                  f"{new['passed']}/{new['total']}; lost {new['lost'] or 0}" + (f"; {changed}" if changed else ""))
+        (record_path.parent / f"{record['run']}.rescored.json").write_text(
+            json.dumps({"run": record["run"], "rule": "D5 (ADR-0293)", "suites": out}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+    return 0
 
 
 if __name__ == "__main__":

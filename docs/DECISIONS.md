@@ -2618,7 +2618,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0282: The usage section reads the process's counters only; counts, never who
 - Date: 2026-10-22
 - Phase: standalone PR before phase 06 (`feat/platform-settings`)
-- Status: assumed — Accepted on 2026-10-24
+- Status: assumed — Accepted on 2026-10-24 — Superseded in part by ADR-0287 on 2026-10-24
 - Context: Item 7b: usage from in-memory counters only, no database and no per-request cost, counts only.
 - Decision: `GET /v1/admin/usage` (agent, admin only) answers:
   - turns in flight (the platform, each tenant with something in flight, the busiest user's count) against their limits, from `ConcurrencyLimiter.snapshot`;
@@ -2694,3 +2694,307 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The page wrote numbers in Arabic-Indic digits in Arabic (the `ar-SA` locale). The agent's refusal sentences followed it (commit 464d256). The owner's check: Western digits (0–9) everywhere on `/admin/settings`, in both languages, inputs and text alike.
 - Decision: The page has one formatter, `pageFormat(locale)` in `services/web/src/lib/settings.ts`. It formats numbers and times with `ar-SA-u-nu-latn` in Arabic and `en-GB` in English, without digit grouping. A digit typed in Arabic-Indic or Persian form becomes its Western digit in the field. The catalog's help lines on the page use Western digits. The agent's Arabic refusal sentences write their numbers in Western digits again (464d256 reverted).
 - Consequences: Other pages keep their own digit choices. Dates in Arabic keep the `ar-SA` calendar, with Western digits.
+
+### ADR-0289: A skill shapes the output; it never says where information comes from (D1)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D1)
+- Status: decided
+- Context: docs/BACKLOG.md "Skills": the platform needs reusable ways to produce a kind of output (an official memo, a letter) over whatever the capabilities found.
+- Decision: A skill describes how the answer is laid out: its form, its template, a worked example. It never names a source of information, a tool or a retrieval; that stays in capabilities. A skill composes with any capability: the same memo skill writes over docs, directions or general findings.
+- Consequences: A skill has no tools, no state namespace and no model step of its own; it is text the answer node reads.
+
+### ADR-0290: Skills are developer-written files in the repository, reviewed by PR with evals (D2)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D2)
+- Status: decided
+- Context: README §20: prompts and configuration are code, versioned and covered by an eval.
+- Decision: A skill is a folder in the repository, added or changed by a PR that carries its evals. There is no admin editing of skills, no database copy and no upload path.
+- Consequences: Changing a skill needs a deploy. An entity's approved template replaces a reference layout by PR.
+
+### ADR-0291: No scripts until a sandbox exists; skills produce text only (D3)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D3)
+- Status: decided
+- Context: ADR-0054: in-process code is trusted first-party code; process isolation comes in phase 12. File outputs arrive with artifact outputs in phase 11.
+- Decision: A skill holds no executable file and runs nothing. Its output is the answer's text; it returns no file.
+- Consequences: A skill that would need a computation or a file waits for phase 11 or 12.
+
+### ADR-0292: An optional skill picker in the composer, beside automatic selection (D4)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D4)
+- Status: decided
+- Decision: The composer offers a picker listing only the skills the user may use (from `GET /v1/skills`). Nothing is selected by default and nothing asks the user to confirm. A picked skill is applied to that turn; without one, selection is automatic (ADR-0299).
+- Consequences: A user can force the form; the router never overrides the picker.
+
+### ADR-0293: A lost or interrupted eval case is a failure in every metric (D5)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D5; docs/BACKLOG.md, phase 06 first item)
+- Status: decided
+- Context: `rag_scores` averaged only the cases that produced a result: a case lost to `agent_stream_interrupted` or a provider error dropped out of every denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed.
+- Decision: The first item of the phase, before any new eval suite. In every suite, a case that ended without a usable result counts in each metric it would have counted in, as a failure: rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness (score 0), abstention; every metrics.yaml metric; the routing, general and guardrails rates. Each suite reports its lost cases by code. The four runs named in the phase prompt are rescored and both scores recorded.
+- Consequences: A provider outage can now fail a suite; that is the intent: a pass means the cases were answered.
+
+### ADR-0294: Smoke's G7 bounds measure platform-side time, outside model generation (D6)
+- Date: 2026-10-24
+- Phase: 06 (owner decision D6; docs/BACKLOG.md, phase 06 tech debt)
+- Status: decided
+- Context: Smoke attempt 2 of 2026-10-19 failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the server.
+- Decision: A G7 check's measure is the turn's wall time minus the union of its model generation span intervals, read from the turn's Langfuse trace. The bounds are rewritten against that number.
+- Consequences: Provider slowness neither fails a G7 check nor hides a platform stall.
+
+### ADR-0295: Skills live in skills/<slug>/ at the repository root, mounted read-only; only three entries allowed (I1)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I1)
+- Status: decided — Superseded in part by ADR-0317 on 2026-10-25
+- Decision: `skills/<slug>/` at the repository root, mounted read-only into the agent like `config/`. A skill folder may hold only `SKILL.md`, `prompts/` (the instructions, one file per locale, front-matter `id`, `version`, `locale`, following the prompt-file convention) and `evals/` (`<slug>.jsonl`, `metrics.yaml`). Any other file, or an executable bit on any file, fails startup with an error naming the path.
+- Consequences: A skill cannot smuggle code in; the startup check is the first test of ADR-0291.
+
+### ADR-0296: SKILL.md front-matter (I2)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I2, amended by the owner's decision of 2026-10-22, ADR-0307)
+- Status: decided — Superseded in part by ADR-0317 on 2026-10-25
+- Decision: `slug`, `version`, `name {ar, en}`, `description {ar, en}`, `when_to_use {ar, en}`, `permission` (`skill:{slug}`), `requires {capabilities: [] | [slugs]}`, `routing_hints {keywords {ar, en}, rules: [keyword_candidate]}`, `max_instruction_tokens`. The body is notes for reviewers and is never loaded. An invalid file fails fast at startup. The phase prompt's `requires.mcp_tools` is not part of the schema (ADR-0307): an unknown key is refused like any other.
+- Consequences: Labels for the picker and the reply chip come from SKILL.md, so the web needs no change for a new skill.
+
+### ADR-0297: A skill's permission is the realm role skill:{slug}, forwarded by the gateway (I3)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I3; ADR-0006, ADR-0046)
+- Status: decided
+- Decision: Keycloak realm roles `skill:{slug}`. The gateway forwards `skill:*` into `permissions[]` beside `cap:*` and `kb:*:read`. Seed: `analyst` and `evaluator` hold both reference skills; `viewer` holds none (the negative case).
+- Consequences: The agent stays role-blind; it sees `skill:{slug}` as a permission string.
+
+### ADR-0298: When a skill is available to a turn (I4)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I4, amended by ADR-0307)
+- Status: decided
+- Decision: A skill is available to a turn when the principal holds its permission and every capability in `requires.capabilities` is available to the principal. TOOL_LIST policies apply to skills as to capabilities, the skill named `skill:{slug}` to policies; a removal is silent and audited (ADR-0121).
+- Consequences: An admin can hide a skill from a tenant with a TOOL_LIST policy, no code.
+
+### ADR-0299: Skill selection: the picker, then keyword candidates and the router model, at most one skill (I5)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I5; ADR-0216, ADR-0169)
+- Status: decided
+- Decision: In order: (a) the chat request's optional `skill`, checked ⊆ available at the gateway and the agent, applied with no router decision on the skill; (b) otherwise a skill whose keywords match becomes a candidate (`keyword_candidate`) and the router model returns `{capabilities, skill: slug | null, complexity, risk}`, choosing at most one skill among the candidates; (c) no picker and no candidate: no skill and no router call added. A router answer naming a skill that is not a candidate, or whose required capability is not selected, is dropped and logged (`skill_dropped`). The candidate skills and their descriptions enter `router.request` (version bump) and the router cache key. `router.system` gets a version bump with the rule "a skill is chosen only when the user asks for that kind of document, never for a question about the word".
+- Consequences: A turn with no skill keyword costs nothing new.
+
+### ADR-0300: Context Assembly block `skill`, in the system role, never dropped (I6)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I6; ADR-0068)
+- Status: decided — Superseded in part by ADR-0318 on 2026-10-25
+- Decision: A new block `skill`, requested only by the answer node, rendered in the system role inside `<skill id= version=>` after the system instructions; never dropped by the budget guard; budget `config/context.yaml` `blocks.skill.max_tokens` 1500; a skill whose rendered instructions exceed min(that, its `max_instruction_tokens`) fails startup. `answer.system` gets a version bump with one precedence line: guard policies and the citation rules come before any skill instruction.
+- Consequences: Skill text is reviewed developer text, so the system role is right for it (ADR-0068 binds user-derived text only).
+
+### ADR-0301: State, event, history and API for skills (I7)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I7; ADR-0046)
+- Status: decided
+- Decision: `AgentState` gains `skill {slug, version} | None` per turn (the answer node reads it). A `skill` event `{slug, label {ar, en}}` precedes the answer's tokens. The history endpoint adds an optional `skill` on the reply, additive. `GET /v1/skills` (gateway → agent) returns the available skills' slug, name and description, filtered by principal. Agent and gateway move one minor version (2.4.0 → 2.5.0), additive, with `make openapi`.
+- Consequences: Clients of 2.4.0 keep working.
+
+### ADR-0302: Two reference skills, official_memo and official_letter (I8)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I8)
+- Status: decided — Superseded in part by ADR-0319 on 2026-10-25
+- Decision: `official_memo` (internal memo: entity header placeholders, «مذكرة داخلية», الرقم، التاريخ، المرفقات، إلى، من، الموضوع، السلام عليكم ورحمة الله وبركاته، the body, the closing «وتقبلوا خالص التحية والتقدير»، the signature block الاسم، المسمى الوظيفي، التوقيع) and `official_letter` (between entities: الرقم، التاريخ، المرفقات، «صاحب السعادة/ … المحترم»، «السلام عليكم ورحمة الله وبركاته، وبعد:»، the body، «وتقبلوا سعادتكم وافر التحية والتقدير»، the signature block); English layouts for English requests. `requires: {capabilities: []}`. Never invent a reference number, date, name or title: what the user did not give is a bracketed placeholder. Facts come only from the capability's findings. Keywords as the phase prompt lists them.
+- Consequences: Reference layouts only; the entity's approved templates replace them by PR with their evals.
+
+### ADR-0303: Skill evals with generic scorers; the harness names no skill (I9)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I9; ADR-0240)
+- Status: decided — Superseded in part by ADR-0320 on 2026-10-25
+- Decision: run_evals.py globs `skills/*/evals` beside `capabilities/*/evals`. New generic scorers for metrics.yaml: `sections_in_order` (ordered patterns, Arabic-folded), `text_present`, `length_between` (words). Per skill ≥ 18 cases (Arabic MSA, Gulf, English; fields given and not given; over general, docs and directions; one injection case). Thresholds: format_adherence ≥ 0.90, no_invented_fields 1.00, facts_kept ≥ 0.90, citations_kept (docs cases) ≥ 0.90.
+- Consequences: A third skill's evals need no harness change.
+
+### ADR-0304: Routing evals gain expected_skill (I10)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I10; ADR-0241)
+- Status: decided — Superseded in part by ADR-0320 on 2026-10-25
+- Decision: routing.jsonl gains `expected_skill` (null when none). ≥ 12 skill positives, ≥ 8 keyword negatives, and ≥ 6 keyword-free skill requests as the reported, ungated set `skill_keyword_free`. Existing cases keep `expected_skill` null and must not regress.
+- Consequences: The router's skill judgment is gated; the keyword rule's blind spot is reported.
+
+### ADR-0305: The second skill proves zero core change (I11)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I11)
+- Status: decided — Superseded in part by ADR-0319 on 2026-10-25
+- Decision: `official_letter` lands in its own commit touching only `skills/official_letter/**`, `infra/keycloak/realm-export.json`, `evals/golden/routing.jsonl` and `evals/thresholds.yaml`; its `git diff --name-only` is recorded in PROGRESS.
+- Consequences: A skill that needs more than these paths is a core change and must be argued first.
+
+### ADR-0306: Tiers do not change for skills in this phase (I12)
+- Date: 2026-10-24
+- Phase: 06 (implementation choice I12)
+- Status: decided
+- Decision: A skill sets no tier, floor or escalation. The answer's tier is resolved as before.
+- Consequences: Phase 11 decides whether a skill may raise the answer's tier.
+
+### ADR-0307: A skill names the capabilities it needs, never MCP tools (amends I2 and I4; CLAUDE.md phase 06 row)
+- Date: 2026-10-24
+- Phase: 06 (owner decisions of 2026-10-21 and 2026-10-22, sent during this session)
+- Status: decided
+- Context: The phase prompt's I2 and I4 let a skill require MCP tools directly (`requires.mcp_tools`). ADR-0196: an MCP tool is reached only through the capability that declares it, which carries its role, policies and evals.
+- Decision: `requires` holds `capabilities` only; `mcp_tools` is removed from the SKILL.md schema (ADR-0296) and from availability (ADR-0298). The CLAUDE.md phase 06 row "the capabilities or MCP tools it needs" becomes "the capabilities it needs" (rule 10).
+- Consequences: A skill that needs an MCP tool requires the capability that declares it.
+
+### ADR-0308: A selected skill is applied in the answer node; the planner's place in the graph is recorded for phase 07 (docs only)
+- Date: 2026-10-24
+- Phase: 06 (owner decisions of 2026-10-21 and 2026-10-22, sent during this session)
+- Status: decided
+- Decision: A selected skill is applied when the answer is written (the answer node), never inside run_capabilities: a skill shapes the output and fetches nothing. The router selects at most one skill automatically; the composer also offers an optional picker with no confirmation prompt. docs/BACKLOG.md records these under "Skills → phase 06" and, under "Planner → phase 07", where the planner sits: a plan node after route and before guard(TOOL_LIST) reached only for compound requests, guard(TOOL_LIST) over every step, run_capabilities as the plan executor, skill steps in the answer node, plan steps capabilities or skills, never MCP tools. Docs only: no code in this phase; the phase 07 build changes the CLAUDE.md phase 07 row, PROGRESS phase 07 and README §5.2 with its own ADR.
+- Consequences: Phase 07 starts from a recorded graph shape.
+
+### ADR-0309: How a skill folder is checked at startup (details of I1, I2)
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed — Superseded in part by ADR-0322 on 2026-10-25
+- Context: ADR-0295 and ADR-0296 name what a skill folder holds; the checks around them were left open.
+- Decision:
+  - The skills root holds only skill folders. A folder holds only `SKILL.md`, `prompts/*.md.j2` and `evals/{<slug>.jsonl, metrics.yaml}`; anything else (a nested folder, a hidden file, a symbolic link, a script) and any executable bit fail startup naming the path.
+  - A skill's prompts are its instructions only: id `<slug>.instructions`, both locales, front-matter `role: skill`. They render with no variable, so the startup size check (ADR-0300) measures exactly what the answer receives.
+  - A skill's slug may not be a capability's slug; a slug used twice fails; `requires.capabilities` must name capabilities that exist.
+  - SKILL.md is front-matter between `---` lines; its body is never read by code.
+  - `SKILLS_DIR` (compose: `/srv/skills`, the repository's `skills/` read-only); a missing root is no skill.
+- Consequences: A skill can only add text the answer node reads; the registry is in memory, so listing skills reads nothing outside the process.
+
+### ADR-0310: GET /v1/skills: permissions in a header, labels only, not audited; TOOL_LIST filters the turn, not the list
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: I7 gives the endpoint; the agent's GET endpoints name their caller in headers (ADR-0059) and the agent is role-blind (ADR-0046).
+- Decision: The gateway's `GET /v1/skills` calls the agent with X-User-Id, X-Tenant-Id and X-User-Permissions (the caller's `cap:*`, `kb:*:read` and `skill:*`, comma-separated, from the verified token; nothing else leaves). The agent answers `{skills: [{slug, name, description}]}` from its in-memory registries (permission held, required capabilities available). It is a read of labels, like `/v1/me`, and is not audited. TOOL_LIST policies are not run for the list (a judge policy would make it a model call, against G7); they run on the turn's skill in guard(TOOL_LIST), where a removed skill leaves silently and the removal is in the audit record (ADR-0121). So a policy-hidden skill can still show in the picker; picked, the turn goes on without it.
+- Consequences: The picker costs no database, Redis or model call. An admin who hides a skill by policy and wants it out of the picker too needs the realm role removed.
+
+### ADR-0311: The skill's name for policies, and where the picker is checked
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: I4 names the skill `skill:{slug}` to TOOL_LIST policies; a policy scope value may not hold `:` (ADR-0078), and G6 asks for the refusal at the gateway and the agent.
+- Decision:
+  - guard(TOOL_LIST) evaluates the turn's skill as the payload `skill:{slug}` beside the capability slugs; policies select it by their pattern under global, tenant or role scopes. There is no `tool:` scope for a skill. A skill whose required capability a policy removed leaves the turn too.
+  - The gateway refuses a picked skill the caller holds no `skill:{slug}` role for with 403 `skill_forbidden`, audited denied with `skill_requested`, before the agent is called. The agent refuses it again at admission (permission and availability), 403 `skill_forbidden` before any stream; the gateway maps an agent 403 by its error code (`skill_forbidden` or `conversation_forbidden`).
+- Consequences: A scoped exception for one skill is a pattern, not a scope.
+
+### ADR-0312: The router asked for the skill only; the cache key holds the candidates
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed
+- Context: I5 adds the skill to the router's answer. The router used to be called only when the capability rules left a choice open.
+- Decision:
+  - When the rules decided the capabilities (attachments, a keyword) and a skill is a candidate, the router model is called with those capabilities only, and only its `skill` is used. When the rules left the choice open, one call decides both, as before plus the skill.
+  - An unusable answer or a model failure means no skill. A skill outside the candidates is dropped as `not_a_candidate`; one whose required capability was not selected as `required_capability_not_selected`; each drop is a `skill_dropped` span event and a log line.
+  - The cache key adds the candidates' `slug@version`; a cached skill is used only while it is still a candidate.
+  - The picker's skill is checked again in the route node (defense in depth); with a picker the router is never asked for a skill.
+- Consequences: A turn with a skill keyword pays one fast router call (L, measured). A skill's new version misses the cache.
+
+### ADR-0313: What the turn records of its skill
+- Date: 2026-10-24
+- Phase: 06 (G8, ADR-0301)
+- Status: assumed
+- Decision: The done event's `state_digest.skill` (additive) is `slug@version` or null; the gateway copies it into the audit record's `detail.skill`, and `detail.skill_requested` when a skill was picked. Spans: `route.skill`, `route.skill.decided_by`, `answer.skill` and `turn.skill`, each `slug@version`; `route.skill_candidates`. The skill's text reaches no audit field and no span attribute; it is in the answer model call's own input, which content capture records for every prompt (`OBSERVABILITY_CAPTURE_CONTENT`). The persisted reply keeps `{slug, version}`; the history returns `{slug, label}` from SKILL.md, the slug as label for a skill no longer shipped. The answer system prompt's precedence line appears only on a turn with a skill, so the prompt of every other turn is unchanged.
+- Consequences: An audit row says which skill wrote an answer without holding its instructions.
+
+### ADR-0314: The eval harness for D5, D6 and the skill suites
+- Date: 2026-10-24
+- Phase: 06
+- Status: assumed — Superseded in part by ADR-0323 on 2026-10-25
+- Decision:
+  - D5: a case is lost under the terminal event's code, `http_<status>` for a refusal before any stream, `transport_<error>`, `upload_failed` or `not_indexed`; the run goes on. The rag metrics a case counts in come from its kind, so a lost case counts in the same ones (Ragas metrics as 0). `--rescore <run>` rescored the recorded runs into `build/evals/<run>.rescored.json`.
+  - D6: smoke's G7 measure is the turn's wall time minus the union of its `model.call` spans, clipped to a window that starts at the trace's `turn` span and lasts the wall time, so only the trace's own clock is read (scripts/platform_time.py). Bound: the median of three such turns in the run + 2 s (was the wall time's median + 3 s). A platform stall inside a model call's span counts as generation by this definition.
+  - The skill suites send each case with the skill picked, so they measure the layout apart from routing (routing.jsonl measures the choice). Scorer options: `by` (a layout per case field, the locale) and `patterns_from` (absent patterns from the case, only where a field was not given). Patterns are Arabic-folded without casefolding and matched case-insensitively. Turn fields: `capabilities`, `skill`, `cited`.
+  - The injection cases use a new generated circular, evals/docs/format-injected.txt (fake, phase 04's invented authority).
+- Consequences: A pass now means every case was answered.
+
+### ADR-0315: The phase 05 checkpoint fixture
+- Date: 2026-10-24
+- Phase: 06 (G9; ADR-0243 precedent)
+- Status: assumed
+- Decision: tests/fixtures/checkpoints/phase05_docs_conversation.json holds the checkpoint rows (36 checkpoints, 62 blobs, 142 writes) of a docs turn and a general turn written by main at 09464df, the code before this phase, with its generator beside it. Its replies carry their citations (ADR-0193). The G9 tests reopen it and the phase 04 one unchanged, with no skill, and continue the phase 05 one with a picked skill.
+- Consequences: A change to how a reply or the state is persisted fails a test against data this code did not write.
+
+### ADR-0316: The picker's and the chip's words
+- Date: 2026-10-24
+- Phase: 06 (D4)
+- Status: assumed
+- Decision: The picker is a select labelled «نموذج الإجابة» / "Answer template" with «تلقائي» / "Automatic" first and selected by default, then the caller's skills by their SKILL.md names, each description as its tooltip. It is hidden when the caller has none, disabled while an answer streams, and reset to automatic after each send. The reply's chip reads «مكتوبة بنموذج» / "Written as" and the skill's name. Neither shows a number, so ADR-0288's Western digits hold trivially. A refusal reads «النموذج المختار غير متاح لك.» / "The chosen template is not available to you."
+- Consequences: The owner may prefer another word than «نموذج» for a skill.
+
+### ADR-0317: Skills use the open Agent Skills format; the platform's fields are optional and namespaced
+- Date: 2026-10-25
+- Phase: 06 (owner decision of 2026-10-25, A1)
+- Status: decided
+- Context: ADR-0296 defined a platform SKILL.md (slug, version, names, descriptions, when to use, permission, requires, routing hints, an instruction budget) with the instructions in prompt files (ADR-0295, ADR-0300). A public skill in the open Agent Skills format would not load.
+- Decision: SKILL.md is the open Agent Skills format: YAML front-matter with `name` and `description`, Markdown instructions below; optional reference Markdown files in the folder. A public skill must load unmodified. The platform's extra fields (Arabic name and description, permission, requires.capabilities, routing keywords) are optional, in a namespaced front-matter block; defaults: permission `skill:<name>`, requires none, no keywords (selectable by the picker; offered to the router by its description only once keyword-free routing is decided in phase 08). A skill names capabilities only, never MCP tools (ADR-0307). The folder may hold Markdown only as instructions; any script or executable still fails startup (D3, ADR-0291). Only the selected skill's SKILL.md and the reference files it names are loaded. The CLAUDE.md phase 06 row changes to match (rule 10).
+- Consequences: Supersedes in part ADR-0295 (the folder's entries) and ADR-0296 (the front-matter). Details in ADR-0321 and ADR-0322.
+
+### ADR-0318: The skill block is SKILL.md plus every Markdown file it names; other files are skipped and logged
+- Date: 2026-10-25
+- Phase: 06 (owner decision of 2026-10-25, second message, item 2)
+- Status: decided
+- Decision: The skill block is SKILL.md plus every Markdown file it references, loaded together. config/context.yaml `blocks.skill.max_tokens` is raised to fit them: 1500 → 3000; measured on 2026-10-25 with the platform's token counter, the internal-comms block is 2402 tokens (SKILL.md and its four examples/ files) and the official_memo block 590. Non-Markdown files that are neither scripts nor executable (the licence, for example) stay in the folder, are skipped by the loader, never reach the model, and are listed in the startup log. Scripts and executables still fail startup (D3). Tests: the licence never reaches the context; a folder with a .py, a .sh or an executable bit fails startup.
+- Consequences: Supersedes in part ADR-0300 (the block's content and budget; still system role, never dropped). A skill block of up to 3000 tokens takes that much of the answer's tier budget; the budget guard drops other blocks first.
+
+### ADR-0319: Reference skills: official_memo as it is and internal-comms copied unmodified; official_letter removed
+- Date: 2026-10-25
+- Phase: 06 (owner decisions of 2026-10-25, A2 and the second message, item 1)
+- Status: decided
+- Context: grill-me (github.com/mattpocock/skills) was checked first: its folder holds agents/openai.yaml besides SKILL.md, and its body only calls another skill (`grilling`) through a Skill tool the platform does not have; the owner dropped it and grilling.
+- Decision: (a) internal-comms from github.com/anthropics/skills (path skills/internal-comms) is copied unmodified: SKILL.md, its examples/ guideline files and its licence, with a SOURCE note (repository, path, commit hash), after checking the folder holds no script or executable. It lands in its own commit touching only skills/internal-comms/**, the realm role, routing evals and thresholds: the zero-core-change proof. (b) official_memo stays as it is now (instructions 1.1.0), the Arabic example, no further tuning. (c) official_letter is removed.
+- Consequences: Supersedes in part ADR-0302 (the second reference skill) and ADR-0305 (the proof is internal-comms, not official_letter). The multi-turn case planned for grill-me is dropped.
+
+### ADR-0320: Skill evals measure the mechanism; content is reported, not gated; 429 pacing
+- Date: 2026-10-25
+- Phase: 06 (owner decisions of 2026-10-25, A3, A4, B1 to B3, and the second message, item 3)
+- Status: decided
+- Decision: Phase 06 delivers the skills mechanism; skill content quality is not its goal. Gated: skill selection (routing.jsonl `expected_skill`), permission (refused without the role), the skill block loaded (the trace shows id@version), the picker. Reported, not gated: format adherence, invented fields, facts kept, citations kept. About 6 cases per skill suite; internal-comms: a 3P update, a newsletter item, an FAQ answer, one Arabic request, one Gulf request, and one request that is not internal comms (no skill applied). Eval case changes made in 2fd569b or later only to make cases pass are reverted and listed in PROGRESS. Rate limits: no exception and no model change; skill suites run with at most 2 cases in flight and a longer 429 backoff; lost cases still count as failures in gated suites; if more than 5% of a suite is still lost to 429s, the run stops and reports the rate (a key or tier with more headroom is the owner's cost decision). A provider 429 inside a capability stays in docs/BACKLOG.md, not in this phase. The sender question gates nothing, so no further instruction tuning.
+- Consequences: Supersedes in part ADR-0303 (gated metrics) and ADR-0304 (the routing counts of I10, which assumed two keyword skills). Details in ADR-0323.
+
+### ADR-0321: The namespaced block, the default version and the memo's English variant (details of ADR-0317)
+- Date: 2026-10-25
+- Phase: 06
+- Status: assumed
+- Decision: The platform's block is the front-matter key `sovereign`, strict (an unknown key in it, `requires.mcp_tools` included, fails startup): `version` (semver), `name` and `description` per locale (`ar`, `en`; each falls back to the open `name` and `description`), `permission` (only `skill:<name>`, ADR-0297), `requires.capabilities`, `routing_hints` (keywords and the `keyword_candidate` rule). Other top-level keys (`license`, `allowed-tools`, `metadata`, a client's own) are kept in the file, ignored and listed in the startup log. The name is the open format's (lowercase letters, digits, hyphens) or the platform's underscore slugs, `^[a-z][a-z0-9_-]{0,63}$`, and equals the folder's name; the chat request field, the gateway's permission pattern and the agent's header check take the same pattern (API 2.5.0 has not left this unmerged branch, ADR-0046). Without `sovereign.version`, the version is `sha-` and the first 12 hex digits of SHA-256 over the loaded files' paths and bytes, so traces and audit still carry name@version (G8) and the router cache key changes when the instructions do. `when_to_use` is gone: in the open format the description says when to use a skill; router.request 1.3.0 lists a candidate skill with its description only. official_memo's instructions are the Arabic text of 1.1.0 as SKILL.md's body (its last rule covers an English request); the English variant of the former prompt file is not carried over, and the reviewer notes moved to NOTES.md, which SKILL.md does not name (skipped).
+- Consequences: An English-locale memo turn now gets the Arabic instructions. The owner may prefer another namespace key.
+
+### ADR-0322: What the loader reads, skips and refuses (details of ADR-0318)
+- Date: 2026-10-25
+- Phase: 06
+- Status: assumed
+- Decision: Every file under the folder, subfolders included, is checked: a symbolic link, a non-regular file, an executable bit, a script (by suffix: .py, .sh, .js, .ts, .rb, .pl, .ps1, .bat, .exe, .so, .jar and the like, or a `#!` first line) or a file over 256 KiB fails startup with its path. SKILL.md's body names a Markdown file by its relative path, matched as a whole path (`a.md` is not named by `examples/a.md`); named files load in the order the body first names them, each after the body inside `<file path="…">…</file>`; the evals/ folder is never loaded. SKILL.md's front-matter never reaches the model. Every other file is skipped and listed, with the loaded files and the ignored front-matter keys, on one startup log line per skill; the block's size is logged per skill. The SOURCE note is a plain-text file, `SOURCE.txt`, so it is skipped like the licence.
+- Consequences: A Markdown file that SKILL.md mentions only in prose without its path is not loaded. Supersedes in part ADR-0309.
+
+### ADR-0323: The mechanism metrics in the harness (details of ADR-0320)
+- Date: 2026-10-25
+- Phase: 06
+- Status: assumed
+- Decision: Gated metrics, thresholds 1.00: `skill_applied` (the done event's skill is the case's `expect.skill`: the picked one, or none on the request that is not the skill's), `skill_block_loaded` (the answer's `context.assemble` span in Langfuse has a `skill` block and the turn's name@version among its prompts), and, for official_memo, `permission_refused` (the picker as the seed user `viewer`, who holds no skill role, is refused 403 `skill_forbidden` before any stream). A metric the threshold does not name is reported: printed and recorded with ", reported", and a case passes on its gated metrics. A refusal the case expects is its outcome, not a lost case. official_memo keeps 5 of its original cases (Arabic, Gulf, English, docs, directions) and adds the negative «ما معنى مذكرة تفاهم؟» and the permission case: 7. routing.jsonl: the six official_letter positives become `expected_skill: null` cases (a letter request now gets no skill; ids `skill-none-letter-*`, capability expectations unchanged), and the three keyword-free letter cases are removed; internal-comms has no keywords, so its routing cases expect no skill. Skill suites run one case at a time (within "at most 2 in flight"), with 429 retries after 15, 30, 60, 120 and 240 s, each ±20% jitter (rule 12g); after a skill suite, more than 5% of its cases lost `model_unavailable` stops the run with the rate printed, and the suites after it do not run. A 429 inside a capability ends `capability_failed` and is not counted as a 429 (BACKLOG).
+- Consequences: Supersedes in part ADR-0314. With about 6 cases, one case lost to a 429 is past 5% and stops the run.
+
+### ADR-0324: The agent freezes its startup heap (gc.freeze) once its services have started
+- Date: 2026-10-25
+- Phase: 06 (owner approval of 2026-10-25; a core change outside the phase's parts, G5)
+- Status: decided
+- Context: make test failed twice on the 0.1 s event-loop lag bound (rule 12h), in `test_upload_registration.py::test_two_users_uploading_against_a_slow_register_leave_another_users_search_its_slots` (108.3 ms, 113.3 ms), and a diagnostic run failed `test_turn_deadline.py::test_a_turn_past_its_deadline_ends_turn_timeout_and_frees_its_conversation[hung_capability]` (101.8 ms). A temporary `gc.callbacks` logger showed 23 generation-2 collections of 84–132 ms in one agent test run, one of 102 ms inside the failing test. In the running agent container, 300 000 objects are alive after build_services and a full collection takes 45–49 ms on the event loop, every user's turn stalled meanwhile (rule 12d).
+- Decision: `start_services` ends with `gc.collect()` then `gc.freeze()` (Python's standard library), after the registries, configuration and graph are loaded; the log names the number of frozen objects. The tests start their services through `start_services`, so the conftest freezes the same heap and the lag probes measure what production runs; `tests/integration/test_startup_heap.py` checks the freeze. The lag bound is unchanged: `LAG_BOUND_S = 0.1` in all seven test files that assert it. Alternatives: `gc.disable()` (memory unbounded); higher collection thresholds (rarer, longer pauses); a test-only freeze (tests would no longer measure production's pauses); a higher lag bound (weakens rule 12h).
+- Consequences: Measured, three agent test runs each (`-rP`, every lag-probed test's printed maximum): before (00cf77d plus the PROGRESS commits), the slow-register test 36.7, 38.3, 29.0 ms and the hung-capability test 5.0, 94.1, 3.4 ms, every run passing (besides the three failures above); after, 22.3, 39.4, 19.4 ms and 3.8, 4.0, 3.6 ms; the largest of the 31 lag-probed tests per run, before 41.5, 94.1, 42.9 ms, after 50.6, 44.5, 43.1 ms (the flooding-embedding tests, which are not collection pauses). A full collection in the agent container: 45–49 ms before, under 0.1 ms after. Objects alive at startup are never collected afterwards; they live as long as the process anyway. A copy of the startup heap is no longer written to by the collector, which also helps forked children. RESILIENCE.md has the row.
+
+
+### ADR-0325: A sidecar `skill.platform.yaml` holds the platform's fields of an unmodified skill
+- Date: 2026-10-26
+- Phase: 06 (owner visual check of 2026-10-26, item 2; a core change to the skill loader, skill-agnostic)
+- Status: decided
+- Context: internal-comms is copied unmodified (ADR-0319), so it had no `sovereign` block: the picker showed its Latin name in Arabic, and it had no keyword, so the router never offered it. Adding the block would modify the upstream SKILL.md.
+- Decision: A skill folder may hold `skill.platform.yaml` beside SKILL.md with exactly the keys of the `sovereign` block (`version`, `name.{ar,en}`, `description.{ar,en}`, `permission`, `requires.capabilities`, `routing_hints`), validated by the same strict model (an unknown key, `requires.mcp_tools` included, or a permission other than `skill:<name>` fails startup naming the file). The loader reads it when present and keeps SKILL.md untouched; the namespaced block stays supported. A skill with both fails startup ("keep one"), so there is no merge rule to learn. The file is never loaded into the model and is not among the skipped files; the startup log names it as `platform_file`. Without a `version` in it, the content version (ADR-0321) covers the loaded files and the sidecar, so a change of labels or keywords changes name@version. internal-comms gets one: «التواصل الداخلي» / "Internal comms", an Arabic and English description saying when to use it, permission `skill:internal-comms`, no required capability, and Arabic, Gulf and English keywords with `keyword_candidate` («تحديث أسبوعي», «تقرير الحالة», «نشرة داخلية», «تعميم للفريق», «أسئلة شائعة», weekly update, status report, newsletter, FAQ, 3P update and the like). Its SOURCE.txt says which files are upstream's and which are the platform's.
+- Consequences: internal-comms becomes a keyword candidate, so a turn naming one of its keywords adds the router call measured for skills (phase 06, L). routing.jsonl: `skill-none-comms-3p` becomes `skill-comms-3p-en` (expects internal-comms); the keyword-free newsletter case moves to the reported `skill_keyword_free` set; 10 positives (Arabic, Gulf, English, one over docs) and 5 negatives for internal-comms are added. Supersedes in part ADR-0323 ("internal-comms has no keywords, so its routing cases expect no skill").
+
+### ADR-0326: Assistant answers render as Markdown with react-markdown, HTML shown as text
+- Date: 2026-10-26
+- Phase: 06 (owner visual check of 2026-10-26, item 1)
+- Status: decided (the library choice: assumed)
+- Context: Answers showed raw `**` and list markers; the reply was a pre-wrapped text paragraph.
+- Decision: `MessageMarkdown` renders the assistant's text, live while it streams and from the history, with `react-markdown` 10.1.0 and `remark-gfm` 4.0.1 (tables, strikethrough, task lists), exact versions. Safety: raw HTML nodes are turned into text by a ten-line remark plugin, so `<script>` or `<b>` is shown as typed and never becomes an element (no `rehype-raw`); links pass react-markdown's URL filter and then `safeHref` (http and https only), and open in a new tab with `noopener noreferrer`; images are not loaded (the alt text is shown), so an answer cannot make the browser fetch from another host. RTL: every block has `dir="auto"`, lists and quotes use logical spacing (`ps-*`, `border-s-*`), code and code blocks are `dir="ltr"`; paragraphs keep single line breaks (`white-space: pre-line`), so a memo's header and signature lines stay one per line. The user's own message stays plain text. Alternatives: `marked` or `markdown-it` with DOMPurify (produce an HTML string set through `dangerouslySetInnerHTML`, two libraries where one builds React elements directly); a hand-written parser (rule 12i: a maintained library fits); `remark-breaks` for line breaks (one more dependency where one CSS property does it).
+- Consequences: The web gains two runtime dependencies and their transitive unified/micromark packages, all from the npm registry the build already uses (no SaaS). An unfinished marker while streaming (`**ثا`) shows as text until its closing marker arrives.
+
+### ADR-0327: The composer's picker is labelled «المهارة» / "Skill"
+- Date: 2026-10-26
+- Phase: 06 (owner visual check of 2026-10-26, item 4)
+- Status: decided
+- Decision: The picker's label is «المهارة» / "Skill" and its automatic option's hint «تُختار المهارة تلقائيًا عند الحاجة» / "The skill is chosen automatically when needed". It lists every skill the user may use (GET /v1/skills), each by its name in the page's language from SKILL.md or its sidecar (ADR-0325). The reply's chip («مكتوبة بنموذج …» / "Written as …") and the `skill_forbidden` message keep their wording.
+- Consequences: None beyond the two catalogue strings per language.

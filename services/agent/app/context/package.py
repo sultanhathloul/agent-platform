@@ -8,6 +8,7 @@ from app.memory.types import MemoryScope
 
 BlockName = Literal[
     "system",
+    "skill",
     "state_digest",
     "window",
     "summary",
@@ -21,6 +22,9 @@ BLOCK_NAMES: tuple[str, ...] = get_args(BlockName)
 
 # Budget guard never drops these (README §7 step 9).
 PROTECTED_BLOCKS: frozenset[str] = frozenset({"system", "user_message"})
+# The selected skill's instructions (phase 06, ADR-0300): a system-role block only the answer node
+# requests, never dropped (it is not droppable in config/context.yaml), its size checked at startup.
+SKILL_BLOCK = "skill"
 
 
 # The blocks that form the current user message; only these merge (ADR-0076). The evidence
@@ -51,6 +55,18 @@ class Drop(BaseModel):
     reason: str
 
 
+class SkillBlockRequest(BaseModel):
+    """Which skill the `skill` block renders: its name and version (the `id` and `version` of
+    `<skill>`) and its instructions, SKILL.md's body with the Markdown files it names (ADR-0318).
+    The text is never written to state, a trace or the audit (G8)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    slug: str
+    version: str
+    instructions: str = Field(repr=False)
+
+
 class AssemblyRequest(BaseModel):
     """What a node asks Context Assembly for. `state` is a read-only AgentState snapshot."""
 
@@ -78,6 +94,9 @@ class AssemblyRequest(BaseModel):
         default=[], description="This turn's tool results {tool, content, sources?}, already sanitized."
     )
     policy_hints: list[str] = []
+    skill: SkillBlockRequest | None = Field(
+        default=None, description="The turn's selected skill; its instructions are the `skill` block (ADR-0300)."
+    )
     prompt_vars: dict[str, Any] = Field(
         default={}, description="Extra variables for the node's system and request prompts (guard judge)."
     )

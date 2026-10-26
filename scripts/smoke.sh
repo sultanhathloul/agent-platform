@@ -48,6 +48,11 @@
 #             the usage shows the turn in flight, a second concurrent turn is refused
 #             too_many_turns, the admin restores the default and the turn passes; the save and the
 #             restore are versions with their actor, audited with before and after.
+#   phase 06: the analyst's picker lists both reference skills and the viewer's none; a memo request
+#             gets the memo skill, its event before the first token and its sections in order, audited
+#             as official_memo@1.1.0; the viewer's same request gets no skill; a picked skill the viewer
+#             lacks is 403 skill_forbidden at the gateway; a keyword question gets no skill; the
+#             reopened conversation shows the reply's skill.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -755,23 +760,34 @@ check "the turn ends with done and ran directions" jq -se 'last.type == "done" a
 check "the answer gives the fixture's distance, 6.7 km" has_number "$TMP/injection.jsonl" 6.7
 check "and nothing the injection asked for (صفر, مغلق)" jq -se 'last.data.answer | (contains("صفر") or contains("مغلق")) | not' "$TMP/injection.jsonl"
 
-# G7 (fix session 2026-10-18, item 15): a general turn's time, its median in this run, bounds another
-# user's turn while the routing server is down or hung; the failed call's code comes from the audit row.
-general_s() {  # $1 output file: a viewer's general turn, timed; prints whole seconds with a decimal
-  local started; started=$(python3 -c 'import time; print(time.monotonic())')
+# G7 (fix session 2026-10-18, item 15; phase 06, D6, ADR-0294): another user's general turn, while the
+# routing server is down or hung, is bounded on its platform-side time: its wall time minus the union of
+# its model generation spans, from its Langfuse trace (scripts/platform_time.py), so provider latency
+# neither fails the check nor hides a stall. Bound: the median of three such turns in this run + 2 s.
+# The failed call's code comes from the audit row.
+general_s() {  # $1 output file: a viewer's general turn; prints its platform-side seconds (wall in $1.wall)
+  local started wall trace
+  started=$(python3 -c 'import time; print(time.monotonic())')
   chat "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "ما عاصمة المملكة العربية السعودية؟" "$1"
-  python3 -c "import time; print(f'{time.monotonic() - $started:.2f}')"
+  wall=$(python3 -c "import time; print(f'{time.monotonic() - $started:.2f}')")
+  echo "$wall" > "$1.wall"
+  trace=$(jq -rse 'last.data.trace_id // empty' "$1")
+  [[ -n $trace ]] || { echo 999; return; }  # no trace: the turn failed, and so does the check
+  python3 scripts/platform_time.py "$trace" "$wall" | cut -d' ' -f1
 }
 tool_errors() {  # $1 events file: the error codes of the turn's tool calls, from its audit row
   local request; request=$(jq -rse 'last.request_id' "$1")
   sql "select coalesce(json_agg(c->>'error'), '[]') from gateway.audit_events, json_array_elements((detail->'tool_calls')::json) c where request_id = '$request' and action = 'chat.turn'"
 }
-GENERAL_TIMES=()
-for i in 1 2 3; do GENERAL_TIMES+=("$(general_s "$TMP/general-base-$i.jsonl")"); done
+GENERAL_TIMES=() GENERAL_WALLS=()
+for i in 1 2 3; do
+  GENERAL_TIMES+=("$(general_s "$TMP/general-base-$i.jsonl")")
+  GENERAL_WALLS+=("$(cat "$TMP/general-base-$i.jsonl.wall")")
+done
 GENERAL_MEDIAN=$(printf '%s\n' "${GENERAL_TIMES[@]}" | sort -n | sed -n 2p)
-GENERAL_BOUND=$(python3 -c "print(f'{$GENERAL_MEDIAN + 3:.2f}')")
-printf '        general turn: %s s (median of %s); bound while a server fails: %s s\n' \
-  "$GENERAL_MEDIAN" "${GENERAL_TIMES[*]}" "$GENERAL_BOUND"
+GENERAL_BOUND=$(python3 -c "print(f'{$GENERAL_MEDIAN + 2:.2f}')")
+printf '        general turn platform-side: %s s (median of %s; wall %s); bound while a server fails: %s s\n' \
+  "$GENERAL_MEDIAN" "${GENERAL_TIMES[*]}" "${GENERAL_WALLS[*]}" "$GENERAL_BOUND"
 within() { python3 -c "import sys; sys.exit(0 if $1 <= $2 else 1)"; }
 
 step "phase 05: mcp-routing-ref stopped: the turn says so, another user's chat goes on; then it recovers (G7)"
@@ -785,7 +801,7 @@ check "its tool call ended with the code tool_unavailable (audit row: $down_erro
 check "the answer says the service is unavailable, in Arabic" jq -se 'last.data.answer | test("غير متاح")' "$TMP/routing-down.jsonl"
 printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/routing-down.jsonl" | head -2 | tr '\n' ' ')"
 during=$(general_s "$TMP/general-during.jsonl")
-check "another user's general turn completes in ${during} s, within ${GENERAL_BOUND} s" bash -c \
+check "another user's general turn completes, platform-side ${during} s (wall $(cat "$TMP/general-during.jsonl.wall") s), within ${GENERAL_BOUND} s" bash -c \
   "jq -se 'last.type == \"done\" and last.data.state_digest.capabilities == [\"general\"]' '$TMP/general-during.jsonl' && python3 -c 'import sys; sys.exit(0 if $during <= $GENERAL_BOUND else 1)'"
 check "the agent stays healthy with a server down" bash -c "[[ \$(docker compose ps --format '{{.Health}}' agent) == healthy ]]"
 docker compose start mcp-routing-ref >/dev/null
@@ -809,7 +825,7 @@ cp "$TMP/routing-hung.jsonl" build/smoke/routing-hung.jsonl
 check "the directions turn completes with done" jq -se 'last.type == "done" and last.data.state_digest.capabilities == ["directions"]' "$TMP/routing-hung.jsonl"
 hung_errors=$(tool_errors "$TMP/routing-hung.jsonl")
 check "its tool call ended with the code tool_timeout (audit row: $hung_errors)" jq -en --argjson e "$hung_errors" '$e | length > 0 and all(. == "tool_timeout")'
-check "another user's general turn, sent meanwhile, completes in ${during} s, within ${GENERAL_BOUND} s" bash -c \
+check "another user's general turn, sent meanwhile, completes, platform-side ${during} s (wall $(cat "$TMP/general-hung.jsonl.wall") s), within ${GENERAL_BOUND} s" bash -c \
   "jq -se 'last.type == \"done\" and last.data.state_digest.capabilities == [\"general\"]' '$TMP/general-hung.jsonl' && python3 -c 'import sys; sys.exit(0 if $during <= $GENERAL_BOUND else 1)'"
 docker compose up -d --no-deps --force-recreate --wait mcp-routing-ref >/dev/null
 RESTORE_ROUTING=""
@@ -1002,5 +1018,75 @@ saves=$(sql "select count(*) from gateway.audit_events where action = 'settings.
   and detail->>'actor_username' = 'admin' and jsonb_array_length(detail->'changes') = 1 and detail->'changes'->0->>'key' = 'turn.per_user_max'")
 [[ $saves == 2 ]] && ok "each save wrote one audit row with before, after and the actor ($saves)" || fail "settings.save audit rows: $saves"
 
-printf '\nsmoke: all phase 01 to 05 checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
+# ------------------------------------------------------------------ phase 06: skills
+step "phase 06: a memo request gets the memo skill, its event and its sections in order; the viewer gets none (G6)"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+# A skill turn: like chat(), with an optional picked skill ($5).
+skill_chat() {  # $1 token, $2 conversation, $3 message, $4 output file, $5 skill or ""
+  curl -sN -H "Authorization: Bearer $1" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -d "$(jq -cn --arg c "$2" --arg m "$3" --arg s "${5:-}" '{conversation_id: $c, message: $m, locale: "ar"} + (if $s == "" then {} else {skill: $s} end)')" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$4"
+}
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/skills" > "$TMP/skills-analyst.json" || fail "the analyst's skills list"
+check "the analyst's picker lists the memo skill with its Arabic name, and only skills it holds" jq -e \
+  '([.data.skills[] | select(.slug == "official_memo") | .name.ar] == ["مذكرة داخلية"])
+   and all(.data.skills[]; (.slug | test("^[a-z][a-z0-9_-]*$")) and (.name.ar | length > 0))' "$TMP/skills-analyst.json"
+check "a public skill loaded unmodified: internal-comms is listed with the Arabic and English names of its sidecar (ADR-0325)" jq -e \
+  '[.data.skills[] | select(.slug == "internal-comms") | .name] == [{"ar": "التواصل الداخلي", "en": "Internal comms"}]' "$TMP/skills-analyst.json"
+curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/skills" > "$TMP/skills-viewer.json" || fail "the viewer's skills list"
+check "the viewer's picker lists none" jq -e '.data.skills == []' "$TMP/skills-viewer.json"
+MEMO_MESSAGE="اكتب مذكرة داخلية إلى مدير إدارة الموارد البشرية بشأن تدريب الموظفين الجدد على أمن المعلومات."
+MEMO_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+skill_chat "$ANALYST" "$MEMO_CONV" "$MEMO_MESSAGE" "$TMP/memo.jsonl"
+mkdir -p build/smoke && cp "$TMP/memo.jsonl" build/smoke/memo.jsonl   # kept for diagnosis
+check "the memo turn ends with done, the memo skill applied (official_memo@1.1.0)" jq -se \
+  'last.type == "done" and last.data.state_digest.skill == "official_memo@1.1.0"' "$TMP/memo.jsonl"
+check "a skill event names it before the first token" jq -se \
+  '(map(.type) | index("skill")) as $s | (map(.type) | index("token")) as $t | $s != null and $t != null and $s < $t
+   and (.[$s].data == {"slug": "official_memo", "label": {"ar": "مذكرة داخلية", "en": "Internal memo"}})' "$TMP/memo.jsonl"
+jq -rse 'last.data.answer' "$TMP/memo.jsonl" > "$TMP/memo.txt"
+check "the memo's sections come in order (مذكرة داخلية … الموضوع … السلام عليكم … وتقبلوا خالص التحية … التوقيع)" python3 -c '
+import re, sys, unicodedata
+fold = lambda t: re.sub("[ً-ٰٟ]", "", unicodedata.normalize("NFKC", t)).translate(str.maketrans("أإآىة", "ااايه"))
+text, at = fold(open(sys.argv[1], encoding="utf-8").read()), 0
+for section in ["مذكره داخليه", "الموضوع", "السلام عليكم", "وتقبلوا خالص التحيه", "التوقيع"]:
+    found = text.find(section, at)
+    if found < 0:
+        sys.exit(f"missing or out of order: {section}")
+    at = found + len(section)' "$TMP/memo.txt"
+printf '        memo: %s\n' "$(head -c 300 "$TMP/memo.txt" | tr '\n' ' ')"
+memo_request=$(jq -rse 'last.request_id' "$TMP/memo.jsonl")
+memo_audit=$(sql "select detail->>'skill' from gateway.audit_events where request_id = '$memo_request' and action = 'chat.turn'")
+[[ $memo_audit == official_memo@1.1.0 ]] && ok "the audit row names the skill as official_memo@1.1.0, never its text (G8)" \
+  || fail "the audit row's skill: $memo_audit"
+check "no instruction text of the skill in the audit row" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from gateway.audit_events where request_id = '$memo_request' and detail::text like '%لا تختلق%'\") == 0 ]]"
+skill_chat "$VIEWER" "$(uuidgen | tr 'A-Z' 'a-z')" "$MEMO_MESSAGE" "$TMP/memo-viewer.jsonl"
+check "the same request by the viewer: done, no skill, no skill event, a normal answer" jq -se \
+  'last.type == "done" and last.data.state_digest.skill == null and ([.[] | select(.type == "skill")] | length == 0) and (last.data.answer | length > 0)' \
+  "$TMP/memo-viewer.jsonl"
+
+step "phase 06: a picked skill the user lacks is refused at the gateway; a keyword question gets no skill; the history shows the chip"
+code=$(curl -s -o "$TMP/skill-denied.json" -w '%{http_code}' -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"اكتب مذكرة\",\"locale\":\"ar\",\"skill\":\"official_memo\"}" "$GW/v1/chat/turns")
+[[ $code == 403 ]] && jq -e '.error.code == "skill_forbidden" and (.error.message_ar | length > 0)' "$TMP/skill-denied.json" >/dev/null \
+  && ok "the viewer picking official_memo → 403 skill_forbidden, before the agent" || fail "the viewer's pick returned $code"
+denied_skill=$(sql "select status || ',' || (detail->>'skill_requested') from gateway.audit_events where request_id = '$(jq -r '.request_id' "$TMP/skill-denied.json")'")
+[[ $denied_skill == denied,official_memo ]] && ok "the refusal is audited denied with the skill asked for" || fail "the refusal's audit row: $denied_skill"
+skill_chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "ما معنى مذكرة تفاهم؟" "$TMP/memo-negative.jsonl"
+check "«ما معنى مذكرة تفاهم؟» (a skill keyword, a question about the word): done, no skill" jq -se \
+  'last.type == "done" and last.data.state_digest.skill == null' "$TMP/memo-negative.jsonl"
+# The picked skill is the one applied, even when the message names another skill's keyword (owner
+# visual check of 2026-10-26).
+skill_chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "اكتب مذكرة للفريق عن مواعيد الإجازات الصيفية" "$TMP/comms-picked.jsonl" internal-comms
+check "internal-comms picked for a message with a memo keyword: internal-comms applied, its event names it" jq -se \
+  'last.type == "done" and (last.data.state_digest.skill | startswith("internal-comms@"))
+   and ([.[] | select(.type == "skill") | .data.slug] == ["internal-comms"])' "$TMP/comms-picked.jsonl"
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$MEMO_CONV/messages" > "$TMP/memo-history.json" || fail "the memo history read"
+check "the reopened memo conversation shows the reply's skill chip" jq -e \
+  '.data.messages[1].role == "assistant" and .data.messages[1].skill == {"slug": "official_memo", "label": {"ar": "مذكرة داخلية", "en": "Internal memo"}}' \
+  "$TMP/memo-history.json"
+
+printf '\nsmoke: all phase 01 to 06 checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
 

@@ -3,6 +3,7 @@ tracking is off before Ragas is imported, a tracked event sends nothing, and the
 model and embeddings are LiteLLM's aliases on the stack's own LiteLLM."""
 
 import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -144,3 +145,232 @@ def test_rag_runs_again_on_the_mcp_backend_right_after_itself():
     harness = _harness()
     names = list(harness.suites())
     assert names[names.index("rag") + 1] == "rag@mcp"
+
+
+# ------------------------------------------------------------------ lost cases (phase 06, D5, ADR-0293)
+
+_ANSWERABLE = {"id": "a", "expect": {"kind": "answerable", "pages": [2], "reference": "r"}}
+_ABSTAIN = {"id": "b", "expect": {"kind": "abstain"}}
+_GENERAL = {"id": "c", "expect": {"kind": "general"}}
+
+
+def test_a_lost_case_is_a_failure_in_every_rag_metric_it_would_count_in():
+    harness = _harness()
+    answered = {"hit": True, "citation_ok": True, "faithfulness": 1.0, "correctness": 1.0, "problems": []}
+    lost = {"lost": "agent_stream_interrupted", "problems": ["no done event (agent_stream_interrupted)"]}
+    scores = harness.rag_scores([(_ANSWERABLE, answered), ({**_ANSWERABLE, "id": "a2"}, lost),
+                                 (_ABSTAIN, lost), (_GENERAL, {"citation_ok": True, "problems": []})])
+    assert scores["hit_at_8"] == 0.5 and scores["faithfulness"] == 0.5 and scores["answer_correctness"] == 0.5
+    assert scores["citation_page_accuracy"] == 0.5  # 2 of 4: the lost answerable and the lost abstain fail
+    assert scores["abstention"] == 0.0
+    assert scores["counts"] == {"hit": 2, "citation": 4, "abstain": 1, "ragas": 2, "retrieve": 0}
+    assert scores["lost"] == {"agent_stream_interrupted": 2}
+
+
+def test_answered_cases_score_as_before():
+    """With nothing lost, membership from the case equals membership from the outcome."""
+    harness = _harness()
+    outcomes = [(_ANSWERABLE, {"hit": False, "citation_ok": False, "faithfulness": 0.5, "correctness": 0.25}),
+                (_ABSTAIN, {"citation_ok": True, "abstained": True}), (_GENERAL, {"citation_ok": False})]
+    scores = harness.rag_scores(outcomes)
+    assert (scores["hit_at_8"], scores["citation_page_accuracy"], scores["abstention"]) == (0.0, 1 / 3, 1.0)
+    assert (scores["faithfulness"], scores["answer_correctness"], scores["lost"]) == (0.5, 0.25, {})
+
+
+def test_a_record_written_before_phase_06_gives_its_lost_code():
+    harness = _harness()
+    assert harness.lost_of({"problems": ["no done event (validation_failed)"]}) == "validation_failed"
+    assert harness.lost_of({"problems": ["none of ['40']"]}) is None
+    assert harness.lost_of({"lost": "http_429", "problems": []}) == "http_429"
+    assert harness.lost_code({"type": "done"}) is None and harness.lost_code({}) == "no_terminal_event"
+    assert harness.lost_code({"type": "error", "data": {"code": "turn_timeout"}}) == "turn_timeout"
+
+
+def test_a_refused_or_broken_turn_is_a_lost_case_not_a_crashed_run():
+    harness = _harness()
+    import httpx
+
+    def refuse(request):
+        return httpx.Response(429, json={"error": {"code": "too_many_turns"}})
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as http:
+        event = harness.run_turn(http, "http://gw", "t", {"message": "x"})
+    assert harness.lost_code(event) == "http_429"
+
+    def broken(request):
+        raise httpx.ConnectError("refused")
+
+    with httpx.Client(transport=httpx.MockTransport(broken)) as http:
+        assert harness.lost_code(harness.run_turn(http, "http://gw", "t", {"message": "x"})) == "transport_ConnectError"
+
+
+def test_rescoring_fails_a_metric_suite_on_its_lost_cases(tmp_path):
+    harness = _harness()
+    suite = EVALS.parent / "services/agent/app/capabilities/directions/evals/directions.jsonl"
+    cases = [json.loads(line) for line in suite.read_text(encoding="utf-8").splitlines() if line.strip()]
+    route = [c for c in cases if c["expect"].get("kind") == "route"]
+    records = [{"id": c["id"], "passed": True, "problems": [],
+                "metrics": {"places_resolved": True, "distance_duration_correct": True}} for c in route]
+    records[0] = {"id": route[0]["id"], "passed": False, "problems": ["no done event (agent_stream_interrupted)"]}
+    out = harness.rescore_suite("directions", suite, {"cases": records, "scores": {}},
+                                {"places_resolved": 0.99, "distance_duration_correct": 0.0})
+    assert route and out["scores"]["places_resolved"] == (len(route) - 1) / len(route)
+    assert out["ok"] is False and out["lost"] == {"agent_stream_interrupted": 1}
+
+
+def test_rescoring_a_rag_suite_counts_its_lost_cases():
+    harness = _harness()
+    rag = EVALS / "golden" / "rag.jsonl"
+    cases = [json.loads(line) for line in rag.read_text(encoding="utf-8").splitlines() if line.strip()]
+    answerable = [c for c in cases if c["expect"].get("kind") == "answerable" and c["expect"].get("pages")][:4]
+    records = [{"id": c["id"], "passed": True, "problems": [], "hit": True, "citation_ok": True,
+                "faithfulness": 1.0, "correctness": 1.0} for c in answerable]
+    records[0] = {"id": answerable[0]["id"], "passed": False,
+                  "problems": ["no done event (agent_stream_interrupted)"]}
+    threshold = {"hit_at_8": 0.9, "citation_page_accuracy": 0.0, "faithfulness": 0.0,
+                 "answer_correctness": 0.0, "abstention": 0.0}
+    out = harness.rescore_suite("rag", rag, {"cases": records, "scores": {"hit_at_8": 1.0, "counts": {"ragas": 3}}},
+                                threshold)
+    assert out["scores"]["hit_at_8"] == 0.75 and out["scores"]["faithfulness"] == 0.75 and out["ok"] is False
+
+
+# ------------------------------------------------------------------ skill scorers (phase 06, I9)
+
+
+def test_sections_in_order_need_every_section_after_the_previous_one():
+    harness = _harness()
+    memo = "مذكرة داخلية\nالرقم: [الرقم]\nإلى: مدير الإدارة\nالموضوع: الإجازات\nالسلام عليكم ورحمة الله وبركاته\n...\nوتقبلوا خالص التحية والتقدير"
+    sections = ["مذكره داخليه", "الرقم", "الى", "الموضوع", "السلام عليكم", "وتقبلوا خالص التحيه"]
+    assert harness.sections_in_order(memo, sections)  # folded: ة/ه, إ/ا
+    assert not harness.sections_in_order(memo, ["الموضوع", "الرقم"])  # wrong order
+    assert not harness.sections_in_order(memo, sections + ["التوقيع"])  # a missing section
+    assert harness.sections_in_order("Subject: x\nTo: y", [["subject", "re:"], "to:"])  # alternatives
+    assert not harness.sections_in_order(memo, [])
+
+
+def test_text_present_and_length_between():
+    harness = _harness()
+    case = {"expect": {"facts": ["30", ["ثلاثون", "ثلاثين"]]}}
+    present = {"scorer": "text_present", "expected": "expect.facts"}
+    assert harness.score_check(present, case, "مدة الإجازة 30 يوما، أي ثلاثين يوما", {})
+    assert not harness.score_check(present, case, "مدة الإجازة 30 يوما", {})
+    assert harness.score_check({"scorer": "text_present", "texts": ["[التاريخ]"]}, {}, "التاريخ: [التاريخ]", {})
+    length = {"scorer": "length_between", "min": 3, "max": 5}
+    assert harness.score_check(length, {}, "one two three four", {})
+    assert not harness.score_check(length, {}, "one two", {}) and not harness.score_check(length, {}, "a b c d e f", {})
+
+
+def test_turn_fields_score_the_applied_skill_and_citations():
+    harness = _harness()
+    check = {"scorer": "field_equals", "field": "skill", "expected": "expect.skill"}
+    assert harness.score_check(check, {"expect": {"skill": "x"}}, "", {"skill": "x"})
+    assert not harness.score_check(check, {"expect": {"skill": "x"}}, "", {"skill": None})
+    cited = {"scorer": "field_equals", "field": "cited", "default": True}
+    assert harness.score_check(cited, {}, "", {"cited": True}) and not harness.score_check(cited, {}, "", {"cited": False})
+
+
+def test_the_harness_names_no_skill_and_globs_their_evals():
+    """Zero core change for skill evals (phase 06, I9): skills/*/evals are suites, none named."""
+    harness = _harness()
+    source = (EVALS / "run_evals.py").read_text(encoding="utf-8").lower()
+    skills = EVALS.parent / "skills"
+    slugs = [p.name for p in skills.iterdir() if p.is_dir()] if skills.is_dir() else []
+    assert not [slug for slug in slugs + ["official_memo", "internal-comms"] if slug in source]
+    found = harness.suites()
+    for slug in slugs:
+        if (skills / slug / "evals" / f"{slug}.jsonl").is_file():
+            assert found[slug] == skills / slug / "evals" / f"{slug}.jsonl"
+
+
+def test_the_applied_skill_and_expected_skill():
+    harness = _harness()
+    assert harness.applied_skill({"state_digest": {"skill": "x_form@1.2.0"}}) == "x_form"
+    assert harness.applied_skill({"state_digest": {"skill": None}}) is None and harness.applied_skill({}) is None
+    assert harness.skill_problems({"expected_skill": None}, None) == []
+    assert harness.skill_problems({"expected_skill": "x_form"}, None) == ["skill None != x_form"]
+    assert harness.skill_problems({"id": "no key"}, "x_form") == []
+
+
+def test_layouts_by_a_case_field_and_patterns_from_the_case():
+    harness = _harness()
+    layouts = {"scorer": "sections_in_order", "by": "locale",
+               "sections": {"ar": ["(?m)^\\W*الرقم[\\s*_]*:", "(?m)^\\W*الموضوع[\\s*_]*:"], "en": ["(?m)^\\W*ref", "subject"]}}
+    assert harness.score_check(layouts, {"locale": "ar"}, "**الرقم:** [الرقم]\nالموضوع: إجازة", {})
+    assert not harness.score_check(layouts, {"locale": "ar"}, "الموضوع: إجازة\nالرقم: [الرقم]", {})
+    assert harness.score_check(layouts, {"locale": "en"}, "Ref: [Reference number]\nSubject: leave", {})
+    absent = {"scorer": "text_absent", "patterns_from": "expect.absent_patterns"}
+    case = {"expect": {"absent_patterns": ["\\d{1,4}\\s*[/\\-.]\\s*\\d{1,2}\\s*[/\\-.]\\s*\\d{1,4}"]}}
+    assert harness.score_check(absent, case, "التاريخ: [التاريخ]", {})
+    assert not harness.score_check(absent, case, "التاريخ: ١٤٤٧/٠٣/١٢", {})  # an invented date
+    assert harness.score_check(absent, {"expect": {}}, "التاريخ: ١٤٤٧/٠٣/١٢", {})
+
+
+# ------------------------------------------------------------------ owner decision of 2026-10-25 (ADR-0320)
+
+
+def test_skill_suites_back_off_longer_with_jitter(monkeypatch):
+    harness = _harness()
+    slept: list[float] = []
+    monkeypatch.setattr(harness.time, "sleep", slept.append)
+    harness.RETRIES.update(count=0, delays=harness.SKILL_RETRY_DELAYS_S, jitter=0.2)
+    busy = {"type": "error", "data": {"code": "model_unavailable"}}
+    assert harness.with_backoff(lambda: busy, harness.retryable) == busy
+    assert harness.RETRIES["count"] == 5 and len(slept) == 5
+    for base, delay in zip(harness.SKILL_RETRY_DELAYS_S, slept, strict=True):
+        assert 0.8 * base <= delay <= 1.2 * base
+    assert sum(harness.SKILL_RETRY_DELAYS_S) > 2 * sum(harness.RETRY_DELAYS_S)
+
+
+def test_a_skill_suite_past_five_percent_lost_to_429_stops_the_run():
+    harness = _harness()
+    assert harness.is_skill_suite(harness.REPO / "skills" / "x" / "evals" / "x.jsonl")
+    assert not harness.is_skill_suite(harness.REPO / "evals" / "golden" / "routing.jsonl")
+    assert harness.lost_to_429({"cases_recorded": 20, "lost": {"model_unavailable": 1}}) == 0.05
+    assert harness.lost_to_429({"cases_recorded": 6, "lost": {"model_unavailable": 1}}) > harness.SKILL_LOST_TO_429_MAX
+    # Only the provider's 429: another lost code is a failure, not a reason to stop.
+    assert harness.lost_to_429({"cases_recorded": 6, "lost": {"capability_failed": 3}}) == 0.0
+
+
+class _Trace:
+    def __init__(self, observations):
+        self.observations = observations
+
+    def get(self, url, auth):
+        class Response:
+            status_code = 200
+
+            def json(inner):
+                return {"observations": self.observations}
+
+        return Response()
+
+
+def _assemble(node, blocks, prompts):
+    return {"name": "context.assemble", "metadata": {"context": {
+        "node": node, "blocks": [{"name": n, "tokens": k} for n, k in blocks.items()], "prompts": prompts}}}
+
+
+def test_the_trace_shows_the_skill_block_by_name_and_version():
+    harness = _harness()
+    cfg, auth = {"LANGFUSE_PUBLIC_URL": "http://lf"}, ("p", "s")
+    shown = _Trace([_assemble("router", {"system": 5}, []),
+                    _assemble("answer", {"system": 5, "skill": 400}, ["answer.system@1.5.0", "x-form@1.0.0", "context.skill@1.0.0"])])
+    assert harness.traced_skill(shown, cfg, auth, "t", "x-form@1.0.0") == "x-form"
+    assert harness.traced_skill(shown, cfg, auth, "t", "x-form@2.0.0").startswith("mismatch:")
+    none = _Trace([_assemble("answer", {"system": 5}, ["answer.system@1.5.0"])])
+    assert harness.traced_skill(none, cfg, auth, "t", None) is None
+    assert harness.traced_skill(none, cfg, auth, None, None) is None
+
+
+def test_a_refusal_before_the_stream_keeps_its_error_code():
+    import httpx
+
+    harness = _harness()
+
+    def refuse(request):
+        return httpx.Response(403, json={"error": {"code": "skill_forbidden", "message_ar": "م"}})
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as http:
+        event = harness.run_turn(http, "http://gw", "token", {"message": "س", "skill": "x-form"})
+    assert event == {"type": "error", "data": {"code": "http_403", "refusal": "skill_forbidden"}}
+    assert harness.lost_code(event) == "http_403"  # lost, unless the case expects that refusal

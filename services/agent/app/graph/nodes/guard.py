@@ -66,19 +66,36 @@ async def guard_input(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
 @traced("guard.TOOL_LIST")
 async def guard_tool_list(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     """Keeps only routed capabilities the principal holds the permission for
-    (defense in depth after routing), then lets policies filter further."""
+    (defense in depth after routing), then lets policies filter further. The turn's skill, if any,
+    is checked the same way under the name `skill:{slug}` (phase 06, ADR-0298): a skill the
+    principal has no permission for, or a policy removes, leaves the turn silently (ADR-0121)."""
     ctx = runtime.context
     registry = ctx.services.registry
     permitted = [
         s for s in state["intent"]["capabilities"] if ctx.principal.has(registry.get(s).manifest.permission)
     ]
-    outcome = await check(ctx, state, Checkpoint.TOOL_LIST, permitted, tools=())
-    if not outcome.payload:
+    skill_state = state.get("skill")
+    skill = ctx.services.skills.get(skill_state["slug"]) if skill_state else None
+    names = list(permitted)
+    if skill is not None and ctx.principal.has(skill.manifest.permission):
+        names.append(skill.manifest.policy_name)
+    outcome = await check(ctx, state, Checkpoint.TOOL_LIST, names, tools=())
+    kept = list(outcome.payload)
+    capabilities = [name for name in kept if name in permitted]
+    if not capabilities:
         raise TurnError("no_capability_available", detail="every routed capability was filtered out")
-    return {
-        "intent": {**state["intent"], "capabilities": list(outcome.payload)},
+    update: dict = {
+        "intent": {**state["intent"], "capabilities": capabilities},
         "guard_events": ctx.guard_records(),
     }
+    if skill_state is not None and (
+        skill is None
+        or skill.manifest.policy_name not in kept
+        or not set(skill.manifest.requires.capabilities) <= set(capabilities)
+    ):
+        trace.get_current_span().add_event("skill_removed", {"skill": skill_state["slug"]})
+        update["skill"] = None
+    return update
 
 
 def _late_block(

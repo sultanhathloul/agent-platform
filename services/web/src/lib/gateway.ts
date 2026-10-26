@@ -7,24 +7,25 @@ import type {
   MeResponse,
   MemoryList,
   MemorySettings,
+  PlatformSettingsView,
+  PlatformUsage,
+  PolicyChanges,
   PolicyDetail,
   PolicyDocument,
   PolicyImportReport,
   PolicyList,
   PolicyMetrics,
   PolicyOverrides,
-  PolicyChanges,
   PolicyRoles,
   PolicyTestRequest,
   PolicyTestResult,
   PolicyView,
   PolicyYaml,
-  PlatformSettingsView,
-  PlatformUsage,
   SettingsDraft,
   SettingsPreview,
   SettingsSaved,
   SettingsVersions,
+  SkillList,
   StreamEvent,
 } from "@/lib/api/types";
 import type { ErrorInfo } from "./errors";
@@ -138,6 +139,11 @@ export async function getConversationMessages({
 }: Authorized & { conversationId: string }): Promise<ConversationMessages> {
   const url = `${gatewayUrl}/v1/conversations/${encodeURIComponent(conversationId)}/messages`;
   return required(await callJson<ConversationMessages>(url, token, { method: "GET", signal }), 200);
+}
+
+/** The skills the caller may pick in the composer (phase 06, ADR-0292), labels from each SKILL.md. */
+export async function listSkills({ gatewayUrl, token, signal }: Authorized): Promise<SkillList> {
+  return required(await callJson<SkillList>(`${gatewayUrl}/v1/skills`, token, { method: "GET", signal }), 200);
 }
 
 /** The caller's memory items and memory switch (README §8). */

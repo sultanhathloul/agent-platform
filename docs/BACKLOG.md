@@ -83,18 +83,19 @@ Timeout budget findings (`docs/RESILIENCE.md`, timeout budget table), most sever
 
 ## Skills → phase 06 (owner decision, 2026-10-14)
 
-Status: not started. Done-check in `CLAUDE.md` (phase 06).
+Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0323; docs/PROGRESS.md "Phase 06: Skills"). Done-check in `CLAUDE.md` (phase 06). Reference skills: official_memo and internal-comms (copied unmodified from github.com/anthropics/skills; official_letter removed on 2026-10-25, ADR-0319); the other candidates below stay for later PRs.
 
 ### Tech debt: first item of phase 06, before any new eval suite (owner decision, PR #10 review round 2, 2026-10-19)
-- **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.
+- → done in phase 06 (D5, ADR-0293, ADR-0314). **Lost or interrupted cases count as failures in every metric.** Today rag and rag@mcp hit@8, citation page accuracy, faithfulness and answer correctness average only the cases that produced a result (`evals/run_evals.py` `rag_scores`, line 443 at 09a02a4): a case lost to `agent_stream_interrupted` or a provider error drops out of the denominator. Run make-eval-20261018T131835Z lost 7 rag cases and still passed. Every metric must score a lost case as a failure.
 
 ### Tech debt: phase 06 (PR #10 fix session, smoke attempt 2)
-- **Smoke's G7 checks measure platform-side time**, outside model generation spans, not the whole turn, so provider slowness neither fails them nor hides a stall. Smoke attempt 2 of the narrow fix session (2026-10-19) failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the MCP server (`docs/PROGRESS.md`, phase 05, narrow fix session).
+- → done in phase 06 (D6, ADR-0294, ADR-0314). **Smoke's G7 checks measure platform-side time**, outside model generation spans, not the whole turn, so provider slowness neither fails them nor hides a stall. Smoke attempt 2 of the narrow fix session (2026-10-19) failed a hung-server general turn at 7.45 s against a 6.34 s bound because of provider latency, not the MCP server (`docs/PROGRESS.md`, phase 05, narrow fix session).
 
 ### What a skill is
 - A skill describes **how** to produce an output or carry out a task: the form, the template, worked examples. It never says **where** information comes from; that stays in capabilities. Example: the docs capability finds the facts in an uploaded file; the "official memo" skill says how the memo is laid out (heading, reference, body, closing, signature block).
 - Skills compose with any capability: the same memo skill works over docs, routing, kb, web or sql findings.
 - A skill is a folder `skills/<slug>/SKILL.md`: name and description in Arabic and English, when to use it, the capabilities or MCP tools it needs, the Keycloak role that may use it. The router selects a capability and at most one skill; only the selected skill's instructions are loaded, as a reviewed procedural block.
+- Owner decisions (2026-10-21, 2026-10-22): a skill names the capabilities it needs, never MCP tools directly. The router selects at most one skill automatically; the chat composer also offers an optional skill picker, with no confirmation prompt. A selected skill is applied when the answer is written (the answer node), never inside run_capabilities: a skill shapes the output and fetches nothing. Skills use the open Agent Skills format, so a public skill loads unmodified.
 
 ### Principles
 - Written by the development team as files in the repo, through a PR with evals (README §20: prompts are code). No admin editing.
@@ -126,6 +127,15 @@ The planner fixes the structured-output contract every later capability is built
 - No human approval until phase 11, which adds approval as a step that can pause a plan.
 - **Privacy**: personal locations or personal data in a plan must never reach an external tool. A PRE_TOOL policy on web and external MCP tools enforces it.
 - **Open owner question**: may home addresses be stored in memory? Today the PII policy covers mobile, ID, IBAN and email, not addresses.
+
+### Where the planner sits in the graph (owner decisions, 2026-10-22)
+- Routing and planning are one decision at two sizes: a single capability is a one-step plan. The route node decides first whether a request is simple or compound; for a compound request it selects no capabilities itself.
+- A new plan node sits right after route and before guard(TOOL_LIST), reached only through a conditional edge for compound requests. A simple request goes from route to guard(TOOL_LIST) directly and never pays the planner's latency. The plan node is separate so it shows as its own step in traces.
+- guard(TOOL_LIST) checks every step of the plan; a step the user may not run is removed before execution, and the answer states what is missing.
+- run_capabilities becomes the plan executor: independent steps run together in one super-step (LangGraph Send), dependent steps wait for the outputs they reference; every step through the broker with the same scope injection and guards.
+- A skill step is applied in the answer node, over the outputs of the earlier steps.
+- A plan step is a capability or a skill, never an MCP tool directly: the capability carries the Keycloak role, its policies and its evals, and calling its tool around it would skip all three. This corrects the wording "(capability, MCP tool or skill)" in the Planner section, in CLAUDE.md (phase 07 row) and in docs/PROGRESS.md (phase 07); the phase 07 build changes those lines and README §5.2 (the graph) with an ADR.
+- Example: «كم مدة إجازة الزواج؟» goes route → guard(TOOL_LIST). «ابحث في اللائحة عن مكان الاجتماع، واحسب المسار إليه، واكتب مذكرة» goes route → plan → guard(TOOL_LIST) → run_capabilities (docs, then directions with the place from docs) → answer (official memo skill over both outputs).
 
 ### Reference compound request (owner's example)
 The user uploads a file of companies and their locations, then asks in one message to:
@@ -199,6 +209,10 @@ From the fix session on the PR #12 review (fix/timeout-budget, 2026-10-21):
 From review round 2 of PR #12 (narrow fix session, 2026-10-22; listed, not implemented):
 - **The smoke-airgap upload check should also require the bytes sent below `max_file_bytes`**: scripts/refused_unread.sh fails only when the client had sent the whole body before the answer (ADR-0271), so a gateway that read part of the body and then answered the JSON 413 (a streaming size cap reading about 22 MB of the 30 MB file) would pass. Today's gateway refuses on Content-Length unread (about 1.1–1.5 MB sent), so it is a weakness of the check, not a live defect.
 - **A database host that stops answering holds an admission connection past `admission_s` 10 s**: on the admission bound psycopg sends a cancel request (up to 5 s) and then waits for the cancelled query without a bound, so a database host that answers nothing (not a slow query: `pg_sleep` is cancelled at the bound, ADR-0264) keeps that pool connection until the host answers or the TCP connection fails. A whole-database outage, not one user's doing.
+
+From phase 06 (make eval make-eval-20261024T190302Z, 2026-10-24; listed, not implemented):
+- **A provider 429 inside a capability ends the turn `capability_failed`, not `model_unavailable`**: the capability's model call is refused by the provider, the isolation boundary reduces it to "raised TurnError" (ADR-0054) and the turn ends not retryable, so the eval harness's bounded backoff (which retries `model_unavailable` only) cannot retry it and the case is lost. Four directions cases of the skill suites were lost this way in that run. Carry the inner TurnError's code (data only, never the exception object) across the boundary, or retry the provider's 429 inside the capability's model caller.
+- **"driving distance" is not a directions keyword**: an English request worded "the driving distance from A to B" makes no capability a router candidate and is answered by `general` with no route (the Arabic «المسافة» is a keyword). Two English skill cases were reworded to "how far"; the keyword list is the directions manifest's (routing for every capability is out of phase 06's scope).
 
 ## Management decisions pending (also in the phase summaries)
 - Production model hosting on the entity's servers, same families as development (ADR-0065).
