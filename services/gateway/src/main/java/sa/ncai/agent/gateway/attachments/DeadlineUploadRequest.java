@@ -13,7 +13,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.apache.catalina.core.ApplicationPart;
 import org.apache.tomcat.util.http.fileupload.FileItem;
 import org.apache.tomcat.util.http.fileupload.FileUpload;
@@ -30,16 +34,23 @@ import org.apache.tomcat.util.http.fileupload.servlet.ServletRequestContext;
  * refuses every read past the deadline. A read already blocked when the deadline passes ends at
  * the latest after {@code server.tomcat.connection-upload-timeout}; the body is then refused with
  * {@link UploadDeadlineExceededException} (408 {@code upload_timeout}).
+ *
+ * <p>Text parts (no file name) are the request's parameters, read as UTF-8, each at most
+ * {@link #MAX_FIELD_BYTES}: Tomcat never parsed the body, so without this a form field beside the
+ * file (a knowledge base document's source metadata, phase 08) would be invisible.
  */
 final class DeadlineUploadRequest extends HttpServletRequestWrapper {
 
     private static final int MAX_PART_HEADER_BYTES = 512;
     private static final int MAX_PARTS = 10;
+    /** A text field beside the file; a longer one is not a parameter. */
+    static final int MAX_FIELD_BYTES = 8192;
 
     private final Instant deadline;
     private final Clock clock;
     private final MultipartConfigElement multipart;
     private List<Part> parts;
+    private Map<String, String[]> fields;
 
     DeadlineUploadRequest(HttpServletRequest request, Instant deadline, Clock clock, MultipartConfigElement multipart) {
         super(request);
@@ -69,6 +80,57 @@ final class DeadlineUploadRequest extends HttpServletRequestWrapper {
             }
         }
         return null;
+    }
+
+    @Override
+    public String getParameter(String name) {
+        String[] values = fieldMap().get(name);
+        return values == null || values.length == 0 ? super.getParameter(name) : values[0];
+    }
+
+    @Override
+    public String[] getParameterValues(String name) {
+        String[] values = fieldMap().get(name);
+        return values == null ? super.getParameterValues(name) : values.clone();
+    }
+
+    @Override
+    public Map<String, String[]> getParameterMap() {
+        Map<String, String[]> merged = new LinkedHashMap<>(super.getParameterMap());
+        merged.putAll(fieldMap());
+        return Collections.unmodifiableMap(merged);
+    }
+
+    @Override
+    public Enumeration<String> getParameterNames() {
+        return Collections.enumeration(getParameterMap().keySet());
+    }
+
+    /** The text parts, parsed once with the parts; none when the body cannot be read. */
+    private Map<String, String[]> fieldMap() {
+        if (fields != null) {
+            return fields;
+        }
+        Map<String, List<String>> read = new LinkedHashMap<>();
+        try {
+            for (Part part : getParts()) {
+                if (part.getSubmittedFileName() != null || part.getSize() > MAX_FIELD_BYTES) {
+                    continue;
+                }
+                try (var in = part.getInputStream()) {
+                    read.computeIfAbsent(part.getName(), k -> new ArrayList<>())
+                            .add(new String(in.readNBytes(MAX_FIELD_BYTES), java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }
+        } catch (IOException | ServletException | IllegalStateException e) {
+            // The controller's own read of the parts reports why (408, 413).
+            fields = Map.of();
+            return fields;
+        }
+        Map<String, String[]> out = new LinkedHashMap<>();
+        read.forEach((key, values) -> out.put(key, values.toArray(String[]::new)));
+        fields = out;
+        return fields;
     }
 
     /** Removes the parts' temporary files, if any were parsed. */

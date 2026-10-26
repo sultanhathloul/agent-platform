@@ -6,8 +6,9 @@ kept by rerank score; without it, the top `top_k` in fusion order. A malformed r
 an error on the span and the fusion order stands (owner decision R2). Every query names the
 collection and the owner (ADR-0131). Several collections of one kind are searched as one: the
 selected knowledge bases of a turn (cross-KB retrieval, phase 08, ADR-0335), each chunk keeping
-the collection it came from. `prefer` reorders the fused candidates before rerank and the ranked
-ones after it (the D3 version preference). The `rag.retrieve` span carries ids, pages, scores and
+the collection it came from, and each keeping at least `min_per_collection` of its best chunks in
+the top_k. `prefer` reorders the fused candidates before rerank and the ranked ones after it (the
+D3 version preference). The `rag.retrieve` span carries ids, pages, scores and
 counts, never chunk text (ADR-0137)."""
 
 import hashlib
@@ -60,6 +61,25 @@ def fuse(rankings: Sequence[Sequence[ScoredChunk]], k: int) -> list[ScoredChunk]
             )
     ordered = sorted(fused.values(), key=lambda c: (-scores[c.id], c.attachment_id, c.ord))
     return [c.model_copy(update={"score": scores[c.id]}) for c in ordered]
+
+
+def with_floor(ranked: Sequence[ScoredChunk], k: int, floor: int) -> list[ScoredChunk]:
+    """The top `k` of `ranked`, each collection keeping at least `floor` of its best chunks when it
+    has them (cross-KB retrieval, phase 08); the kept chunks stay in their ranked order."""
+    if floor <= 0:
+        return list(ranked[:k])
+    chosen: list[int] = []
+    taken: dict[str | None, int] = {}
+    for index, chunk in enumerate(ranked):
+        if taken.get(chunk.collection, 0) < floor:
+            taken[chunk.collection] = taken.get(chunk.collection, 0) + 1
+            chosen.append(index)
+    picked = set(chosen[:k])
+    for index in range(len(ranked)):
+        if len(picked) >= k:
+            break
+        picked.add(index)
+    return [ranked[i] for i in sorted(picked)]
 
 
 class HybridRetriever:
@@ -128,7 +148,7 @@ class HybridRetriever:
                     )
                     if prefer is not None:
                         ranked = prefer(ranked)
-            top = ranked[: top_k or config.top_k]
+            top = with_floor(ranked, top_k or config.top_k, config.min_per_collection if len(names) > 1 else 0)
             span.set_attribute("rag.vector_hits", len(by_vector))
             span.set_attribute("rag.text_hits", len(by_text))
             span.set_attribute("rag.candidates", len(candidates))

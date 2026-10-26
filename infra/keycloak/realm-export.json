@@ -40,6 +40,10 @@
       { "name": "skill:internal-comms", "description": "Skill: internal communications, copied unmodified from github.com/anthropics/skills (phase 06)" },
       { "name": "cap:kb", "description": "Capability: knowledge-base plugins" },
       { "name": "kb:moe:read", "description": "Knowledge base moe (Ministry of Education): read" },
+      { "name": "kb:intl-economy:read", "description": "Knowledge base intl-economy: read (phase 08 proof of concept, D4)" },
+      { "name": "kb:eval-economy:read", "description": "Knowledge base eval-economy: read (the kb eval suite's fixture, I6)" },
+      { "name": "kb:eval-labor:read", "description": "Knowledge base eval-labor: read (the kb eval suite's fixture, I6)" },
+      { "name": "kb:smoke-deleted:read", "description": "Knowledge base smoke-deleted: read (smoke: a deleted KB is unreachable, I7)" },
       { "name": "policy:pii-exempt", "description": "Policy role (ADR-0107): selects role-scoped guard policies; grants nothing" }
     ]
   },
@@ -143,7 +147,7 @@
       "lastName": "المحللة",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "analyst", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs", "cap:directions", "skill:official_memo", "skill:internal-comms"],
+      "realmRoles": ["default-roles-agent", "policy:pii-exempt", "cap:docs", "cap:directions", "skill:official_memo", "skill:internal-comms", "kb:intl-economy:read", "kb:smoke-deleted:read"],
       "groups": ["/moe-analysts"]
     },
     {
@@ -166,7 +170,7 @@
       "lastName": "الاختبارات",
       "attributes": { "tenant_id": ["default"] },
       "credentials": [{ "type": "password", "value": "evaluator", "temporary": false }],
-      "realmRoles": ["default-roles-agent", "cap:docs", "cap:directions", "skill:official_memo", "skill:internal-comms"]
+      "realmRoles": ["default-roles-agent", "cap:docs", "cap:directions", "skill:official_memo", "skill:internal-comms", "cap:kb", "kb:intl-economy:read", "kb:eval-economy:read", "kb:eval-labor:read"]
     }
   ],
   "components": {

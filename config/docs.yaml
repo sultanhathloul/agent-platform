@@ -96,6 +96,9 @@ retrieval:
   # latest version are both found, this many older chunks stay, right after the latest version's
   # best chunk, so the answer may note the change; the rest are dropped (app/rag/versions.py).
   superseded_keep: 1
+  # Knowledge bases (phase 08, I4): when several KBs are searched at once, each keeps at least this many
+  # of its best chunks among the top_k, so a question joining two KBs reaches both (0: by score only).
+  min_per_collection: 2
   # Words left out of the full-text query (compared after normalization); questions are
   # matched OR-wise, so function words would match every chunk.
   stopwords:

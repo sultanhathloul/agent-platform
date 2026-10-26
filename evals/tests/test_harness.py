@@ -5,6 +5,7 @@ model and embeddings are LiteLLM's aliases on the stack's own LiteLLM."""
 import importlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -95,7 +96,10 @@ def test_the_harness_names_no_capability():
     source = (EVALS / "run_evals.py").read_text(encoding="utf-8").lower()
     capabilities = EVALS.parent / "services" / "agent" / "app" / "capabilities"
     scored = [p.name for p in capabilities.iterdir() if (p / "evals" / "metrics.yaml").is_file()]
-    assert scored and not [slug for slug in scored if slug in source]
+    # A slug as a whole identifier: `kb` inside an API word (`selected_kbs`, `/v1/admin/kbs`) names
+    # no capability (phase 08).
+    named = [slug for slug in scored if re.search(rf"(?<![a-z0-9_]){re.escape(slug)}(?![a-z0-9_])", source)]
+    assert scored and not named, named
 
 
 def test_capability_metrics_per_kind_with_generic_scorers():
@@ -273,6 +277,46 @@ def test_urls_from_inputs_passes_only_links_the_inputs_hold():
     assert not harness.score_check(check, {"message": "no link"}, "التفاصيل على [البوابة](https://portal.example.com)", {})
     named = {"scorer": "urls_from_inputs", "inputs": ["message", "expect.sources"]}
     assert harness.score_check(named, {"message": "x", "expect": {"sources": "https://a.example/b"}}, "https://a.example/b", {})
+
+
+def test_kb_scorers_read_retrieval_citations_and_the_order_of_figures():
+    """Phase 08 (I6): hit@8 from the trace's retrieved chunks, citations with their KB attribution,
+    and the latest figure before any superseded one; documents are a suite's fixture keys."""
+    harness = _harness()
+    documents = {"july": "d-july", "april": "d-april", "labor": "d-labor"}
+    case = {"expect": {"retrieved": [{"document": "july", "pages": [2]}],
+                       "cites": [{"document": "july", "kb": "eco", "pages": [2]}], "allow": ["april"],
+                       "latest": "3.6", "superseded": ["3.1"]}}
+    hit = {"scorer": "retrieved", "expected": "expect.retrieved"}
+    turn = {"documents": documents, "retrieved": [{"attachment_id": "d-july", "page": 2}]}
+    assert harness.score_check(hit, case, "", turn)
+    assert not harness.score_check(hit, case, "", {**turn, "retrieved": [{"attachment_id": "d-july", "page": 3}]})
+    assert not harness.score_check(hit, case, "", {**turn, "retrieved": None})
+    good = {"document_id": "d-july", "kb": "eco", "kb_name": {"ar": "ا", "en": "e"}, "publisher": "p",
+            "published_on": "2031-07-20", "pages": [2]}
+    required = ["kb_name", "publisher", "published_on"]
+    cites = {"scorer": "cites", "expected": "expect.cites", "allow": "expect.allow", "required": required}
+    assert harness.score_check(cites, case, "", {"documents": documents, "citations": [good]})
+    assert harness.score_check(cites, case, "", {"documents": documents, "citations": [good, {**good, "document_id": "d-april"}]})
+    for broken in ({**good, "kb": "other"}, {**good, "publisher": None}, {**good, "pages": [5]}, {**good, "kb_name": None}):
+        assert not harness.score_check(cites, case, "", {"documents": documents, "citations": [broken]})
+    strict = {"scorer": "cites", "expected": "expect.cites", "required": required}
+    assert not harness.score_check(strict, case, "", {"documents": documents, "citations": [good, {**good, "document_id": "d-labor"}]})
+    assert not harness.score_check(strict, case, "", {"documents": documents, "citations": []})
+    first = {"scorer": "text_first", "expected": "expect.latest", "before": "expect.superseded"}
+    assert harness.score_check(first, case, "النمو المتوقع ٣٫٦ بالمئة".replace("٫", "."), {})
+    assert harness.score_check(first, case, "النمو 3.6 بالمئة، بعد أن كان 3.1 في أبريل", {})
+    assert not harness.score_check(first, case, "كان 3.1 ثم صار 3.6", {})
+    assert not harness.score_check(first, case, "النمو 3.1 بالمئة", {})
+
+
+def test_a_suite_finds_its_fixtures_beside_it(tmp_path):
+    harness = _harness()
+    suite = tmp_path / "x.jsonl"
+    suite.write_text("", encoding="utf-8")
+    assert harness.load_fixtures(suite) is None
+    (tmp_path / "fixtures.yaml").write_text("knowledge_bases: [{slug: k, documents: []}]\n", encoding="utf-8")
+    assert harness.load_fixtures(suite) == {"knowledge_bases": [{"slug": "k", "documents": []}]}
 
 
 def test_turn_fields_score_the_applied_skill_and_citations():

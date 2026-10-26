@@ -1,0 +1,4 @@
+# What the suites of this folder need in place first (phase 08): routing.jsonl's kb cases select the kb
+# suite's knowledge bases, so on a fresh stack they are created before the routing cases run. The other
+# suites of this folder select none; the harness keeps a KB or document that already exists.
+include: [services/agent/app/capabilities/kb/evals/fixtures.yaml]

@@ -18,7 +18,14 @@ call, capability-agnostic. Two steps (ADR-0182, ADR-0183):
    cited when it scores at least `relative_to_best` of the best.
 
 When no chunk passes, there is no citation, so a general-knowledge answer or "not in the
-document" shows no source. The rule is config/citations.yaml."""
+document" shows no source. The rule is config/citations.yaml.
+
+The words naming the sources themselves (title, publisher, KB name, date) are dropped with the
+question's (phase 08, ADR-0354): a KB answer states its source and date in the sentence (D3), and
+those words are in a document's metadata, not its chunk text. A claim ends at a clause mark too
+(، ؛ ;), so one sentence joining two facts from two sources cites both. An answer in another writing
+system than a chunk (English over Arabic) is attributed on the numbers it states, outside the
+question and the sources' names and dates."""
 
 import math
 import re
@@ -30,8 +37,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.text.arabic import search_terms
+from app.text.script import script_of
 
 MAX_SECTIONS = 3
+# A claim of the answer ends at a sentence end or a clause mark: one sentence may join two facts from
+# two sources with an Arabic comma (phase 08, ADR-0354).
+_CLAUSE_END = re.compile(r"[\n.!?؟،;؛]+")
+_NUMBER = re.compile(r"(?<![\d.])\d+(?:\.\d+)?(?![\d])")
+_INDIC = str.maketrans({**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, **{a: str(i) for i, a in enumerate("۰۱۲۳۴۵۶۷۸۹")}, "٫": "."})
 # What a citation copies from its source when the source has it: a knowledge base document's KB,
 # its KB's name, the publisher, the publication date and the source URL (phase 08, D3, I4).
 SOURCE_METADATA = ("kb", "kb_name", "publisher", "published_on", "url")
@@ -52,6 +65,31 @@ def load_attribution_rule(config_dir: Path) -> AttributionRule:
     return AttributionRule.model_validate(raw["attribution"])
 
 
+def _naming(source: dict[str, Any]) -> str:
+    """The words that name a source: its title, publisher, KB name in either language, and date."""
+    names = source.get("kb_name") or {}
+    parts = [source.get("title"), source.get("publisher"), source.get("published_on")]
+    if isinstance(names, dict):
+        parts += [names.get("ar"), names.get("en")]
+    return " ".join(str(p) for p in parts if p)
+
+
+def _numbers(text: str) -> set[str]:
+    """The numbers a text holds, Arabic-Indic digits and the Arabic decimal mark folded."""
+    return set(_NUMBER.findall((text or "").translate(_INDIC)))
+
+
+def _script(text: str) -> str | None:
+    """The writing system most of a text's letters are in (ARABIC, LATIN, ...), or None."""
+    counts: dict[str, int] = {}
+    for char in text or "":
+        if char.isalpha():
+            script = script_of(char)
+            if script:
+                counts[script] = counts.get(script, 0) + 1
+    return max(counts, key=counts.__getitem__) if counts else None
+
+
 def ngrams(terms: Sequence[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(terms[i : i + n]) for i in range(len(terms) - n + 1)}
 
@@ -69,15 +107,25 @@ def attribute(
     reference; a source without a document or a text is never cited. `locator` names
     sections when the document has no pages (DOCX, XLSX, TXT, MD)."""
     asked = set(search_terms(question or ""))
+    # Words that name a source (its title, publisher, KB name and date) say where a fact comes from,
+    # not what it is: an answer that states its source and date (D3, phase 08) is attributed on its
+    # facts, as the question's own words are dropped (ADR-0354).
+    asked |= {term for source in sources for term in search_terms(_naming(source))}
     terms = search_terms(answer or "")
     grams = ngrams(terms, rule.ngram)
     new_grams = {gram for gram in grams if not set(gram) <= asked}
     claims = [
         new
-        for sentence in _SENTENCE_END.split(answer or "")
+        for sentence in _CLAUSE_END.split(answer or "")
         if (new := {term for term in search_terms(sentence) if term not in asked})
     ]
-    if not new_grams:
+    # An answer in another writing system than a chunk (an English answer over Arabic documents)
+    # shares no words with it; the numbers it states, outside the question and the sources' names
+    # and dates, decide instead (ADR-0354).
+    answer_script = _script(answer)
+    named_numbers = _numbers(question) | {n for source in sources for n in _numbers(_naming(source))}
+    answer_numbers = _numbers(answer) - named_numbers
+    if not new_grams and not answer_numbers:
         return []
     shared: list[set[tuple[str, ...]]] = []
     lines: list[list[set[tuple[str, ...]]]] = []
@@ -89,6 +137,14 @@ def attribute(
             eligible.append(False)
             continue
         text = texts[source["ref"]]
+        chunk_script = _script(text)
+        if answer_script and chunk_script and answer_script != chunk_script:
+            common = {(number,) for number in answer_numbers & _numbers(text)}
+            shared.append(common)
+            # By line, never at a decimal point: "3.6" stays one number.
+            lines.append([{(n,) for n in answer_numbers & _numbers(line)} for line in text.splitlines()])
+            eligible.append(bool(common))
+            continue
         chunk_terms = search_terms(text)
         common = grams & ngrams(chunk_terms, rule.ngram)
         shared.append(common)
@@ -108,9 +164,31 @@ def attribute(
         for chunk_lines, ok in zip(lines, eligible, strict=True)
     ]
     floor = rule.relative_to_best * max(scores, default=0.0)
+    chosen = [score > 0 and score >= floor for score in scores]
+    # A claim whose best chunk lies in a document not cited yet cites that document by its own floor:
+    # an answer joining facts from two documents (two knowledge bases) cites both, while an answer
+    # drawing on one document keeps the single floor above (phase 08, ADR-0354).
+    documents = {s["document_id"] for s, keep in zip(sources, chosen, strict=True) if keep}
+    for clause in _CLAUSE_END.split(answer or ""):
+        claim = {g for g in ngrams(search_terms(clause), rule.ngram) if g in new_grams}
+        claim |= {(n,) for n in _numbers(clause) - named_numbers}
+        claim_scores = [
+            max((sum(weight.get(g, 0.0) for g in line & claim) for line in chunk_lines), default=0.0) if ok else 0.0
+            for chunk_lines, ok in zip(lines, eligible, strict=True)
+        ]
+        best = max(claim_scores, default=0.0)
+        if best <= 0:
+            continue
+        document = sources[claim_scores.index(best)]["document_id"]
+        if document in documents:
+            continue
+        documents.add(document)
+        for index, (source, score) in enumerate(zip(sources, claim_scores, strict=True)):
+            if source.get("document_id") == document and score > 0 and score >= rule.relative_to_best * best:
+                chosen[index] = True
     cited: dict[str, dict] = {}
-    for source, score in zip(sources, scores, strict=True):
-        if score <= 0 or score < floor:
+    for source, keep in zip(sources, chosen, strict=True):
+        if not keep:
             continue
         document = source["document_id"]
         entry = cited.setdefault(

@@ -117,3 +117,11 @@
 {"id": "skill-negative-status-gulf", "message": "وش يعني تقرير الحالة في المستشفى؟", "locale": "ar", "tags": ["gulf"], "expect": {"capabilities": ["general"]}, "expected_skill": null}
 {"id": "skill-negative-newsletter-msa", "message": "متى تصدر النشرة الداخلية عادة في الشركات؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
 {"id": "skill-kw-free-comms-owner-leave", "message": "جهز لي شي للفريق عن الإجازات", "locale": "ar", "report_set": "skill_keyword_free", "expect": {"capabilities": ["general"]}, "expected_skill": "internal-comms"}
+{"id": "kb-toggle-economy-ar", "message": "ما نسبة النمو المتوقعة لاقتصاد الواحة في عام 2031؟", "locale": "ar", "selected_kbs": ["eval-economy"], "expect": {"capabilities": ["kb"]}, "expected_skill": null}
+{"id": "kb-toggle-labor-gulf", "message": "كم يوم الإجازة السنوية للعامل؟", "locale": "ar", "selected_kbs": ["eval-labor"], "expect": {"capabilities": ["kb"]}, "expected_skill": null}
+{"id": "kb-toggle-both-en", "message": "How long is maternity leave, and what were date exports in 2030?", "locale": "en", "selected_kbs": ["eval-economy", "eval-labor"], "expect": {"capabilities": ["kb"]}, "expected_skill": null}
+{"id": "kb-toggle-general-question-ar", "message": "ما عاصمة المملكة العربية السعودية؟", "locale": "ar", "selected_kbs": ["eval-economy"], "expect": {"capabilities": ["kb"]}, "expected_skill": null}
+{"id": "kb-none-selected-ar", "message": "ما نسبة النمو المتوقعة لاقتصاد الواحة في عام 2031؟", "locale": "ar", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kb-none-selected-en", "message": "How many days a week may an employee in the Oasis work remotely?", "locale": "en", "expect": {"capabilities": ["general"]}, "expected_skill": null}
+{"id": "kb-toggle-memo-keyword-ar", "message": "اكتب مذكرة داخلية عن توقعات النمو لاقتصاد الواحة في عام 2031", "locale": "ar", "selected_kbs": ["eval-economy"], "expect": {"capabilities": ["kb"]}, "expected_skill": "official_memo"}
+{"id": "kb-toggle-with-file-ar", "document": "summer-hours.txt", "message": "متى تبدأ ساعات العمل الصيفية، وما النمو المتوقع لاقتصاد الواحة في 2031؟", "locale": "ar", "selected_kbs": ["eval-economy"], "expect": {"capabilities": ["docs", "kb"]}, "expected_skill": null, "attach": true}
