@@ -168,14 +168,19 @@ def attribute(
     # A claim whose best chunk lies in a document not cited yet cites that document by its own floor:
     # an answer joining facts from two documents (two knowledge bases) cites both, while an answer
     # drawing on one document keeps the single floor above (phase 08, ADR-0354).
+    # Claims are visited strongest first, so the claim that singles a document out most decides its
+    # pages: a clause holding only boilerplate ("في عام 2030") ties neighbouring pages and must not
+    # cite them before the clause holding the figure does (ADR-0357).
     documents = {s["document_id"] for s, keep in zip(sources, chosen, strict=True) if keep}
+    per_claim = []
     for clause in _CLAUSE_END.split(answer or ""):
         claim = {g for g in ngrams(search_terms(clause), rule.ngram) if g in new_grams}
         claim |= {(n,) for n in _numbers(clause) - named_numbers}
-        claim_scores = [
+        per_claim.append([
             max((sum(weight.get(g, 0.0) for g in line & claim) for line in chunk_lines), default=0.0) if ok else 0.0
             for chunk_lines, ok in zip(lines, eligible, strict=True)
-        ]
+        ])
+    for claim_scores in sorted(per_claim, key=lambda scores: max(scores, default=0.0), reverse=True):
         best = max(claim_scores, default=0.0)
         if best <= 0:
             continue

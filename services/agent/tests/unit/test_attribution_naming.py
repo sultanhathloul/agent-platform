@@ -84,3 +84,19 @@ def test_one_document_keeps_the_single_floor(config_dir):
     [citation] = attribute("مدة الإجازة السنوية ثلاثون يوما براتب كامل عن كل سنة خدمة.", sources,
                            {"p2": page2, "p4": page4}, _rule(config_dir), question="كم مدة الإجازة السنوية؟")
     assert citation["pages"] == [2]
+
+
+def test_a_boilerplate_clause_does_not_cite_a_neighbouring_page_before_the_clause_with_the_figure(config_dir):
+    # The make-eval failure of 2026-10-26 (cross-probation-fertilizer-gulf, ADR-0357): «في عام 2030» ties
+    # pages 2 and 3 of the trade report; the clause holding 455 decides the report's page.
+    probation = "التجربة\nلا تزيد فترة التجربة على تسعين يوما، ويجوز تمديدها مرة واحدة باتفاق مكتوب."
+    partners = "الشركاء التجاريون\nكانت جمهورية السهل أكبر شريك تجاري للواحة في عام 2030 بحصة 18 بالمئة من التجارة."
+    sources = [{"id": "p", "ref": "p", "document_id": "dl", "title": "نظام العمل في الواحة", "kind": "kb", "page": 3},
+               {"id": "t3", "ref": "t3", "document_id": "d1", "title": SOURCE["title"], "kind": "kb", "page": 3},
+               {**SOURCE, "id": "t2", "ref": "t2"}]
+    answer = ("تحدد وزارة الموارد البشرية في الواحة في نظام العمل أن فترة التجربة لا تزيد على تسعين يوماً، ويجوز تمديدها "
+              "مرة واحدة باتفاق مكتوب. أما صادرات الأسمدة من الواحة في عام 2030، فقد بلغت 455 مليون ريال وفقاً لتقرير "
+              "التجارة الخارجية للواحة الصادر عن هيئة إحصاء الواحة في 2031-02-10.")
+    cited = attribute(answer, sources, {"p": probation, "t3": partners, "t2": CHUNK}, _rule(config_dir),
+                      question="كم مدة التجربة للموظف الجديد، وكم كانت صادرات الأسمدة من الواحة سنة 2030؟")
+    assert {c["document_id"]: c["pages"] for c in cited} == {"dl": [3], "d1": [2]}
