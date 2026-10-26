@@ -62,11 +62,13 @@ metrics:
     docs: [*applied]
     directions: [*applied]
     negative: [*applied]
+    picked: [*applied]
   skill_block_loaded:
     general: [*traced]
     docs: [*traced]
     directions: [*traced]
     negative: [*traced]
+    picked: [*traced]
   permission_refused:
     permission: [*refused]
   # Reported, not gated: the content.

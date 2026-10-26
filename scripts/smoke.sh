@@ -1032,8 +1032,8 @@ curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/skills" > "$TMP/skills-ana
 check "the analyst's picker lists the memo skill with its Arabic name, and only skills it holds" jq -e \
   '([.data.skills[] | select(.slug == "official_memo") | .name.ar] == ["مذكرة داخلية"])
    and all(.data.skills[]; (.slug | test("^[a-z][a-z0-9_-]*$")) and (.name.ar | length > 0))' "$TMP/skills-analyst.json"
-check "a public skill loaded unmodified: internal-comms is listed, labelled by its own name (no platform fields)" jq -e \
-  '[.data.skills[] | select(.slug == "internal-comms") | .name] == [{"ar": "internal-comms", "en": "internal-comms"}]' "$TMP/skills-analyst.json"
+check "a public skill loaded unmodified: internal-comms is listed with the Arabic and English names of its sidecar (ADR-0325)" jq -e \
+  '[.data.skills[] | select(.slug == "internal-comms") | .name] == [{"ar": "التواصل الداخلي", "en": "Internal comms"}]' "$TMP/skills-analyst.json"
 curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/skills" > "$TMP/skills-viewer.json" || fail "the viewer's skills list"
 check "the viewer's picker lists none" jq -e '.data.skills == []' "$TMP/skills-viewer.json"
 MEMO_MESSAGE="اكتب مذكرة داخلية إلى مدير إدارة الموارد البشرية بشأن تدريب الموظفين الجدد على أمن المعلومات."
@@ -1077,6 +1077,12 @@ denied_skill=$(sql "select status || ',' || (detail->>'skill_requested') from ga
 skill_chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "ما معنى مذكرة تفاهم؟" "$TMP/memo-negative.jsonl"
 check "«ما معنى مذكرة تفاهم؟» (a skill keyword, a question about the word): done, no skill" jq -se \
   'last.type == "done" and last.data.state_digest.skill == null' "$TMP/memo-negative.jsonl"
+# The picked skill is the one applied, even when the message names another skill's keyword (owner
+# visual check of 2026-10-26).
+skill_chat "$ANALYST" "$(uuidgen | tr 'A-Z' 'a-z')" "اكتب مذكرة للفريق عن مواعيد الإجازات الصيفية" "$TMP/comms-picked.jsonl" internal-comms
+check "internal-comms picked for a message with a memo keyword: internal-comms applied, its event names it" jq -se \
+  'last.type == "done" and (last.data.state_digest.skill | startswith("internal-comms@"))
+   and ([.[] | select(.type == "skill") | .data.slug] == ["internal-comms"])' "$TMP/comms-picked.jsonl"
 curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$MEMO_CONV/messages" > "$TMP/memo-history.json" || fail "the memo history read"
 check "the reopened memo conversation shows the reply's skill chip" jq -e \
   '.data.messages[1].role == "assistant" and .data.messages[1].skill == {"slug": "official_memo", "label": {"ar": "مذكرة داخلية", "en": "Internal memo"}}' \

@@ -37,11 +37,13 @@ metrics:
     newsletter: [*applied]
     faq: [*applied]
     negative: [*applied]
+    picked: [*applied]
   skill_block_loaded:
     3p: [*traced]
     newsletter: [*traced]
     faq: [*traced]
     negative: [*traced]
+    picked: [*traced]
   # Reported, not gated: the content.
   format_adherence:
     3p: [*three_p, *short]

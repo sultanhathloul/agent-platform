@@ -173,6 +173,33 @@ async def test_the_picker_applies_its_skill_with_no_router_call(skill_services, 
     assert f"{INSTRUCTIONS} {FORM}" in gateway.answer_system()
 
 
+async def test_each_skill_picked_is_the_one_applied_even_under_another_skill_s_keyword(skill_services, spans, litellm):
+    """Owner visual check of 2026-10-26: for every skill the services hold (the shipped ones and the
+    fixtures) that composes with any capability, the pick reaches the answer as that skill, never
+    another: its state, its event, its trace, its block. The message carries another skill's
+    keyword, so a keyword candidate cannot take the pick's place."""
+    skills = [s for s in skill_services.skills.all() if not s.manifest.requires.capabilities]
+    shipped = {p.name for p in skill_services.settings.skills_dir.iterdir() if p.is_dir()}
+    assert shipped and shipped <= {s.slug for s in skills}
+    principal = who(*(s.manifest.permission for s in skills))
+    for picked in skills:
+        others = [k for s in skills if s.slug != picked.slug for k in s.manifest.routing_hints.keywords.all()]
+        message = f"اكتب {others[0]} للفريق عن الإجازات" if others else "جهز لي شي للفريق عن الإجازات"
+        spans.clear()
+        events, gateway, _ = await turn(skill_services, principal, message, skill=picked.slug)
+        done = events[-1]
+        assert done.type == "done" and done.data.state_digest.skill == picked.manifest.ref, picked.slug
+        assert [e.data.slug for e in events if e.type == "skill"] == [picked.slug]
+        route = next(s for s in spans.get_finished_spans() if s.name == "node.route")
+        assert route.attributes["route.skill"] == picked.manifest.ref
+        assert route.attributes["route.skill.decided_by"] == "picker"
+        system = gateway.answer_system()
+        assert f'id="{picked.slug}"' in system
+        for other in skills:
+            if other.slug != picked.slug:
+                assert f'id="{other.slug}"' not in system
+
+
 async def test_a_skill_whose_required_capability_is_not_selected_is_dropped(skill_services, spans, litellm):
     principal = who("cap:docs", f"skill:{DOCS_FORM}")
     reply = json.dumps({"capabilities": ["general"], "skill": DOCS_FORM})
