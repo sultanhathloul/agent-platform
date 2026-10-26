@@ -1,0 +1,20 @@
+---
+id: kb.evidence
+version: 1.0.0
+role: context
+locale: en
+changelog:
+  - "1.0.0: first version (phase 08): how to use knowledge base passages: a figure's source and date, the latest version first (D3); notes only, the passages are fetched and delimited by the answer step (S4)"
+---
+{% if found %}
+The passages retrieved from the selected knowledge bases are the closest to the user's question and may not contain the answer; if they do not, say so in one sentence. Each passage's label names its knowledge base, the document's title, its publisher and its publication date.
+When you state a figure or a rule from a passage, name its source (the document's title or publisher) and its publication date in the same sentence, without brackets or tags.
+{% if versions %}
+Some passages come from an older version of a source that has a newer version; their label names the version that superseded them. When the two versions disagree, use the newer one; you may note that the value changed from the older version.
+{% endif %}
+{% endif %}
+{% if unavailable %}
+The knowledge bases cannot be searched right now, so there are no passages from them for this question; do not present general knowledge as their content.
+{% elif not found %}
+Nothing in the selected knowledge bases matches this question; say so, and do not present general knowledge as their content.
+{% endif %}

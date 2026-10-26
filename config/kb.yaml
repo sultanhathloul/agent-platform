@@ -1,0 +1,11 @@
+# Knowledge bases (UC4, README §9.4; phase 08, ADR-0333 to ADR-0339): the kb capability's own
+# configuration. Retrieval itself (hybrid, fusion, rerank, the version preference) is the shared
+# library's, in config/docs.yaml `retrieval`.
+
+# The DocumentBackend KB documents are registered with and searched on (I2, ADR-0334): `internal` is
+# the phase 04 pipeline; `mcp` is the RAG server of config/docs.yaml `mcp_server`. KB_BACKEND in
+# .env overrides it per environment (ADR-0224). Switching it affects new uploads only.
+backend: internal
+
+retrieval:
+  top_k: 8                     # passages for the answer, across the selected knowledge bases (I4)

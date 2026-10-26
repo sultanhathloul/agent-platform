@@ -92,6 +92,10 @@ retrieval:
   text_top_k: 30
   rrf_k: 60
   top_k: 8
+  # Knowledge bases (phase 08, D3): when a chunk of an older version of a source and one of its
+  # latest version are both found, this many older chunks stay, right after the latest version's
+  # best chunk, so the answer may note the change; the rest are dropped (app/rag/versions.py).
+  superseded_keep: 1
   # Words left out of the full-text query (compared after normalization); questions are
   # matched OR-wise, so function words would match every chunk.
   stopwords:

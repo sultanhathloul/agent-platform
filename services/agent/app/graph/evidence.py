@@ -149,6 +149,7 @@ async def load_evidence(state: AgentState, ctx: TurnContext) -> list[dict[str, A
             if not text:
                 continue
             evidence[source["ref"]] = text
+            kb_name = source.get("kb_name") or {}
             retrieved.append(
                 {
                     "id": source["ref"],
@@ -158,6 +159,11 @@ async def load_evidence(state: AgentState, ctx: TurnContext) -> list[dict[str, A
                     "locator": source.get("locator"),
                     "score": source.get("score"),
                     "text": text,
+                    # A KB document's metadata, for the evidence's delimiter (phase 08, D3).
+                    "kb": kb_name.get(state.get("locale") or "ar") or kb_name.get("ar") or None,
+                    "publisher": source.get("publisher"),
+                    "published_on": source.get("published_on"),
+                    "superseded_by": source.get("superseded_by"),
                 }
             )
     ctx.evidence = evidence

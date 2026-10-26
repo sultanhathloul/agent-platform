@@ -26,25 +26,30 @@ class VectorStore(Protocol):
     async def vector_search(
         self,
         owner: Owner,
-        collection: str,
+        collection: str | Sequence[str],
         embedding: Sequence[float],
         *,
         limit: int,
         document_ids: Sequence[str] | None = None,
     ) -> list[ScoredChunk]:
-        """The chunks most similar to `embedding` (cosine), best first."""
+        """The chunks most similar to `embedding` (cosine), best first. Several collections of one
+        kind are searched as one (cross-KB retrieval, phase 08); each chunk names its collection."""
         ...
 
     async def text_search(
         self,
         owner: Owner,
-        collection: str,
+        collection: str | Sequence[str],
         terms: Sequence[str],
         *,
         limit: int,
         document_ids: Sequence[str] | None = None,
     ) -> list[ScoredChunk]:
         """The chunks whose normalized text matches any of `terms`, by full-text rank."""
+        ...
+
+    async def purge(self, owner: Owner, collection: str) -> int:
+        """Deletes every chunk of the owner's collection (a deleted knowledge base, I1)."""
         ...
 
     async def fetch(self, owner: Owner, collection: str, ids: Sequence[str]) -> dict[str, str]:

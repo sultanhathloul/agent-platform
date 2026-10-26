@@ -14,6 +14,9 @@ What a backend returns is untrusted data. It passes the same runtime path as any
 (POST_TOOL with sanitize_untrusted first, then OUTPUT and DATA per principal); a backend
 applies no policy itself, and chunks are stored as extracted (ADR-0158).
 
+A knowledge base collection (phase 08) is searched across the scope's KBs at once; `purge` removes
+a deleted KB's collection from the index (I1).
+
 `InternalDocumentBackend` (app/rag/internal.py) is the pipeline of phase 04;
 `MCPDocumentBackend` (app/rag/mcp.py) reaches a RAG server over MCP through the platform's MCP
 client (I11). A capability's `config/<slug>.yaml` `backend` names the one its tools use.
@@ -73,13 +76,15 @@ class DocumentScope:
 
 
 class StoredFile(_Strict):
-    """An upload the platform stored, as a backend receives it to index."""
+    """An upload the platform stored, as a backend receives it to index: a conversation's file, or
+    a knowledge base's document (phase 08, I2), which has no conversation and no user."""
 
     id: str
-    conversation_id: str
+    conversation_id: str | None = None
     tenant_id: str
     user_id: str
-    # Where the backend indexes it: the conversation's session collection for an upload (I1).
+    # Where the backend indexes it: the conversation's session collection for an upload (I1), the
+    # KB's collection `kb_<slug>` for a KB document.
     collection: str
     name: str
     mime: str
@@ -134,4 +139,9 @@ class DocumentBackend(Protocol):
 
     async def fetch(self, refs: Sequence[str], scope: DocumentScope) -> dict[str, str]:
         """The text of each reference inside the scope; a reference outside it is left out."""
+        ...
+
+    async def purge(self, collection: str, scope: DocumentScope) -> int:
+        """Removes a knowledge base collection of the scope from the index (a deleted KB, I1); a
+        session collection or one outside the scope is left alone. Returns what it removed."""
         ...

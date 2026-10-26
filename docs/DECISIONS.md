@@ -3114,3 +3114,70 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: decided
 - Decision: The reply's chip reads «المهارة» / "Skill" before the skill's name (was «مكتوبة بنموذج …» / "Written as …"), and `skill_forbidden` reads «المهارة المختارة غير متاحة لك.» / "The chosen skill is not available to you." in config/messages/errors.yaml, the gateway's message catalogues and the web's.
 - Consequences: Supersedes in part ADR-0327 (the chip and the message kept their wording). The picker, chip and refusal now use one word for a skill.
+
+### ADR-0344: On the MCP backend a deleted KB is unreachable, and its server copy is an operations step (D6 stands)
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Context: I1 says a deleted KB's documents are purged from the index; I2 says ingestion uses the internal and MCP backends. Owner decision D6 (ADR-0200, ADR-0230) refuses any MCP operation that deletes, of either class; the allowlist loader rejects a tool named purge, delete, remove or drop.
+- Decision: The `DocumentBackend` protocol gains `purge(collection, scope)`. The internal backend deletes the KB collection's chunks. The MCP backend never sends a deleting operation: its `purge` raises NotImplementedError, the KB service records it as "kept by the backend" (the delete answers `index_purged: false`, not owed, never retried), and removing the server's copy is an operations step listed in PROGRESS, as ADR-0166 does for files. The KB is unreachable all the same: the platform never passes its collection to any backend again (deleted KBs leave the broker's scope at admission and are refused 403), and the facade drops any hit whose document is not in the catalog of live KBs.
+- Consequences: D6 is untouched. An MCP-backed KB's chunks stay on the server until operations remove them. A transient failure of the internal purge is owed and retried at start (`agent.kbs.index_purged_at`).
+
+### ADR-0345: A KB belongs to the tenant of the administrator who created it; its slug is unique on the platform
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Context: ADR-0202 and the reference RAG server say a knowledge base collection is its tenant's; realm roles (`kb:<slug>:read`) are realm-wide; the admin is a platform operator above tenants (ADR-0117) and the KB form has no tenant field.
+- Decision: `agent.kbs.tenant_id` is the creating admin's tenant (X-Tenant-Id from the verified token). The slug is the primary key, unique across tenants and never reused (a deleted KB keeps it, I1). A KB's chunks are owned by (its tenant, no user), as on the reference RAG server. A caller reads a KB only when it is a live KB of the caller's tenant and the token holds its role; another tenant's KB is `kb_not_found` to an admin and `kb_forbidden` to a turn.
+- Consequences: A multi-tenant deployment creates each tenant's KBs as an administrator of that tenant. Moving a KB between tenants is not offered.
+
+### ADR-0346: KB documents have records of their own; their chunks and files sit beside the attachments'
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Context: BACKLOG (phase 08, carried from phase 04): a chunk could not exist without an attachment record.
+- Decision: Migration 0015: `agent.kbs`, `agent.kb_documents` (the stored file, its ingestion status as for an attachment, the D3 metadata, `supersedes` with at most one successor per document, uploader names, `purged_at`), and `agent.rag_chunks.kb_document_id` (FK, ON DELETE CASCADE) beside a now nullable `attachment_id`, exactly one of the two set. The vector store picks the column by the collection's kind and returns either as the chunk's document. One search may span several collections of one kind (`collection = ANY(...)`), which is how cross-KB retrieval runs. KB files go to the uploads bucket under `kb/<slug>/<uuid>`; the orphan sweeper keeps any object a KB document names. The ingestion queue carries a KB document as `kb:<id>`; one records adapter (app/rag/ingest/records.py) sends each call to the right store, so the pipeline, sandbox, limits and worker are the phase 04 ones (I2). `supersedes` is checked under the KB's transaction lock (the two-key advisory form): same KB, not itself, no second successor, no loop.
+- Consequences: The `kb-docs` bucket created in phase 01 stays unused. Recorded context packages list attachment ids only; operations deleting a KB document follow the KB document's id.
+
+### ADR-0347: How the latest version is preferred (details of ADR-0335)
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Decision: app/rag/versions.py, pure and idempotent: a chunk of a document superseded by another indexed document of the same KB is demoted when a newer version of its source is among the candidates: at most `retrieval.superseded_keep` (config/docs.yaml, 1) such chunks stay, each placed right after the best chunk of the latest version present, the rest dropped; a superseded chunk whose newer versions are absent stays in place (it is the only evidence) with its label. The internal backend applies it to the fused candidates before rerank and to the ranked ones after (rerank orders by text alone); the document facade applies it again after merging backends, which is the only place an MCP backend's results get it. The answer's evidence names each passage's KB, title, publisher, date and, for an older version, «إصدار أقدم حلّ محله: <title> (<date>)» (context.retrieval 2.1.0); the kb capability's findings (kb.evidence 1.0.0) say to use the newer version when two disagree and that it may note the change, and to state a figure's source and date in the sentence.
+- Consequences: The answer can say "up from X in the April edition" because one older chunk stays beside the newer one; with `superseded_keep: 0` it never sees the older figure when the newer is found.
+
+### ADR-0348: The routing rule `kbs_selected`; the kb capability is not itself a toggle
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Decision: A manifest rule `when: kbs_selected` selects a capability when the turn carries one or more selected KBs, admitted as permitted and live; the kb manifest has only that rule, so with none selected it never runs (I3, D5). kb's `ui.mode` is `auto`: the composer's toggles are the knowledge bases themselves, listed by `GET /v1/capabilities` under `knowledge_bases` beside the capability list. The route node passes `kbs_selected` from state; no core file names kb.
+- Consequences: A turn with KBs selected and a file attached runs docs and kb together (two deterministic rules), within the three-capability cap.
+
+### ADR-0349: A turn's KBs are checked at the gateway against the token and the agent's live KBs; the agent refuses instead of filtering
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Context: README §9.4 had the agent re-filter `selected_kbs` silently; I3 and I7 want the check at both and a deleted KB unreachable.
+- Decision: The gateway refuses 403 `kb_forbidden` (audited `denied`, with `denied_kbs`) when the token lacks a selected KB's role, and, when it holds them all, asks the agent's `GET /v1/internal/kbs/live` which are live KBs of the caller's tenant (one internal call per KB turn, bounded by 4 s, `AgentClient.QUICK_BOUND`; agent unreachable is `agent_unavailable`) and refuses the others. The agent refuses at admission, inside `admission_s`, with 403 `kb_forbidden` before any stream when a selected KB is not permitted, not live or another tenant's; it no longer filters silently. The gateway maps the agent's 403 `kb_forbidden` to its own.
+- Consequences: Supersedes in part README §9.4 ("re-filters again"). A KB deleted mid-turn is caught by the facade's catalog (ADR-0352).
+
+### ADR-0350: Citations carry the KB name, publisher and date; additive and left out when empty (API 2.6.0)
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Decision: The `citation` event and history citations gain `kb_name {ar, en}`, `publisher` and `published_on` (ISO date), with the existing `kb` (slug), `url` (the source URL) and `title` (the document's title) filled for a KB document; the three new fields are omitted when empty, so a citation persisted before keeps its shape (G9 of phase 06). Capability `Source` and `Citation` gain the same optional fields and `superseded_by` (the evidence label only, never in a citation). Page attribution copies a source's metadata into its citation generically. Agent and gateway API 2.6.0 (additive: the KB admin endpoints, `GET /v1/capabilities`, `GET /v1/internal/kbs/live`, the citation fields).
+- Consequences: The web shows the KB citation as KB › title, publisher, date, pages.
+
+### ADR-0351: Keycloak Admin API calls are bounded; creating a KB creates its role first, idempotently
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Decision: `KeycloakAdminClient` uses one HTTP client for every call: connect within 3 s, each call request to body within 8 s (the JDK request factory's read timeout covers the whole exchange, ADR-0256); this also bounds the policy-role listing, which used the library default. `ensureRealmRole` gets a service-account token and POSTs the role; 409 (exists) counts as created and is audited `role_created: false`. The KB is recorded at the agent only after the role exists, so no KB lacks the role that reads it; a create the agent refuses leaves the role, as a delete does (I1). Keycloak failing or too slow is 502 `identity_unavailable`, audited, the agent not called. Tested with a hung Keycloak while another user's request runs (rule 12h).
+- Consequences: The admin's create waits at most about 16 s on a hung Keycloak. Assigning the role to users stays in Keycloak (groups), as ADR-0337 says.
+
+### ADR-0352: The document facade drops KB hits the catalog does not hold
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Decision: With a KB catalog configured (production), the facade keeps a kb-collection hit only when its document is an indexed, unpurged document of a live KB of the scope's tenant, attaches the catalog entry, and applies the version preference. A facade built without a catalog (the phase 05 test backends) keeps what it found.
+- Consequences: A KB deleted while a turn runs yields nothing from that point, whatever a backend still returns.

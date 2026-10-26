@@ -19,5 +19,6 @@ def ingestion(services) -> Documents:
             counter=services.assembler.counter,
             attachments=services.attachments.store,
             objects=services.attachments.objects,
+            kbs=services.kbs.store if services.kbs is not None else None,
         )
     return _BUILT[key]

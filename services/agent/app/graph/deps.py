@@ -77,6 +77,10 @@ class Services:
     # Every DocumentBackend by name (I1, ADR-0202); a capability's config/<slug>.yaml `backend`
     # names the one its tools use, `documents` otherwise.
     backends: Mapping[str, DocumentBackend] = field(default_factory=dict)
+    # Knowledge bases (phase 08): app.kb.service.KbService, or None on a platform without them.
+    kbs: Any = None
+    # Background work start_services begins and stop_services cancels (e.g. owed KB purges).
+    tasks: list = field(default_factory=list)
 
     def backend_name(self, slug: str) -> str | None:
         name = self.registry.get(slug).config.get("backend")

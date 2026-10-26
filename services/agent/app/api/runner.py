@@ -98,6 +98,8 @@ _REFUSALS: dict[str, tuple[int, bool]] = {
     "conversation_forbidden": (403, False),
     # The picked skill is not available to the principal (phase 06, G6): refused before any stream.
     "skill_forbidden": (403, False),
+    # A selected KB the principal may not read, another tenant's, deleted or unknown (phase 08, I3, I7).
+    "kb_forbidden": (403, False),
     "turn_in_flight": (409, True),
     "too_many_turns": (429, True),
     "service_busy": (503, True),
@@ -254,6 +256,12 @@ class TurnRunner:
             # asyncio.timeout, not a cancel scope: delivered once, so a lock connection the pool
             # takes back after it is not cancelled in turn (ADR-0264).
             async with asyncio.timeout(min(turn.admission_s, ends_at - deadline.now())):
+                # The gateway checked the KBs against the token; the agent checks them again against
+                # the permissions and its records of live KBs (phase 08, I3, I7).
+                if req.selected_kbs and (
+                    self.services.kbs is None or await self.services.kbs.refused(principal, req.selected_kbs)
+                ):
+                    raise TurnRefused("kb_forbidden")
                 if not await self.claim(req.conversation_id, principal):
                     raise TurnRefused("conversation_forbidden")
                 lease = await self.lock(req.conversation_id)
@@ -350,8 +358,8 @@ class TurnRunner:
             "user_message": req.message,
             "locale": req.locale,
             "turn_attachment_ids": list(req.attachment_ids),
-            # Defense in depth (README §9.4): the gateway filtered already; filter again.
-            "selected_kbs": [kb for kb in req.selected_kbs if principal.can_read_kb(kb)],
+            # Admitted as permitted and live (phase 08, I3); filtered again in depth (README §9.4).
+            "selected_kbs": list(dict.fromkeys(kb for kb in req.selected_kbs if principal.can_read_kb(kb))),
             # The picked skill (phase 06): admission checked it is available; route applies it.
             "requested_skill": req.skill,
         }

@@ -36,6 +36,21 @@ conversation_forbidden:
 skill_forbidden:
   ar: "المهارة المختارة غير متاحة لك."
   en: "The chosen skill is not available to you."
+kb_forbidden:
+  ar: "لا تملك صلاحية الوصول إلى إحدى قواعد المعرفة المحددة."
+  en: "You do not have access to one of the selected knowledge bases."
+kb_not_found:
+  ar: "قاعدة المعرفة غير موجودة."
+  en: "The knowledge base does not exist."
+kb_exists:
+  ar: "هذا المعرّف مستخدم لقاعدة معرفة حالية أو محذوفة، فاختر معرّفًا آخر."
+  en: "This identifier is used by an existing or deleted knowledge base; choose another one."
+kb_document_not_found:
+  ar: "الوثيقة غير موجودة في قاعدة المعرفة هذه."
+  en: "The document is not in this knowledge base."
+kb_supersedes_invalid:
+  ar: "الإصدار الأقدم المختار غير صالح: يجب أن يكون وثيقة أخرى في قاعدة المعرفة نفسها لا يحل محلها غيرها، ولا يصنع حلقة."
+  en: "The earlier version chosen is not valid: it must be another document of the same knowledge base that no other document supersedes, without making a loop."
 turn_not_found:
   ar: "لم يُعثر على هذه الإجابة في المحادثة."
   en: "This reply was not found in the conversation."

@@ -97,6 +97,12 @@ class MCPDocumentBackend:
             )
             return top
 
+    async def purge(self, collection: str, scope: DocumentScope) -> int:
+        """Never sent: no MCP operation may delete (D6, ADR-0200). A deleted KB's collection is never
+        passed to the server again and the facade drops any hit of it (I7); removing the server's
+        copy is an operations step (ADR-0344)."""
+        raise NotImplementedError("an MCP document backend never deletes (D6, ADR-0200)")
+
     async def fetch(self, refs: Sequence[str], scope: DocumentScope) -> dict[str, str]:
         wanted = list(dict.fromkeys(refs))
         if not wanted or not scope.collections:

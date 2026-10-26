@@ -18,6 +18,7 @@ from app.rag.backend import DocumentBackend
 from app.rag.config import DocsConfig, Rerank, load_docs_config
 from app.rag.ingest.pipeline import IngestPipeline
 from app.rag.ingest.queue import IngestQueue
+from app.rag.ingest.records import IngestRecords
 from app.rag.ingest.worker import IngestWorker
 from app.rag.internal import InternalDocumentBackend
 from app.rag.mcp import MCPDocumentBackend
@@ -51,11 +52,13 @@ def build_documents(
     uploads_backend: str = "internal",
     broker=None,
     extra_backends: Mapping[str, DocumentBackend] | None = None,
+    kbs=None,
 ) -> Documents:
     """`uploads_backend`: the backend new uploads are registered with. `broker`: the tool broker;
     when config/mcp.yaml lists the server `mcp_server` names with transport operations, the `mcp`
     backend reaches it through `broker.transport` (I11, ADR-0230). `extra_backends`: more
-    backends by name (tests)."""
+    backends by name (tests). `kbs`: the KB store (phase 08): KB documents are ingested and
+    searched beside attachments."""
     config = load_docs_config(settings.config_dir)
     selected = uploads_backend
     # The reranker is configured per environment, from .env, not config/docs.yaml (finding 3): the
@@ -71,9 +74,10 @@ def build_documents(
     retriever = HybridRetriever(
         vectors, embeddings, Reranker(settings, models_config), config.retrieval, counter
     )
+    records = IngestRecords(attachments, kbs)
     pipeline = IngestPipeline(
         db=db,
-        attachments=attachments,
+        attachments=records,
         objects=objects,
         vectors=vectors,
         embeddings=embeddings,
@@ -81,9 +85,14 @@ def build_documents(
         counter=counter,
     )
     backend = InternalDocumentBackend(
-        attachments=attachments, vectors=vectors, retriever=retriever, queue=queue
+        attachments=attachments,
+        vectors=vectors,
+        retriever=retriever,
+        queue=queue,
+        kbs=kbs,
+        superseded_keep=config.retrieval.superseded_keep,
     )
-    worker = IngestWorker(pipeline, attachments, config, queue) if redis is not None else None
+    worker = IngestWorker(pipeline, records, config, queue) if redis is not None else None
     backends: dict[str, DocumentBackend] = {"internal": backend}
     if (
         broker is not None

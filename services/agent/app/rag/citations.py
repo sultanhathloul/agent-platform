@@ -32,6 +32,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.text.arabic import search_terms
 
 MAX_SECTIONS = 3
+# What a citation copies from its source when the source has it: a knowledge base document's KB,
+# its KB's name, the publisher, the publication date and the source URL (phase 08, D3, I4).
+SOURCE_METADATA = ("kb", "kb_name", "publisher", "published_on", "url")
 _SENTENCE_END = re.compile(r"[\n.!?؟]+")
 
 
@@ -62,7 +65,7 @@ def attribute(
     question: str = "",
 ) -> list[dict]:
     """Citations, one per document in the order its first cited chunk was retrieved:
-    {id, title, source, document_id, pages, locator}. `texts` holds each chunk's text by its
+    {id, title, source, document_id, pages, locator}, plus the source's SOURCE_METADATA it has. `texts` holds each chunk's text by its
     reference; a source without a document or a text is never cited. `locator` names
     sections when the document has no pages (DOCX, XLSX, TXT, MD)."""
     asked = set(search_terms(question or ""))
@@ -119,6 +122,8 @@ def attribute(
                 "document_id": document,
                 "pages": set(),
                 "sections": [],
+                # A source's own metadata, when it has some (a KB document's, phase 08, I4).
+                **{key: source[key] for key in SOURCE_METADATA if source.get(key) is not None},
             },
         )
         if source.get("page"):

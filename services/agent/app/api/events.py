@@ -111,6 +111,11 @@ class ToolLabel(_Model):
     en: str
 
 
+class KbLabel(_Model):
+    ar: str
+    en: str
+
+
 class SkillLabel(_Model):
     ar: str
     en: str
@@ -154,6 +159,22 @@ class Citation(_Model):
     )
     pages: list[int] = Field(
         default=[], description="Pages of that document the answer drew on, ascending (ADR-0140)."
+    )
+    # Additive and left out when empty, so a citation without them keeps the shape it had (G9).
+    kb_name: KbLabel | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="A knowledge base document's KB, by name (phase 08, I4); additive.",
+    )
+    publisher: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Who published the source (phase 08, D3); additive.",
+    )
+    published_on: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="The source's publication date, ISO 8601 (phase 08, D3); additive.",
     )
 
 

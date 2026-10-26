@@ -171,7 +171,7 @@ def build_pipeline(settings: Settings, database_url: str) -> Pipeline:
     config = config.model_copy(update={"retrieval": config.retrieval.model_copy(update={"rerank": rerank})})
     models = load_models_config(settings.config_dir)
     db = Database(database_url, schema="rag_ref", migrations_dir=MIGRATIONS, max_size=8)
-    vectors = PgVectorStore(db, table="rag_ref.chunks")
+    vectors = PgVectorStore(db, table="rag_ref.chunks", kb_column="attachment_id")
     embeddings = EmbeddingGateway(settings, models)
     retriever = HybridRetriever(
         vectors, embeddings, Reranker(settings, models), config.retrieval, default_counter()

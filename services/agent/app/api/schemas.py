@@ -1,6 +1,6 @@
 """Request and response bodies of the internal agent API (README §6.2)."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -623,3 +623,138 @@ class EffectiveLimits(BaseModel):
     deadline_s: float
     uploads_per_minute: int
     max_concurrent_uploads: int
+
+
+# ------------------------------------------------------------------ knowledge bases (phase 08)
+
+KB_SLUG_PATTERN = r"^[a-z][a-z0-9_-]{0,62}$"
+KB_DOCUMENT_ID_PATTERN = CONVERSATION_ID_PATTERN
+
+
+class KbLabelText(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ar: str = Field(min_length=1, max_length=120)
+    en: str = Field(min_length=1, max_length=120)
+
+
+class KbDescription(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ar: str = Field(default="", max_length=500)
+    en: str = Field(default="", max_length=500)
+
+
+class KbCreate(BaseModel):
+    """An administrator creates a knowledge base (I1); the gateway created its role first."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str = Field(pattern=KB_SLUG_PATTERN, description="Its realm role is kb:<slug>:read.")
+    name: KbLabelText
+    description: KbDescription = KbDescription()
+    icon: str = Field(default="library", pattern=r"^[a-z][a-z0-9-]{0,39}$")
+
+
+class KbView(BaseModel):
+    slug: str
+    name: KbLabelText
+    description: KbDescription
+    icon: str
+    role: str = Field(description="The realm role that reads it: kb:<slug>:read (ADR-0006).")
+    documents: int = Field(description="Its documents, every status.")
+    indexed: int = Field(description="Its indexed documents.")
+    created_at: datetime
+    created_by_username: str | None = None
+    created_by_name: str | None = None
+
+
+class KbList(BaseModel):
+    kbs: list[KbView] = Field(description="The tenant's live knowledge bases, by slug.")
+
+
+class KbDeleted(BaseModel):
+    slug: str
+    role: str = Field(description="Kept: the role stays (I1).")
+    index_purged: bool = Field(description="False while a backend still owes the purge; retried at start.")
+
+
+class KbSourceMetadata(BaseModel):
+    """D3: a KB document's source."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=300)
+    publisher: str = Field(min_length=1, max_length=200)
+    source_url: str | None = Field(default=None, max_length=2000, pattern=r"^https?://\S+$")
+    published_on: date
+    supersedes: str | None = Field(
+        default=None, pattern=KB_DOCUMENT_ID_PATTERN, description="An earlier version of the same source in this KB."
+    )
+
+
+class KbDocumentRegistration(BaseModel):
+    """The gateway registers a KB document it stored in MinIO, with its D3 metadata (I2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    mime: str = Field(min_length=1, max_length=255)
+    size: int = Field(ge=0)
+    object_key: str = Field(min_length=1, max_length=512)
+    metadata: KbSourceMetadata
+
+
+class KbDocumentView(BaseModel):
+    id: str
+    kb: str
+    name: str
+    kind: Literal["pdf", "docx", "xlsx", "txt", "md"]
+    size: int
+    status: Literal["pending", "indexed", "failed"]
+    reason: str | None = Field(default=None, description="Why ingestion failed (failed only).")
+    pages: int | None = None
+    chunks: int | None = None
+    warnings: list[AttachmentWarning] = []
+    metadata: KbSourceMetadata
+    superseded_by: str | None = Field(default=None, description="The document of this KB that supersedes it.")
+    created_at: datetime
+    indexed_at: datetime | None = None
+    uploaded_by_username: str | None = None
+    uploaded_by_name: str | None = None
+
+
+class KbDocumentList(BaseModel):
+    documents: list[KbDocumentView] = Field(description="Oldest first.")
+
+
+class CapabilityUi(BaseModel):
+    mode: Literal["toggle", "auto", "button"]
+    order: int
+
+
+class CapabilityView(BaseModel):
+    slug: str
+    name: SkillLabel
+    description: SkillLabel
+    icon: str
+    ui: CapabilityUi
+
+
+class KbToggle(BaseModel):
+    slug: str
+    name: KbLabelText
+    description: KbDescription
+    icon: str
+
+
+class CapabilityList(BaseModel):
+    """What the composer renders (README §13, I3): the caller's capabilities and the knowledge bases
+    it may read, each a toggle."""
+
+    capabilities: list[CapabilityView]
+    knowledge_bases: list[KbToggle] = Field(description="Only the KBs the caller may read (I3, I7).")
+
+
+class LiveKbs(BaseModel):
+    live: list[str] = Field(description="Those of the asked slugs that are live KBs of the caller's tenant.")

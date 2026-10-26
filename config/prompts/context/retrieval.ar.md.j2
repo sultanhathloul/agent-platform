@@ -1,12 +1,13 @@
 ---
 id: context.retrieval
-version: 2.0.0
+version: 2.1.0
 role: context
 locale: ar
 changelog:
   - "1.0.0: first version (phase 02): one retrieved chunk, wrapped as untrusted data (README §7 step 6, §9.2)"
   - "2.0.0: the chunk's file and page or section in the delimiter only, escaped (S2); chunks fetched at prepare time (S4)"
+  - "2.1.0: a knowledge base chunk: KB › document, its publisher and publication date, and the version that supersedes it (phase 08, D3, I4)"
 ---
-<untrusted source="{{ source | e }}{% if kb %} › {{ kb | e }}{% endif %}{% if page %}، صفحة {{ page }}{% elif locator %}، {{ locator | e }}{% endif %}">
+<untrusted source="{% if kb %}{{ kb | e }} › {% endif %}{{ source | e }}{% if publisher is defined and publisher %}، {{ publisher | e }}{% endif %}{% if published_on is defined and published_on %}، بتاريخ {{ published_on | e }}{% endif %}{% if page %}، صفحة {{ page }}{% elif locator %}، {{ locator | e }}{% endif %}{% if superseded_by is defined and superseded_by %}، إصدار أقدم حلّ محله: {{ superseded_by | e }}{% endif %}">
 {{ text }}
 </untrusted>

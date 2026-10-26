@@ -99,6 +99,9 @@ class Retrieval(_Strict):
     rerank: Rerank = Rerank()
     top_k: int = Field(gt=0)
     stopwords: dict[str, list[str]] = {}
+    # Knowledge bases (phase 08, D3, ADR-0335): how many chunks of an older version of a source stay
+    # beside its latest version when both are found, so the answer may note the change.
+    superseded_keep: int = Field(default=1, ge=0, le=4)
 
 
 class OrphanSweeper(_Strict):

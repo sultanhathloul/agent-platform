@@ -6,6 +6,8 @@ conversation holds indexed files) or `keyword_candidate` (when one of their keyw
 message) become candidates, and the router model chooses among them and the fallback
 capabilities (phase 04, ADR-0139, ADR-0145; phase 05, ADR-0216). A keyword alone never selects
 such a capability, and a turn with no candidate costs no router call.
+Phase 08 (I3): the rule `kbs_selected` selects a capability when the turn carries knowledge bases
+the user toggled, admitted as permitted and live; with none, it never matches.
 Phase 06 (ADR-0299): the same node selects at most one skill: the picker's, or one the router
 model chooses among the skills whose keywords match. A turn with neither adds no router call.
 The core has no capability-specific branch: adding a capability changes the
@@ -37,6 +39,7 @@ def select_capabilities(
     message: str,
     has_attachments: bool,
     toggled: Sequence[str] = (),
+    kbs_selected: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Returns (slugs in manifest ui.order, reasons)."""
     selected: list[str] = []
@@ -50,6 +53,8 @@ def select_capabilities(
                 matched = any(contains_keyword(message, k) for k in [*hints.keywords.ar, *hints.keywords.en])
             elif rule.when == "attachments":
                 matched = has_attachments
+            elif rule.when == "kbs_selected":
+                matched = kbs_selected
             else:  # fallback, conversation_attachments, keyword_candidate: after every other rule
                 continue
             if matched:
@@ -105,9 +110,12 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         raise TurnError("no_capability_available")
     span = trace.get_current_span()
     message = state["user_message"]
-    # The turn request carries no capability toggles until plugin toggles land (phase 05).
+    # Knowledge base toggles (phase 08, I3): the turn's selected KBs, admitted as permitted and live.
     slugs, reasons = select_capabilities(
-        candidates, message=message, has_attachments=bool(state.get("turn_attachment_ids"))
+        candidates,
+        message=message,
+        has_attachments=bool(state.get("turn_attachment_ids")),
+        kbs_selected=bool(state.get("selected_kbs")),
     )
     complexity = risk = None
     # Skills (phase 06, ADR-0299): (a) the picker's skill, applied with no router decision on it;

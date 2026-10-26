@@ -4,12 +4,15 @@ text, fused by reciprocal rank fusion; with `rerank.enabled`, the best `rerank.c
 reranked, each on its first `rerank.max_chars` characters (or whole), and the top `top_k`
 kept by rerank score; without it, the top `top_k` in fusion order. A malformed rerank answer is
 an error on the span and the fusion order stands (owner decision R2). Every query names the
-collection and the owner (ADR-0131). The `rag.retrieve` span carries ids, pages, scores and
+collection and the owner (ADR-0131). Several collections of one kind are searched as one: the
+selected knowledge bases of a turn (cross-KB retrieval, phase 08, ADR-0335), each chunk keeping
+the collection it came from. `prefer` reorders the fused candidates before rerank and the ranked
+ones after it (the D3 version preference). The `rag.retrieve` span carries ids, pages, scores and
 counts, never chunk text (ADR-0137)."""
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from opentelemetry.trace import Status, StatusCode
 
@@ -77,28 +80,33 @@ class HybridRetriever:
     async def retrieve(
         self,
         owner: Owner,
-        collection: str,
+        collection: str | Sequence[str],
         question: str,
         *,
         document_ids: Sequence[str] | None = None,
         top_k: int | None = None,
+        prefer: Callable[[list[ScoredChunk]], list[ScoredChunk]] | None = None,
     ) -> list[ScoredChunk]:
         config = self._config
         with tracer.start_as_current_span("rag.retrieve") as span:
-            span.set_attribute("rag.collection", collection)
+            names = [collection] if isinstance(collection, str) else list(collection)
+            span.set_attribute("rag.collection", ",".join(names))
+            span.set_attribute("rag.collections", len(names))
             embedding = await self._embeddings.embed(question)
             stopwords = [*config.stopwords.get("ar", []), *config.stopwords.get("en", [])]
             by_vector = await self._store.vector_search(
-                owner, collection, embedding, limit=config.vector_top_k, document_ids=document_ids
+                owner, names, embedding, limit=config.vector_top_k, document_ids=document_ids
             )
             by_text = await self._store.text_search(
                 owner,
-                collection,
+                names,
                 query_terms(question, stopwords),
                 limit=config.text_top_k,
                 document_ids=document_ids,
             )
             fused = fuse([by_vector, by_text], config.rrf_k)
+            if prefer is not None:
+                fused = prefer(fused)
             rerank = config.rerank
             span.set_attribute("rag.rerank", "on" if rerank.enabled else "off")
             ranked = fused
@@ -118,6 +126,8 @@ class HybridRetriever:
                         (c.model_copy(update={"score": s}) for c, s in zip(candidates, scores, strict=True)),
                         key=lambda c: (-c.score, c.attachment_id, c.ord),
                     )
+                    if prefer is not None:
+                        ranked = prefer(ranked)
             top = ranked[: top_k or config.top_k]
             span.set_attribute("rag.vector_hits", len(by_vector))
             span.set_attribute("rag.text_hits", len(by_text))
