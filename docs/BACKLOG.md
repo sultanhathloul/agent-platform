@@ -112,9 +112,18 @@ Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0323; docs/
 
 ---
 
+## Phase order of 2026-10-26 (owner decision, phase 08 prompt D1, ADR-0328)
+
+Phase 08 (kb) is built first, from main after phase 06; then a standalone **report PR** (HTML report artifacts, pulled forward from phase 11's artifact outputs, MCP item 7 above); then phase 07 (planner). Phase 11 keeps the rest of artifact outputs and long-running tool calls. CLAUDE.md's phase table carries the note.
+
+### Report PR (after phase 08, before phase 07)
+Status: not started. Scope to be written in its own prompt: HTML report artifacts (a capability or skill returns an HTML page, stored, shown in a sandboxed preview, downloadable, its text through runtime DATA policies). Out of phase 08 (its prompt's OUT OF SCOPE).
+
+---
+
 ## Planner → phase 07 (owner decision, 2026-10-14)
 
-Status: not started. Done-check in `CLAUDE.md` (phase 07).
+Status: not started; now built after phase 08 and the report PR (ADR-0328). Done-check in `CLAUDE.md` (phase 07). It also takes the routing decision for all capabilities (keyword-free routing, ADR-0247), moved here from phase 08 by the owner (D5, ADR-0332): the planner's route decision uses a model on every turn.
 
 ### Why before kb
 The planner fixes the structured-output contract every later capability is built on: a step's inputs may reference an earlier step's outputs, so capabilities declare structured output schemas in their manifests. Building kb, web and sql first would mean retrofitting each of them to that contract.
@@ -149,6 +158,8 @@ Phases it needs: 04 docs (search the file), 05 MCP (routing), 06 skills (the pag
 ---
 
 ## kb phase (phase 08) — carried from phase 04
+
+Status: → phase 08 (docs/PHASE-08-BUILD-PROMPT.md, ADR-0328 onward), except "Routing for all capabilities", → phase 07 (D5, ADR-0332). Each item below gets its outcome when phase 08 ends.
 
 - **DocumentScope generalisation** must land first: see MCP item 10 above (it is scheduled in phase 05). Done in phase 05 (ADR-0202): kb is a manifest with `documents.collections: [kb]` and a backend whose `kb_{slug}` collections hold the KB documents. (Source: PROGRESS phase 04, fix session round 2, item 5.)
 - **KB documents need their own record for their chunks**: `agent.rag_chunks.attachment_id` is a foreign key to `agent.attachments` with ON DELETE CASCADE (migration 0010), so a chunk cannot exist without an attachment record. (Source: ADR-0166.)

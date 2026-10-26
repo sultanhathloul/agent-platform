@@ -54,6 +54,8 @@ At the end of the session:
 
 ## Phase plan (from README §15) and the done-check for each
 
+> **Build order (owner decision of 2026-10-26, ADR-0328):** phase 08 (kb) now, then a standalone "report" PR (HTML report artifacts, pulled forward from phase 11), then phase 07 (planner); the rows below keep their numbers and done-checks.
+
 | Phase | Branch | Done when |
 |-------|--------|-----------|
 | 01 Skeleton & platform | `phase/01-skeleton` | `make up` green; login works; `general` capability answers a question with streaming; Langfuse shows a trace with context block token counts |

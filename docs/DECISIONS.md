@@ -2998,3 +2998,89 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: decided
 - Decision: The picker's label is «المهارة» / "Skill" and its automatic option's hint «تُختار المهارة تلقائيًا عند الحاجة» / "The skill is chosen automatically when needed". It lists every skill the user may use (GET /v1/skills), each by its name in the page's language from SKILL.md or its sidecar (ADR-0325). The reply's chip («مكتوبة بنموذج …» / "Written as …") and the `skill_forbidden` message keep their wording.
 - Consequences: None beyond the two catalogue strings per language.
+
+### ADR-0328: Phase order: phase 08 now, then a standalone report PR, then phase 07 (D1)
+- Date: 2026-10-26
+- Phase: 08 (owner decision, phase 08 prompt D1)
+- Status: decided
+- Context: The order of 2026-10-14 put the planner (07) before kb (08). The owner wants knowledge bases first and HTML report artifacts before the planner.
+- Decision: Phase 08 (kb) is built now, from main after phase 06. Then a standalone "report" PR delivers HTML report artifacts, pulled forward from phase 11's artifact outputs. Then phase 07 (planner). CLAUDE.md's phase table carries a note with this order (rule 10: the rows themselves are unchanged), and docs/BACKLOG.md records it.
+- Consequences: kb is built without the planner's structured-output contract, so phase 07 retrofits kb's manifest with an output schema as it does for every earlier capability. Phase 11 keeps the rest of artifact outputs (MinIO storage, sandboxed preview for other capabilities and skills, long-running jobs) beyond what the report PR delivers.
+
+### ADR-0329: Knowledge bases are filled ahead of time, never from the internet at question time (D2)
+- Date: 2026-10-26
+- Phase: 08 (owner decision D2)
+- Status: decided
+- Decision: The platform answers from what is already ingested into a knowledge base. In this phase sources enter only by an administrator's upload (/admin/kbs/<slug>). No turn fetches a web page or calls a search engine for a KB; an automated fetcher in a connected zone is a later decision.
+- Consequences: A KB is as current as its last upload; the D3 publication date tells the user how old a figure is. The kb capability declares no network tool.
+
+### ADR-0330: Every KB document carries source metadata; retrieval prefers the latest version of a source (D3)
+- Date: 2026-10-26
+- Phase: 08 (owner decision D3)
+- Status: decided
+- Decision: A KB document has a title, a publisher, an optional source URL, a publication date and an optional "supersedes" link to an earlier document of the same KB (the same source's earlier version). Retrieval prefers the latest version of a source. An answer that cites a figure states its source and date. When two versions disagree, the answer uses the latest and may note the change.
+- Consequences: The admin page asks for the metadata at upload and lets it be corrected later; the citation under an answer shows the KB, title, publisher, date and page (I4). How "prefers" is computed is ADR-0335's.
+
+### ADR-0331: Proof-of-concept KB «الاقتصاد الدولي», seeded by make kb-poc in development only (D4)
+- Date: 2026-10-26
+- Phase: 08 (owner decision D4)
+- Status: decided
+- Decision: A proof-of-concept KB «الاقتصاد الدولي» / "International economy", readable by the seed users analyst and evaluator, is seeded by `make kb-poc` from the freely downloadable public sources the owner listed (IMF Article IV China 2025 report and press release, IMF WEO April and July 2026 pages, stats.gov.cn and english.gov.cn releases, english.scio.gov.cn, fmprc.gov.cn and mfa.gov.cn pages, SPA, SAMA, PIF and Aramco news pages, the World Bank blog post on Hormuz, qna.org.qa, bricspolicycenter.org, sab.com, un.china-mission). Paywalled or rating-agency pages (Moody's, Fitch, S&P, Bloomberg) are excluded and listed as "upload by subscription". Downloaded content is never committed: `make kb-poc` fetches it in development only; a manifest (URL, retrieved date, hash) is committed instead. Under smoke-airgap the POC KB is absent and nothing depends on it. Evals use generated fake documents (ADR-0065).
+- Consequences: The POC depends on those sites being reachable and unchanged; a changed page shows as a hash mismatch in the manifest run, not as a silent difference. Real public documents enter a development stack only, which ADR-0065 allows for public data.
+
+### ADR-0332: Keyword-free routing moves to phase 07; phase 08 keeps keyword candidacy and explicit KB toggles (D5)
+- Date: 2026-10-26
+- Phase: 08 (owner decision D5)
+- Status: decided
+- Context: ADR-0247 left "routing for all capabilities" (router model on every turn, or keyword candidacy) to phase 08, measured with kb.
+- Decision: The decision moves to phase 07: the planner's route decision uses a model on every turn there. Phase 08 keeps keyword candidacy (ADR-0216) as it is, and kb is used only when the user toggles one or more knowledge bases.
+- Consequences: Supersedes in part ADR-0247 (the phase). The keyword-free routing set stays reported, not gated. kb adds no router call.
+
+### ADR-0333: KB CRUD is admin only at the gateway and the agent; create makes the realm role; delete is soft (I1)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I1)
+- Status: decided
+- Decision: Creating, listing, reading and deleting knowledge bases are admin operations, checked at the gateway (the token's `admin` role) and at the agent (X-User-Admin, ADR-0284). Creating a KB creates the Keycloak realm role `kb:<slug>:read` through the Keycloak Admin API. Deleting is soft: the KB is hidden from every user, its role is kept, and its documents are purged from the index. Every operation is audited fail-closed (ADR-0042) with the actor's username and display name (ADR-0123).
+- Consequences: A deleted KB's slug and role stay; who held the role keeps it, harmlessly, since a deleted KB is unreachable (I7).
+
+### ADR-0334: KB ingestion reuses the phase 04 pipeline and the DocumentBackend contract, scoped by KB (I2)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I2)
+- Status: decided
+- Decision: A KB document is stored in MinIO by the gateway and registered with the DocumentBackend the kb capability's configuration names (internal or MCP), into the KB's collection `kb_<slug>` instead of a conversation's. The same extraction, sandbox, chunking, embedding, limits and resilience rules apply (rule 12).
+- Consequences: Switching the kb backend affects new uploads only, as for docs (ADR-0232).
+
+### ADR-0335: Cross-KB retrieval across the selected KBs, version preference before rerank, citations with source metadata (I4)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I4)
+- Status: decided
+- Decision: The kb capability searches all the turn's selected and permitted KBs in one hybrid search (vector and full text, fused) with rerank when it is on. The D3 version preference is applied to the fused candidates before rerank. Every citation shows the KB's name, the document's title, publisher, date and page.
+- Consequences: The answer cites across KBs with each chunk's KB attribution kept (README §9.4).
+
+### ADR-0336: KB toggles in the composer from GET /v1/capabilities; selected_kbs checked at the gateway and the agent (I3)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I3)
+- Status: decided
+- Decision: The composer renders KB toggles from `GET /v1/capabilities`, which lists only the KBs the caller may read. A turn's `selected_kbs` must be a subset of the caller's permitted KBs, checked at the gateway and again at the agent. With no KB selected, the kb capability is not used.
+- Consequences: KB use is explicit (D5); a turn never searches a KB the user did not toggle.
+
+### ADR-0337: Admin pages /admin/kbs and /admin/kbs/<slug> (I5)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I5)
+- Status: decided
+- Decision: `/admin/kbs` lists the KBs, creates and deletes one, and shows each KB's role. `/admin/kbs/<slug>` uploads documents, edits the D3 metadata in a form, shows each document's status badge and offers a supersedes picker. Arabic first, Western digits (ADR-0288), no code or JSON needed.
+- Consequences: An administrator can run a KB without Keycloak's console, except for assigning its role to users, which stays in Keycloak (the page shows the role's name).
+
+### ADR-0338: kb.jsonl on generated fake KBs, and routing cases with toggles (I6)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I6)
+- Status: decided
+- Decision: `kb.jsonl` runs on generated fake KBs and measures retrieval hit@8, citation accuracy with KB attribution, latest-version preference (a superseded figure must not be the answer), cross-KB attribution and abstention, each with a threshold in `evals/thresholds.yaml`. Routing gains cases for kb with toggles.
+- Consequences: The suite needs the harness to create KBs and upload their documents before the cases run.
+
+### ADR-0339: Negative permission tests on every endpoint, at the gateway and the agent; a deleted KB is unreachable (I7)
+- Date: 2026-10-26
+- Phase: 08 (implementation choice I7)
+- Status: decided
+- Decision: A user without `kb:<slug>:read` cannot list the KB, toggle it, retrieve from it, see its citations or its documents, through any endpoint, at the gateway and at the agent, each tested. A deleted KB is unreachable to every user, its role's holders included.
+- Consequences: Each new path has its negative test first (the G6 precedent of phase 06).
