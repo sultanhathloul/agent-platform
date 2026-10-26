@@ -83,6 +83,34 @@ def test_script_of_classifies_letters_and_leaves_the_rest_neutral():
         assert script_of(neutral) is None, repr(neutral)
 
 
+# Emoji sequences (phase 08, F1, ADR-0340): a variation selector (🏖️ and ⚙️ end in U+FE0F), a
+# skin-tone modifier, a zero-width joiner, a keycap, a regional-indicator flag or a tag sequence
+# carries no writing system, wherever it sits in a token.
+EMOJI_ANSWERS = [
+    "🏖️ فريق الموارد البشرية: تبدأ الإجازة الصيفية يوم الأحد.",
+    "⚙️ فريق التطوير أنهى ترحيل الخادم هذا الأسبوع.",
+    "⚙️ Engineering team: the migration finished on Sunday.",
+    "🏖️ HR: summer leave starts on Sunday, see the FAQ.",
+    "تهانينا للفريق 👍🏽 على الإنجاز، والمراجعة يوم 2️⃣ من الشهر 🇸🇦.",
+    "Kudos 👩🏾‍💻 to the platform team and 👨‍👩‍👧 families day 🏴󠁧󠁢󠁳󠁣󠁴󠁿 #1️⃣",
+    "فريق🏖️ التشغيل: شكرًا (Ops ⚙️) على الدعم.",
+]
+
+
+@pytest.mark.parametrize("answer", EMOJI_ANSWERS)
+def test_emoji_selectors_modifiers_and_joiners_carry_no_script(arabic, answer):
+    assert script_issues(answer, arabic) == []
+    assert validation_issues(answer, [], [], scripts=arabic) == []
+
+
+def test_emoji_components_are_neutral_and_a_real_disallowed_script_still_fails(arabic):
+    for neutral in ("\ufe0f", "\ufe0e", "\U000e0100", "\U0001f3fd", "\u200d", "\u20e3", "\U0001f1f8", "\U000e0067"):
+        assert script_of(neutral) is None, repr(neutral)
+    assert script_issues("🏖️ فريق الموارد البشرية: Отпуск начинается в воскресенье.", arabic) == [DISALLOWED_SCRIPT]
+    assert script_issues("⚙️ 北京 فريق التطوير", arabic) == [DISALLOWED_SCRIPT]
+    assert script_issues("⚙️ الريyal", arabic) == [MIXED_SCRIPT_TOKEN]
+
+
 def test_a_locale_without_a_policy_is_not_script_checked(config_dir):
     assert load_validation_config(config_dir).scripts_for("en") is None
     assert validation_issues("The Chinese word for Beijing is 北京.", [], [], scripts=None) == []

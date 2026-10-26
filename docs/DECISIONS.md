@@ -3084,3 +3084,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: decided
 - Decision: A user without `kb:<slug>:read` cannot list the KB, toggle it, retrieve from it, see its citations or its documents, through any endpoint, at the gateway and at the agent, each tested. A deleted KB is unreachable to every user, its role's holders included.
 - Consequences: Each new path has its negative test first (the G6 precedent of phase 06).
+
+### ADR-0340: The parts of an emoji sequence carry no writing system (F1)
+- Date: 2026-10-26
+- Phase: 08 (carried fix F1, from the phase 06 visual check)
+- Status: decided
+- Context: `script_of` returned the first word of a mark's Unicode name as its script. U+FE0F VARIATION SELECTOR-16 (category Mn), which ends 🏖️ and ⚙️, became the script "VARIATION", which no locale allows, so every Arabic answer holding such an emoji failed `disallowed_script` (internal-comms' 3P layout; PROGRESS, phase 06 visual check fix session).
+- Decision: Variation selectors (U+FE00–FE0F, U+E0100–E01EF and any character named "… VARIATION SELECTOR …") carry no script, like combining and modifier marks. Skin-tone modifiers, the zero-width joiner, keycaps, regional indicators and tag characters already carried none (their categories are not letters or marks, or their names start with COMBINING); tests now pin every one of them. A letter of a disallowed script still fails, emoji or not.
+- Consequences: Refines ADR-0060's rule (which characters carry no script). An emoji glued to a word (`فريق🏖️`) does not make a mixed token.
