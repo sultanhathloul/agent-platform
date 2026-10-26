@@ -8,10 +8,12 @@ Licence:     Apache License 2.0, LICENSE.txt (copied with the skill)
 
 Copied unmodified: SKILL.md, examples/3p-updates.md, examples/company-newsletter.md,
 examples/faq-answers.md, examples/general-comms.md and LICENSE.txt are byte-identical to the
-files at that commit. This note and evals/ are the platform's own files beside them.
+files at that commit. This note, skill.platform.yaml and evals/ are the platform's own files
+beside them.
 
 Loaded into the model: SKILL.md's body and the four examples/ files it names (ADR-0318).
-Skipped: LICENSE.txt, this note and evals/ (listed in the agent's startup log).
-No platform field (`sovereign` block): permission skill:internal-comms, no required capability,
-no keyword, so it is applied only when picked in the composer; labels are its name and
-description in both locales; its version is the content hash of the loaded files.
+Read by the loader, never sent to the model: skill.platform.yaml (ADR-0325, owner decision of
+2026-10-26): the Arabic and English name and description shown in the picker, permission
+skill:internal-comms, no required capability, and Arabic, Gulf and English routing keywords
+(keyword_candidate). Skipped: LICENSE.txt, this note and evals/ (listed in the agent's startup log).
+Its version is the content hash of the loaded files and skill.platform.yaml.

@@ -1,0 +1,43 @@
+# The platform's fields for internal-comms (ADR-0325, owner decision of 2026-10-26). SKILL.md and
+# examples/ stay byte-identical to the upstream copy (SOURCE.txt); this file is the platform's own,
+# read by the loader and never sent to the model.
+name:
+  ar: "التواصل الداخلي"
+  en: "Internal comms"
+description:
+  ar: "يكتب المراسلات الداخلية للفريق والجهة بالصيغ المعتمدة: تحديث التقدم والخطط والمشكلات (3P)، وتقرير الحالة، والتحديث الأسبوعي، والنشرة الداخلية، وإجابات الأسئلة الشائعة، وتعميم الفريق، وتقرير الحادثة. عندما يطلب المستخدم أن تُكتب له رسالة داخلية من هذه الأنواع، لا عندما يسأل عن معنى الكلمة أو عن رسالة كتبها غيره."
+  en: "Writes internal communications in the company's formats: 3P updates (progress, plans, problems), status reports, weekly updates, newsletters, FAQ answers, team announcements and incident reports. Use when the user asks for one of these to be written for them, not when they ask what the word means or about one someone else wrote."
+requires: {capabilities: []}
+routing_hints:
+  keywords:
+    ar:
+      - "تحديث أسبوعي"
+      - "تحديثاً أسبوعياً"
+      - "التحديث الأسبوعي"
+      - "تحديث الأسبوع"
+      - "تحديث للفريق"
+      - "تقرير حالة"
+      - "تقرير الحالة"
+      - "تقرير حادثة"
+      - "نشرة داخلية"
+      - "النشرة الداخلية"
+      - "للنشرة الداخلية"
+      - "نشرة الشركة"
+      - "تعميم للفريق"
+      - "تعميم للموظفين"
+      - "أسئلة شائعة"
+      - "الأسئلة الشائعة"
+      - "تحديث 3P"
+    en:
+      - "weekly update"
+      - "status report"
+      - "status update"
+      - "newsletter"
+      - "FAQ"
+      - "3P update"
+      - "leadership update"
+      - "project update"
+      - "incident report"
+      - "internal comms"
+      - "internal communication"
+  rules: [{when: keyword_candidate}]
