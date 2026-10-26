@@ -62,7 +62,7 @@
     "guard": "Guardrail",
     "tool": "Tool",
     "latency": "{ms} ms",
-    "skill": "Written as"
+    "skill": "Skill"
   },
   "guardActions": {
     "allow": "Allowed",
@@ -106,7 +106,7 @@
     "forbidden": "You do not have permission to perform this request.",
     "kb_forbidden": "You do not have access to one of the selected knowledge bases.",
     "conversation_forbidden": "This conversation belongs to another user, so you cannot continue it.",
-    "skill_forbidden": "The chosen template is not available to you.",
+    "skill_forbidden": "The chosen skill is not available to you.",
     "invalid_request": "The request could not be processed because it is invalid.",
     "agent_unavailable": "The assistant service is currently unavailable. Please try again shortly.",
     "agent_stream_interrupted": "The answer stream was interrupted before it finished. Please try again.",

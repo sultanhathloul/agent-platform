@@ -3107,3 +3107,10 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: decided
 - Decision: `answer.system` (ar 1.6.0, en 1.4.0) carries one rule outside `{% if has_evidence %}`, so it is present on every turn: never invent a URL; a link appears in the answer only if it is word for word in the findings or sources given, or in the user's message. The skill precedence line stays as it was (ADR-0300). The eval harness gains the generic scorer `urls_from_inputs` (every link in the answer is in the case's message, or in the case fields `inputs` names). internal-comms gains three newsletter cases (kind `newsletter_link`: an English and an Arabic request asking "where to read more" with no link given, and one that gives a link) and the metric `no_invented_url`, gated at 1.00, over its newsletter cases.
 - Consequences: A prompt change: the suites that render `answer.system` run (rule 13; all suites, since every answer renders it). The Arabic rule avoids the word «الأدلة», which only the evidence line uses.
+
+### ADR-0343: The reply's chip and the skill_forbidden message say «المهارة» / "Skill" (F4)
+- Date: 2026-10-26
+- Phase: 08 (carried fix F4)
+- Status: decided
+- Decision: The reply's chip reads «المهارة» / "Skill" before the skill's name (was «مكتوبة بنموذج …» / "Written as …"), and `skill_forbidden` reads «المهارة المختارة غير متاحة لك.» / "The chosen skill is not available to you." in config/messages/errors.yaml, the gateway's message catalogues and the web's.
+- Consequences: Supersedes in part ADR-0327 (the chip and the message kept their wording). The picker, chip and refusal now use one word for a skill.

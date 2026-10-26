@@ -83,9 +83,9 @@ describe("the reply's skill chip", () => {
     expect(message.skill).toEqual({ slug: "fixture_form", label: { ar: "نموذج الاختبار", en: "Test form" } });
     expect(message.text).toBe("");
     const ar = renderIn("ar", <AssistantMessageView message={{ ...message, status: "done", text: "نص" }} />);
-    expect(text(ar)).toContain("مكتوبة بنموذج نموذج الاختبار");
+    expect(text(ar)).toContain("المهارة نموذج الاختبار");
     const en = renderIn("en", <AssistantMessageView message={{ ...message, status: "done", text: "text" }} />);
-    expect(text(en)).toContain("Written as Test form");
+    expect(text(en)).toContain("Skill Test form");
   });
 
   it("leaves with the answer when the turn fails", () => {
