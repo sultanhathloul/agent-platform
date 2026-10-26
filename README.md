@@ -238,6 +238,8 @@ Loop behaviour (`reason → tool_decision → guard(PRE_TOOL) → execute → gu
 
 > **Amendment 2026-10-24 (phase 06, ADR-0299, ADR-0312).** The route node also selects **at most one skill** (§18.6). In order: (a) the skill the user picked in the composer, checked at the gateway and the agent, applied with no router decision on the skill; (b) otherwise the available skills whose keywords are in the message are candidates, and the router model returns `{capabilities, skill: slug | null, complexity, risk}`, choosing a skill only when the user asks for that kind of document; when the rules already decided the capabilities, it is asked for the skill only; (c) no picker and no candidate: no skill and no router call added. A skill that is not a candidate, or whose required capability was not selected, is dropped (`skill_dropped`). The candidates and their descriptions enter `router.request` (1.3.0: the description only, ADR-0321); their `name@version` enter the cache key. A skill without keywords (the open format's default, ADR-0317) is selectable by the picker only, until keyword-free routing is decided in phase 08.
 
+> **Amendment 2026-10-26 (phase 08, ADR-0332, ADR-0348).** A manifest rule `kbs_selected` selects a capability when the turn carries knowledge bases the user toggled, admitted as permitted and live; the kb capability has only that rule, so with none toggled it never runs. Keyword-free routing for every capability moves to phase 07 (the planner's route decision uses a model on every turn); phase 08 keeps keyword candidacy.
+
 ## 6. Gateway (Spring Boot)
 
 ### 6.1 Responsibilities
@@ -266,6 +268,7 @@ GET  /v1/health
 > **Amendment 2026-10-22 (platform settings, standalone PR before phase 06, ADR-0276 to ADR-0284).** Agent and gateway API version 2.4.0, additive: the admin-only `/v1/admin/settings` (read, `preview`, save, `revert`, `versions`) and `/v1/admin/usage`, checked at the gateway and, through `X-User-Admin`, at the agent; the agent's `GET /v1/internal/settings/limits`, which the gateway reads every 5 s. The events schema is unchanged.
 > **Amendment 2026-10-21 (fix session on the PR #12 review, ADR-0262, ADR-0265).** Agent and gateway API version 2.3.0, additive: `POST /v1/turns` (agent) and `POST /v1/chat/turns` (gateway) may answer 429 `too_many_turns` before any stream; the agent's attachment registration may answer 429 `too_many_uploads`, which the gateway's upload already documented. The events schema is unchanged.
 > **Amendment 2026-10-24 (phase 06, ADR-0301, ADR-0310, ADR-0313).** Agent and gateway API version 2.5.0, additive: the chat request's optional `skill` (403 `skill_forbidden` before any stream when the caller may not use it); `GET /v1/skills` (the caller's skills: slug, name, description); a history reply's optional `skill {slug, label}`; the `skill` event `{slug, label {ar, en}}` before the answer's tokens; the done event's `state_digest.skill` (`slug@version`). The gateway forwards `skill:*` roles as permissions beside `cap:*` and `kb:*:read`.
+> **Amendment 2026-10-26 (phase 08, ADR-0333, ADR-0349, ADR-0350).** Agent and gateway API version 2.6.0, additive: the admin-only `/v1/admin/kbs` (list, create, read, delete) and `/v1/admin/kbs/{slug}/documents` (list, upload with source metadata, read, `PUT …/metadata`), checked at the gateway and, through `X-User-Admin`, at the agent; `GET /v1/capabilities` (the caller's capabilities and the KBs it may read); the agent's `GET /v1/internal/kbs/live`, which the gateway asks on a turn that selects KBs; a turn selecting a KB the caller may not read, deleted or another tenant's is 403 `kb_forbidden` before any stream at both; citations gain `kb_name`, `publisher` and `published_on`, omitted when empty.
 
 ### 6.3 API standards
 
@@ -359,6 +362,8 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 - UI: KB icons appear as toggleable plugins next to the composer **only for KBs the user has the role for**. The gateway re-checks on every turn; the agent receives `selected_kbs` already filtered — and re-filters again against `permissions` (defense in depth).
 - Retrieval merges results across selected KBs, keeps per-chunk `kb` attribution, and the answer cites `[KB name › document › section]`.
 
+> **Amendment 2026-10-26 (phase 08, ADR-0328 to ADR-0356).** KBs are filled ahead of time by an administrator's upload, never from the internet at question time (D2). A KB belongs to the tenant of the administrator who created it; its slug, and its role `kb:<slug>:read` created through the Keycloak Admin API first, are unique on the platform; deleting is soft (hidden, role kept, slug kept, its chunks purged from the internal index; an MCP server keeps its copy for operations to remove, since no MCP operation deletes, D6). Every document carries a title, publisher, optional source URL, publication date and optional `supersedes` (an earlier version of the same source in the same KB; one successor at most, no loop) (D3). Documents go through the phase 04 pipeline and the `DocumentBackend` of config/kb.yaml (I2); their records are `agent.kb_documents`, their chunks `agent.rag_chunks.kb_document_id`. The kb capability searches all toggled KBs in one hybrid search, each KB keeping its best 2 chunks in the top 8, prefers the latest version of a source before and after rerank (an older chunk stays beside its newer version only once, labelled), and its citations show KB › title, publisher, date and pages; the answer states a figure's source and date. The composer's toggles come from `GET /v1/capabilities`; the gateway and the agent each refuse a KB the caller may not read, a deleted one or another tenant's. Admin pages: `/admin/kbs` and `/admin/kbs/<slug>`. The proof-of-concept KB «الاقتصاد الدولي» is seeded in development by `make kb-poc` (D4).
+
 ### 9.5 General (UC5)
 
 No tools. Small context. Still passes input/output guards and validation. Router model is the main cost here; cache aggressively.
@@ -428,6 +433,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-11 (phase 04).** The seed users `analyst` and `evaluator` also hold `cap:docs`: smoke uploads a file as the analyst to check the viewer cannot reach it, and the rag and routing suites run as the evaluator.
 
+> **Amendment 2026-10-26 (phase 08).** `evaluator` holds `cap:kb` and the roles of the kb suite's fixture KBs (`kb:eval-economy:read`, `kb:eval-labor:read`); `analyst` and `evaluator` hold `kb:intl-economy:read` (the proof-of-concept KB); `analyst` holds `kb:smoke-deleted:read` (smoke's deleted KB). KB roles are otherwise created when an administrator creates the KB and assigned in Keycloak.
+
 > **Amendment 2026-10-06 (ADR-0107).** Realm roles prefixed `policy:` (e.g. `policy:pii-exempt`, held by the seed user `analyst`) are policy-scope roles: they grant nothing, select the guard policies scoped `role:{name}`, and are the only roles the gateway forwards to the agent, as `principal.policy_roles`. The admin policy form lists them through the gateway's Keycloak Admin API client.
 
 ---
@@ -455,6 +462,8 @@ Seed policies in `config/policies/`:
 - Feedback: thumbs up/down + "this refusal was wrong" → stored as Langfuse score + audit.
 
 > **Amendment 2026-10-15 (ADR-0192 to ADR-0194, owner decision).** The chat page lists the caller's conversations, newest first, beside the chat, and `/chat/[id]` opens with the conversation's earlier messages. The gateway serves `GET /v1/conversations` and `GET /v1/conversations/{id}/messages`, owner only, audited (`conversation.list`, `conversation.read`); the agent reads the history from the checkpointed thread and the list from `agent.conversation_owners`. The history shows the post-guard text, the files sent with each question and each answer's citations when they were recorded; a retracted exchange is left out. Read-only: no rename or delete (ADR-0166). API version 2.1.0.
+
+> **Amendment 2026-10-26 (phase 08, ADR-0353).** The composer shows one toggle per KB the caller may read (`GET /v1/capabilities`), none on by default, kept per conversation in the browser; a KB citation shows «KB › title», the publisher and the date in Western digits. `/admin/kbs` and `/admin/kbs/<slug>` manage KBs and their documents, Arabic first and code-free.
 
 ---
 
@@ -869,6 +878,23 @@ Rules:
 | `evals/golden/routing.jsonl` | `expected_skill`; `report_set: skill_keyword_free` | The skill a turn should get (null when none); the keyword-free skill requests, reported, not gated (ADR-0304) |
 | `evals/thresholds.yaml` | `official_memo`, `internal-comms` | Gated mechanism metrics at 1.00: `skill_applied`, `skill_block_loaded`, and `permission_refused` for official_memo; content metrics reported (ADR-0320) |
 | `.env` (through compose) | `SKILLS_DIR` (`/srv/skills`) | Where the agent reads the skills, mounted read-only |
+
+### 20.8 Configuration keys added in phase 08
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/kb.yaml` (new) | `backend` (`internal` \| `mcp`, `KB_BACKEND` overrides), `retrieval.top_k` (8) | The DocumentBackend KB documents are registered with and searched on (I2); passages for the answer across the toggled KBs |
+| `config/docs.yaml` | `retrieval.superseded_keep` (1), `retrieval.min_per_collection` (2) | Older-version chunks kept beside the latest (D3, ADR-0347); each toggled KB's best chunks kept in the top 8 (ADR-0355) |
+| `capabilities/kb/manifest.yaml` (new) | `routing_hints.rules: kbs_selected`, `documents.collections: [kb]`, `tools: [kb_search]` | The kb capability (ADR-0348) |
+| `capabilities/kb/prompts/` | `kb.evidence` 1.0.0 | How the answer uses KB passages: a figure's source and date, the latest version first |
+| `capabilities/kb/evals/` | `kb.jsonl`, `metrics.yaml`, `fixtures.yaml` | The kb suite and its fake KBs (ADR-0355) |
+| `config/prompts/context/` | `context.retrieval` 2.1.0 | A KB passage's delimiter: KB › title, publisher, date, and the version that supersedes it |
+| `config/prompts/answer/` | `answer.system` 1.6.0 (ar), 1.4.0 (en) | Never invent a URL, on every turn (F3, ADR-0342) |
+| `config/messages/errors.yaml` | `kb_forbidden`, `kb_not_found`, `kb_exists`, `kb_document_not_found`, `kb_supersedes_invalid` | The KB refusals in Arabic and English |
+| `evals/thresholds.yaml` | `kb`, `internal-comms.no_invented_url` | Gated KB metrics (ADR-0338); no link absent from the request (F3) |
+| `evals/golden/fixtures.yaml` (new) | `include` | routing.jsonl's kb cases use the kb suite's fixture KBs |
+| `scripts/kb_poc/` (new) | `sources.yaml`, `manifest.json` | The proof-of-concept KB's sources and what `make kb-poc` fetched (D4, ADR-0356) |
+| `infra/keycloak/realm-export.json` | `kb:intl-economy:read`, `kb:eval-economy:read`, `kb:eval-labor:read`, `kb:smoke-deleted:read`; `cap:kb` for evaluator | The seed KB roles (§11 amendment) |
 
 ## 21. Getting started on a new machine
 
