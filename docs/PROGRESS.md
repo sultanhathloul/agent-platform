@@ -2129,17 +2129,71 @@ Left for the owner:
 Files for review: skills/internal-comms/skill.platform.yaml and SOURCE.txt, evals/golden/routing.jsonl, skills/*/evals/*, services/web/package.json (react-markdown 10.1.0, remark-gfm 4.0.1).
 Pages for the visual check: /chat/[id] in ar and en: answers with bold, lists, a table and a memo; the composer's picker «المهارة» / "Skill" with «التواصل الداخلي» and «مذكرة داخلية».
 
+## Phase 08: Knowledge bases
+
+- Branch: `phase/08-kb`, from `main` at 43e7509 (PR #14, phase 06, merged on 2026-10-26T10:50:42Z). The session prompt is kept verbatim in `docs/PHASE-08-BUILD-PROMPT.md`; it arrived whole (it ends with END).
+- Status: in progress (session of 2026-10-26).
+- Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- Done when (CLAUDE.md phase 08 row, plus the prompt): KB CRUD creates a Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent; plus owner decisions D1–D5, implementation choices I1–I7 and carried fixes F1–F4 below; `make test`, `make eval` once (all suites), `make smoke` and `make smoke-airgap` green, recorded per rule 11.
+- Baseline on `main` (rule 11): main at 43e7509 carries the code of 001a990, whose last recorded runs are the fix session of 2026-10-26 at 4eb3ae3:
+  - `make test`: agent 1041 / 0 / 0, gateway 180 / 0 / 0, gateway-db 5 / 0 / 0, web 183 / 0 / 0, evals harness 28 / 0 / 0, timeout budget 32 / 0 / 0, scripts/tests 16 / 0 / 0.
+  - `make smoke` 213/213 at 4eb3ae3; `make smoke-airgap` 220/220, last at b72892d.
+  - No layer may end lower unless an ADR names each removed test and why.
+
+Restated (five lines, session protocol):
+1. Admins create and soft-delete knowledge bases at gateway AND agent; creating one creates the realm role `kb:<slug>:read`; every KB document carries D3 source metadata (title, publisher, optional URL, publication date, optional supersedes) and is ingested through the phase 04 pipeline and the DocumentBackend contract, scoped by KB.
+2. The composer shows KB toggles from `GET /v1/capabilities`, only KBs the user may read; `selected_kbs` ⊆ permitted and active is checked at the gateway AND the agent; with none selected the kb capability does not run.
+3. The kb capability retrieves across the selected KBs (hybrid, rerank when on), prefers the latest version of a source before rerank, and every citation shows KB name, document title, publisher, date and page.
+4. Negative permission tests at gateway AND agent on every endpoint (list, toggle, retrieve, citations, documents) and for a deleted KB; kb.jsonl on generated fake KBs with thresholds; routing cases with toggles; `make kb-poc` (development only, manifest committed, content never); F1–F4 fixed, each in its own commit.
+5. Done = make test, make eval once (all suites), make smoke and make smoke-airgap green, recorded per rule 11 with each suite's per-metric scores, lost cases and build/evals record.
+
+Phase 08 ground rules. The prompt carries no section titled "ground rules"; its four sections below are this phase's rules, verbatim, and CLAUDE.md's permanent rules apply (rule 11 counts, rule 12 resilience for all new code, rule 13 evals by what changed).
+
+OWNER DECISIONS (record as ADRs, decided):
+- D1. Phase order changed: phase 08 now, then a standalone "report" PR (HTML report artifacts, pulled forward from phase 11), then phase 07 (planner). Update CLAUDE.md's phase table note and docs/BACKLOG.md accordingly.
+- D2. Knowledge bases are filled ahead of time, never by searching the internet at question time: the platform answers from what is already ingested. Sources enter by admin upload in this phase; an automated fetcher in a connected zone is a later decision.
+- D3. Every KB document carries source metadata: title, publisher, source URL (optional), publication date, and an optional "supersedes" link to an earlier version of the same source. Retrieval prefers the latest version of a source; an answer citing a figure states the source and its date; when two versions disagree, the answer uses the latest and may note the change.
+- D4. Proof of concept KB «الاقتصاد الدولي» / "International economy", for analyst and evaluator, seeded by `make kb-poc` from the freely downloadable public sources the owner listed (IMF Article IV China 2025 report and press release, IMF WEO April and July 2026 pages, stats.gov.cn and english.gov.cn releases, english.scio.gov.cn, fmprc.gov.cn and mfa.gov.cn pages, SPA, SAMA, PIF and Aramco news pages, the World Bank blog post on Hormuz, qna.org.qa, bricspolicycenter.org, sab.com, un.china-mission). Paywalled or rating-agency pages (Moody's, Fitch, S&P, Bloomberg) are excluded and listed as "upload by subscription". Downloaded content is never committed to git; `make kb-poc` fetches it in development only, with a manifest (URL, retrieved date, hash) committed instead. Under smoke-airgap the POC KB is absent and nothing depends on it. Evals use generated fake documents as always (ADR-0065).
+- D5. Keyword-free routing (ADR-0247) moves to phase 07: the planner's route decision uses a model on every turn there. Phase 08 keeps keyword candidacy, and KB use is explicit through the user's toggles.
+
+IMPLEMENTATION CHOICES (record as ADRs, decided):
+- I1. KB CRUD (admin only, gateway AND agent): create creates realm role kb:<slug>:read; delete is soft (hidden, role kept) with its documents purged from the index; audited fail-closed with actor names.
+- I2. Ingestion reuses the phase 04 pipeline and DocumentBackend contract (internal and MCP backends), scoped by KB instead of conversation; same sandbox, limits and resilience rules (rule 12).
+- I3. The composer offers KB toggles (from /v1/capabilities, only KBs the user may read); selected_kbs ⊆ permitted checked at the gateway AND the agent; none selected means kb is not used.
+- I4. Cross-KB retrieval: hybrid search and rerank across the selected KBs, every citation shows KB name, document title, publisher, date and page; the D3 version preference applied before rerank.
+- I5. Admin pages: /admin/kbs (list, create, delete, role shown) and /admin/kbs/<slug> (upload, metadata form for D3, status badges, supersedes picker); Arabic first, Western digits (ADR-0288), code-free.
+- I6. Evals: kb.jsonl on generated fake KBs: retrieval hit@8, citation accuracy with KB attribution, latest-version preference (a superseded figure must not be the answer), cross-KB attribution, abstention; thresholds in evals/thresholds.yaml. Routing cases for kb with toggles.
+- I7. Negative permission tests: a user without kb:<slug>:read cannot list it, toggle it, retrieve from it, see its citations or its documents, through any endpoint, at the gateway AND the agent; a deleted KB is unreachable.
+
+CARRIED FIXES FROM PHASE 06 (each its own commit, ADR where it changes a decision):
+- F1. script_of (services/agent/app/text/script.py): emoji variation selectors, modifiers and joiners count as neutral, never as a writing system. Tests: Arabic, English and mixed answers with 🏖️, ⚙️, flags and skin tones pass; a real disallowed script still fails. The internal-comms suite and the lost routing case must pass again.
+- F2. Skill loader (services/agent/app/skills/registry.py): a reference written as ./path, as a Markdown link [text](./path) or as a bare relative path is matched and loaded, so a public skill loads unmodified (ADR-0317, ADR-0318). Tests for each form.
+- F3. Answer system prompt (ar and en, version bump): one rule outside {% if has_evidence %}, present on every turn: never invent a URL; a link appears only if it is in the findings or the user's message. Keep the skill precedence line. An eval case where internal-comms writes a newsletter asserts no URL absent from the inputs.
+- F4. The reply chip and the skill_forbidden message say «المهارة» / "Skill" instead of «نموذج» / "template".
+
+OUT OF SCOPE: the report capability and HTML artifacts (next PR); PDF export; the planner; automated source fetching; phase 12 backlog.
+
+Checklist:
+- [ ] A. First commit: the prompt verbatim (docs/PHASE-08-BUILD-PROMPT.md), this section.
+- [ ] B. ADRs: D1–D5 and I1–I7 decided (ADR-0328 to ADR-0339); F1–F4 (ADR-0340 to ADR-0343); assumptions as they arise from ADR-0344. CLAUDE.md phase table note (D1); BACKLOG: the new order, the report PR, D5 (routing for all capabilities → phase 07), the phase 08 items' status.
+- [ ] C. Carried fixes, one commit each, tests first: F1 `script_of` (emoji selectors, modifiers, joiners, tags neutral); F2 skill references `./path`, `[text](./path)`, bare relative path; F3 `answer.system` (ar, en) never-invent-a-URL rule on every turn, version bump, an internal-comms newsletter case with no URL absent from the inputs; F4 chip and `skill_forbidden` wording.
+- [ ] D. Contracts first, as types with tests: migration (agent.kbs, agent.kb_documents with D3 metadata and supersedes, chunks owned by a KB document); the agent's admin KB API and `GET /v1/capabilities` schemas; the citation's additive KB fields; the routing rule for selected KBs; API minor bump (agent and gateway), `make openapi`.
+- [ ] E. Agent: KB store; admin KB CRUD (X-User-Admin checked, soft delete purging chunks); KB document register, list, status, metadata (D3, supersedes in the same KB, no cycle); ingestion of KB documents through the same pipeline, sandbox and limits; the internal backend's kb collections (cross-KB hybrid retrieval, version preference before rerank); the MCP backend and the reference RAG server with kb collections; turn admission refusing `selected_kbs` outside permitted ∩ active (403 `kb_forbidden`); `GET /v1/capabilities`.
+- [ ] F. kb capability package: manifest (`documents.collections: [kb]`, rule for selected KBs), `kb_search` tool, prompts (evidence with source and date), config/kb.yaml; tests; zero capability names in core files.
+- [ ] G. Gateway: KB admin endpoints (admin check, Keycloak role creation bounded, agent call, audit fail-closed with actor names); KB document upload through the attachment limits and gate; list and status; `GET /v1/capabilities`; the chat check against permitted and active KBs; negative tests (I7).
+- [ ] H. Web: KB toggles in the composer from `/v1/capabilities`, persisted per conversation; citations with KB name, title, publisher, date and page; /admin/kbs and /admin/kbs/[slug] (upload, D3 form, status badges, supersedes picker), Arabic first, Western digits, code-free; i18n ar/en; component tests.
+- [ ] I. Evals: generated fake KBs (two KBs, a superseded version pair), kb.jsonl with metrics (hit@8, citation accuracy with KB attribution, latest version, cross-KB attribution, abstention), thresholds; the harness runs it with no kb-named branch; routing cases with toggles.
+- [ ] J. Smoke and smoke-airgap: KB create makes its role; upload to indexed; an analyst turn with KB citations; the viewer's negatives on every endpoint; a deleted KB unreachable; the POC KB absent under airgap and nothing depends on it.
+- [ ] K. `make kb-poc` (D4): committed manifest (URL, retrieved date, SHA-256), development-only fetch, upload with D3 metadata through the gateway, realm role for analyst and evaluator; the "upload by subscription" list; nothing downloaded is committed (.gitignore).
+- [ ] L. Rule 12 for the new paths (Keycloak Admin API bound, KB catalog read bound, uploads under the existing caps, retrieval bounded), RESILIENCE.md rows and tests (12h) where a new shared resource is added.
+- [ ] M. Docs: README §5.3, §6.2, §9.4, §11, §13, §20.8 (phase 08 keys); BACKLOG statuses.
+- [ ] N. make test; make eval once (all suites); make smoke; make smoke-airgap; rule 11 counts; files for human review and pages for the visual check.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
 - Status: not started
 - Done when: compound requests produce a plan of steps (capability, MCP tool or skill), each step's inputs may reference earlier steps' outputs; simple requests keep single-step routing with no added latency; capabilities declare structured output schemas in their manifests; dependent steps run in order and independent ones in parallel, every step through the broker; step and time budgets; when a step fails, a partial answer that states what is missing; plan progress shown to the user; `planning.jsonl` ≥ threshold; reference compound case: docs → routing (reference MCP server) → official memo skill.
-
-## Phase 08: UC4 KB plugins (`kb` capability)
-
-- Branch: `phase/08-kb`
-- Status: not started
-- Done when: KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent.
 
 ## Phase 09: UC2 web (`web` capability)
 
