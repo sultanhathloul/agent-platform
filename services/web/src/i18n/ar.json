@@ -53,9 +53,9 @@
     "citationPageMany": "الصفحات {pages}",
     "historyLoading": "جارٍ تحميل المحادثة…",
     "historyFailed": "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
-    "skillPicker": "نموذج الإجابة",
+    "skillPicker": "المهارة",
     "skillAuto": "تلقائي",
-    "skillAutoHint": "يُختار النموذج تلقائيًا عند الحاجة"
+    "skillAutoHint": "تُختار المهارة تلقائيًا عند الحاجة"
   },
   "chips": {
     "tier": "مستوى النموذج",

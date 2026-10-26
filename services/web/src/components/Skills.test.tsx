@@ -24,8 +24,29 @@ describe("the skill picker (D4)", () => {
     const options = [...html.matchAll(/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => [m[1], m[2]]);
     expect(options).toEqual([["", "تلقائي"], ["fixture_form", "نموذج الاختبار"], ["fixture_note", "ملاحظة الاختبار"]]);
     expect(html).toContain('<option value="" selected="">');
-    expect(text(html)).toContain("نموذج الإجابة");
-    expect(renderIn("en", <SkillPicker skills={SKILLS} value={NO_SKILL} onChange={() => {}} />)).toContain("Test form");
+    expect(text(html)).toContain("المهارة");
+    expect(text(html)).not.toContain("نموذج الإجابة");
+    const en = renderIn("en", <SkillPicker skills={SKILLS} value={NO_SKILL} onChange={() => {}} />);
+    expect(text(en)).toContain("Skill");
+    expect(en).toContain("Test form");
+    expect(text(en)).not.toContain("Answer template");
+  });
+
+  it("for each skill listed, picking it sends that skill and no other, under its name in each language", () => {
+    for (const locale of ["ar", "en"] as const) {
+      const html = renderIn(locale, <SkillPicker skills={SKILLS} value={NO_SKILL} onChange={() => {}} />);
+      const options = [...html.matchAll(/<option[^>]*value="([^"]+)"[^>]*>([^<]*)<\/option>/g)];
+      expect(options.map((m) => m[1])).toEqual(SKILLS.map((s) => s.slug));
+      for (const [, value, label] of options) {
+        const skill = SKILLS.find((s) => s.slug === value)!;
+        expect(label).toBe(skill.name[locale]);
+        expect(withSkill(BODY, value!, SKILLS).skill).toBe(skill.slug);
+        // The picker shows the pick it sends.
+        expect(renderIn(locale, <SkillPicker skills={SKILLS} value={value!} onChange={() => {}} />)).toContain(
+          `<option value="${value}" title="${skill.description[locale]}" selected="">`,
+        );
+      }
+    }
   });
 
   it("is not shown to a caller with no skill", () => {

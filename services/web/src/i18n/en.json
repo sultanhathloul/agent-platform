@@ -53,9 +53,9 @@
     "citationPageMany": "pages {pages}",
     "historyLoading": "Loading the conversation…",
     "historyFailed": "The earlier messages of this conversation could not be loaded.",
-    "skillPicker": "Answer template",
+    "skillPicker": "Skill",
     "skillAuto": "Automatic",
-    "skillAutoHint": "The template is chosen automatically when needed"
+    "skillAutoHint": "The skill is chosen automatically when needed"
   },
   "chips": {
     "tier": "Model tier",
