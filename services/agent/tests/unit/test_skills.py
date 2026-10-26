@@ -231,6 +231,34 @@ def test_named_files_load_in_the_order_the_body_names_them(tmp_path):
     assert skill.instructions.index("FILE-B") < skill.instructions.index("REFERENCED-LAYOUT")
 
 
+# Every way a public skill writes a reference to a file of its folder (phase 08, F2, ADR-0341).
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Follow ./reference/layout.md for the sections.",
+        "Follow `./reference/layout.md` for the sections.",
+        "Follow [the layout](./reference/layout.md) for the sections.",
+        "Follow [the layout](reference/layout.md) for the sections.",
+        "Follow [the layout](./reference/layout.md#sections) for the sections.",
+        "Follow <./reference/layout.md> for the sections.",
+        "Follow reference/layout.md for the sections.",
+        "Read the layout in reference/layout.md.",
+    ],
+)
+def test_a_reference_as_dot_slash_markdown_link_or_bare_path_loads(tmp_path, body):
+    skill = load_skill(_skill(tmp_path, body=body))
+    assert skill.loaded == ("SKILL.md", "reference/layout.md")
+    assert '<file path="reference/layout.md">\nREFERENCED-LAYOUT' in skill.instructions
+    assert "UNREFERENCED-NOTES" not in skill.instructions
+
+
+def test_a_dot_slash_path_inside_a_longer_one_is_not_named(tmp_path):
+    directory = _skill(tmp_path, body="See [layout](./reference/layout.md) and docs/./layout.md.")
+    (directory / "layout.md").write_text("ROOT-LAYOUT\n", encoding="utf-8")
+    skill = load_skill(directory)
+    assert skill.loaded == ("SKILL.md", "reference/layout.md") and "ROOT-LAYOUT" not in skill.instructions
+
+
 def test_a_path_inside_a_longer_one_is_not_named(tmp_path):
     directory = _skill(tmp_path, body="See `reference/layout.md`.")
     (directory / "layout.md").write_text("ROOT-LAYOUT\n", encoding="utf-8")

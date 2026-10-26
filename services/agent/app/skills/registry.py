@@ -3,7 +3,8 @@ root is a skill in the open Agent Skills format, validated at startup:
 - a script (by its suffix or a `#!` first line), an executable bit or a symbolic link anywhere in
   the folder fails startup with the path named, so no code can arrive as a skill (ADR-0291, D3);
 - the instructions are SKILL.md's body plus every Markdown file of the folder that the body names
-  by its relative path, loaded together, in the order the body first names them (ADR-0318);
+  by its relative path (bare, as `./path` or in a Markdown link, ADR-0341), loaded together, in
+  the order the body first names them (ADR-0318);
 - the sidecar `skill.platform.yaml`, when present, holds the platform's fields in place of SKILL.md's
   namespaced block (ADR-0325); it is read by the loader and never reaches the model;
 - every other file (a licence, a SOURCE note, a Markdown file the body does not name, the evals/
@@ -103,8 +104,9 @@ def _named(body: str, candidates: Iterable[str]) -> list[str]:
     """The candidate paths the body names, in the order it first names them."""
     positions = {}
     for rel in candidates:
-        # The whole path, not a part of a longer one (`a.md` is not named by `examples/a.md`).
-        found = re.search(rf"(?<![\w./-]){re.escape(rel)}(?![\w/-])", body)
+        # The whole path, not a part of a longer one (`a.md` is not named by `examples/a.md`),
+        # written bare, as `./path`, or inside a Markdown link `[text](./path)` (F2, ADR-0341).
+        found = re.search(rf"(?<![\w./-])(?:\./)?{re.escape(rel)}(?![\w/-])", body)
         if found:
             positions[rel] = found.start()
     return sorted(positions, key=positions.__getitem__)

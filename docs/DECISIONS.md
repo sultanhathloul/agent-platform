@@ -3092,3 +3092,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: `script_of` returned the first word of a mark's Unicode name as its script. U+FE0F VARIATION SELECTOR-16 (category Mn), which ends 🏖️ and ⚙️, became the script "VARIATION", which no locale allows, so every Arabic answer holding such an emoji failed `disallowed_script` (internal-comms' 3P layout; PROGRESS, phase 06 visual check fix session).
 - Decision: Variation selectors (U+FE00–FE0F, U+E0100–E01EF and any character named "… VARIATION SELECTOR …") carry no script, like combining and modifier marks. Skin-tone modifiers, the zero-width joiner, keycaps, regional indicators and tag characters already carried none (their categories are not letters or marks, or their names start with COMBINING); tests now pin every one of them. A letter of a disallowed script still fails, emoji or not.
 - Consequences: Refines ADR-0060's rule (which characters carry no script). An emoji glued to a word (`فريق🏖️`) does not make a mixed token.
+
+### ADR-0341: A skill's reference is found bare, as ./path or inside a Markdown link (F2)
+- Date: 2026-10-26
+- Phase: 08 (carried fix F2)
+- Status: decided
+- Context: ADR-0322 matched a named Markdown file by its whole relative path, with no path character before it. A public skill writing `./examples/a.md` or `[a](./examples/a.md)` named nothing (the `/` of `./` counted as part of a longer path), so the open format's usual link forms did not load (ADR-0317, ADR-0318).
+- Decision: A file is named when the body holds its relative path bare (`examples/a.md`), with a leading `./` (`./examples/a.md`), or inside a Markdown link or autolink (`[text](./examples/a.md)`, `[text](examples/a.md#part)`, `<./examples/a.md>`). The whole-path rule stays: `a.md` is not named by `examples/a.md`, nor by `docs/./a.md`. Tests cover each form.
+- Consequences: Refines ADR-0322 (how references are found). The shipped skills load the same files and keep their versions (internal-comms sha-4a43bcb9e0f6, official_memo 1.1.0).
