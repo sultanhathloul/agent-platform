@@ -27,12 +27,16 @@ public class AgentRefusedException extends RuntimeException {
     }
 
     /**
-     * The refusal a status and the agent's error code stand for: a 403 is skill_forbidden when the
-     * agent says so (phase 06), conversation_forbidden otherwise.
+     * The refusal a status and the agent's error code stand for: a 403 is skill_forbidden (phase 06) or
+     * kb_forbidden (phase 08) when the agent says so, conversation_forbidden otherwise.
      */
     public static AgentRefusedException forStatus(int status, String agentCode) {
         if (status == 403 && ErrorCode.SKILL_FORBIDDEN.code().equals(agentCode)) {
             return new AgentRefusedException(ErrorCode.SKILL_FORBIDDEN);
+        }
+        // A selected knowledge base the agent finds the caller may not use (phase 08, I3, I7).
+        if (status == 403 && ErrorCode.KB_FORBIDDEN.code().equals(agentCode)) {
+            return new AgentRefusedException(ErrorCode.KB_FORBIDDEN);
         }
         return switch (status) {
             case 403 -> new AgentRefusedException(ErrorCode.CONVERSATION_FORBIDDEN);

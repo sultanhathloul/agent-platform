@@ -4,6 +4,97 @@
  */
 
 export interface paths {
+    "/v1/admin/kbs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's live knowledge bases, each with its role and document counts */
+        get: operations["list_1"];
+        put?: never;
+        /** Creates a knowledge base and its realm role kb:<slug>:read */
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/kbs/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One knowledge base */
+        get: operations["get"];
+        put?: never;
+        post?: never;
+        /** Deletes a knowledge base: hidden, its role kept, its documents purged from the index */
+        delete: operations["delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/kbs/{slug}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A knowledge base's documents with their status and D3 metadata, oldest first */
+        get: operations["documents"];
+        put?: never;
+        /**
+         * Uploads one document to a knowledge base with its source metadata
+         * @description Checked against the limits of config/docs.yaml before it is stored; the agent then indexes it in the background. Poll the document list for its status.
+         */
+        post: operations["upload_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/kbs/{slug}/documents/{documentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One knowledge base document */
+        get: operations["document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/kbs/{slug}/documents/{documentId}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Corrects a knowledge base document's source metadata, its earlier version included */
+        put: operations["metadata"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/policies": {
         parameters: {
             query?: never;
@@ -295,6 +386,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's capabilities and the knowledge bases it may toggle */
+        get: operations["list_5"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat/turns": {
         parameters: {
             query?: never;
@@ -323,7 +431,7 @@ export interface paths {
             cookie?: never;
         };
         /** The caller's conversations, newest first */
-        get: operations["list_3"];
+        get: operations["list_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -446,7 +554,7 @@ export interface paths {
             cookie?: never;
         };
         /** The caller's memory items and memory switch */
-        get: operations["list_2"];
+        get: operations["list_3"];
         put?: never;
         post?: never;
         delete?: never;
@@ -483,7 +591,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Deletes one of the caller's memory items */
-        delete: operations["delete"];
+        delete: operations["delete_1"];
         options?: never;
         head?: never;
         patch?: never;
@@ -497,7 +605,7 @@ export interface paths {
             cookie?: never;
         };
         /** The skills the caller may pick */
-        get: operations["list_1"];
+        get: operations["list_2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -525,6 +633,11 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopeCapabilityList: {
+            data?: components["schemas"]["CapabilityList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiEnvelopeConversationList: {
             data?: components["schemas"]["ConversationList"];
             error?: components["schemas"]["ApiError"];
@@ -532,6 +645,31 @@ export interface components {
         };
         ApiEnvelopeConversationMessages: {
             data?: components["schemas"]["ConversationMessages"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeKbDeleted: {
+            data?: components["schemas"]["KbDeleted"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeKbDocumentList: {
+            data?: components["schemas"]["KbDocumentList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeKbDocumentView: {
+            data?: components["schemas"]["KbDocumentView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeKbList: {
+            data?: components["schemas"]["KbList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeKbView: {
+            data?: components["schemas"]["KbView"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -676,6 +814,24 @@ export interface components {
             /** @description Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF. */
             warnings?: components["schemas"]["Warning"][];
         };
+        CapabilityList: {
+            capabilities: components["schemas"]["CapabilityView"][];
+            /** @description Only the KBs the caller may read */
+            knowledge_bases: components["schemas"]["KbToggle"][];
+        };
+        CapabilityUi: {
+            /** @enum {string} */
+            mode: "toggle" | "auto" | "button";
+            /** Format: int32 */
+            order: number;
+        };
+        CapabilityView: {
+            description: components["schemas"]["Text"];
+            icon: string;
+            name: components["schemas"]["Text"];
+            slug: string;
+            ui: components["schemas"]["CapabilityUi"];
+        };
         ChatTurnRequest: {
             /**
              * @description Attachments sent with this turn, uploaded first (A1, ADR-0129).
@@ -713,6 +869,10 @@ export interface components {
             last_turn_at: string;
             /** @description The conversation's first question, at most 80 characters. */
             title: string;
+        };
+        Description: {
+            ar?: string;
+            en?: string;
         };
         HealthResponse: {
             status?: string;
@@ -752,6 +912,75 @@ export interface components {
         };
         /** @description The checker's settings; DATA policies may name `targets`. */
         JsonNode: unknown;
+        KbCreate: {
+            description?: components["schemas"]["Description"];
+            icon?: string;
+            name: components["schemas"]["Label"];
+            /** @description Lower-case letters, digits, - and _; its realm role is kb:<slug>:read */
+            slug: string;
+        };
+        KbDeleted: {
+            /** @description False while a backend owes the purge, or keeps its copy (an MCP server) */
+            index_purged: boolean;
+            /** @description Kept (I1) */
+            role: string;
+            slug: string;
+        };
+        KbDocumentList: {
+            documents: components["schemas"]["KbDocumentView"][];
+        };
+        KbDocumentView: {
+            /** Format: int32 */
+            chunks?: number;
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            /** Format: date-time */
+            indexed_at?: string;
+            kb: string;
+            /** @enum {string} */
+            kind: "pdf" | "docx" | "xlsx" | "txt" | "md";
+            metadata: components["schemas"]["SourceMetadata"];
+            name: string;
+            /** Format: int32 */
+            pages?: number;
+            reason?: string;
+            /** Format: int64 */
+            size: number;
+            /** @enum {string} */
+            status: "pending" | "indexed" | "failed";
+            /** @description The document of this KB that supersedes it */
+            superseded_by?: string;
+            uploaded_by_name?: string;
+            uploaded_by_username?: string;
+            warnings?: components["schemas"]["Warning"][];
+        };
+        KbList: {
+            kbs: components["schemas"]["KbView"][];
+        };
+        /** @description Only the KBs the caller may read */
+        KbToggle: {
+            description: components["schemas"]["Text"];
+            icon: string;
+            name: components["schemas"]["Text"];
+            slug: string;
+        };
+        KbView: {
+            /** Format: date-time */
+            created_at: string;
+            created_by_name?: string;
+            created_by_username?: string;
+            description: components["schemas"]["Description"];
+            /** Format: int32 */
+            documents: number;
+            icon: string;
+            /** Format: int32 */
+            indexed: number;
+            name: components["schemas"]["Label"];
+            /** @description kb:<slug>:read */
+            role: string;
+            slug: string;
+        };
         Label: {
             ar: string;
             en: string;
@@ -1142,12 +1371,25 @@ export interface components {
             name: components["schemas"]["Label"];
             slug: string;
         };
+        SourceMetadata: {
+            /** Format: date */
+            published_on: string;
+            publisher: string;
+            source_url?: string;
+            /** @description An earlier version of the same source in this KB */
+            supersedes?: string;
+            title: string;
+        };
         TenantUsage: {
             /** Format: int32 */
             in_flight: number;
             /** Format: int32 */
             limit?: number;
             tenant_id: string;
+        };
+        Text: {
+            ar: string;
+            en: string;
         };
         TimeoutPair: {
             family: string;
@@ -1182,7 +1424,6 @@ export interface components {
              */
             top_user_in_flight: number;
         };
-        /** @description Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF. */
         Warning: {
             /** @enum {string} */
             code: "pages_without_text";
@@ -1198,6 +1439,471 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The knowledge bases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbList"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KbCreate"];
+            };
+        };
+        responses: {
+            /** @description Created, with its role */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_exists: the slug is taken, by a live or a deleted KB */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description identity_unavailable (Keycloak) or agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The knowledge base */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbView"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found: another tenant's, deleted or unknown */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDeleted"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDocumentList"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    upload_1: {
+        parameters: {
+            query: {
+                title: string;
+                publisher: string;
+                published_on: string;
+                source_url?: string;
+                supersedes?: string;
+            };
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored and registered; status pending */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDocumentView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description upload_timeout */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_supersedes_invalid */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description file_too_large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description file_type_unsupported */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description upload_rate_limited or too_many_uploads */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable or storage_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDocumentView"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found or kb_document_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceMetadata"];
+            };
+        };
+        responses: {
+            /** @description The document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDocumentView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found or kb_document_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_supersedes_invalid */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     listPolicies: {
         parameters: {
             query?: never;
@@ -2061,6 +2767,44 @@ export interface operations {
             };
         };
     };
+    list_5: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Capabilities and readable knowledge bases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeCapabilityList"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     turn: {
         parameters: {
             query?: never;
@@ -2148,7 +2892,7 @@ export interface operations {
             };
         };
     };
-    list_3: {
+    list_4: {
         parameters: {
             query?: {
                 /** @description Page size, 1 to 100; 30 when absent. */
@@ -2593,7 +3337,7 @@ export interface operations {
             };
         };
     };
-    list_2: {
+    list_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -2700,7 +3444,7 @@ export interface operations {
             };
         };
     };
-    delete: {
+    delete_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -2765,7 +3509,7 @@ export interface operations {
             };
         };
     };
-    list_1: {
+    list_2: {
         parameters: {
             query?: never;
             header?: never;

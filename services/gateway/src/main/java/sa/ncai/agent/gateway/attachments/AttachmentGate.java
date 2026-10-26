@@ -30,7 +30,9 @@ import sa.ncai.agent.gateway.auth.GatewayPrincipal;
 
 /**
  * The attachment endpoints' gate (owner decision R3), after authentication and before any request
- * body is read. Upload, list, status and download need {@code cap:docs} (403 {@code forbidden}).
+ * body is read. Upload, list, status and download need {@code cap:docs} (403 {@code forbidden}); a
+ * knowledge base document upload ({@code POST /v1/admin/kbs/<slug>/documents}, phase 08, I2) needs the
+ * admin role and then passes the same checks as an upload, counted with the uploader's attachments.
  * For an upload, in this order (review round 2, finding 2): the per-user rate limit counts the
  * attempt and refuses 429 {@code upload_rate_limited} past the allowance; then the declared length
  * over the limits of config/docs.yaml is 413 {@code file_too_large}; then a per-user concurrent
@@ -50,6 +52,9 @@ public class AttachmentGate extends OncePerRequestFilter {
     static final String DOCS_PERMISSION = "cap:docs";
     private static final Pattern PATH =
             Pattern.compile("^/v1/conversations/([^/]+)/attachments(?:/([^/]+)(/content)?)?/?$");
+    /** A knowledge base document upload (phase 08, I2): the same limits, for an admin only. */
+    private static final Pattern KB_UPLOAD_PATH = Pattern.compile("^/v1/admin/kbs/[^/]+/documents/?$");
+    static final String KB_UPLOAD = "kb.document.upload";
     private static final Pattern UUID_PATTERN =
             Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
@@ -74,7 +79,12 @@ public class AttachmentGate extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !PATH.matcher(lookupPath(request)).matches();
+        String path = lookupPath(request);
+        return !PATH.matcher(path).matches() && !isKbUpload(request, path);
+    }
+
+    private static boolean isKbUpload(HttpServletRequest request, String path) {
+        return "POST".equals(request.getMethod()) && KB_UPLOAD_PATH.matcher(path).matches();
     }
 
     /**
@@ -96,13 +106,15 @@ public class AttachmentGate extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        Matcher path = PATH.matcher(lookupPath(request));
-        String action = path.matches() ? action(request.getMethod(), path) : null;
+        String lookup = lookupPath(request);
+        Matcher path = PATH.matcher(lookup);
+        boolean kb = isKbUpload(request, lookup);
+        String action = kb ? KB_UPLOAD : path.matches() ? action(request.getMethod(), path) : null;
         if (action == null) {
             chain.doFilter(request, response); // other methods on the path: the controller answers
             return;
         }
-        boolean upload = AttachmentController.UPLOAD.equals(action);
+        boolean upload = kb || AttachmentController.UPLOAD.equals(action);
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!(authentication instanceof JwtAuthenticationToken jwt)) {
             // No valid token: security answers 401. On the upload path, close the connection so its
@@ -114,8 +126,10 @@ public class AttachmentGate extends OncePerRequestFilter {
             return;
         }
         GatewayPrincipal caller = GatewayPrincipal.from(jwt.getToken());
-        String conversation = UUID_PATTERN.matcher(path.group(1)).matches() ? path.group(1).toLowerCase(Locale.ROOT) : null;
-        if (!caller.permissions().contains(DOCS_PERMISSION)) {
+        String conversation = !kb && UUID_PATTERN.matcher(path.group(1)).matches()
+                ? path.group(1).toLowerCase(Locale.ROOT) : null;
+        // A conversation's files need cap:docs; a knowledge base's documents, the admin role (I1).
+        if (kb ? !caller.admin() : !caller.permissions().contains(DOCS_PERMISSION)) {
             refuse(request, response, caller, action, conversation, ErrorCode.FORBIDDEN);
             return;
         }
@@ -160,7 +174,8 @@ public class AttachmentGate extends OncePerRequestFilter {
 
     private void refuse(HttpServletRequest request, HttpServletResponse response, GatewayPrincipal caller,
             String action, String conversation, ErrorCode code) throws IOException {
-        if (AttachmentController.UPLOAD.equals(action)) {
+        boolean upload = AttachmentController.UPLOAD.equals(action) || KB_UPLOAD.equals(action);
+        if (upload) {
             // The refused upload's body is not drained: the socket closes after the response (finding 2).
             response.setHeader(HttpHeaders.CONNECTION, "close");
         }
@@ -170,7 +185,7 @@ public class AttachmentGate extends OncePerRequestFilter {
         }
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("error_code", code.code());
-        if (request.getContentLengthLong() >= 0 && AttachmentController.UPLOAD.equals(action)) {
+        if (request.getContentLengthLong() >= 0 && upload) {
             detail.put("size", request.getContentLengthLong());
         }
         AuditEvent event = new AuditEvent(RequestIdFilter.requestId(request), caller.userId(), caller.tenantId(),

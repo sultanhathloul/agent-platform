@@ -18,14 +18,14 @@ import sa.ncai.agent.gateway.api.ErrorCode;
  * PDF with {@code too_many_pages} and its Arabic message. This mirrors the agent's own
  * {@code detect_kind} (app/rag/extract/base.py), so the two services agree on a file's kind.
  */
-final class UploadInspector {
+public final class UploadInspector {
 
     private UploadInspector() {}
 
     private static final byte[] ZIP_MAGIC = {'P', 'K', 0x03, 0x04};
 
     /** The refusal for this file, if any. No parsing, no decompression, no page count. */
-    static Optional<ErrorCode> inspect(String kind, Path file) throws IOException {
+    public static Optional<ErrorCode> inspect(String kind, Path file) throws IOException {
         byte[] head = readHead(file, 8192);
         return switch (kind) {
             case "pdf" -> startsWithPdf(head) ? Optional.empty() : Optional.of(ErrorCode.FILE_TYPE_UNSUPPORTED);

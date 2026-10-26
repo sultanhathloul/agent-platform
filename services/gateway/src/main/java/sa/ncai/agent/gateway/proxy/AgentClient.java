@@ -1,5 +1,6 @@
 package sa.ncai.agent.gateway.proxy;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,6 +8,9 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -54,7 +58,11 @@ public class AgentClient {
         T handle(InputStream body) throws IOException;
     }
 
+    /** The gateway's own check of a turn's selected knowledge bases, request to body (phase 08, rule 12c). */
+    static final Duration QUICK_BOUND = Duration.ofSeconds(4);
+
     private final RestClient client;
+    private final RestClient quickClient;
     private final RestClient streamClient;
     private final PlatformLimits limits;
     private final String internalToken;
@@ -68,6 +76,10 @@ public class AgentClient {
         this.client = builder.clone()
                 .baseUrl(agent.baseUrl())
                 .requestFactory(factory(http, agent.responseTimeout()))
+                .build();
+        this.quickClient = builder.clone()
+                .baseUrl(agent.baseUrl())
+                .requestFactory(factory(http, QUICK_BOUND))
                 .build();
         this.limits = limits;
         // The deadline in force is read per turn: a settings change applies to the next one (ADR-0283).
@@ -252,6 +264,40 @@ public class AgentClient {
                 .header(USER_PERMISSIONS_HEADER, String.join(",", caller.permissions()))
                 .exchange((clientRequest, response) ->
                         new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
+    }
+
+    /**
+     * The composer's capabilities and the knowledge bases the caller may read (phase 08, I3), filtered
+     * by the agent from the caller's permissions, which only the verified token gives.
+     *
+     * @throws AgentUnavailableException if the agent is unreachable
+     */
+    public AgentReply listCapabilities(GatewayPrincipal caller, String requestId) {
+        return reach(() -> identified(client.get().uri("/v1/capabilities"), caller, requestId)
+                .header(USER_PERMISSIONS_HEADER, String.join(",", caller.permissions()))
+                .exchange((clientRequest, response) ->
+                        new AgentReply(response.getStatusCode().value(), response.getBody().readAllBytes())));
+    }
+
+    /**
+     * Which of a turn's selected knowledge bases are live KBs of the caller's tenant (phase 08, I7),
+     * within {@link #QUICK_BOUND}.
+     *
+     * @throws AgentUnavailableException if the agent is unreachable, too slow, or answers non-2xx
+     */
+    public Set<String> liveKbs(GatewayPrincipal caller, List<String> slugs, String requestId) {
+        return reach(() -> identified(quickClient.get().uri(builder -> {
+                    builder.path("/v1/internal/kbs/live");
+                    slugs.forEach(slug -> builder.queryParam("slug", slug));
+                    return builder.build();
+                }), caller, requestId)
+                .exchange((clientRequest, response) -> {
+                    requireSuccess(response.getStatusCode().value(), "live knowledge bases");
+                    JsonNode body = ERROR_READER.readTree(response.getBody().readNBytes(65536));
+                    Set<String> live = new HashSet<>();
+                    body.path("live").forEach(slug -> live.add(slug.asText()));
+                    return live;
+                }));
     }
 
     private RestClient.RequestHeadersSpec<?> identified(

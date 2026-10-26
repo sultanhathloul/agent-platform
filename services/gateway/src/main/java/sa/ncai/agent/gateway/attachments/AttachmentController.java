@@ -524,7 +524,7 @@ public class AttachmentController {
     }
 
     /** The file name without any directory part, at most 255 characters; null when there is none. */
-    static String displayName(String original) {
+    public static String displayName(String original) {
         if (original == null) {
             return null;
         }
@@ -536,7 +536,7 @@ public class AttachmentController {
         return name.length() > MAX_NAME ? name.substring(name.length() - MAX_NAME) : name;
     }
 
-    private static String mimeOf(String kind) {
+    public static String mimeOf(String kind) {
         return switch (kind) {
             case "pdf" -> "application/pdf";
             case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
