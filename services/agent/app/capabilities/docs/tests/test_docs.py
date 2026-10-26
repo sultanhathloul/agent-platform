@@ -58,8 +58,10 @@ TEXTS = {
     "c2": "المادة الثانية: يستحق الموظف إجازة سنوية مدتها ثلاثون يوما.",
     "c3": "يسمح بالعمل عن بعد يومين في الأسبوع بموافقة المدير المباشر.",
 }
-RULE = AttributionRule(  # config/citations.yaml (ADR-0182)
-    ngram=2, min_shared_ngrams=1, min_new_word_coverage=0.35, relative_to_best=0.6
+RULE = AttributionRule(  # config/citations.yaml (ADR-0182, ADR-0358)
+    ngram=2, min_shared_ngrams=1, min_new_word_coverage=0.35, relative_to_best=0.6,
+    source_phrasing=["وفقا", "وفقًا", "وفقاً", "حسب", "بحسب", "الصادر", "الصادرة", "بتاريخ", "المنشور", "المنشورة",
+                     "according", "published", "dated", "issued", "released"],
 )
 
 
