@@ -2132,7 +2132,7 @@ Pages for the visual check: /chat/[id] in ar and en: answers with bold, lists, a
 ## Phase 08: Knowledge bases
 
 - Branch: `phase/08-kb`, from `main` at 43e7509 (PR #14, phase 06, merged on 2026-10-26T10:50:42Z). The session prompt is kept verbatim in `docs/PHASE-08-BUILD-PROMPT.md`; it arrived whole (it ends with END).
-- Status: **not done**. Implementation complete (A–M); the done-check is blocked on the kb suite's gated cross_kb_attribution metric (0.75 against 0.80 in two of three full runs, 0.50 in one) and on smoke runs refused by the development provider (429). See "Results" below; the owner decides.
+- Status: **not done**. Implementation complete (A–M); the done-check is blocked on the kb suite's gated cross_kb_attribution metric (0.75 against 0.80 in two of three full runs, 0.50 in one) (make smoke 231/231 and make smoke-airgap 239/239 passed on their third attempt, after two refused by the upstream provider's 429). See "Results" below; the owner decides.
 - Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
 - Done when (CLAUDE.md phase 08 row, plus the prompt): KB CRUD creates a Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent; plus owner decisions D1–D5, implementation choices I1–I7 and carried fixes F1–F4 below; `make test`, `make eval` once (all suites), `make smoke` and `make smoke-airgap` green, recorded per rule 11.
 - Baseline on `main` (rule 11): main at 43e7509 carries the code of 001a990, whose last recorded runs are the fix session of 2026-10-26 at 4eb3ae3:
@@ -2187,7 +2187,7 @@ Checklist:
 - [x] K. `make kb-poc` (D4): committed manifest (URL, retrieved date, SHA-256), development-only fetch, upload with D3 metadata through the gateway, realm role for analyst and evaluator; the "upload by subscription" list; nothing downloaded is committed (.gitignore).
 - [x] L. Rule 12 for the new paths (Keycloak Admin API bound, KB catalog read bound, uploads under the existing caps, retrieval bounded), RESILIENCE.md rows and tests (12h) where a new shared resource is added.
 - [x] M. Docs: README §5.3, §6.2, §9.4, §11, §13, §20.8 (phase 08 keys); BACKLOG statuses.
-- [ ] N. (make test green; make eval, make smoke and make smoke-airgap not green, see Results) make test; make eval once (all suites); make smoke; make smoke-airgap; rule 11 counts; files for human review and pages for the visual check.
+- [ ] N. (make test, make smoke and make smoke-airgap green; make eval not green on kb cross_kb_attribution, see Results) make test; make eval once (all suites); make smoke; make smoke-airgap; rule 11 counts; files for human review and pages for the visual check.
 
 Results (rule 11; every attempt recorded, rule 13)
 
@@ -2215,6 +2215,7 @@ make smoke and make smoke-airgap
 - make smoke-airgap 16:32:01Z–16:34:53Z: **failed** at the same check after the airgap layout (internal network, agent on the airgap MCP profile) and the egress probe passed. Trace acaf133871842cde87176ac576530dba ends at the embedding call; the stack was restored before its spans were exported, so the model call is not recorded (likely the same 429).
 - The development smoke of the implementation (before the done-check) passed 233/233 checks, phase 08 section included.
 - Second attempt, make smoke 16:37:02Z–16:37:13Z (16 ok, 1 failed) and make smoke-airgap 16:37:13Z–16:40:17Z (24 ok, 1 failed): **failed** at the same check, started three minutes after the first attempt. A diagnostic turn at 16:41 (turn 6732d10aaab04d7495ed4deb6a3432b2) got `model_unavailable`; LiteLLM's log names the cause: OpenRouter `429 … qwen/qwen3.6-27b is temporarily rate-limited upstream` (provider Reka, not BYOK), the standard tier's development model (ADR-0065). Nothing in the platform is involved; smoke needs another attempt once the upstream limit clears.
+- Third attempt, after a 20-minute wait, at c41bf95: make smoke 17:01:56Z–17:07:20Z **231/231** (rc 0; all phase 01 to 08 checks, history, timeout budget and platform settings); make smoke-airgap 17:07:20Z–17:15:31Z **239/239** (rc 0). Against the baseline: smoke 213 → 231, smoke-airgap 220 → 239.
 
 ## Phase 07: Planner
 
