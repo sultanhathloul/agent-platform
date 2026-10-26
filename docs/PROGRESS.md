@@ -2092,6 +2092,43 @@ Files for human review: skills/** (official_memo/SKILL.md, NOTES.md, evals/; int
 
 Pages for the visual check: /chat/[id], the composer's picker «نموذج الإجابة» / "Answer template" (ar and en; official_memo «مذكرة داخلية» and internal-comms by its own name, «تلقائي» first); the reply's chip «مكتوبة بنموذج …» / "Written as …" live and in the reopened history; the skill_forbidden message (a user without the role).
 
+### Fix session: the owner's visual check of phase 06 (2026-10-26, same branch)
+
+The owner checked chats e248918a-c6c9-4170-b9dc-3de197a5d222 and 4caa4003-558c-486a-bfd8-652a288eed3f and asked for four fixes, nothing else. `docs/HANDOFF.md` untouched.
+
+Checklist:
+- [x] 1. Markdown in assistant messages, live and from history, safely and RTL-correct; component tests (ADR-0326; cc274f8).
+- [x] 2. A sidecar `skills/<name>/skill.platform.yaml` read by the loader, SKILL.md untouched, the namespaced block still supported (ADR-0325; 88649fa). internal-comms gets «التواصل الداخلي» / "Internal comms", descriptions, permission, `requires`, Arabic, Gulf and English keywords; routing cases (472ba0c).
+- [x] 3. Why «جهز لي شي للفريق عن الإجازات» got official_memo: below. Tests that a picked skill is the one applied, for each skill (4eb3ae3).
+- [x] 4. The picker is labelled «المهارة» / "Skill" and lists every skill the user may use by its Arabic or English name (ADR-0327; 6f51a3c).
+- [ ] make eval for the routing and skill suites green: internal-comms failed one gated case (below). Not done.
+
+Item 3, what the request carried and why:
+- Audit: gateway.audit_events request 1be8b121-a253-47a0-a1d9-bf308b31d6da (09:38:18Z, user bc93fb56…, the analyst), chat.turn ok, `"skill_requested": "official_memo"`, `"skill": "official_memo@1.1.0"`. `skill_requested` is the gateway's copy of the chat request's `skill` field (ChatController), so the browser sent `official_memo`.
+- Trace 05e23a29298890eea8656b92ecd1af91: input «جهز لي شي للفريق عن الإجازات»; node.route `route.skill = official_memo@1.1.0`, `route.skill.decided_by = picker`, `route.skill_candidates` empty (the message names no keyword). The gateway and the agent applied exactly the skill the request named.
+- Reproduction (analyst, Arabic page, 09:50Z): the picker held «تلقائي», internal-comms (shown by its slug, the only Latin entry) and «مذكرة داخلية» (official_memo). Picking internal-comms and sending the same message posted `"skill":"internal-comms"` (captured in the page) and audited `skill_requested: internal-comms` (request 1c70e179-6735-432a-9874-bc2e5fad2cea); the picker reset to «تلقائي» after the send. The web code sends the slug of the selected option and nothing else; no code path maps one skill to another.
+- Conclusion: the request carried official_memo, so «مذكرة داخلية» was selected at the moment of sending. The likely cause is the picker's labels: under «نموذج الإجابة», the one Arabic entry was «مذكرة داخلية» ("internal memo") beside the Latin slug "internal-comms". That was fixed by items 2 and 4: «التواصل الداخلي» beside «مذكرة داخلية», under «المهارة». I could not establish the owner's click from any record (the browser's picks are not logged), so this is the most likely cause, not a proven one.
+- Tests: agent `test_each_skill_picked_is_the_one_applied_even_under_another_skill_s_keyword` (every skill of the registry that composes with any capability, the shipped ones included and checked against the skills/ folders: the pick applied, its event, route span `decided_by = picker`, its block alone in the answer's system message, the message carrying another skill's keyword); web "for each skill listed, picking it sends that skill and no other, under its name in each language"; eval cases comms-picked-owner-leave, comms-picked-over-memo-keyword and memo-picked-over-comms-keyword (kind `picked`, gated `skill_applied` and `skill_block_loaded`); smoke "internal-comms picked for a message with a memo keyword: internal-comms applied, its event names it".
+
+Runs (rule 11, G1), at 4eb3ae3, after `make up` (rc 0; the agent logs `skill internal-comms@sha-4a43bcb9e0f6 … platform_file=skill.platform.yaml`):
+- make test (ended 10:13:07Z): rc 0. Agent 1041 / 0 / 0; gateway 180 / 0 / 0; gateway-db 5 / 0 / 0; web 183 / 0 / 0 (15 files); evals harness 28 / 0 / 0; timeout budget 32 / 0 / 0 (self-test 32 / 0 / 0, deploy-values ok); scripts/tests 16 / 0 / 0.
+- make smoke (10:13:19Z–10:17:54Z): 213/213. G7: a general turn platform-side 0.26 s (median of 0.26, 0.26, 0.22; wall 1.54, 1.44, 1.40 s), bound 2.26 s; another user's turn with mcp-routing-ref stopped 0.25 s (wall 1.29 s), hung 0.34 s (wall 1.83 s). New and changed checks: internal-comms listed as «التواصل الداخلي» / "Internal comms"; internal-comms picked under a memo keyword is the skill applied.
+- make eval s=routing (10:18:05Z–10:26:34Z; make-eval-20261026T101805Z, build/evals/make-eval-20261026T101805Z.json): rc 0, routing 104/105 (0.99 ≥ 0.90) PASS. 0 provider retries. Lost 1: validation_failed (skill-comms-weekly-msa: internal-comms applied, the answer began «⚙️», see below), counted as a failure. Reported, not gated: keyword_free 0/9, skill_keyword_free 0/5 (skill-kw-free-comms-newsletter and skill-kw-free-comms-owner-leave got no skill). Every new internal-comms positive and negative passed.
+- make eval s=official_memo (10:26:34Z–10:27:13Z; make-eval-20261026T102635Z): rc 0, 8/8 PASS. Gated: skill_applied 1.00 (7), skill_block_loaded 1.00 (7), permission_refused 1.00 (1). Reported: format_adherence 1.00 (5), no_invented_fields 0.80 (5), facts_kept 0.80 (5), citations_kept 1.00 (1). 0 retries, lost 0.
+- make eval s=internal-comms (10:27:13Z–10:27:49Z; make-eval-20261026T102713Z): **failed**, rc 2, 7/8. Gated: skill_applied 0.88 (8), skill_block_loaded 0.88 (8), below 1.00. Reported: format_adherence 1.00 (5), facts_kept 1.00 (5). 0 retries. Lost 1: validation_failed, comms-picked-owner-leave (the owner's message, picked).
+
+Why internal-comms lost a case (found, not fixed: outside the four items):
+- The validate node failed both lost turns with `validate.issues = disallowed_script` after the skill was applied. The drafts began «🏖️ فريق الموارد البشرية …» and «⚙️ فريق التطوير …»: internal-comms' 3P layout puts an emoji before the team name. 🏖️ and ⚙️ end with U+FE0F VARIATION SELECTOR-16, Unicode category Mn; `script_of` in services/agent/app/text/script.py returns the first word of a mark's name, "VARIATION", as its script, which no locale allows, so any answer with such an emoji fails (an emoji without the selector, such as 🚀, passes). The answer retry for script failures is off (ADR-0065), so the turn ends. My browser reproduction above ended the same way.
+- The fix is one line in a core module (variation selectors carry no script), with tests. The owner limited this session to four items, so it is not made. It needs the owner's decision.
+
+Left for the owner:
+- The variation selector fix above, to make the internal-comms suite pass.
+- The chip «مكتوبة بنموذج …» / "Written as …" and the `skill_forbidden` message («النموذج المختار غير متاح لك.») still say «نموذج» / "template" (ADR-0327 kept them).
+- Test conversation 96dde5f4-bb80-459b-9447-9060a500682c (analyst) holds my reproduction turn.
+
+Files for review: skills/internal-comms/skill.platform.yaml and SOURCE.txt, evals/golden/routing.jsonl, skills/*/evals/*, services/web/package.json (react-markdown 10.1.0, remark-gfm 4.0.1).
+Pages for the visual check: /chat/[id] in ar and en: answers with bold, lists, a table and a memo; the composer's picker «المهارة» / "Skill" with «التواصل الداخلي» and «مذكرة داخلية».
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
