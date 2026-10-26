@@ -3181,3 +3181,10 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Status: assumed
 - Decision: With a KB catalog configured (production), the facade keeps a kb-collection hit only when its document is an indexed, unpurged document of a live KB of the scope's tenant, attaches the catalog entry, and applies the version preference. A facade built without a catalog (the phase 05 test backends) keeps what it found.
 - Consequences: A KB deleted while a turn runs yields nothing from that point, whatever a backend still returns.
+
+### ADR-0353: The web's KB toggles, citations and admin pages (details of ADR-0336, ADR-0337)
+- Date: 2026-10-26
+- Phase: 08
+- Status: assumed
+- Decision: The composer loads `GET /v1/capabilities` and shows one toggle button per listed KB (`aria-pressed`), none on by default, under the textarea beside the skill picker; the toggles are kept per conversation in the browser's local storage (`kb-selection:<conversation>`), and a turn sends only toggled KBs still listed, so a KB deleted or no longer readable is never sent. A KB citation shows «KB › title», the publisher and «بتاريخ YYYY-MM-DD» in Western digits; a file citation is unchanged. `/admin/kbs` lists the tenant's KBs with their role as a chip, counts and creator; the create form shows the role for a valid slug; delete asks for confirmation on the page (never a browser dialog) and says the role stays, or that an MCP server keeps its copy (ADR-0344). `/admin/kbs/<slug>` uploads a file with the D3 fields (title, publisher, a date picker, optional link, a supersedes picker offering only another document that no one supersedes and that is not a later version of this one), shows each document's status badge (the attachments' words and failure reasons), its earlier and later versions, and corrects its metadata in place; pending documents are read again every 2 s. Arabic sentences carry no Latin words: Keycloak is «نظام الهوية» and the role appears only as a chip. The header shows «قواعد المعرفة» to admins.
+- Consequences: Toggles do not follow a user to another browser.

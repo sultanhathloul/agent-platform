@@ -9,7 +9,8 @@
     "signOut": "Sign out",
     "switchLanguage": "Change language",
     "policies": "Guard policies",
-    "settings": "Platform settings"
+    "settings": "Platform settings",
+    "kbs": "Knowledge bases"
   },
   "locale": {
     "ar": "العربية",
@@ -55,7 +56,11 @@
     "historyFailed": "The earlier messages of this conversation could not be loaded.",
     "skillPicker": "Skill",
     "skillAuto": "Automatic",
-    "skillAutoHint": "The skill is chosen automatically when needed"
+    "skillAutoHint": "The skill is chosen automatically when needed",
+    "kbToggles": "Knowledge bases",
+    "kbToggleHint": "Use this knowledge base in the answer",
+    "citationDate": "dated {date}",
+    "citationKb": "<kb></kb><sep>›</sep>"
   },
   "chips": {
     "tier": "Model tier",
@@ -148,7 +153,11 @@
     "tool_result_too_large": "The service this step needs returned a result larger than allowed, so it was not used.",
     "settings_invalid": "The settings were not saved: they break a timeout rule or a limit. See the details.",
     "settings_conflict": "Another administrator saved the settings first. Reload the page, review your change and save it again.",
-    "settings_version_not_found": "This settings version was not found."
+    "settings_version_not_found": "This settings version was not found.",
+    "kb_not_found": "The knowledge base does not exist.",
+    "kb_exists": "This identifier is used by an existing or deleted knowledge base; choose another one.",
+    "kb_document_not_found": "The document is not in this knowledge base.",
+    "kb_supersedes_invalid": "The earlier version chosen is not valid: it must be another document of the same knowledge base that no other document supersedes, without making a loop."
   },
   "policies": {
     "title": "Guard policies",
@@ -718,5 +727,61 @@
       "empty": "No version yet.",
       "filesActor": "configuration files"
     }
+  },
+  "kbs": {
+    "title": "Knowledge bases",
+    "intro": "Knowledge bases are filled ahead of time by uploading their documents, and users toggle them beside the composer. Only users holding a knowledge base's role in Keycloak see it.",
+    "createTitle": "Create a knowledge base",
+    "nameAr": "Name in Arabic",
+    "nameEn": "Name in English",
+    "slug": "Identifier",
+    "slugHint": "Lower-case letters, digits and hyphens, starting with a letter. It cannot change after creation and is never reused.",
+    "role": "Role",
+    "roleAfterSlug": "The role appears once the identifier is valid.",
+    "descriptionAr": "Description in Arabic (optional)",
+    "descriptionEn": "Description in English (optional)",
+    "create": "Create",
+    "createHint": "Its role is created with the knowledge base; assign it to users or groups in Keycloak.",
+    "created": "The knowledge base “{name}” and its role were created.",
+    "listTitle": "Current knowledge bases",
+    "loading": "Loading…",
+    "empty": "There are no knowledge bases yet.",
+    "counts": "Documents: {documents}, indexed: {indexed}",
+    "createdBy": "Created {time} by {name}",
+    "open": "Open",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "confirmDelete": "The knowledge base is hidden, its documents leave the index and its role stays. Delete it?",
+    "deleted": "The knowledge base “{name}” was deleted and its documents left the index; its role stays.",
+    "deletedNotPurged": "The knowledge base “{name}” was deleted and nobody can reach it; the document service keeps its copy of the index until operations remove it. Its role stays.",
+    "back": "Knowledge bases",
+    "uploadTitle": "Upload a document",
+    "uploadHint": "The document is uploaded with its source details and indexed in the background. If it is a newer version of a document already here, choose the document it supersedes.",
+    "file": "File",
+    "fileLimits": "Up to {size} MB. Types: {types}.",
+    "fileMissing": "Choose a file.",
+    "docTitle": "Document title",
+    "publisher": "Publisher",
+    "publishedOn": "Publication date",
+    "publishedOnHint": "Year-month-day.",
+    "sourceUrl": "Source link (optional)",
+    "sourceUrlHint": "The full link to the source's page.",
+    "supersedes": "Supersedes",
+    "supersedesNone": "Supersedes no document",
+    "supersedesHint": "The earlier version of the same source in this knowledge base. Answers prefer the latest version.",
+    "metadataProblems": "Fill in the required fields: title, publisher and publication date, and check the link.",
+    "upload": "Upload",
+    "uploading": "Uploading {percent}%",
+    "uploaded": "“{title}” was uploaded and is being processed.",
+    "documentsTitle": "Documents",
+    "noDocuments": "This knowledge base has no documents yet.",
+    "superseded": "Older version",
+    "pages": "{pages} pages",
+    "sourceLink": "Source",
+    "supersedesLine": "Supersedes: {title}",
+    "supersededLine": "Superseded by: {title}",
+    "editMetadata": "Edit source details",
+    "save": "Save",
+    "metadataSaved": "The details of “{title}” were saved."
   }
 }

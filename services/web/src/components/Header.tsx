@@ -51,6 +51,11 @@ export function Header() {
               </Link>
             )}
             {admin && (
+              <Link href="/admin/kbs" className="rounded-md px-2.5 py-1.5 text-slate-700 hover:bg-slate-100">
+                {t("header.kbs")}
+              </Link>
+            )}
+            {admin && (
               <Link href="/admin/settings" className="rounded-md px-2.5 py-1.5 text-slate-700 hover:bg-slate-100">
                 {t("header.settings")}
               </Link>

@@ -1,8 +1,16 @@
 // Gateway client. All API calls go to the gateway (README §13), never to the agent.
 import type {
   ApiErrorEnvelope,
+  CapabilityList,
   ChatTurnRequest,
   ConversationList,
+  KbCreate,
+  KbDeleted,
+  KbDocumentList,
+  KbDocumentView,
+  KbList,
+  KbSourceMetadata,
+  KbView,
   ConversationMessages,
   MeResponse,
   MemoryList,
@@ -146,6 +154,11 @@ export async function listSkills({ gatewayUrl, token, signal }: Authorized): Pro
   return required(await callJson<SkillList>(`${gatewayUrl}/v1/skills`, token, { method: "GET", signal }), 200);
 }
 
+/** The composer's capabilities and the knowledge bases the caller may toggle (phase 08, I3). */
+export async function listCapabilities({ gatewayUrl, token, signal }: Authorized): Promise<CapabilityList> {
+  return required(await callJson<CapabilityList>(`${gatewayUrl}/v1/capabilities`, token, { method: "GET", signal }), 200);
+}
+
 /** The caller's memory items and memory switch (README §8). */
 export async function getMemory({ gatewayUrl, token, signal }: Authorized): Promise<MemoryList> {
   return required(await callJson<MemoryList>(`${gatewayUrl}/v1/memory`, token, { method: "GET", signal }), 200);
@@ -169,6 +182,100 @@ export async function setMemoryEnabled({
 /** The caller as the gateway sees them; `is_admin` decides which links the UI shows, never access. */
 export async function getMe({ gatewayUrl, token, signal }: Authorized): Promise<MeResponse> {
   return required(await callJson<MeResponse>(`${gatewayUrl}/v1/me`, token, { method: "GET", signal }), 200);
+}
+
+// ------------------------------------------------------------------ admin: knowledge bases (phase 08, I5)
+
+const KBS = "/v1/admin/kbs";
+
+export async function listKbs({ gatewayUrl, token, signal }: Authorized): Promise<KbList> {
+  return required(await callJson<KbList>(`${gatewayUrl}${KBS}`, token, { method: "GET", signal }), 200);
+}
+
+export async function getKb({ gatewayUrl, token, signal, slug }: Authorized & { slug: string }): Promise<KbView> {
+  return required(await callJson<KbView>(`${gatewayUrl}${KBS}/${encodeURIComponent(slug)}`, token, { method: "GET", signal }), 200);
+}
+
+export async function createKb({ gatewayUrl, token, signal, kb }: Authorized & { kb: KbCreate }): Promise<KbView> {
+  const body = JSON.stringify(kb);
+  return required(await callJson<KbView>(`${gatewayUrl}${KBS}`, token, { method: "POST", body, signal }), 201);
+}
+
+export async function deleteKb({ gatewayUrl, token, signal, slug }: Authorized & { slug: string }): Promise<KbDeleted> {
+  const url = `${gatewayUrl}${KBS}/${encodeURIComponent(slug)}`;
+  return required(await callJson<KbDeleted>(url, token, { method: "DELETE", signal }), 200);
+}
+
+export async function listKbDocuments({
+  gatewayUrl,
+  token,
+  signal,
+  slug,
+}: Authorized & { slug: string }): Promise<KbDocumentList> {
+  const url = `${gatewayUrl}${KBS}/${encodeURIComponent(slug)}/documents`;
+  return required(await callJson<KbDocumentList>(url, token, { method: "GET", signal }), 200);
+}
+
+export async function updateKbMetadata({
+  gatewayUrl,
+  token,
+  signal,
+  slug,
+  id,
+  metadata,
+}: Authorized & { slug: string; id: string; metadata: KbSourceMetadata }): Promise<KbDocumentView> {
+  const url = `${gatewayUrl}${KBS}/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/metadata`;
+  return required(await callJson<KbDocumentView>(url, token, { method: "PUT", body: JSON.stringify(metadata), signal }), 200);
+}
+
+/** A KB document's upload with its D3 metadata as form fields; the gateway checks it as an attachment (I2). */
+export function uploadKbDocument({
+  gatewayUrl,
+  token,
+  slug,
+  file,
+  metadata,
+  onProgress,
+}: {
+  gatewayUrl: string;
+  token: string;
+  slug: string;
+  file: File;
+  metadata: KbSourceMetadata;
+  onProgress: (percent: number) => void;
+}): Promise<KbDocumentView> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${gatewayUrl}${KBS}/${encodeURIComponent(slug)}/documents`);
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.setRequestHeader("Accept", "application/json");
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+    };
+    request.onerror = () => reject(new GatewayError(0, { code: "network_error" }));
+    request.onload = () => {
+      let body: { data?: KbDocumentView; error?: ErrorInfo; request_id?: string } = {};
+      try {
+        body = JSON.parse(request.responseText);
+      } catch {
+        // not an envelope: keep the status-derived failure below
+      }
+      if (request.status === 201 && body.data) {
+        onProgress(100);
+        resolve(body.data);
+      } else {
+        reject(new GatewayError(request.status, body.error ?? { code: request.status === 413 ? "file_too_large" : "unknown" }, body.request_id));
+      }
+    };
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("title", metadata.title);
+    form.append("publisher", metadata.publisher);
+    form.append("published_on", metadata.published_on);
+    if (metadata.source_url) form.append("source_url", metadata.source_url);
+    if (metadata.supersedes) form.append("supersedes", metadata.supersedes);
+    request.send(form);
+  });
 }
 
 // ------------------------------------------------------------------ admin: guard policies (README §10.4)
