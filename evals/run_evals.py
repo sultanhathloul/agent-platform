@@ -733,6 +733,14 @@ def numbers(answer: str) -> list[float]:
     return [float(value) for value in _NUMBER.findall(text)]
 
 
+_URL = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>()\[\]{}\"'«»]+")
+
+
+def urls(answer: str) -> list[str]:
+    """The links an answer holds (http, https or www.), without trailing punctuation."""
+    return [match.rstrip(".,;:!?؟،…*_`") for match in _URL.findall(answer or "")]
+
+
 def case_value(case: dict, path: str):
     value = case
     for key in path.split("."):
@@ -783,6 +791,11 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
         else:
             sections = check["sections"]
         return sections_in_order(answer, sections)
+    if scorer == "urls_from_inputs":
+        # Every link in the answer is in the case's inputs, word for word (phase 08, F3): the message,
+        # plus any case field `inputs` names. An answer with no link passes.
+        given = " ".join(str(case_value(case, path) or "") for path in check.get("inputs", ["message"]))
+        return all(url in given for url in urls(answer))
     if scorer == "length_between":
         words = len(re.findall(r"\w+", answer))
         return int(check.get("min", 0)) <= words <= int(check.get("max", 10**9))

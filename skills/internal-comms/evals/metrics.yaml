@@ -8,6 +8,7 @@
 #   length_between     the answer's word count
 #   field_equals       a turn field: the skill applied (`skill`), the skill block the trace shows
 #                      (`traced_skill`)
+#   urls_from_inputs   every link in the answer is in the request, word for word (phase 08, F3)
 case_kind: expect.kind
 
 three_p: &three_p
@@ -29,21 +30,28 @@ short: &short {scorer: length_between, min: 15, max: 400}
 facts: &facts {scorer: text_present, expected: expect.facts}
 applied: &applied {scorer: field_equals, field: skill, expected: expect.skill}
 traced: &traced {scorer: field_equals, field: traced_skill, expected: expect.skill}
+no_url: &no_url {scorer: urls_from_inputs}
 
 metrics:
   # Gated: the mechanism.
   skill_applied:
     3p: [*applied]
     newsletter: [*applied]
+    newsletter_link: [*applied]
     faq: [*applied]
     negative: [*applied]
     picked: [*applied]
   skill_block_loaded:
     3p: [*traced]
     newsletter: [*traced]
+    newsletter_link: [*traced]
     faq: [*traced]
     negative: [*traced]
     picked: [*traced]
+  # Gated (phase 08, F3, ADR-0342): never a link the request did not give.
+  no_invented_url:
+    newsletter: [*no_url]
+    newsletter_link: [*no_url]
   # Reported, not gated: the content.
   format_adherence:
     3p: [*three_p, *short]

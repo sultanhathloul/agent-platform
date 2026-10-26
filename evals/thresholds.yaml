@@ -34,3 +34,4 @@ official_memo:
 internal-comms:
   skill_applied: 1.00        # the picked skill applied; no skill on a request that is not internal comms
   skill_block_loaded: 1.00   # the answer's context.assemble span shows the skill block as name@version
+  no_invented_url: 1.00      # every link in a newsletter is in the request (phase 08, F3, ADR-0342)

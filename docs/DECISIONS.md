@@ -3100,3 +3100,10 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: ADR-0322 matched a named Markdown file by its whole relative path, with no path character before it. A public skill writing `./examples/a.md` or `[a](./examples/a.md)` named nothing (the `/` of `./` counted as part of a longer path), so the open format's usual link forms did not load (ADR-0317, ADR-0318).
 - Decision: A file is named when the body holds its relative path bare (`examples/a.md`), with a leading `./` (`./examples/a.md`), or inside a Markdown link or autolink (`[text](./examples/a.md)`, `[text](examples/a.md#part)`, `<./examples/a.md>`). The whole-path rule stays: `a.md` is not named by `examples/a.md`, nor by `docs/./a.md`. Tests cover each form.
 - Consequences: Refines ADR-0322 (how references are found). The shipped skills load the same files and keep their versions (internal-comms sha-4a43bcb9e0f6, official_memo 1.1.0).
+
+### ADR-0342: The answer prompt forbids inventing a URL on every turn; a gated eval metric checks it (F3)
+- Date: 2026-10-26
+- Phase: 08 (carried fix F3)
+- Status: decided
+- Decision: `answer.system` (ar 1.6.0, en 1.4.0) carries one rule outside `{% if has_evidence %}`, so it is present on every turn: never invent a URL; a link appears in the answer only if it is word for word in the findings or sources given, or in the user's message. The skill precedence line stays as it was (ADR-0300). The eval harness gains the generic scorer `urls_from_inputs` (every link in the answer is in the case's message, or in the case fields `inputs` names). internal-comms gains three newsletter cases (kind `newsletter_link`: an English and an Arabic request asking "where to read more" with no link given, and one that gives a link) and the metric `no_invented_url`, gated at 1.00, over its newsletter cases.
+- Consequences: A prompt change: the suites that render `answer.system` run (rule 13; all suites, since every answer renders it). The Arabic rule avoids the word «الأدلة», which only the evidence line uses.

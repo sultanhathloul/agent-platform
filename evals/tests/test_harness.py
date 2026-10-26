@@ -260,6 +260,21 @@ def test_text_present_and_length_between():
     assert not harness.score_check(length, {}, "one two", {}) and not harness.score_check(length, {}, "a b c d e f", {})
 
 
+def test_urls_from_inputs_passes_only_links_the_inputs_hold():
+    """F3 (ADR-0342): a link in the answer must be in the case's message (or the fields named)."""
+    harness = _harness()
+    check = {"scorer": "urls_from_inputs"}
+    case = {"message": "Announce the portal; details at https://intranet.example.sa/travel."}
+    assert harness.score_check(check, case, "No link here, read the intranet page.", {})
+    assert harness.score_check(check, case, "Read more: https://intranet.example.sa/travel.", {})
+    assert harness.score_check(check, case, "اقرأ المزيد: (https://intranet.example.sa/travel)", {})
+    assert not harness.score_check(check, case, "Read more: https://intranet.example.sa/travel-portal", {})
+    assert not harness.score_check(check, {"message": "no link"}, "See www.company.com/news for details.", {})
+    assert not harness.score_check(check, {"message": "no link"}, "التفاصيل على [البوابة](https://portal.example.com)", {})
+    named = {"scorer": "urls_from_inputs", "inputs": ["message", "expect.sources"]}
+    assert harness.score_check(named, {"message": "x", "expect": {"sources": "https://a.example/b"}}, "https://a.example/b", {})
+
+
 def test_turn_fields_score_the_applied_skill_and_citations():
     harness = _harness()
     check = {"scorer": "field_equals", "field": "skill", "expected": "expect.skill"}
@@ -354,10 +369,10 @@ def test_the_trace_shows_the_skill_block_by_name_and_version():
     harness = _harness()
     cfg, auth = {"LANGFUSE_PUBLIC_URL": "http://lf"}, ("p", "s")
     shown = _Trace([_assemble("router", {"system": 5}, []),
-                    _assemble("answer", {"system": 5, "skill": 400}, ["answer.system@1.5.0", "x-form@1.0.0", "context.skill@1.0.0"])])
+                    _assemble("answer", {"system": 5, "skill": 400}, ["answer.system@1.6.0", "x-form@1.0.0", "context.skill@1.0.0"])])
     assert harness.traced_skill(shown, cfg, auth, "t", "x-form@1.0.0") == "x-form"
     assert harness.traced_skill(shown, cfg, auth, "t", "x-form@2.0.0").startswith("mismatch:")
-    none = _Trace([_assemble("answer", {"system": 5}, ["answer.system@1.5.0"])])
+    none = _Trace([_assemble("answer", {"system": 5}, ["answer.system@1.6.0"])])
     assert harness.traced_skill(none, cfg, auth, "t", None) is None
     assert harness.traced_skill(none, cfg, auth, None, None) is None
 
