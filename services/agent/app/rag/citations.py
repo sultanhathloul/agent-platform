@@ -25,7 +25,8 @@ question's (phase 08, ADR-0354): a KB answer states its source and date in the s
 those words are in a document's metadata, not its chunk text. A claim ends at a clause mark too
 (، ؛ ;), so one sentence joining two facts from two sources cites both. An answer in another writing
 system than a chunk (English over Arabic) is attributed on the numbers it states, outside the
-question and the sources' names and dates."""
+question, the sources' names and publication years and the dates it writes (ADR-0361). Number words
+are folded to digits on both sides first (ADR-0359)."""
 
 import math
 import re
@@ -36,13 +37,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.text.arabic import search_terms
+from app.text.arabic import fold_number_words, search_terms
 from app.text.script import script_of
 
 MAX_SECTIONS = 3
 # A claim of the answer ends at a sentence end or a clause mark: one sentence may join two facts from
-# two sources with an Arabic comma (phase 08, ADR-0354).
-_CLAUSE_END = re.compile(r"[\n.!?؟،;؛]+")
+# two sources with an Arabic comma (phase 08, ADR-0354); never at a decimal point, «3.6» stays whole (ADR-0361).
+_CLAUSE_END = re.compile(r"(?:[\n!?؟،;؛]|\.(?!\d)|(?<!\d)\.)+")
 _NUMBER = re.compile(r"(?<![\d.])\d+(?:\.\d+)?(?![\d])")
 _INDIC = str.maketrans({**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, **{a: str(i) for i, a in enumerate("۰۱۲۳۴۵۶۷۸۹")}, "٫": "."})
 # What a citation copies from its source when the source has it: a knowledge base document's KB,
@@ -77,6 +78,37 @@ def _naming(source: dict[str, Any]) -> str:
     return " ".join(str(p) for p in parts if p)
 
 
+_MONTHS = (
+    "january|february|march|april|may|june|july|august|september|october|november|december"
+    "|يناير|فبراير|مارس|أبريل|ابريل|إبريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر"
+)
+# A date the answer writes when it names its source (D3): its day and month are no figures (ADR-0361).
+_DATE = re.compile(
+    rf"\d{{4}}-\d{{1,2}}-\d{{1,2}}|\d{{1,2}}/\d{{1,2}}/\d{{2,4}}"
+    rf"|(?:{_MONTHS})\s+\d{{1,2}}(?!\d)(?:st|nd|rd|th)?(?:,?\s*\d{{4}})?"
+    rf"|(?<!\d)\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MONTHS})(?:,?\s*\d{{4}})?",
+    re.IGNORECASE,
+)
+
+
+def _figures(text: str) -> set[str]:
+    """The numbers a text states outside the dates it writes."""
+    return _numbers(_DATE.sub(" ", (text or "").translate(_INDIC)))
+
+
+def _named_numbers(source: dict[str, Any]) -> set[str]:
+    """The numbers naming a source: those in its title, publisher and KB name, and its publication year;
+    never its date's day and month, which are figures elsewhere (ADR-0361)."""
+    names = source.get("kb_name") or {}
+    parts = [source.get("title"), source.get("publisher")]
+    if isinstance(names, dict):
+        parts += [names.get("ar"), names.get("en")]
+    numbers = _numbers(fold_number_words(" ".join(str(p) for p in parts if p)))
+    if source.get("published_on"):
+        numbers.add(str(source["published_on"])[:4])
+    return numbers
+
+
 def _numbers(text: str) -> set[str]:
     """The numbers a text holds, Arabic-Indic digits and the Arabic decimal mark folded."""
     return set(_NUMBER.findall((text or "").translate(_INDIC)))
@@ -109,11 +141,14 @@ def attribute(
     {id, title, source, document_id, pages, locator}, plus the source's SOURCE_METADATA it has. `texts` holds each chunk's text by its
     reference; a source without a document or a text is never cited. `locator` names
     sections when the document has no pages (DOCX, XLSX, TXT, MD)."""
-    asked = set(search_terms(question or ""))
+    # Number words are digits on both sides (ADR-0359): «واحد وعشرين» in the answer and «واحد وعشرون»
+    # in the chunk are both 21, and an English answer's "ninety" meets the chunk's «تسعين».
+    answer, question = fold_number_words(answer or ""), fold_number_words(question or "")
+    asked = set(search_terms(question))
     # Words that name a source (its title, publisher, KB name and date) say where a fact comes from,
     # not what it is: an answer that states its source and date (D3, phase 08) is attributed on its
     # facts, as the question's own words are dropped (ADR-0354).
-    asked |= {term for source in sources for term in search_terms(_naming(source))}
+    asked |= {term for source in sources for term in search_terms(fold_number_words(_naming(source)))}
     asked |= set(search_terms(" ".join(rule.source_phrasing)))
     terms = search_terms(answer or "")
     grams = ngrams(terms, rule.ngram)
@@ -127,8 +162,8 @@ def attribute(
     # shares no words with it; the numbers it states, outside the question and the sources' names
     # and dates, decide instead (ADR-0354).
     answer_script = _script(answer)
-    named_numbers = _numbers(question) | {n for source in sources for n in _numbers(_naming(source))}
-    answer_numbers = _numbers(answer) - named_numbers
+    named_numbers = _figures(question) | {n for source in sources for n in _named_numbers(source)}
+    answer_numbers = _figures(answer) - named_numbers
     if not new_grams and not answer_numbers:
         return []
     shared: list[set[tuple[str, ...]]] = []
@@ -140,7 +175,7 @@ def attribute(
             lines.append([])
             eligible.append(False)
             continue
-        text = texts[source["ref"]]
+        text = fold_number_words(texts[source["ref"]])
         chunk_script = _script(text)
         if answer_script and chunk_script and answer_script != chunk_script:
             common = {(number,) for number in answer_numbers & _numbers(text)}
@@ -179,7 +214,7 @@ def attribute(
     per_claim = []
     for clause in _CLAUSE_END.split(answer or ""):
         claim = {g for g in ngrams(search_terms(clause), rule.ngram) if g in new_grams}
-        claim |= {(n,) for n in _numbers(clause) - named_numbers}
+        claim |= {(n,) for n in _figures(clause) - named_numbers}
         per_claim.append([
             max((sum(weight.get(g, 0.0) for g in line & claim) for line in chunk_lines), default=0.0) if ok else 0.0
             for chunk_lines, ok in zip(lines, eligible, strict=True)

@@ -114,3 +114,66 @@ def test_the_words_introducing_a_source_do_not_dilute_the_claim(config_dir):
     assert citation["document_id"] == "dr" and citation["pages"] == [2]
     without = _rule(config_dir).model_copy(update={"source_phrasing": []})
     assert attribute(answer, [remote], {"r1": REMOTE}, without, question="كم يوما في الأسبوع يسمح بالعمل عن بعد؟") == []
+
+
+ANNUAL = ("الإجازات\nتستحق العاملة إجازة أمومة مدتها عشرة أسابيع بأجر كامل.\n"
+          "يستحق العامل إجازة سنوية مدتها واحد وعشرون يوما، تزيد إلى ثلاثين يوما بعد خمس سنوات خدمة.")
+JULY = "التوقعات\nيتوقع الصندوق الآن أن ينمو الناتج المحلي بنسبة 3.6 بالمئة في عام 2031.\nويتوقع أن يبلغ معدل التضخم 2.2 بالمئة في عام 2031."
+A_SOURCE = {"id": "a1", "ref": "a1", "document_id": "dl", "title": "نظام العمل في الواحة", "kind": "kb", "page": 2,
+            "publisher": "وزارة الموارد البشرية في الواحة", "published_on": "2030-11-01"}
+J_SOURCE = {"id": "j1", "ref": "j1", "document_id": "dj", "title": "آفاق اقتصاد الواحة - تحديث يوليو 2031", "kind": "kb",
+            "page": 2, "publisher": "صندوق الواحة للنقد", "published_on": "2031-07-20"}
+
+
+def test_a_number_word_in_another_case_form_is_attributed(config_dir):
+    # make-eval-20261026T151652Z, cross-annual-inflation-ar (ADR-0359): «واحد وعشرين» and «مدة» in the
+    # answer, «واحد وعشرون» and «مدتها» in the chunk shared no bigram; folded, both say 21.
+    answer = ("تستحق الإجازة السنوية للعامل في الواحة مدة واحد وعشرين يوماً، وفقاً لنظام العمل الصادر عن وزارة "
+              "الموارد البشرية في الواحة بتاريخ 2030-11-01. ويتوقع صندوق الواحة للنقد أن يبلغ معدل التضخم 2.2 "
+              "بالمئة في عام 2031، وفقاً لتوقعات تحديث يوليو 2031 الصادر بتاريخ 2031-07-20.")
+    cited = attribute(answer, [A_SOURCE, J_SOURCE], {"a1": ANNUAL, "j1": JULY}, _rule(config_dir),
+                      question="ما مدة الإجازة السنوية للعامل في الواحة، وما معدل التضخم المتوقع لعام 2031؟")
+    assert {c["document_id"]: c["pages"] for c in cited} == {"dl": [2], "dj": [2]}
+
+
+def test_digits_in_the_answer_meet_number_words_in_the_chunk(config_dir):
+    answer = "يستحق العامل إجازة سنوية مدتها 21 يوما وفقا لنظام العمل."
+    [citation] = attribute(answer, [A_SOURCE], {"a1": ANNUAL}, _rule(config_dir),
+                           question="كم مدة الإجازة السنوية؟")
+    assert citation["document_id"] == "dl" and citation["pages"] == [2]
+
+
+def test_an_english_answer_with_number_words_is_attributed_to_arabic_number_words(config_dir):
+    probation = "التجربة\nلا تزيد فترة التجربة على تسعين يوما، ويجوز تمديدها مرة واحدة باتفاق مكتوب."
+    source = {**A_SOURCE, "id": "p1", "ref": "p1", "page": 3}
+    for answer in ("The probation period may not exceed ninety days, under the Oasis Labor System.",
+                   "The probation period may not exceed 90 days, under the Oasis Labor System."):
+        [citation] = attribute(answer, [source], {"p1": probation}, _rule(config_dir),
+                               question="How long is the probation period?")
+        assert citation["pages"] == [3]
+
+
+TRADE = {"id": "t1", "ref": "t1", "document_id": "dt", "title": "تقرير التجارة الخارجية للواحة 2030", "kind": "kb",
+         "page": 2, "publisher": "هيئة إحصاء الواحة", "published_on": "2031-02-10"}
+
+
+def test_a_source_dated_on_the_10th_does_not_hide_the_figure_10(config_dir):
+    # make-eval-20261027T131623Z, cross-maternity-unemployment-en (ADR-0361): the trade report's date
+    # 2031-02-10 removed 10 from every answer's numbers, so "ten weeks" met nothing.
+    answer = ("According to the Oasis Labor System published on November 1, 2030, maternity leave is ten weeks "
+              "with full pay.")
+    cited = attribute(answer, [A_SOURCE, TRADE], {"a1": ANNUAL, "t1": CHUNK}, _rule(config_dir),
+                      question="How long is maternity leave in the Oasis?")
+    assert [(c["document_id"], c["pages"]) for c in cited] == [("dl", [2])]
+
+
+def test_a_decimal_figure_is_one_claim_and_the_dates_written_are_no_figures(config_dir):
+    # make-eval-20261027T131623Z, cross-annual-growth-en (ADR-0361): «3.6» was split at its point into
+    # two claims, and "July 20" and "November 1" gave the stray figures 20 and 1.
+    answer = ("According to the Oasis Labor System published on November 1, 2030, a worker is entitled to 21 days "
+              "of annual leave, which increases to 30 days after five years of service. According to the Oasis "
+              "Economic Outlook published on July 20, 2031, the latest forecast for GDP growth in 2031 is 3.6 percent.")
+    cited = attribute(answer, [A_SOURCE, J_SOURCE], {"a1": ANNUAL, "j1": JULY}, _rule(config_dir),
+                      question="How many days of annual leave does a worker get, and what is the latest growth "
+                               "forecast for 2031?")
+    assert {c["document_id"]: c["pages"] for c in cited} == {"dl": [2], "dj": [2]}
