@@ -904,7 +904,7 @@ def page_fields(http: httpx.Client, gateway: str, token: str, done: dict) -> dic
     base = f"{gateway}/v1/reports/{artifact['id']}/versions/{artifact['version']}"
     version = http.get(base, headers=headers)
     if version.status_code == 200:
-        fields["page"] = version.json()["html"]
+        fields["page"] = version.json()["data"]["html"]  # the gateway's envelope {request_id, data}
     download = http.get(f"{base}/download", headers=headers)
     if download.status_code == 200:
         fields["download"] = download.text

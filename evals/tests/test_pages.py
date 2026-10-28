@@ -56,3 +56,20 @@ def test_figures_sourced_needs_each_expected_figure_shown_and_unmarked():
     data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
             '[{"label":"x","data":[812,455],"unverified":[1]}]}}}</script>')
     assert pages.figures_sourced(page(data), ["812"]) and not pages.figures_sourced(page(data), ["455"])
+
+
+def test_page_fields_read_the_version_and_the_download_from_the_gateways_envelope():
+    import httpx
+    import run_evals
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/download"):
+            return httpx.Response(200, text="<!doctype html>download")
+        return httpx.Response(200, json={"request_id": "r", "data": {"html": "<!doctype html>page"}})
+
+    http = httpx.Client(transport=httpx.MockTransport(answer))
+    done = {"state_digest": {"output": "report"}, "artifact": {"id": "a", "kind": "report", "title": "t", "version": 2}}
+    fields = run_evals.page_fields(http, "http://gw", "token", done)
+    assert fields["page"] == "<!doctype html>page" and fields["download"] == "<!doctype html>download"
+    assert fields["form"] == "report" and fields["artifact"]["version"] == 2
+    assert run_evals.page_fields(http, "http://gw", "token", {"state_digest": {"output": "text"}})["page"] is None
