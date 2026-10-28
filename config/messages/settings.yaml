@@ -68,6 +68,15 @@ rules:
     ar: "لا تترك شيفرة المنصة الهامش المطلوب لمحاولة خادم الأدوات داخل مهلة الطلب."
     en: "The platform's code does not keep the required margin for a tool server attempt within its caller's time limit."
 families:
+  profile-turn-in-relay:
+    ar: "مهلة سؤال التقرير التفاعلي كله ({inner} ثانية) لا تقل عن مهلة البوابة في نقل إجابته ({outer} ثانية)، ويجب أن تكون أقصر منها."
+    en: "The whole interactive-report question time limit ({inner} s) is not shorter than the gateway's limit for relaying it ({outer} s)."
+  profile-answer-in-turn:
+    ar: "سقف كتابة التقرير التفاعلي ({inner} ثانية) يزيد على مهلة سؤاله كله بعد الوقت المحجوز بعد الإجابة ({outer} ثانية)."
+    en: "The interactive report writing ceiling ({inner} s) is longer than its whole-question time limit less the time kept after the answer ({outer} s)."
+  profile-role-in-answer:
+    ar: "مهلة نموذج كتابة التقارير ({inner} ثانية) تزيد على سقف كتابة التقرير التفاعلي ({outer} ثانية)."
+    en: "The report-writing model's time limit ({inner} s) is longer than the interactive report writing ceiling ({outer} s)."
   sandbox-memory:
     ar: "ذاكرة عمليات تحليل الملفات مع احتياطي الخدمة ({inner} ميغابايت) تزيد على حد ذاكرة الحاوية ({outer} ميغابايت)."
     en: "The file parsers' memory plus the service's reserve ({inner} MiB) is more than the container's memory limit ({outer} MiB)."
@@ -119,8 +128,11 @@ fields:
   turn.answer_reserve_s: {ar: "الوقت المحجوز للإجابة", en: "Time kept for the answer"}
   turn.post_answer_reserve_s: {ar: "الوقت المحجوز بعد الإجابة", en: "Time kept after the answer"}
   turn.evidence_fetch_s: {ar: "مهلة جلب نصوص المصادر", en: "Time to fetch the sources' text"}
+  turn.report_deadline_s: {ar: "مهلة سؤال التقرير التفاعلي كله", en: "Whole interactive-report question time limit"}
+  turn.report_answer_s: {ar: "سقف كتابة التقرير التفاعلي", en: "Interactive report writing ceiling"}
   models.helper_s: {ar: "مهلة النماذج المساعدة", en: "Helper models' time limit"}
   models.reasoning_s: {ar: "مهلة نموذج الإجابة", en: "Answering model's time limit"}
+  models.report_writer_s: {ar: "مهلة نموذج كتابة التقارير", en: "Report-writing model's time limit"}
   models.embed_query_s: {ar: "مهلة تحويل السؤال إلى تمثيل رقمي", en: "Time to embed a question"}
   models.embed_batch_s: {ar: "مهلة تحويل دفعة من مقاطع الملفات", en: "Time to embed a batch of file passages"}
   models.rerank_s: {ar: "مهلة إعادة ترتيب النتائج", en: "Time to rerank results"}

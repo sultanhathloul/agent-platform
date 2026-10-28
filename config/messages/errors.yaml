@@ -134,3 +134,16 @@ settings_conflict:
 settings_version_not_found:
   ar: "لم يُعثر على هذه النسخة من الإعدادات."
   en: "This settings version was not found."
+# Interactive reports (reports PR, ADR-0373 to ADR-0384).
+report_not_found:
+  ar: "التقرير غير موجود أو لا تملك صلاحية الاطلاع عليه."
+  en: "The report does not exist or you may not view it."
+report_unavailable:
+  ar: "تعذر حفظ التقرير أو قراءته الآن. حاول مرة أخرى بعد قليل."
+  en: "The report could not be saved or read right now. Try again shortly."
+report_too_large:
+  ar: "تجاوزت صفحة التقرير الحجم المسموح به. اطلب تقريرًا أقصر أو أقل تفصيلًا."
+  en: "The report page is larger than allowed. Ask for a shorter or less detailed report."
+report_edit_too_large:
+  ar: "التقرير الحالي أكبر من أن يُعدَّل في طلب واحد. اطلب تقريرًا جديدًا في محادثة جديدة."
+  en: "The current report is too large to edit in one request. Ask for a new report in a new conversation."

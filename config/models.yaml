@@ -19,6 +19,12 @@ roles:                      # helper roles are pinned to fast
   extractor:  fast          # memory candidate extraction, context compression
   reflection: standard
   reasoning:  standard      # provisional; capability floors and escalation apply (§19.3)
+  report_writer: heavy      # an interactive HTML report (reports PR, I1, ADR-0369)
+
+# A role's own output ceiling, above its tier's max_output (I1: a report page is up to 16k tokens). The
+# assembly budget of that role's calls reserves the same amount, so its input stays within the window.
+role_max_output:
+  report_writer: 16000
 
 # Decoding temperature per role (ADR-0032). Every role in `roles` needs one, and
 # startup fails without it. Helper roles decode greedily so their output is
@@ -30,6 +36,7 @@ temperature:
   extractor:  0.0
   reflection: 0.2
   reasoning:  0.2
+  report_writer: 0.3
 
 escalation:
   complexity_high: heavy
@@ -61,6 +68,7 @@ timeouts:
     judge:      20
     extractor:  20
     reasoning:  90
+    report_writer: 270      # the report profile's answer ceiling (config/turn.yaml profiles.report.answer_s)
     reflection: 90
   embedding:
     query:  15              # a question or memory item matched at answer time
