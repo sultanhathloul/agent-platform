@@ -117,7 +117,7 @@ Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0323; docs/
 Phase 08 (kb) is built first, from main after phase 06; then a standalone **report PR** (HTML report artifacts, pulled forward from phase 11's artifact outputs, MCP item 7 above); then phase 07 (planner). Phase 11 keeps the rest of artifact outputs and long-running tool calls. CLAUDE.md's phase table carries the note.
 
 ### Report PR (after phase 08, before phase 07)
-Status: not started. Scope to be written in its own prompt: HTML report artifacts (a capability or skill returns an HTML page, stored, shown in a sandboxed preview, downloadable, its text through runtime DATA policies). Out of phase 08 (its prompt's OUT OF SCOPE).
+Status: → feat/reports (docs/REPORTS-PROMPT.md, ADR-0364 onward; docs/PROGRESS.md "Interactive reports"). Scope as first sketched: HTML report artifacts (a capability or skill returns an HTML page, stored, shown in a sandboxed preview, downloadable, its text through runtime DATA policies). Out of phase 08 (its prompt's OUT OF SCOPE).
 
 ---
 

@@ -3270,3 +3270,96 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: In phase 08's before-merge run 1 (make-eval-20261027T133658Z) cross-annual-growth-en missed cross-KB attribution: «a GDP growth of 3.6 percent for 2031, revising the previous April 2031 forecast of 3.1 percent» is one claim holding the July figure and the April one, the July and April pages tie on it, and the per-claim pass (ADR-0357) took the first retrieved, the April page, so the current page went uncited. The backlog named two options: cite every page tied at a claim's best score, or prefer the newer version of the same source at a tie (D3 of phase 08). The owner asked for a measurement on the recorded answers before a change.
 - Decision: The per-claim pass picks, among the sources tied at a claim's best score, one that no newer version supersedes (its `superseded_by` is empty), then the first retrieved as before (`_best_index` in app/rag/citations.py). Option one was not taken: it would cite the superseded page beside the current one on every such claim, which D3's "use the latest" argues against. Measured offline before the change: every recorded kb answer of the phase 08 runs (build/evals/make-eval-2026102*.json, 278 answers) through attribution over the indexed fixture chunks of the case's KBs, once with the superseded version retrieved first and once last (556 replays): two citation sets change, both from failing to passing (cross-annual-growth-en of make-eval-20261027T133658Z and cross-annual-inflation-ar of make-eval-20261026T121202Z, superseded version first), none from passing to failing. A unit test holds the case's answer and chunk texts in both orders and fails without the change.
 - Consequences: Sources without versions (uploads, KB documents no other document supersedes) are attributed exactly as before. The kb, rag and rag@mcp suites depend on attribution and run in this PR's full make eval.
+
+### ADR-0364: A report is an output form, not a data source (owner decision D1, reports PR)
+- Date: 2026-10-28
+- Phase: reports PR (standalone, pulled forward from phase 11; owner decision D1 of phase 08, ADR-0328)
+- Status: decided
+- Context: The owner wants answers shaped like Claude's artifacts: a dashboard, report, indicators board, infographic or presentation-style page, built live beside the chat, from whatever the turn already has (the model's general knowledge, the toggled knowledge bases, the attached files).
+- Decision: A report changes only how the answer is written. Capabilities, KB toggles and attachments work as today; on a report turn the answer node writes one HTML page instead of text. A report turn applies no text skill.
+- Consequences: No capability changes, and no new permission: whoever may ask a question may ask for its answer as a report. The skill picked or chosen on a report turn is dropped (ADR-0378 records how).
+
+### ADR-0365: General-knowledge figures are marked unverified; sourced figures carry their source (owner decision D2)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: Figures from the model's general knowledge are allowed but visibly marked «غير موثق» / "Unverified"; figures from knowledge bases or files carry their source. No figure is ever shown unmarked.
+- Consequences: The figure check of ADR-0371 enforces it after generation; the eval suite gates it (ADR-0376).
+
+### ADR-0366: Report selection by keyword through the router, or from the composer's output picker (owner decision D3)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A turn becomes a report automatically when one of the report keywords («داشبورد», «لوحة مؤشرات», «لوحة معلومات», «تقرير تفاعلي», «إنفوجرافيك», «عرض», dashboard, infographic, report page, …) is in the message, through the router as skills are (the keyword makes it a candidate, the router model decides), or explicitly from an output picker in the composer («نص» / «تقرير تفاعلي»).
+- Consequences: The keywords are configuration (config/artifacts/report.yaml). The router prompt and its cache key change (ADR-0378).
+
+### ADR-0367: A follow-up edits the latest report into a new version (owner decision D4)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A follow-up in the same conversation ("غيّر الألوان", "أضف رسمًا للتضخم") edits the latest report and creates a new version of it; earlier versions stay viewable.
+- Consequences: Versions are numbered per report and never overwritten (ADR-0373).
+
+### ADR-0368: PDF export is out of scope (owner decision D5)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: No PDF export in this PR; it comes later.
+
+### ADR-0369: The report_writer role on the heavy tier, with its own deadline profile (owner decision I1)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: Reports are written by the role `report_writer` on the heavy tier (config/models.yaml), with at most 16k output tokens. Report turns use their own deadline profile in config/turn.yaml (deadline 300 s, answer ceiling 270 s, the gateway's stream bound the deadline plus its margin), validated by app/resilience/budget.py and shown in /admin/settings. The HTML streams to the panel as it is written.
+- Consequences: A report turn holds its turn slot up to 300 s. ADR-0379 records how the profile is chosen before the turn starts and how the gateway learns it.
+
+### ADR-0370: A design kit served by the platform, never from the internet (owner decision I2)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: config/artifacts/design-system.md is the prompt part (layout, cards, KPI tiles, tables, charts, typography, spacing, dark and light, RTL with logical properties, English terms in <bdi>). Static assets live at a same-origin path: kit.css, self-hosted IBM Plex Sans Arabic, and Chart.js pinned and vendored. Chart data lives in one `<script type="application/json" id="report-data">` block that a kit helper renders, so figures are checkable.
+- Consequences: No report ever loads anything from the internet; the air-gapped profile renders reports as the connected one does.
+
+### ADR-0371: A figure check after generation, and a sources section (owner decision I3)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: After generation, linear and size-capped, every number in the visible text and in report-data is matched against the turn's findings and the user's message (reusing phase 08's number folding). Unmatched figures are wrapped in the kit's unverified marker and logged. A «المصادر» section is appended from the citations (KB, title, publisher, date, page).
+- Consequences: ADR-0381 records what counts as a figure and a match.
+
+### ADR-0372: Report safety: a sandboxed iframe, CSP from its own path, a size cap, runtime guards on its text (owner decision I4)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A report renders in an iframe with sandbox="allow-scripts" (no same-origin), served from its own path with CSP default-src 'none', scripts, styles and fonts only from the kit path and inline, connect-src 'none', and no external URLs. Each version is capped at 512 KB. The guard OUTPUT and DATA policies run on the report's visible text.
+- Consequences: ADR-0382 and ADR-0383 record the sanitizer and how the guards run while the page streams.
+
+### ADR-0373: Report storage and owner-only access (owner decision I5)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: Each version is stored in MinIO as artifacts/<tenant>/<conversation>/<id>/v<n>.html, with a DB table (owner, conversation, title, versions). Only the conversation's owner reads a report, checked at the gateway AND the agent. The conversation history shows the report card.
+
+### ADR-0374: Report API, additive, minor version bump (owner decision I6)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: New events artifact_start {id, title}, artifact_delta and artifact_done {id, version, size}; a GET of a version for the panel; a download that returns one self-contained file (kit CSS, JS and fonts inlined) that opens offline.
+
+### ADR-0375: The report side panel (owner decision I7)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A side panel like Claude's artifacts: chat on the right and panel on the left in RTL (mirrored in English); live build; tabs «معاينة» / «الكود»; buttons for download, full screen, copy code, version switcher and close; a report card in the chat reopens it. Arabic first, Western digits (ADR-0288).
+
+### ADR-0376: The reports eval suite (owner decision I8)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: reports.jsonl, about 12 cases (Arabic, Gulf, English; general knowledge, KB, attached file; one iteration case). Gated: the HTML parses, dir=rtl for Arabic, the kit only and no external URL, KB figures match their source, general-knowledge figures marked, the sources section present, the size cap. Reported: visual quality.
+
+### ADR-0377: Report smoke checks (owner decision I9)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: smoke checks that a report turn produces a version served with the CSP headers, that the download has no external reference, that another user cannot fetch it, and that a follow-up creates v2.
