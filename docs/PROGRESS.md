@@ -2253,6 +2253,16 @@ make smoke at 59ecf68, 17:09:38Z–17:09:42Z: **failed** at the first turn ("eve
 
 make eval s=directions at 59ecf68, 17:37:48Z–17:39:28Z, make-eval-20261027T173748Z (build/evals/make-eval-20261027T173748Z.json), after the smoke above: rc 0, directions **27/27** PASS: places_resolved 1.00 (17), distance_duration_correct 1.00 (17), unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3); 0 provider retries, lost 0. This is a single-suite run, not a fourth before-merge run: it shows the directions failures above were the provider's, not the code's.
 
+### Development provider routing (2026-10-28, ADR-0362)
+
+Owner decision: on the OpenRouter development profile, OpenRouter may route each model to any provider that serves it, sorted by throughput (`MODEL_PROVIDER_ALLOW_FALLBACKS=true`, `MODEL_PROVIDER_SORT=throughput`, read by infra/litellm/config.yaml for fast, standard and heavy; passed by docker-compose.yml, default `throughput`). Production on local models unaffected (Ollama ignores `provider`). `.env` assigns each variable once (the duplicated offline model lines removed; not committed). litellm recreated 2026-10-28; one probe per tier answered (fast via Novita, standard via Reka, heavy via Wafer). Infrastructure only (rule 13): make test, the directions and routing suites once each, make smoke.
+
+- make test 00:13:45Z–00:27:17Z: agent 1166 / 0 / 0, gateway 193 / 0 / 0, gateway-db 5 / 0 / 0, web 192 / 0 / 0 (16 files), evals harness 31 / 0 / 0, timeout budget 36 / 0 / 0, scripts/tests 17 / 0 / 0. Equal to 59ecf68.
+- make eval s=directions 00:27:18Z–00:28:40Z, make-eval-20261028T002718Z (build/evals/make-eval-20261028T002718Z.json): rc 0, directions 26/27 PASS: places_resolved 0.94 (17), distance_duration_correct 1.00 (17), unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3); 0 provider retries, **lost 0**. The miss is route-en-airport-masmak (an Arabic answer to an English question, known since phase 05).
+- make eval s=routing 00:28:40Z–00:37:05Z, make-eval-20261028T002840Z (build/evals/make-eval-20261028T002840Z.json): rc 0, routing 111/113 (0.98) PASS against 0.90; reported keyword_free 0/9, skill_keyword_free 0/5. 0 provider retries; lost 2, both validation_failed (general-gulf-word, negative-msa-career-path), none from a 429.
+- LiteLLM logged no 429 from the recreate to 00:42Z (0 `429 Too Many Requests`, 0 `RateLimitError`).
+- make smoke 00:37:05Z–00:41:42Z: **failed**, 217 checks ok, then "the analyst's composer never lists a KB it holds no role for" (scripts/smoke.sh expects analyst's KBs to be exactly moe and intl-economy). Cause: at 00:34Z, during this sequence, the owner's separate development task assigned the realm role kb:stats-gov:read to analyst in the running Keycloak, so /v1/capabilities correctly listed stats-gov too. Not a platform or provider fault; smoke stops at its first failure, so its later checks did not run. No 429 in this attempt.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
