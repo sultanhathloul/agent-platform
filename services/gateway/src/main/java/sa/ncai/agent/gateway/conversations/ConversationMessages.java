@@ -20,7 +20,17 @@ public record ConversationMessages(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryAttachment> attachments,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryCitation> citations,
             @Schema(nullable = true, description = "The skill applied to a reply, when one was (phase 06).")
-            HistorySkill skill) {}
+            HistorySkill skill,
+            @Schema(nullable = true, description = "The report a reply wrote, for its card (reports PR, I5).")
+            HistoryArtifact artifact) {}
+
+    /** The report a reply wrote: what the chat's report card shows and opens (reports PR, I5, I7). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record HistoryArtifact(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String id,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"report"}) String kind,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String title,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int version) {}
 
     /** The skill a reply was written with: its slug and its names from SKILL.md (phase 06, ADR-0301). */
     @JsonIgnoreProperties(ignoreUnknown = true)

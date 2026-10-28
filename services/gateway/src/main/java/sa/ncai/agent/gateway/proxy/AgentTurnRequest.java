@@ -3,7 +3,10 @@ package sa.ncai.agent.gateway.proxy;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 
-/** Body of the agent's {@code POST /v1/turns} (README §6.2); {@code skill}: the picked skill, phase 06. */
+/**
+ * Body of the agent's {@code POST /v1/turns} (README §6.2); {@code skill}: the picked skill, phase 06;
+ * {@code output}: the picked output form, {@code text} or {@code report} (reports PR, D3).
+ */
 public record AgentTurnRequest(
         String conversationId,
         Principal principal,
@@ -11,7 +14,8 @@ public record AgentTurnRequest(
         List<String> attachmentIds,
         List<String> selectedKbs,
         String locale,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String skill) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String skill,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String output) {
 
     /**
      * Identity set by the gateway, never by the model. {@code maxTier} is the model tier ceiling

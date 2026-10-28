@@ -3,12 +3,14 @@ package sa.ncai.agent.gateway.auth;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -46,7 +48,34 @@ public class SecurityConfig {
         "/v1/health", "/actuator/health", "/actuator/health/**", "/v3/api-docs", "/v3/api-docs/**", "/error"
     };
 
+    /**
+     * The report pages and the report kit (reports PR, I2, I4), public and GET only. A chain of their
+     * own: no token is read, no CORS rule applies (the kit sets its own {@code Access-Control-Allow-Origin},
+     * and a page is never served with the gateway's), no {@code X-Frame-Options} (a page's CSP
+     * {@code frame-ancestors} lets the web frame it) and no default cache headers (each response sets its
+     * own). A page is reached by its signed view ticket only (ReportPageController).
+     */
+    public static final String[] REPORT_PAGE_PATHS = {"/report-views/**", "/report-kit/**"};
+
     @Bean
+    @Order(1)
+    SecurityFilterChain reportPageFilterChain(HttpSecurity http) throws Exception {
+        http.securityMatcher(REPORT_PAGE_PATHS)
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(AbstractHttpConfigurer::disable)
+                .headers(headers -> headers
+                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)
+                        .cacheControl(HeadersConfigurer.CacheControlConfig::disable))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.GET, REPORT_PAGE_PATHS).permitAll()
+                        .anyRequest().denyAll());
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, ErrorResponses errors, AttachmentGate attachmentGate)
             throws Exception {
         AuthenticationEntryPoint unauthorized = (request, response, e) -> {

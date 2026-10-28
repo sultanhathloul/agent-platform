@@ -110,6 +110,23 @@ class ConversationProxyTest extends GatewayTestSupport {
     }
 
     @Test
+    void aReplysReportCardPassesThroughTheHistory() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "user-123", "tenant-a");
+        AGENT.enqueue(json(200, """
+                {"conversation_id":"6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d","messages":[\
+                {"role":"assistant","text":"أُنشئ التقرير","turn_id":"t1","attachments":[],"citations":[],\
+                "artifact":{"id":"5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f","kind":"report","title":"لوحة","version":2}}]}"""));
+
+        mvc.perform(get("/v1/conversations/" + CONVERSATION + "/messages")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.messages[0].artifact.id").value("5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f"))
+                .andExpect(jsonPath("$.data.messages[0].artifact.kind").value("report"))
+                .andExpect(jsonPath("$.data.messages[0].artifact.title").value("لوحة"))
+                .andExpect(jsonPath("$.data.messages[0].artifact.version").value(2));
+    }
+
+    @Test
     void anotherUsersOrTenantsConversationIsForbiddenAndNeverReachesTheAgent() throws Exception {
         for (String[] owner : List.of(new String[] {"viewer-1", "tenant-a"}, new String[] {"user-123", "tenant-b"})) {
             ((sa.ncai.agent.gateway.InMemoryConversationRepository) conversations).clear();

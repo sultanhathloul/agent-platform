@@ -112,6 +112,8 @@ openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web'
 		-v "$(CURDIR)/config/models.yaml":/config/models.yaml:ro -e GATEWAY_MODELS_CONFIG=/config/models.yaml \
 		-v "$(CURDIR)/config/docs.yaml":/config/docs.yaml:ro -e GATEWAY_DOCS_CONFIG=/config/docs.yaml \
 		-v "$(CURDIR)/config/turn.yaml":/config/turn.yaml:ro -e GATEWAY_TURN_CONFIG=/config/turn.yaml \
+		-v "$(CURDIR)/config/artifacts":/config/artifacts:ro -e GATEWAY_REPORTS_CONFIG=/config/artifacts/report.yaml \
+		-e GATEWAY_REPORTS_KIT_DIR=/config/artifacts/kit \
 		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api
