@@ -15,11 +15,14 @@ export function SkillPicker({
   value,
   onChange,
   disabled = false,
+  disabledHint,
 }: {
   skills: SkillView[];
   value: string;
   onChange: (slug: string) => void;
   disabled?: boolean;
+  /** Why the picker is off, as its tooltip (a report applies no skill, D1). */
+  disabledHint?: string;
 }) {
   const t = useTranslations();
   const rawLocale = useLocale();
@@ -34,7 +37,7 @@ export function SkillPicker({
         value={chosen ? value : NO_SKILL}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        title={chosen ? skillName(chosen.description, locale) : t("chat.skillAutoHint")}
+        title={disabledHint ?? (chosen ? skillName(chosen.description, locale) : t("chat.skillAutoHint"))}
         className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-emerald-600 focus:outline-none disabled:opacity-40"
       >
         <option value={NO_SKILL}>{t("chat.skillAuto")}</option>

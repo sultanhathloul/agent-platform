@@ -4,9 +4,10 @@ import { useLocale, useTranslations } from "next-intl";
 import { resolveErrorMessage } from "@/lib/errors";
 import { isLocale, DEFAULT_LOCALE } from "@/lib/locale";
 import { safeHref } from "@/lib/return-path";
-import type { Citation } from "@/lib/api/types";
+import type { ArtifactRef, Citation } from "@/lib/api/types";
 import type { AssistantMessage, Chip } from "@/lib/stream";
 import { MessageMarkdown } from "./MessageMarkdown";
+import { ReportCard } from "./ReportPanel";
 
 const chipClass =
   "inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200";
@@ -136,7 +137,14 @@ export function CitationList({ citations }: { citations: Citation[] }) {
   );
 }
 
-export function AssistantMessageView({ message }: { message: AssistantMessage }) {
+export function AssistantMessageView({
+  message,
+  onOpenReport,
+}: {
+  message: AssistantMessage;
+  /** Reopens the report panel at the version this reply wrote (reports PR, I7). */
+  onOpenReport?: (ref: ArtifactRef) => void;
+}) {
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
@@ -165,6 +173,8 @@ export function AssistantMessageView({ message }: { message: AssistantMessage })
       ) : (
         message.status === "streaming" && <p className="animate-pulse text-slate-500">{t("chat.thinking")}</p>
       )}
+
+      {message.artifact && <ReportCard artifact={message.artifact} onOpen={onOpenReport} />}
 
       {message.status === "aborted" && <p className="mt-2 text-xs text-amber-700">{t("chat.stopped")}</p>}
 

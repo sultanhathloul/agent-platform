@@ -19,6 +19,7 @@ import { type Turn, turnsFromHistory } from "@/lib/conversations";
 import { GatewayError, getConversationMessages, isAbortError, listCapabilities, listSkills, streamTurn } from "@/lib/gateway";
 import { loadSelection, saveSelection, selectedForTurn, toggled } from "@/lib/kbs";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
+import { AUTO_OUTPUT, type OutputChoice, type ReportAction, loadOutput, saveOutput, skillAllowed, withOutput } from "@/lib/reports";
 import {
   applyEvent,
   finalizeStream,
@@ -34,11 +35,21 @@ import { AttachmentTray, LimitsHint } from "./AttachmentTray";
 import { useAuth } from "./AuthProvider";
 import { useRuntimeConfig } from "./ConfigProvider";
 import { KbToggles } from "./KbToggles";
+import { OutputPicker } from "./OutputPicker";
 import { SkillPicker } from "./SkillPicker";
 
 // The conversation's earlier messages load from the gateway when it opens (ADR-0193); new turns
-// are added in memory as they stream.
-export function Chat({ conversationId, onTurnDone }: { conversationId: string; onTurnDone?: () => void }) {
+// are added in memory as they stream. Every streamed event and each stream's end also go to
+// `onReport`, which drives the report panel beside the chat (reports PR, I7).
+export function Chat({
+  conversationId,
+  onTurnDone,
+  onReport,
+}: {
+  conversationId: string;
+  onTurnDone?: () => void;
+  onReport?: (action: ReportAction) => void;
+}) {
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
@@ -58,6 +69,7 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
   const [skill, setSkill] = useState(NO_SKILL);
   const [kbs, setKbs] = useState<KbToggle[]>([]);
   const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
+  const [output, setOutput] = useState<OutputChoice>(AUTO_OUTPUT);
   const controllerRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -132,6 +144,8 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
   // this browser kept them (README §13: persisted per conversation).
   useEffect(() => {
     setSelectedKbs(loadSelection(conversationId, typeof window === "undefined" ? undefined : window.localStorage));
+    // The output choice is kept the same way (reports PR, D3).
+    setOutput(loadOutput(conversationId, typeof window === "undefined" ? undefined : window.localStorage));
   }, [conversationId]);
 
   useEffect(() => {
@@ -157,6 +171,13 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
       saveSelection(conversationId, next, typeof window === "undefined" ? undefined : window.localStorage);
       return next;
     });
+  }
+
+  function chooseOutput(next: OutputChoice) {
+    setOutput(next);
+    saveOutput(conversationId, next, typeof window === "undefined" ? undefined : window.localStorage);
+    // A report applies no skill (D1): a pick made before is dropped.
+    if (!skillAllowed(next)) setSkill(NO_SKILL);
   }
 
   // Pending files are polled every 2 s until indexed or failed (ADR-0138).
@@ -263,20 +284,19 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
         await auth.login(pathname);
         return;
       }
-      const body: ChatTurnRequest = withSkill(
-        {
-          conversation_id: conversationId,
-          message,
-          // Only KBs still listed for the caller: a KB deleted or no longer readable is never sent (I7).
-          selected_kbs: selectedForTurn(selectedKbs, kbs),
-          attachment_ids: attachmentIds,
-          locale,
-        },
-        picked,
-        skills,
-      );
+      const base: ChatTurnRequest = {
+        conversation_id: conversationId,
+        message,
+        // Only KBs still listed for the caller: a KB deleted or no longer readable is never sent (I7).
+        selected_kbs: selectedForTurn(selectedKbs, kbs),
+        attachment_ids: attachmentIds,
+        locale,
+      };
+      // The output choice goes with every turn until changed; a report turn sends no skill (D1).
+      const body = withOutput(skillAllowed(output) ? withSkill(base, picked, skills) : base, output);
       for await (const event of streamTurn({ gatewayUrl: config.gatewayUrl, token, body, signal: controller.signal })) {
         updateAnswer(id, (m) => applyEvent(m, event));
+        onReport?.({ type: "event", event });
       }
       updateAnswer(id, finalizeStream);
     } catch (error) {
@@ -289,6 +309,8 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
         updateAnswer(id, (m) => markError(m, { code: "unknown" }));
       }
     } finally {
+      // However the stream ended, a page not yet stored is dropped.
+      onReport?.({ type: "end" });
       controllerRef.current = null;
       setStreaming(false);
       onTurnDone?.();
@@ -337,7 +359,7 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
                     </ul>
                   )}
                 </div>
-                <AssistantMessageView message={turn.answer} />
+                <AssistantMessageView message={turn.answer} onOpenReport={(ref) => onReport?.({ type: "open", ref })} />
               </li>
             ))}
           </ol>
@@ -416,7 +438,14 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <KbToggles kbs={kbs} selected={selectedKbs} onToggle={toggleKb} disabled={streaming} />
-          <SkillPicker skills={skills} value={skill} onChange={setSkill} disabled={streaming} />
+          <OutputPicker value={output} onChange={chooseOutput} disabled={streaming} />
+          <SkillPicker
+            skills={skills}
+            value={skill}
+            onChange={setSkill}
+            disabled={streaming || !skillAllowed(output)}
+            disabledHint={skillAllowed(output) ? undefined : t("chat.skillOffForReport")}
+          />
         </div>
         {busy && <p className="mt-1.5 text-xs text-amber-700">{t("chat.sendWaiting")}</p>}
         {limits && <div className="mt-1.5"><LimitsHint limits={limits} /></div>}

@@ -29,6 +29,10 @@ import type {
   PolicyTestResult,
   PolicyView,
   PolicyYaml,
+  ReportList,
+  ReportVersionView,
+  ReportView,
+  ReportViewLink,
   SettingsDraft,
   SettingsPreview,
   SettingsSaved,
@@ -182,6 +186,75 @@ export async function setMemoryEnabled({
 /** The caller as the gateway sees them; `is_admin` decides which links the UI shows, never access. */
 export async function getMe({ gatewayUrl, token, signal }: Authorized): Promise<MeResponse> {
   return required(await callJson<MeResponse>(`${gatewayUrl}/v1/me`, token, { method: "GET", signal }), 200);
+}
+
+// ------------------------------------------------------------------ reports (reports PR, I5, I6)
+
+/** A report with its versions; only the conversation's owner reads it (I5). */
+export async function getReport({ gatewayUrl, token, signal, id }: Authorized & { id: string }): Promise<ReportView> {
+  return required(await callJson<ReportView>(`${gatewayUrl}/v1/reports/${encodeURIComponent(id)}`, token, { method: "GET", signal }), 200);
+}
+
+/** The reports a conversation holds. */
+export async function listConversationReports({
+  gatewayUrl,
+  token,
+  signal,
+  conversationId,
+}: Authorized & { conversationId: string }): Promise<ReportList> {
+  const url = `${gatewayUrl}/v1/conversations/${encodeURIComponent(conversationId)}/reports`;
+  return required(await callJson<ReportList>(url, token, { method: "GET", signal }), 200);
+}
+
+function versionPath(gatewayUrl: string, id: string, version: number): string {
+  return `${gatewayUrl}/v1/reports/${encodeURIComponent(id)}/versions/${version}`;
+}
+
+/** One stored version with its page (`html`), for the panel's code tab and copy. */
+export async function getReportVersion({
+  gatewayUrl,
+  token,
+  signal,
+  id,
+  version,
+}: Authorized & { id: string; version: number }): Promise<ReportVersionView> {
+  return required(await callJson<ReportVersionView>(versionPath(gatewayUrl, id, version), token, { method: "GET", signal }), 200);
+}
+
+/** A short-lived link that serves the version with its CSP headers (I4); one per frame load. */
+export async function createReportView({
+  gatewayUrl,
+  token,
+  signal,
+  id,
+  version,
+}: Authorized & { id: string; version: number }): Promise<ReportViewLink> {
+  const url = `${versionPath(gatewayUrl, id, version)}/view`;
+  return required(await callJson<ReportViewLink>(url, token, { method: "POST", signal }), 200);
+}
+
+/** The self-contained file (I6), fetched with the token: a plain link could not carry it. */
+export async function downloadReport({
+  gatewayUrl,
+  token,
+  signal,
+  id,
+  version,
+}: Authorized & { id: string; version: number }): Promise<Blob> {
+  let res: Response;
+  try {
+    res = await fetch(`${versionPath(gatewayUrl, id, version)}/download`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new GatewayError(0, { code: "network_error" });
+  }
+  if (!res.ok) throw await errorFromResponse(res);
+  return res.blob();
 }
 
 // ------------------------------------------------------------------ admin: knowledge bases (phase 08, I5)
