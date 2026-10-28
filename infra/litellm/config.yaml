@@ -8,8 +8,8 @@
 # boolean, a number stays a string, and Ollama rejects a string `num_ctx`, so
 # `num_ctx` is written here. It equals the tier windows in config/models.yaml;
 # Ollama uses it and an OpenAI-compatible endpoint receives it as an ignored field.
-# `extra_body` is what OpenRouter reads (no hidden reasoning, no provider
-# fallback); Ollama ignores it.
+# `extra_body` is what OpenRouter reads (no hidden reasoning; in development any
+# provider of the model, fastest first, ADR-0362); Ollama ignores it.
 model_list:
   - model_name: fast
     litellm_params:
@@ -22,6 +22,7 @@ model_list:
           enabled: os.environ/MODEL_REASONING_ENABLED
         provider:
           allow_fallbacks: os.environ/MODEL_PROVIDER_ALLOW_FALLBACKS
+          sort: os.environ/MODEL_PROVIDER_SORT
   - model_name: standard
     litellm_params:
       model: os.environ/STANDARD_MODEL
@@ -33,6 +34,7 @@ model_list:
           enabled: os.environ/MODEL_REASONING_ENABLED
         provider:
           allow_fallbacks: os.environ/MODEL_PROVIDER_ALLOW_FALLBACKS
+          sort: os.environ/MODEL_PROVIDER_SORT
   - model_name: heavy
     litellm_params:
       model: os.environ/HEAVY_MODEL
@@ -44,6 +46,7 @@ model_list:
           enabled: os.environ/MODEL_REASONING_ENABLED
         provider:
           allow_fallbacks: os.environ/MODEL_PROVIDER_ALLOW_FALLBACKS
+          sort: os.environ/MODEL_PROVIDER_SORT
   - model_name: embed
     litellm_params:
       model: os.environ/EMBED_MODEL

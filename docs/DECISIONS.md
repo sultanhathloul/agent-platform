@@ -604,7 +604,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0066: One LiteLLM config; models, endpoints and keys come from the environment
 - Date: 2026-10-05
 - Phase: 02 (fix session for PR #2)
-- Status: decided
+- Status: decided — Superseded by ADR-0362 on 2026-10-28 (`MODEL_PROVIDER_ALLOW_FALLBACKS` on the OpenRouter development profile only)
 - Context: ADR-0065 kept two LiteLLM configs (`config.yaml` on OpenRouter, `config.local.yaml` on Ollama) and a compose overlay to pick one. Switching profiles meant a `COMPOSE_FILE` incantation, the two files could drift apart, and a fresh clone without an OpenRouter key failed `make smoke`. The owner decided on one config whose values come from the environment, and asked to verify that LiteLLM resolves `os.environ/` in the `model` field before relying on it.
 - Decision:
   - `infra/litellm/config.yaml` keeps the aliases `fast`, `standard`, `heavy`, `embed` and reads `model`, `api_base` and `api_key` from `FAST_MODEL`, `STANDARD_MODEL`, `HEAVY_MODEL`, `EMBED_MODEL`, `MODEL_API_BASE`, `MODEL_API_KEY` and `EMBED_API_BASE`. OpenRouter's `extra_body.reasoning.enabled` and `extra_body.provider.allow_fallbacks` come from `MODEL_REASONING_ENABLED` and `MODEL_PROVIDER_ALLOW_FALLBACKS` (both `false`). `docker-compose.yml` passes the variables, failing with a message when a required one is missing. `config.local.yaml` and `docker-compose.local.yml` are deleted.
@@ -3249,3 +3249,16 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: The development run of the enlarged kb suite (make-eval-20261027T131623Z, after ADR-0359 and ADR-0360) passed cross_kb_attribution at 0.83 (10/12); its two misses were English answers over Arabic chunks, which ADR-0354 attributes on numbers. Two faults of that path: (1) the numbers "naming the sources" included every part of every source's date, so the trade report's 2031-02-10 and the outlook's 2031-07-20 removed 10 and 20 from every answer's figures ("ten weeks" met nothing), while the dates the answer itself wrote ("November 1, 2030", "July 20, 2031") left 1 and 20 as stray figures; (2) a claim ended at any full stop, so «3.6» became the claims 3 and 6 and the clause holding the growth figure matched nothing.
 - Decision: In app/rag/citations.py: the numbers naming a source are those in its title, publisher and KB name plus its publication year, never its date's day and month; the dates an answer or question writes (ISO, d/m/y, and "Month d, yyyy" / «d شهر yyyy» in English and Arabic Gregorian month names) are removed before its figures are read; a claim never ends at a point between two digits. The asked words of ADR-0354 are unchanged.
 - Consequences: Replayed offline on the 108 kb answers of the three full runs and the development run against the indexed fake KB chunks (citations of the committed code against this change with ADR-0359): ten citation sets change from failing to passing, none from passing to failing; among them the reported cross-maternity-partner-en in all four runs, which stays reported (ADR-0355). The rag suites run three times before merge with this change (ADR-0359).
+
+### ADR-0362: In development, OpenRouter routes each model to any provider that serves it, by throughput (owner decision)
+- Date: 2026-10-28
+- Phase: 08 (owner decision after the before-merge runs)
+- Status: decided
+- Context: ADR-0066 set `MODEL_PROVIDER_ALLOW_FALLBACKS=false`, so OpenRouter sent each model to one provider. In phase 08's three before-merge runs (2026-10-27) LiteLLM logged 375 refusals, all `429 … temporarily rate-limited upstream` with `limit_source: upstream_provider_shared_pool` (367 for qwen/qwen3.6-27b at Reka, 8 for google/gemma-4-26b-a4b-it at Darkbloom). The key has no request rate limit and is not on the free tier. The refusals lost 16 directions cases and failed make smoke once. `.env` also assigned the five model variables twice, offline then OpenRouter, the last assignment winning.
+- Decision:
+  - `infra/litellm/config.yaml` sends `extra_body.provider.sort` from `MODEL_PROVIDER_SORT` for `fast`, `standard` and `heavy`, beside `allow_fallbacks`. `docker-compose.yml` passes it, `throughput` by default.
+  - The OpenRouter development profile sets `MODEL_PROVIDER_ALLOW_FALLBACKS=true` and `MODEL_PROVIDER_SORT=throughput`: OpenRouter may serve each model from any of its providers, fastest first. `.env.example` (the offline profile) keeps `false` and documents the OpenRouter values; README §21.4 is amended.
+  - Production on local models is unaffected: Ollama ignores `provider`, as it already ignored `allow_fallbacks`.
+  - `.env` assigns each variable once.
+- Consequences: A model may now be served by different providers within one run, so answers, latency and cost per token can vary between calls in development; eval scores carry that variance. The models stay the same. No real or ministry data on this profile (ADR-0065) still holds, and is the more important with more providers in the path.
+
