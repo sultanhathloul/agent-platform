@@ -55,7 +55,11 @@ x-agent-env: &agent-env
   # The uploads per user per minute the gateway applies over config/docs.yaml (GATEWAY_DOCS_UPLOADS_PER_MINUTE
   # below): the settings page shows it as that setting's default (ADR-0276).
   DOCS_UPLOADS_PER_MINUTE: ${UPLOADS_PER_MINUTE:-}
-  # No MinIO credentials: the agent reads no upload; the ingest service does (S7, R4).
+  # No upload credentials: the agent reads no upload; the ingest service does (S7, R4). Its own MinIO
+  # user reaches only the `artifacts` bucket, where report pages are kept (reports PR, I5, ADR-0384).
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ARTIFACTS_ACCESS_KEY: ${MINIO_ARTIFACTS_ACCESS_KEY:?run scripts/init_env.sh --add-missing}
+  MINIO_ARTIFACTS_SECRET_KEY: ${MINIO_ARTIFACTS_SECRET_KEY:?run scripts/init_env.sh --add-missing}
 
 services:
   # ------------------------------------------------------------------ data
@@ -107,6 +111,7 @@ services:
   #   ragref-uploads   reads uploads (mcp-rag-ref, phase 05) (uploads-read)
   #   sweeper-uploads  lists uploads, removes an object     (uploads-sweep)
   #   langfuse-events  Langfuse's own bucket                (langfuse-bucket)
+  #   agent-artifacts  writes and reads report pages          (artifacts-rw, reports PR, ADR-0384)
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
@@ -125,29 +130,34 @@ services:
       MINIO_SWEEPER_SECRET_KEY: ${MINIO_SWEEPER_SECRET_KEY:?see .env.example}
       MINIO_LANGFUSE_ACCESS_KEY: ${MINIO_LANGFUSE_ACCESS_KEY:?see .env.example}
       MINIO_LANGFUSE_SECRET_KEY: ${MINIO_LANGFUSE_SECRET_KEY:?see .env.example}
+      MINIO_ARTIFACTS_ACCESS_KEY: ${MINIO_ARTIFACTS_ACCESS_KEY:?run scripts/init_env.sh --add-missing}
+      MINIO_ARTIFACTS_SECRET_KEY: ${MINIO_ARTIFACTS_SECRET_KEY:?run scripts/init_env.sh --add-missing}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
         set -e;
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD";
-        mc mb --ignore-existing local/uploads local/kb-docs local/langfuse;
+        mc mb --ignore-existing local/uploads local/kb-docs local/langfuse local/artifacts;
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-write.json;
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-read.json;
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::uploads"]},{"Effect":"Allow","Action":["s3:DeleteObject"],"Resource":["arn:aws:s3:::uploads/*"]}]}' > /tmp/uploads-sweep.json;
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::langfuse","arn:aws:s3:::langfuse/*"]}]}' > /tmp/langfuse-bucket.json;
-        for policy in uploads-write uploads-read uploads-sweep langfuse-bucket; do
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::artifacts"]},{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],"Resource":["arn:aws:s3:::artifacts/*"]}]}' > /tmp/artifacts-rw.json;
+        for policy in uploads-write uploads-read uploads-sweep langfuse-bucket artifacts-rw; do
         mc admin policy create local "$$policy" "/tmp/$$policy.json"; done;
         mc admin user add local "$$MINIO_GATEWAY_ACCESS_KEY" "$$MINIO_GATEWAY_SECRET_KEY";
         mc admin user add local "$$MINIO_INGEST_ACCESS_KEY" "$$MINIO_INGEST_SECRET_KEY";
         mc admin user add local "$$MINIO_RAGREF_ACCESS_KEY" "$$MINIO_RAGREF_SECRET_KEY";
         mc admin user add local "$$MINIO_SWEEPER_ACCESS_KEY" "$$MINIO_SWEEPER_SECRET_KEY";
         mc admin user add local "$$MINIO_LANGFUSE_ACCESS_KEY" "$$MINIO_LANGFUSE_SECRET_KEY";
+        mc admin user add local "$$MINIO_ARTIFACTS_ACCESS_KEY" "$$MINIO_ARTIFACTS_SECRET_KEY";
         attach() { mc admin policy attach local "$$1" --user "$$2" >/dev/null 2>&1 || mc admin user info local "$$2" | grep -q "$$1"; };
         attach uploads-write "$$MINIO_GATEWAY_ACCESS_KEY";
         attach uploads-read "$$MINIO_INGEST_ACCESS_KEY";
         attach uploads-read "$$MINIO_RAGREF_ACCESS_KEY";
         attach uploads-sweep "$$MINIO_SWEEPER_ACCESS_KEY";
         attach langfuse-bucket "$$MINIO_LANGFUSE_ACCESS_KEY";
+        attach artifacts-rw "$$MINIO_ARTIFACTS_ACCESS_KEY";
         echo "minio: buckets, users and policies ready"
     restart: "no"
 
@@ -533,6 +543,12 @@ services:
       # Upload limits (ADR-0126) and the uploads bucket (ADR-0129).
       GATEWAY_DOCS_CONFIG: /srv/config/docs.yaml
       GATEWAY_TURN_CONFIG: /srv/config/turn.yaml
+      # Interactive reports (reports PR, I2, I4): the kit it serves, the report config, and the public
+      # URLs a report view's CSP names (its kit path and the web origin that may frame it).
+      GATEWAY_REPORTS_CONFIG: /srv/config/artifacts/report.yaml
+      GATEWAY_REPORTS_KIT_DIR: /srv/config/artifacts/kit
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL}
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL}
       # The per-user upload rate, per environment (review round 2, finding 4): .env.example sets the
       # development value. No fallback value here: absent from .env, the variable is empty and the
       # gateway uses config/docs.yaml's baseline (20), the strict one (the verification of round 2).
@@ -547,6 +563,8 @@ services:
       - ./config/models.yaml:/srv/config/models.yaml:ro   # role tier caps (ADR-0046)
       - ./config/docs.yaml:/srv/config/docs.yaml:ro       # upload limits (ADR-0126)
       - ./config/turn.yaml:/srv/config/turn.yaml:ro       # the relay's bound on a turn (ADR-0256)
+      - ./config/artifacts/report.yaml:/srv/config/artifacts/report.yaml:ro   # reports (reports PR)
+      - ./config/artifacts/kit:/srv/config/artifacts/kit:ro                   # the report kit it serves (I2)
     ports:
       - "${GATEWAY_PORT}:8080"
     depends_on:
