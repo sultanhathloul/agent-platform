@@ -2263,6 +2263,43 @@ Owner decision: on the OpenRouter development profile, OpenRouter may route each
 - LiteLLM logged no 429 from the recreate to 00:42Z (0 `429 Too Many Requests`, 0 `RateLimitError`).
 - make smoke 00:37:05Z–00:41:42Z: **failed**, 217 checks ok, then "the analyst's composer never lists a KB it holds no role for" (scripts/smoke.sh expects analyst's KBs to be exactly moe and intl-economy). Cause: at 00:34Z, during this sequence, the owner's separate development task assigned the realm role kb:stats-gov:read to analyst in the running Keycloak, so /v1/capabilities correctly listed stats-gov too. Not a platform or provider fault; smoke stops at its first failure, so its later checks did not run. No 429 in this attempt.
 
+## Interactive reports (standalone PR, owner decision)
+
+- Branch: `feat/reports`, from `main` at a102bc1 (PR #16, development provider routing, merged on 2026-10-28T00:47:18Z; phase 08 merged as PR #15 at 8bfc70f). The session prompt is kept verbatim in `docs/REPORTS-PROMPT.md`; it arrived whole (it ends with FINISH).
+- Status: in progress.
+- Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- Done when (the prompt; phase 11's artifact-output row, pulled forward for HTML reports): a report turn, chosen by keyword through the router or by the composer's output picker, writes a complete HTML page with the report_writer role on the heavy tier under its own deadline profile, streamed live to a side panel; the page uses only the platform's design kit, every figure it shows is either matched to the turn's findings or the user's message or visibly marked «غير موثق» / "Unverified", and it ends with a «المصادر» section from the citations; it is served sandboxed with CSP from its own path, stored per version in MinIO and the database, readable by the conversation's owner only (gateway AND agent), downloadable as one self-contained offline file; a follow-up edits the latest report into a new version; reports.jsonl gated; `make test`, `make eval` once (all suites), `make smoke` and `make smoke-airgap` green from `make clean && make models && make up`, recorded per rule 11.
+- Baseline on `main` (rule 11): main at a102bc1 carries the code of 59ecf68 plus ADR-0362 (infrastructure only); its last recorded runs are the ADR-0362 checks of 2026-10-28 (above):
+  - `make test`: agent 1166 / 0 / 0, gateway 193 / 0 / 0, gateway-db 5 / 0 / 0, web 192 / 0 / 0 (16 files), evals harness 31 / 0 / 0, timeout budget 36 / 0 / 0, scripts/tests 17 / 0 / 0.
+  - `make smoke` 231/231 at 59ecf68 (the ADR-0362 attempt failed on a KB role assigned outside the run); `make smoke-airgap` 239/239 at c41bf95.
+  - Eval suites (make-eval-20261027T160155Z, the last full run): guardrails, rag, rag@mcp, routing, directions, general, internal-comms, official_memo, kb; scores in "Phase 08" above.
+  - No layer may end lower unless an ADR names each removed test and why.
+
+Restated (five lines, session protocol):
+1. A report is an output form (D1): capabilities, KB toggles and attachments run as today; the answer node writes one HTML page instead of text, with no text skill, selected by keyword candidacy through the router (as skills are) or by the composer's picker «نص» / «تقرير تفاعلي» (D3).
+2. Generation is role report_writer on the heavy tier, 16k output tokens, under a report deadline profile (300 s, answer 270 s, gateway bound deadline + margin) checked by budget.py and shown in /admin/settings; the HTML streams to the panel as it is written (I1).
+3. The page uses only the platform's kit (design-system.md prompt part; kit.css, IBM Plex Sans Arabic and Chart.js served by the platform; chart data in one `report-data` block); after generation every figure is matched to the findings or the message or marked unverified, and a «المصادر» section is appended (D2, I2, I3); OUTPUT/DATA run on its visible text; 512 KB cap; sandboxed iframe with CSP from its own path (I4).
+4. Versions live in MinIO and a DB table; only the conversation's owner reads them (gateway AND agent); events artifact_start / artifact_delta / artifact_done, a version GET, an offline self-contained download (I5, I6); a follow-up makes v2 (D4); the web side panel with preview, code, download, full screen, copy, versions, close and a report card in the chat (I7).
+5. Done = reports.jsonl gated (I8), smoke checks (I9), and make test, make eval once (all suites), make smoke, make smoke-airgap green from a clean stack, recorded per rule 11, with the pages for the owner's visual check.
+
+Carried items (ALSO):
+- The superseded-version tie (docs/BACKLOG.md "From phase 08": cross-annual-growth-en cites the April page instead of July): fixed first, measured on the recorded kb answers before the change.
+- The agent restart of phase 08 run 3: docs/BACKLOG.md records no cause for it (PROGRESS "Phase 08", run 3: restart count 0, not OOM-killed, nothing in the session restarted it), so the prompt's condition does not hold and nothing is changed for it.
+
+Checklist:
+- [ ] A. First commit: the prompt verbatim (docs/REPORTS-PROMPT.md), this section.
+- [ ] B. ADRs from ADR-0363: D1–D5 and I1–I9 decided; the tie fix; assumptions as they arise. BACKLOG: the report PR's status, the tie item.
+- [ ] C. The superseded-version tie: replay the recorded kb answers, then prefer the newer version of the same source at a tie; unit test with the case's texts; its own commit.
+- [ ] D. Contracts first, as types with tests: config (config/artifacts/report.yaml keywords and limits, design-system.md, the report prompts, the report_writer role and its output ceiling, the report deadline profile in config/turn.yaml with budget.py rules and settings fields); migration (agent.reports, agent.report_versions); events artifact_start / artifact_delta / artifact_done; the chat request's `output`; the report and version endpoints at the agent and the gateway; API minor bump, `make openapi`, events schema, web types.
+- [ ] E. Agent: selection in the route node (picker, keyword candidacy through the router, a follow-up on a conversation with a report), no skill on a report turn; the deadline profile chosen at admission; the report writer in the answer node over the turn's findings and evidence, with the latest version for a follow-up; the streaming pipeline (incremental tokenizer, sanitizer to kit-only with no external URL, figure check against findings and message with number folding, OUTPUT redact and DATA on visible text, artifact_delta); the whole-page pass (parse, size cap, sources section, OUTPUT and DATA, the figure log); storage (MinIO bucket `artifacts`, its own MinIO user, bounded calls) and the versions table; owner-only reads; the history's report card; rule 12 rows and tests.
+- [ ] F. Kit: config/artifacts/kit (kit.css with dark and light and logical properties, kit.js rendering report-data with Chart.js, the unverified marker, IBM Plex Sans Arabic woff2 with its OFL, Chart.js pinned and vendored with its licence and hash); served by the gateway at its own path with CSP; the download inlines it.
+- [ ] G. Gateway: chat request `output` (picker) forwarded; the relay bound from the agent's profile; report list, version metadata, a short-lived view link and the sandboxed view with CSP headers, download, owner checks and audit; the kit's static path; tests (another user refused, CSP headers, no external reference).
+- [ ] H. Web: the output picker; the side panel (live build, «معاينة» / «الكود», download, full screen, copy code, versions, close), RTL mirrored in English, Western digits; the report card in the chat and the history; i18n ar/en; component tests.
+- [ ] I. Evals: reports.jsonl (about 12 cases: Arabic, Gulf, English; general knowledge, KB, attached file; one iteration case) with generic scorers and thresholds; routing cases for the report keywords.
+- [ ] J. Smoke and smoke-airgap: a report turn makes a version served with the CSP headers; the download has no external reference; another user cannot fetch it; a follow-up creates v2.
+- [ ] K. Docs: README (§5.3, §6.2, §13, §20.9 keys), RESILIENCE rows, BACKLOG statuses.
+- [ ] L. Finish from `make clean && make models && make up`: make test; make eval once (all suites); make smoke; make smoke-airgap; rule 11 counts; files for human review and pages for the visual check; push; MR.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
