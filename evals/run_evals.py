@@ -82,6 +82,15 @@ that name them: `citations` (the done event's), `retrieved` (the trace's `rag.re
 and `documents` (each fixture key's id). More scorers: `retrieved` (hit@8), `cites` (citations with
 their attribution) and `text_first` (the latest figure before any superseded one). Generic: no
 capability and no knowledge base is named here.
+
+Reports PR (I8, ADR-0376, ADR-0385): suites are also globbed from evals/outputs/*/ (an output form's
+suite; the harness names no form). A case may name `output` (the composer's output picker) and
+`before`, earlier turns sent first in the same conversation (a follow-up). When a metrics suite's
+checks read a page, the turn's report version is read back through the gateway as its owner: turn
+fields `form` (the done event's state_digest.output), `artifact`, `page` (the stored HTML) and
+`download` (the download). Scorers: `page` with `check` parses | direction | kit_only | sources | size
+| figures_marked | figures_sourced | version, and `page_judge` (the judge alias rates the page's
+design from a rubric file beside the suite; reported).
 """
 
 import asyncio
@@ -110,6 +119,9 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 from get_token import env, login  # noqa: E402
+
+sys.path.insert(0, str(REPO / "evals"))
+import pages  # noqa: E402
 
 # A dedicated seed user whose memory is switched off before every run, so a case never
 # reads what an earlier case or run stored; the analyst keeps memory for smoke (ADR-0074).
@@ -281,6 +293,8 @@ def run_turn(
         body["skill"] = case["skill"]  # the composer's picker (phase 06, ADR-0292)
     if case.get("selected_kbs"):
         body["selected_kbs"] = case["selected_kbs"]  # the composer's knowledge base toggles (phase 08, I3)
+    if case.get("output"):
+        body["output"] = case["output"]  # the composer's output picker (reports PR, D3)
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
 
     def once() -> dict:
@@ -847,6 +861,10 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
                        and c.get("pages") and set(c["pages"]) <= pages for c in match):
                 return False
         return bool(expected)
+    if scorer == "page":
+        return page_check(check, case, turn)
+    if scorer == "page_judge":
+        return page_judge(check, case, turn)
     if scorer == "text_first":
         # The expected text (or an alternative) is in the answer, before any `before` text (phase 08, D3):
         # a superseded figure may be noted as the change, never given first as the answer.
@@ -861,6 +879,96 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
         words = len(re.findall(r"\w+", answer))
         return int(check.get("min", 0)) <= words <= int(check.get("max", 10**9))
     raise ValueError(f"unknown scorer {scorer!r}")
+
+
+def follow_up_turn(http: httpx.Client, gateway: str, token: str, case: dict) -> dict:
+    """A case's `before` turns, in one new conversation, then its own message there (reports PR, D4). A
+    `before` turn that does not end `done` is the case's outcome: lost under its code."""
+    conversation = str(uuid.uuid4())
+    for earlier in case["before"]:
+        event = run_turn(http, gateway, token, {**case, **earlier}, conversation_id=conversation)
+        if event.get("type") != "done":
+            return event
+    return run_turn(http, gateway, token, case, conversation_id=conversation)
+
+
+def page_fields(http: httpx.Client, gateway: str, token: str, done: dict) -> dict:
+    """The turn's report as its owner reads it through the gateway: the stored version and the download
+    (reports PR, I6). No artifact: the turn wrote text, and every page check fails."""
+    fields: dict = {"form": (done.get("state_digest") or {}).get("output"), "artifact": done.get("artifact"),
+                    "page": None, "download": None}
+    artifact = done.get("artifact")
+    if not artifact:
+        return fields
+    headers = {"Authorization": f"Bearer {token}"}
+    base = f"{gateway}/v1/reports/{artifact['id']}/versions/{artifact['version']}"
+    version = http.get(base, headers=headers)
+    if version.status_code == 200:
+        fields["page"] = version.json()["html"]
+    download = http.get(f"{base}/download", headers=headers)
+    if download.status_code == 200:
+        fields["download"] = download.text
+    return fields
+
+
+REPORT_CONFIG = REPO / "config" / "artifacts" / "report.yaml"
+
+
+def page_check(check: dict, case: dict, turn: dict) -> bool:
+    """One check on the turn's stored page (evals/pages.py); a turn with no page fails it."""
+    page = turn.get("page")
+    if not page:
+        return False
+    kind = check["check"]
+    if kind == "parses":
+        return pages.parses(page)
+    if kind == "direction":
+        return pages.direction(page, case.get("locale", "ar"))
+    if kind == "kit_only":
+        return turn.get("download") is not None and pages.kit_only(page, turn["download"])
+    if kind == "sources":
+        return pages.sources_section(page)
+    if kind == "size":
+        limit = yaml.safe_load(REPORT_CONFIG.read_text(encoding="utf-8"))["max_bytes"]
+        return 0 < len(page.encode("utf-8")) <= limit
+    if kind == "figures_marked":
+        return pages.figures_marked(page, case["message"])
+    if kind == "figures_sourced":
+        return pages.figures_sourced(page, case_value(case, check["expected"]))
+    if kind == "version":
+        return (turn.get("artifact") or {}).get("version") == case_value(case, check["expected"])
+    raise ValueError(f"unknown page check {kind!r}")
+
+
+def page_judge(check: dict, case: dict, turn: dict) -> bool:
+    """The judge alias rates the page's design 1–5 from the rubric beside the suite (`rubric`, a path from
+    the repository root); passes at `min` or above. Reported, never gated (I8)."""
+    page = turn.get("page")
+    if not page:
+        return False
+    cfg = env()
+    models = yaml.safe_load((REPO / "config" / "models.yaml").read_text())
+    alias = models["tiers"][models["roles"]["judge"]]["alias"]
+    base = cfg.get("LITELLM_PUBLIC_URL") or f"http://127.0.0.1:{cfg.get('LITELLM_PORT') or 4000}"
+    rubric = (REPO / check["rubric"]).read_text(encoding="utf-8")
+    body = {"model": alias, "temperature": 0, "max_tokens": 20, "messages": [
+        {"role": "system", "content": rubric},
+        {"role": "user", "content": f"<request>{case['message']}</request>\n<page>\n{page[:60000]}\n</page>"}]}
+
+    def once():
+        try:
+            response = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=120,
+                                  headers={"Authorization": f"Bearer {cfg['LITELLM_MASTER_KEY']}"})
+        except httpx.HTTPError as exc:
+            return exc
+        return response if response.status_code != 429 else RuntimeError("429")
+
+    result = with_backoff(once, lambda r: isinstance(r, Exception))
+    if isinstance(result, Exception) or result.status_code != 200:
+        return False
+    found = re.search(r"[1-5]", result.json()["choices"][0]["message"]["content"] or "")
+    turn.setdefault("judged", []).append(int(found.group(0)) if found else None)
+    return bool(found) and int(found.group(0)) >= int(check.get("min", 4))
 
 
 def sections_in_order(answer: str, sections: list) -> bool:
@@ -1002,6 +1110,7 @@ def suites() -> dict[str, Path]:
     files = sorted((REPO / "evals" / "golden").glob("*.jsonl"))
     files += sorted((REPO / "services" / "agent" / "app" / "capabilities").glob("*/evals/*.jsonl"))
     files += sorted((REPO / "skills").glob("*/evals/*.jsonl"))  # phase 06 (I9): names no skill
+    files += sorted((REPO / "evals" / "outputs").glob("*/*.jsonl"))  # reports PR (I8): names no form
     found = {path.stem: path for path in files}
     # rag.jsonl runs on both document backends; the second run is `rag@mcp` (phase 05, I11).
     ordered: dict[str, Path] = {}
@@ -1180,8 +1289,12 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
         )
         # A fresh token per case: a suite outlasts the realm's 300 s access token (ADR-0065).
         token = login(*SEED_USERS[case.get("user", "evaluator")])["access_token"]
-        event = metric_document_turn(http, cfg, token, case) if "document" in case else \
-            run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
+        if "document" in case:
+            event = metric_document_turn(http, cfg, token, case)
+        elif case.get("before"):
+            event = follow_up_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
+        else:
+            event = run_turn(http, cfg["GATEWAY_PUBLIC_URL"], token, case)
         scored: dict[str, bool] = {}
         capabilities: list[str] | None = None
         lost = lost_code(event)
@@ -1202,6 +1315,8 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
                            "citations": event["data"].get("citations") or [], "documents": documents}
             if metrics is not None and '"retrieved"' in json.dumps(metrics):
                 turn_fields["retrieved"] = retrieved(http, cfg, auth, trace_id) if trace_id else None
+            if metrics is not None and '"page' in json.dumps(metrics):
+                turn_fields.update(page_fields(http, cfg["GATEWAY_PUBLIC_URL"], token, event["data"]))
             if metrics is not None and "traced_skill" in json.dumps(metrics):
                 turn_fields["traced_skill"] = traced_skill(
                     http, cfg, auth, trace_id, (event["data"].get("state_digest") or {}).get("skill"))

@@ -1,0 +1,44 @@
+# The reports suite (reports PR, I8, ADR-0376, ADR-0385). Each case's `expect.kind` selects its metrics:
+#   general   a report from the model's general knowledge (no KB, no file)
+#   sourced   a report over a knowledge base or an attached file, with figures to find in it
+#   edit      a follow-up that revises the conversation's report into its next version (D4)
+#   text      a message that names a report word but asks for a text answer: no page is written
+# Every page check reads the stored version through the gateway, as its owner (evals/pages.py).
+case_kind: expect.kind
+metrics:
+  form_chosen:            # the turn wrote a page, or text, as the case expects (the picker or the router)
+    general: [{scorer: field_equals, field: form, expected: expect.form}]
+    sourced: [{scorer: field_equals, field: form, expected: expect.form}]
+    edit:    [{scorer: field_equals, field: form, expected: expect.form}]
+    text:    [{scorer: field_equals, field: form, expected: expect.form}]
+  html_parses:            # one complete document, every element closed, report-data JSON
+    general: [{scorer: page, check: parses}]
+    sourced: [{scorer: page, check: parses}]
+    edit:    [{scorer: page, check: parses}]
+  direction:              # dir="rtl" lang="ar" for Arabic, dir="ltr" lang="en" for English
+    general: [{scorer: page, check: direction}]
+    sourced: [{scorer: page, check: direction}]
+    edit:    [{scorer: page, check: direction}]
+  kit_only:               # no external URL in the page or its download; no script but the data block
+    general: [{scorer: page, check: kit_only}]
+    sourced: [{scorer: page, check: kit_only}]
+    edit:    [{scorer: page, check: kit_only}]
+  sourced_figures:        # each expected KB or file figure shown and not marked unverified
+    sourced: [{scorer: page, check: figures_sourced, expected: expect.figures}]
+    edit:    [{scorer: page, check: figures_sourced, expected: expect.figures}]
+  unverified_marked:      # a general-knowledge page: every figure not in the message is marked (D2)
+    general: [{scorer: page, check: figures_marked}]
+  sources_section:        # the «المصادر» / Sources section the platform appends
+    general: [{scorer: page, check: sources}]
+    sourced: [{scorer: page, check: sources}]
+    edit:    [{scorer: page, check: sources}]
+  size_cap:               # the stored page within config/artifacts/report.yaml max_bytes
+    general: [{scorer: page, check: size}]
+    sourced: [{scorer: page, check: size}]
+    edit:    [{scorer: page, check: size}]
+  version:                # a follow-up made the next version of the same report
+    edit: [{scorer: page, check: version, expected: expect.version}]
+  visual_quality:         # reported: the judge alias rates the design 4 or 5 of 5
+    general: [{scorer: page_judge, rubric: evals/outputs/reports/judge.md, min: 4}]
+    sourced: [{scorer: page_judge, rubric: evals/outputs/reports/judge.md, min: 4}]
+    edit:    [{scorer: page_judge, rubric: evals/outputs/reports/judge.md, min: 4}]
