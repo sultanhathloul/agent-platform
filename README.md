@@ -913,7 +913,7 @@ Rules:
 | `config/turn.yaml` | `profiles.report.{deadline_s, answer_s, role}` | The report deadline profile: 300 s, the answer's ceiling 270 s (I1, ADR-0379) |
 | `config/models.yaml` | `roles.report_writer` (heavy), `role_max_output.report_writer` (16000), `temperature.report_writer`, `timeouts.roles.report_writer` (270) | The report writer (I1, ADR-0369) |
 | `config/context.yaml` | `pipeline: report_kit, report_current`, `blocks.report_kit`, `blocks.report_current`, `nodes.report` | The report writer's context (ADR-0380) |
-| `config/prompts/` | `report.system` 1.0.0, `context.report_kit`, `context.report_current`, `router.system` 1.3.0, `router.request` 1.4.0 | The report writer's prompt, its blocks' wrappers, the router's `output` |
+| `config/prompts/` | `report.system` 1.1.0, `context.report_kit`, `context.report_current`, `router.system` 1.3.0, `router.request` 1.4.0 | The report writer's prompt, its blocks' wrappers, the router's `output` |
 | `config/messages/errors.yaml` | `report_not_found`, `report_unavailable`, `report_too_large`, `report_edit_too_large` | Report refusals and failures in Arabic and English |
 | `config/messages/settings.yaml` | `turn.report_deadline_s`, `turn.report_answer_s`, `models.report_writer_s` and the `profile-*` rule families | The report profile on /admin/settings |
 | `evals/outputs/reports/` (new) | `reports.jsonl`, `metrics.yaml`, `fixtures.yaml`, `judge.md` | The reports suite (I8) |
