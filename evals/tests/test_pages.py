@@ -73,3 +73,9 @@ def test_page_fields_read_the_version_and_the_download_from_the_gateways_envelop
     assert fields["page"] == "<!doctype html>page" and fields["download"] == "<!doctype html>download"
     assert fields["form"] == "report" and fields["artifact"]["version"] == 2
     assert run_evals.page_fields(http, "http://gw", "token", {"state_digest": {"output": "text"}})["page"] is None
+
+
+def test_names_with_digits_are_not_figures_for_the_check_either():
+    # make-eval-20261028T025931Z, general-ar-picker: chart labels "Q1".."Q4" are names (ADR-0381).
+    named = page('<p>الربع Q1 و Q2 و COVID-19 و 5G، و <span class="kit-unverified" data-kit="unverified">40</span></p>')
+    assert pages.figures_marked(named, "")

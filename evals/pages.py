@@ -19,6 +19,20 @@ _SOURCES = re.compile(r'<section class="kit-sources" data-kit="sources"[^>]*>.*?
 _DATA = re.compile(r'<script type="application/json" id="report-data">(.*?)</script>', re.S)
 
 
+def figures_in(text: str) -> list[str]:
+    """The figures of a text, by the platform's own rule (ADR-0381): a figure glued to a word is a name
+    ("Q1", "COVID-19", "5G"), not a figure."""
+    out = []
+    for m in FIGURE.finditer(text):
+        start, end = m.start(), m.end()
+        before = text[start - 1] if start else ""
+        named = (end < len(text) and text[end].isascii() and text[end].isalpha()) or before.isalpha() or (
+            before in "-‐‑" and start >= 2 and text[start - 2].isalpha())
+        if not named:
+            out.append(m.group(0))
+    return out
+
+
 def canonical(raw: str) -> str:
     text = raw.translate(_INDIC).replace(",", "")
     whole, _, fraction = text.partition(".")
@@ -115,10 +129,10 @@ def _body_text(page: str) -> str:
 def figures_marked(page: str, message: str) -> bool:
     """Every figure the body shows that the user's message does not hold is inside the unverified marker,
     and at least one is (a general-knowledge report, D2)."""
-    given = {canonical(m) for m in FIGURE.findall(message)}
+    given = {canonical(m) for m in figures_in(message)}
     marked = [canonical(m) for m in _MARKED.findall(page)] + [canonical(m) for m in _SVG_MARKED.findall(page)]
     unmarked_page = _SVG_MARKED.sub("", _MARKED.sub("", page))
-    shown = [canonical(m) for m in FIGURE.findall(_body_text(unmarked_page))]
+    shown = [canonical(m) for m in figures_in(_body_text(unmarked_page))]
     stray = [f for f in shown if f not in given]
     data_ok = all(_data_flagged(block, given) for block in _DATA.findall(page))
     return bool(marked) and not stray and data_ok
@@ -142,7 +156,7 @@ def figures_sourced(page: str, expected: list) -> bool:
     """Each expected figure (or one of its alternatives) is shown and never inside the unverified marker:
     the figure matched its source (KB or file)."""
     marked = {canonical(m) for m in _MARKED.findall(page)}
-    shown = {canonical(m) for m in FIGURE.findall(_body_text(_MARKED.sub("", page)))}
+    shown = {canonical(m) for m in figures_in(_body_text(_MARKED.sub("", page)))}
     for block in _DATA.findall(page):
         try:
             for chart in (json.loads(block).get("charts") or {}).values():
