@@ -34,3 +34,11 @@ official_memo:
 internal-comms:
   skill_applied: 1.00        # the picked skill applied; no skill on a request that is not internal comms
   skill_block_loaded: 1.00   # the answer's context.assemble span shows the skill block as name@version
+  no_invented_url: 1.00      # every link in a newsletter is in the request (phase 08, F3, ADR-0342)
+# Knowledge bases (phase 08, I6, ADR-0338): every gated metric must reach its value; facts_kept is reported.
+kb:
+  hit_at_8: 0.90              # each expected document page among the 8 retrieved chunks
+  citation_accuracy: 0.85     # the expected document cited with its KB, KB name, publisher, date and pages
+  latest_version: 0.90        # the latest version's figure is the answer; a superseded one never comes first (D3)
+  cross_kb_attribution: 0.80  # with two KBs selected, each fact's document cited under its own KB
+  abstention: 0.90            # nothing in the selected KBs: said so, no source line

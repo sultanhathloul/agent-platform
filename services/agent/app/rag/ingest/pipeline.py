@@ -1,4 +1,5 @@
-"""One ingestion job (README §9.3, ADR-0130): read the upload, detect its type, extract and
+"""One ingestion job (README §9.3, ADR-0130; a KB document's too, phase 08, I2: `attachments` is
+then app/rag/ingest/records.py, and the item `kb:<id>`): read the upload, detect its type, extract and
 chunk it in a child process with CPU, memory and time limits (app/rag/ingest/sandbox.py, owner
 decision R4), embed and write the chunks, then mark the attachment `indexed`; or mark it
 `failed` with a reason code. An object over the upload limit is `file_too_large` (R3).
@@ -73,7 +74,7 @@ class IngestPipeline:
             span.set_attribute("attachment.kind", record.kind)
             span.set_attribute("ingest.attempt", record.attempts)
             try:
-                outcome = await self._index(record, span)
+                outcome = await self._index(attachment_id, record, span)
             except ExtractionFailed as failure:
                 await self._attachments.mark_failed(attachment_id, failure.reason, pages=failure.pages)
                 span.set_attribute("ingest.reason", failure.reason)
@@ -93,7 +94,7 @@ class IngestPipeline:
     async def fail(self, attachment_id: str, reason: FailureReason) -> None:
         await self._attachments.mark_failed(attachment_id, reason)
 
-    async def _index(self, record, span: trace.Span) -> str:
+    async def _index(self, item: str, record, span: trace.Span) -> str:
         config = self._config
         try:
             data = await self._objects.get(record.object_key)
@@ -134,7 +135,7 @@ class IngestPipeline:
                 conn=conn,
             )
             if not await self._attachments.mark_indexed(
-                record.id, pages=parsed.pages, chunks=len(chunks), warnings=warnings, conn=conn
+                item, pages=parsed.pages, chunks=len(chunks), warnings=warnings, conn=conn
             ):
                 # Deleted or finished elsewhere while this job ran: keep nothing it wrote.
                 raise _Abandoned

@@ -228,6 +228,9 @@ class SemanticRetrieval(Step):
                 kb=chunk.get("kb"),
                 page=chunk.get("page"),
                 locator=chunk.get("locator"),
+                publisher=chunk.get("publisher"),
+                published_on=chunk.get("published_on"),
+                superseded_by=chunk.get("superseded_by"),
                 text=kept,
             )
             # Untrusted data travels in the user role, with the question, never as system

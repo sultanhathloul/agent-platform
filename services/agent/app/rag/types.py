@@ -85,5 +85,7 @@ class ScoredChunk(_Strict):
     ord: int
     text: str
     score: float = Field(description="The rerank score, or the fused score before rerank.")
+    # The collection it was found in: one search may span several (cross-KB retrieval, phase 08).
+    collection: str | None = None
     vector_rank: int | None = None
     text_rank: int | None = None

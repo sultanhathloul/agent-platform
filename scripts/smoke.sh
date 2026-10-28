@@ -53,6 +53,13 @@
 #             as official_memo@1.1.0; the viewer's same request gets no skill; a picked skill the viewer
 #             lacks is 403 skill_forbidden at the gateway; a keyword question gets no skill; the
 #             reopened conversation shows the reply's skill.
+#   phase 08: the admin creates the KB `moe` (its realm role, held by the analyst through moe-analysts,
+#             exists; the create is audited with the actor's names) and uploads a fake document with its
+#             source metadata, indexed; the analyst's composer lists moe and the viewer's does not; the
+#             analyst's turn with moe toggled cites the document with its KB, publisher and date; the
+#             viewer selecting moe is refused kb_forbidden at the gateway, audited, and refused the admin
+#             endpoints; a deleted KB (smoke-deleted, whose role the analyst holds) is hidden, its chunks
+#             gone, and a turn selecting it is refused; no step uses the proof-of-concept KB (D4).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -1088,5 +1095,113 @@ check "the reopened memo conversation shows the reply's skill chip" jq -e \
   '.data.messages[1].role == "assistant" and .data.messages[1].skill == {"slug": "official_memo", "label": {"ar": "مذكرة داخلية", "en": "Internal memo"}}' \
   "$TMP/memo-history.json"
 
-printf '\nsmoke: all phase 01 to 06 checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
+# ------------------------------------------------------------------ phase 08: knowledge bases
+step "phase 08: KB CRUD makes its role; an upload with its source metadata is indexed; the analyst's KB turn cites it"
+ADMIN=$(token_for admin admin) || fail "admin login"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+kb_create() {  # $1 slug, $2 Arabic name, $3 English name; prints the HTTP status, the body in $TMP/kb-create.json
+  curl -s -o "$TMP/kb-create.json" -w '%{http_code}' -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+    -d "$(jq -cn --arg s "$1" --arg ar "$2" --arg en "$3" '{slug: $s, name: {ar: $ar, en: $en}, description: {ar: "قاعدة اختبار الدخان", en: "Smoke test KB"}}')" \
+    "$GW/v1/admin/kbs"
+}
+kb_document() {  # $1 slug, $2 file, $3 title: the document's id, uploaded with metadata unless a live one has that title
+  local id
+  id=$(curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/$1/documents" \
+    | jq -r --arg t "$3" '[.data.documents[] | select(.metadata.title == $t and .status != "failed")][0].id // empty')
+  if [[ -z $id ]]; then
+    id=$(curl -fsS -H "Authorization: Bearer $ADMIN" -F "file=@$2" -F "title=$3" -F "publisher=وزارة الموارد البشرية في الواحة" \
+      -F "published_on=2030-11-01" -F "source_url=https://example.org/oasis/labor-law" "$GW/v1/admin/kbs/$1/documents" | jq -r '.data.id')
+  fi
+  printf '%s' "$id"
+}
+kb_indexed() {  # $1 slug, $2 document id: waits until indexed (2 s polls, as the admin page)
+  local s
+  for _ in $(seq 1 90); do
+    s=$(curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/$1/documents" | jq -r --arg d "$2" '.data.documents[] | select(.id == $d) | .status')
+    [[ $s == indexed ]] && return 0
+    [[ $s == failed ]] && return 1
+    sleep 2
+  done
+  return 1
+}
+kb_chat() {  # $1 token, $2 conversation, $3 message, $4 output file, $5 KB slug: like chat(), with the KB toggled
+  curl -sN -H "Authorization: Bearer $1" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -d "$(jq -cn --arg c "$2" --arg m "$3" --arg k "$5" '{conversation_id: $c, message: $m, locale: "ar", selected_kbs: [$k]}')" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$4"
+}
+code=$(kb_create moe "وزارة التعليم (اختبار)" "Ministry of Education (smoke)")
+if [[ $code == 201 ]]; then
+  check "the admin creates the KB moe; its role is kb:moe:read" jq -e '.data.role == "kb:moe:read"' "$TMP/kb-create.json"
+  create_request=$(jq -r '.request_id' "$TMP/kb-create.json")
+  create_audit=$(sql "select status || ',' || (detail->>'role') || ',' || (detail->>'actor_username') from gateway.audit_events where request_id = '$create_request' and action = 'kb.create'")
+  [[ $create_audit == ok,kb:moe:read,admin ]] && ok "the create is audited ok with its role and the actor's username" || fail "the create's audit row: $create_audit"
+else
+  [[ $code == 409 ]] && [[ $(status -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/moe") == 200 ]] \
+    && ok "the KB moe exists from an earlier run (409 kb_exists) and is live" || fail "creating the KB moe returned $code"
+fi
+roles=$(docker compose exec -T keycloak bash -c "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user \"\$KC_BOOTSTRAP_ADMIN_USERNAME\" --password \"\$KC_BOOTSTRAP_ADMIN_PASSWORD\" >/dev/null && /opt/keycloak/bin/kcadm.sh get roles -r agent --fields name" 2>/dev/null | jq -r '.[].name')
+grep -qx 'kb:moe:read' <<< "$roles" && ok "the realm role kb:moe:read exists in Keycloak" || fail "no realm role kb:moe:read"
+MOE_DOC=$(kb_document moe evals/docs/kb/labor-law.pdf "نظام العمل في الواحة (اختبار الدخان)")
+[[ $MOE_DOC =~ ^[0-9a-f-]{36}$ ]] || fail "uploading to moe gave no document id"
+kb_indexed moe "$MOE_DOC" && ok "the document uploaded to moe with its source metadata is indexed" || fail "the moe document was not indexed"
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/capabilities" > "$TMP/caps-analyst.json" || fail "the analyst's capabilities"
+check "the analyst's composer lists moe among its KBs, and the kb capability" jq -e \
+  '([.data.knowledge_bases[].slug] | index("moe")) != null and ([.data.capabilities[].slug] | index("kb")) != null' "$TMP/caps-analyst.json"
+check "the analyst's composer never lists a KB it holds no role for" jq -e \
+  '[.data.knowledge_bases[].slug] - ["moe", "intl-economy"] == []' "$TMP/caps-analyst.json"
+KB_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+kb_chat "$ANALYST" "$KB_CONV" "كم مدة إجازة الأمومة في نظام العمل في الواحة؟" "$TMP/kb-turn.jsonl" moe
+cp "$TMP/kb-turn.jsonl" build/smoke/kb-turn.jsonl   # kept for diagnosis
+check "the analyst's turn with moe toggled runs kb and ends with done" jq -se \
+  'last.type == "done" and last.data.state_digest.capabilities == ["kb"]' "$TMP/kb-turn.jsonl"
+check "it cites the document with its KB, KB name, publisher, date and page (I4)" jq -se --arg d "$MOE_DOC" \
+  '[last.data.citations[] | select(.document_id == $d and .kb == "moe" and (.kb_name.ar | length > 0)
+     and .publisher == "وزارة الموارد البشرية في الواحة" and .published_on == "2030-11-01" and (.pages | length > 0))] | length == 1' \
+  "$TMP/kb-turn.jsonl"
+printf '        kb answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/kb-turn.jsonl" | head -c 200 | tr '\n' ' ')"
+
+step "phase 08: the viewer, without kb:moe:read, cannot list, toggle, retrieve from or see moe (I7)"
+curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/capabilities" > "$TMP/caps-viewer.json" || fail "the viewer's capabilities"
+check "the viewer's composer lists no KB and no kb capability" jq -e \
+  '.data.knowledge_bases == [] and ([.data.capabilities[].slug] | index("kb")) == null' "$TMP/caps-viewer.json"
+code=$(curl -s -o "$TMP/kb-denied.json" -w '%{http_code}' -H "Authorization: Bearer $VIEWER" -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"كم مدة إجازة الأمومة؟\",\"locale\":\"ar\",\"selected_kbs\":[\"moe\"]}" "$GW/v1/chat/turns")
+[[ $code == 403 ]] && jq -e '.error.code == "kb_forbidden" and (.error.message_ar | length > 0)' "$TMP/kb-denied.json" >/dev/null \
+  && ok "the viewer selecting moe → 403 kb_forbidden at the gateway, before the agent" || fail "the viewer's KB turn returned $code"
+denied_kb=$(sql "select status || ',' || (detail->'denied_kbs'->>0) from gateway.audit_events where request_id = '$(jq -r '.request_id' "$TMP/kb-denied.json")'")
+[[ $denied_kb == denied,moe ]] && ok "the refusal is audited denied, naming moe" || fail "the refusal's audit row: $denied_kb"
+for path in "/v1/admin/kbs" "/v1/admin/kbs/moe" "/v1/admin/kbs/moe/documents" "/v1/admin/kbs/moe/documents/$MOE_DOC"; do
+  [[ $(status -H "Authorization: Bearer $VIEWER" "$GW$path") == 403 ]] || fail "the viewer reached $path"
+done
+ok "the viewer is refused 403 on every KB admin endpoint (list, KB, its documents, a document)"
+[[ $(status -H "Authorization: Bearer $VIEWER" -F "file=@evals/docs/kb/labor-law.pdf" -F "title=x" -F "publisher=y" -F "published_on=2030-01-01" "$GW/v1/admin/kbs/moe/documents") == 403 ]] \
+  && ok "the viewer's upload to moe is refused 403 before the body is read" || fail "the viewer's upload to moe was not refused"
+
+step "phase 08: a deleted KB is hidden, its chunks gone, and unreachable to its role's holders (I1, I7)"
+code=$(kb_create smoke-deleted "قاعدة محذوفة (اختبار)" "Deleted KB (smoke)")
+if [[ $code == 201 ]]; then
+  DEL_DOC=$(kb_document smoke-deleted evals/docs/kb/remote-work-guide.pdf "دليل العمل عن بعد (اختبار الدخان)")
+  kb_indexed smoke-deleted "$DEL_DOC" && ok "smoke-deleted created and its document indexed" || fail "the smoke-deleted document was not indexed"
+  code=$(curl -s -o "$TMP/kb-delete.json" -w '%{http_code}' -X DELETE -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/smoke-deleted")
+  [[ $code == 200 ]] && jq -e '.data.role == "kb:smoke-deleted:read" and .data.index_purged == true' "$TMP/kb-delete.json" >/dev/null \
+    && ok "the admin deletes smoke-deleted: its role is kept and its index purged" || fail "deleting smoke-deleted returned $code"
+elif [[ $code == 409 ]]; then
+  ok "smoke-deleted was created and deleted by an earlier run (its slug stays taken, I1)"
+else
+  fail "creating smoke-deleted returned $code"
+fi
+[[ $(status -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/smoke-deleted") == 404 ]] && ok "the admin's view of smoke-deleted is 404 kb_not_found" || fail "smoke-deleted is still visible to the admin"
+left=$(sql "select count(*) from agent.rag_chunks c join agent.kb_documents d on d.id = c.kb_document_id where d.kb_slug = 'smoke-deleted'")
+[[ $left == 0 ]] && ok "no chunk of smoke-deleted is left in the index" || fail "$left chunks of smoke-deleted are left"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/capabilities" | jq -e '([.data.knowledge_bases[].slug] | index("smoke-deleted")) == null' >/dev/null \
+  && ok "the analyst, who holds kb:smoke-deleted:read, no longer sees it in the composer" || fail "the analyst still sees smoke-deleted"
+code=$(curl -s -o "$TMP/kb-deleted-turn.json" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"message\":\"كم يوما يسمح بالعمل عن بعد؟\",\"locale\":\"ar\",\"selected_kbs\":[\"smoke-deleted\"]}" "$GW/v1/chat/turns")
+[[ $code == 403 ]] && jq -e '.error.code == "kb_forbidden"' "$TMP/kb-deleted-turn.json" >/dev/null \
+  && ok "the analyst selecting the deleted KB → 403 kb_forbidden at the gateway" || fail "a turn on the deleted KB returned $code"
+ok "no smoke step selects or needs the proof-of-concept KB intl-economy (D4)"
+
+printf '\nsmoke: all phase 01 to 08 checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
 

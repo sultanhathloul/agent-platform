@@ -57,3 +57,17 @@ def test_english_stopwords_and_single_letters_are_dropped(stopwords):
         "leave",
         "2031",
     ]
+
+
+def test_with_floor_keeps_each_collections_best_chunks_in_ranked_order():
+    from app.rag.retrieve import with_floor
+    from app.rag.types import ScoredChunk
+
+    def chunk(i, collection):
+        return ScoredChunk(id=f"c{i}", attachment_id="d", ord=i, text="t", score=1.0 - i / 100, collection=collection)
+
+    ranked = [chunk(i, "kb_a") for i in range(6)] + [chunk(6, "kb_b"), chunk(7, "kb_b"), chunk(8, "kb_b")]
+    assert [c.id for c in with_floor(ranked, 4, 0)] == ["c0", "c1", "c2", "c3"]
+    assert [c.id for c in with_floor(ranked, 4, 2)] == ["c0", "c1", "c6", "c7"]
+    assert [c.id for c in with_floor(ranked, 8, 2)] == ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"]
+    assert [c.id for c in with_floor(ranked[:3], 8, 2)] == ["c0", "c1", "c2"]  # fewer than k: all

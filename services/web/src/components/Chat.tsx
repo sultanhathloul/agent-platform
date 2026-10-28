@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
-import type { AttachmentLimits, ChatTurnRequest, SkillView } from "@/lib/api/types";
+import type { AttachmentLimits, ChatTurnRequest, KbToggle, SkillView } from "@/lib/api/types";
 import {
   POLL_INTERVAL_MS,
   type ComposerFile,
@@ -16,7 +16,8 @@ import {
   uploadAttachment,
 } from "@/lib/attachments";
 import { type Turn, turnsFromHistory } from "@/lib/conversations";
-import { GatewayError, getConversationMessages, isAbortError, listSkills, streamTurn } from "@/lib/gateway";
+import { GatewayError, getConversationMessages, isAbortError, listCapabilities, listSkills, streamTurn } from "@/lib/gateway";
+import { loadSelection, saveSelection, selectedForTurn, toggled } from "@/lib/kbs";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 import {
   applyEvent,
@@ -32,6 +33,7 @@ import { AssistantMessageView } from "./AssistantMessageView";
 import { AttachmentTray, LimitsHint } from "./AttachmentTray";
 import { useAuth } from "./AuthProvider";
 import { useRuntimeConfig } from "./ConfigProvider";
+import { KbToggles } from "./KbToggles";
 import { SkillPicker } from "./SkillPicker";
 
 // The conversation's earlier messages load from the gateway when it opens (ADR-0193); new turns
@@ -54,6 +56,8 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
   const [history, setHistory] = useState<"loading" | "ready" | "failed">("loading");
   const [skills, setSkills] = useState<SkillView[]>([]);
   const [skill, setSkill] = useState(NO_SKILL);
+  const [kbs, setKbs] = useState<KbToggle[]>([]);
+  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
   const controllerRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -123,6 +127,37 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
       cancelled = true;
     };
   }, [auth, config.gatewayUrl]);
+
+  // The knowledge bases the caller may toggle (phase 08, I3), and this conversation's toggles as
+  // this browser kept them (README §13: persisted per conversation).
+  useEffect(() => {
+    setSelectedKbs(loadSelection(conversationId, typeof window === "undefined" ? undefined : window.localStorage));
+  }, [conversationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = await auth.getAccessToken();
+      if (!token) return;
+      try {
+        const loaded = await listCapabilities({ gatewayUrl: config.gatewayUrl, token });
+        if (!cancelled) setKbs(loaded.knowledge_bases);
+      } catch {
+        // the composer works without the toggles; no knowledge base is then used
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, config.gatewayUrl]);
+
+  function toggleKb(slug: string) {
+    setSelectedKbs((current) => {
+      const next = toggled(current, slug);
+      saveSelection(conversationId, next, typeof window === "undefined" ? undefined : window.localStorage);
+      return next;
+    });
+  }
 
   // Pending files are polled every 2 s until indexed or failed (ADR-0138).
   const pendingIds = files.filter((f) => f.attachment && !isTerminal(f.attachment.status)).map((f) => f.attachment!.id);
@@ -229,7 +264,14 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
         return;
       }
       const body: ChatTurnRequest = withSkill(
-        { conversation_id: conversationId, message, selected_kbs: [], attachment_ids: attachmentIds, locale },
+        {
+          conversation_id: conversationId,
+          message,
+          // Only KBs still listed for the caller: a KB deleted or no longer readable is never sent (I7).
+          selected_kbs: selectedForTurn(selectedKbs, kbs),
+          attachment_ids: attachmentIds,
+          locale,
+        },
         picked,
         skills,
       );
@@ -372,7 +414,8 @@ export function Chat({ conversationId, onTurnDone }: { conversationId: string; o
             </button>
           )}
         </div>
-        <div className="mt-1.5">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <KbToggles kbs={kbs} selected={selectedKbs} onToggle={toggleKb} disabled={streaming} />
           <SkillPicker skills={skills} value={skill} onChange={setSkill} disabled={streaming} />
         </div>
         {busy && <p className="mt-1.5 text-xs text-amber-700">{t("chat.sendWaiting")}</p>}

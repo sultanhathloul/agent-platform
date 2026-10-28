@@ -62,7 +62,8 @@ function ChipView({ chip }: { chip: Chip }) {
 
 /**
  * The source line under an answer: the file name and the page or pages the answer drew on
- * (ADR-0140), or the section of a document without pages; a web source keeps its link.
+ * (ADR-0140), or the section of a document without pages; a web source keeps its link; a knowledge
+ * base document shows its KB, title, publisher and publication date too (phase 08, I4).
  */
 export function CitationList({ citations }: { citations: Citation[] }) {
   const t = useTranslations();
@@ -78,8 +79,22 @@ export function CitationList({ citations }: { citations: Citation[] }) {
         {citations.map((c) => {
           const href = safeHref(c.url);
           const pages = c.pages ?? [];
+          const kbName = c.kb_name ? (locale === "ar" ? c.kb_name.ar : c.kb_name.en) : null;
           return (
-            <li key={c.id} className="flex flex-wrap items-baseline gap-x-2">
+            <li key={c.id} className="flex flex-wrap items-baseline gap-x-2" data-citation-kb={c.kb ?? undefined}>
+              {kbName && (
+                // A knowledge base document: KB › title, then its publisher and date (phase 08, I4).
+                <span className="text-xs font-medium text-emerald-800">
+                  {t.rich("chat.citationKb", {
+                    kb: () => <bdi dir="auto">{kbName}</bdi>,
+                    sep: (chunks) => (
+                      <span aria-hidden className="px-1 text-slate-400">
+                        {chunks}
+                      </span>
+                    ),
+                  })}
+                </span>
+              )}
               {href ? (
                 <a href={href} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">
                   <bdi dir="auto">{c.title}</bdi>
@@ -102,7 +117,17 @@ export function CitationList({ citations }: { citations: Citation[] }) {
                   </bdi>
                 )
               )}
-              {c.kb && <bdi className="text-xs text-slate-400">{c.kb}</bdi>}
+              {c.publisher && (
+                <bdi dir="auto" className="text-xs text-slate-500">
+                  {c.publisher}
+                </bdi>
+              )}
+              {c.published_on && (
+                // ISO date in Western digits in both languages (ADR-0288).
+                <span className="text-xs text-slate-500" dir="ltr">
+                  {t("chat.citationDate", { date: c.published_on })}
+                </span>
+              )}
             </li>
           );
         })}

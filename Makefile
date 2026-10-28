@@ -97,6 +97,9 @@ purge-pre-guard: ## One-time purge of memory and summaries stored before the DAT
 mcp-hashes: ## Print each MCP server's tool schema hashes beside config/mcp.yaml's pins (I5)
 	$(COMPOSE) exec -T agent python -m app.mcp.hashes
 
+kb-poc: .env ## Development only: seed the proof-of-concept KB intl-economy from public sources (D4)
+	uv run scripts/kb_poc.py
+
 logs: ## Tail logs, e.g. make logs s=agent
 	$(COMPOSE) logs -f --tail=200 $(s)
 

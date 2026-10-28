@@ -1,0 +1,30 @@
+# The kb suite's knowledge bases (phase 08, I6): created by the eval harness as the admin, their
+# documents uploaded with their source metadata (D3) and indexed before the cases run. Fake data only
+# (ADR-0065): «الواحة» and every figure are invented (evals/docs/generate_kb.py). The eval user
+# `evaluator` holds both roles in the realm export.
+knowledge_bases:
+  - slug: eval-economy
+    name: {ar: "اقتصاد الواحة", en: "Oasis economy"}
+    description: {ar: "تقارير اقتصادية مختلقة للاختبار", en: "Invented economic reports for evaluation"}
+    documents:
+      - key: april
+        file: kb/outlook-april-2031.pdf
+        metadata: {title: "آفاق اقتصاد الواحة - أبريل 2031", publisher: "صندوق الواحة للنقد", published_on: "2031-04-15",
+                   source_url: "https://example.org/oasis/outlook-2031-04"}
+      - key: july
+        file: kb/outlook-july-2031.pdf
+        metadata: {title: "آفاق اقتصاد الواحة - يوليو 2031", publisher: "صندوق الواحة للنقد", published_on: "2031-07-20",
+                   source_url: "https://example.org/oasis/outlook-2031-07", supersedes: april}
+      - key: trade
+        file: kb/trade-report-2030.pdf
+        metadata: {title: "تقرير التجارة الخارجية للواحة 2030", publisher: "هيئة إحصاء الواحة", published_on: "2031-02-10"}
+  - slug: eval-labor
+    name: {ar: "أنظمة العمل في الواحة", en: "Oasis labour rules"}
+    description: {ar: "أنظمة عمل مختلقة للاختبار", en: "Invented labour rules for evaluation"}
+    documents:
+      - key: labor
+        file: kb/labor-law.pdf
+        metadata: {title: "نظام العمل في الواحة", publisher: "وزارة الموارد البشرية في الواحة", published_on: "2030-11-01"}
+      - key: remote
+        file: kb/remote-work-guide.pdf
+        metadata: {title: "دليل العمل عن بعد", publisher: "وزارة الموارد البشرية في الواحة", published_on: "2031-03-05"}

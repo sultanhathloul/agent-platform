@@ -3,6 +3,8 @@
 Everything is loaded and validated at startup (config, prompts, manifests), so
 a bad file fails the container immediately instead of at the first turn."""
 
+import asyncio
+import contextlib
 import dataclasses
 import gc
 import logging
@@ -32,6 +34,9 @@ from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
 from app.attachments.store import AttachmentStore
+from app.api.kbs import router as kbs_router
+from app.kb.service import KbService
+from app.kb.store import KbStore
 from app.capabilities.registry import CapabilityRegistry, ManifestError, load_capability_config
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.log import ContextLog
@@ -96,7 +101,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.5.0"
+API_VERSION = "2.6.0"
 
 
 def build_services(
@@ -189,6 +194,7 @@ def build_services(
 
     embeddings = EmbeddingGateway(settings, models_config)
     attachment_store = AttachmentStore(db)
+    kb_store = KbStore(db)
     objects = ObjectStore(
         settings.minio_endpoint,
         settings.minio_access_key,
@@ -207,6 +213,7 @@ def build_services(
         objects=objects,
         uploads_backend=uploads_backend(registry),
         broker=broker,
+        kbs=kb_store,
     )
     for cap in registry.all():
         name = cap.config.get("backend")
@@ -215,9 +222,6 @@ def build_services(
                 f"config/{cap.slug}.yaml: backend {name!r} is not a document backend; "
                 f"known: {sorted(documents.backends)}"
             )
-    broker = broker.with_documents(
-        document_access(registry, documents.backends, documents.backend, attachment_store)
-    )
     upload_limits = load_upload_limits(settings.config_dir)
     attachments = AttachmentService(
         db=db,
@@ -228,6 +232,27 @@ def build_services(
         backends=documents.backends,
         status_timeout_s=documents.config.status_timeout_s,
         register_response_s=documents.config.register_response_s,
+    )
+    # KB documents go to the backend the capabilities reading kb collections name (phase 08, I2); a
+    # KB upload counts toward its uploader's registrations in flight with attachments (ADR-0265).
+    kbs = KbService(
+        store=kb_store,
+        backend=documents.backends[collection_backend(registry, "kb")],
+        backends=documents.backends,
+        limits=upload_limits,
+        in_flight=attachments.in_flight,
+        status_timeout_s=documents.config.status_timeout_s,
+        register_response_s=documents.config.register_response_s,
+    )
+    broker = broker.with_documents(
+        document_access(
+            registry,
+            documents.backends,
+            documents.backend,
+            attachment_store,
+            catalog=kbs.catalog,
+            superseded_keep=documents.config.retrieval.superseded_keep,
+        )
     )
     store = MemoryStore(db, memory_config)
     turn = load_turn_config(settings.config_dir)
@@ -278,6 +303,7 @@ def build_services(
         attachments=attachments,
         documents=documents.backend,
         backends=documents.backends,
+        kbs=kbs,
         citations=load_attribution_rule(settings.config_dir),
         router=load_router_config(settings.config_dir),
         turn=turn,
@@ -304,23 +330,36 @@ def uploads_backend(registry: CapabilityRegistry) -> str:
     """The backend new uploads are registered with: the one the capabilities reading session
     collections name in config/<slug>.yaml (`<SLUG>_BACKEND` overriding it), `internal` when none
     does (ADR-0235). Two such capabilities naming different backends fail startup."""
+    return collection_backend(registry, "session")
+
+
+def collection_backend(registry: CapabilityRegistry, kind: str) -> str:
+    """The backend documents of a collection kind are registered with: the one the capabilities
+    reading that kind name in config/<slug>.yaml (`<SLUG>_BACKEND` overriding it), `internal` when
+    none does; for `kb`, the KB documents (phase 08). Two such capabilities naming different backends
+    fail startup."""
     names = {
         str(cap.config.get("backend") or "internal")
         for cap in registry.all()
-        if "session" in cap.manifest.documents.collections
+        if kind in cap.manifest.documents.collections
     }
     if len(names) > 1:
-        raise ManifestError(
-            f"capabilities reading session collections name different backends: {sorted(names)}"
-        )
+        raise ManifestError(f"capabilities reading {kind} collections name different backends: {sorted(names)}")
     return names.pop() if names else "internal"
 
 
 def document_access(
-    registry: CapabilityRegistry, backends, default, store: AttachmentStore
+    registry: CapabilityRegistry,
+    backends,
+    default,
+    store: AttachmentStore,
+    *,
+    catalog=None,
+    superseded_keep: int = 1,
 ) -> DocumentAccess:
     """The broker's document access (ADR-0231, ADR-0232): each capability's configured backend,
-    and the attachment records that say which backend holds each upload."""
+    the attachment records that say which backend holds each upload, and the KB catalog that
+    describes each knowledge base document (phase 08)."""
 
     async def records(tenant_id: str, user_id: str, conversation_id: str) -> list[Held]:
         owner = Owner(tenant_id=tenant_id, user_id=user_id)
@@ -336,6 +375,8 @@ def document_access(
         },
         default=getattr(default, "name", None),
         records=records,
+        catalog=catalog,
+        superseded_keep=superseded_keep,
     )
 
 
@@ -370,6 +411,10 @@ async def start_services(services: Services) -> Services:
     if services.broker.mcp is not None:
         # Connects in the background: a server that is down never stops the agent (I8).
         services.broker.mcp.start()
+    if services.kbs is not None:
+        # A deleted KB's purge a backend could not take is retried, in the background: a backend
+        # that is down never stops the agent (phase 08, I1).
+        services.tasks.append(asyncio.create_task(_settle_owed_purges(services.kbs)))
     started = dataclasses.replace(services, graph=build_graph(checkpointer))
     freeze_startup_heap()
     return started
@@ -387,7 +432,25 @@ def freeze_startup_heap() -> None:
     log.info("startup heap frozen: %d objects (gc.freeze, ADR-0324)", gc.get_freeze_count())
 
 
+async def _settle_owed_purges(kbs: KbService) -> None:
+    try:
+        owed = await kbs.settle_owed_purges()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("owed knowledge base purges not settled: %s", type(exc).__name__)
+        return
+    if owed:
+        log.warning("%d knowledge base purge(s) still owed; retried at the next start", owed)
+
+
 async def stop_services(services: Services) -> None:
+    for task in services.tasks:
+        task.cancel()
+    for task in services.tasks:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+    services.tasks.clear()
     if services.broker.mcp is not None:
         await services.broker.mcp.stop()
     await services.policies.stop()
@@ -435,6 +498,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(conversations_router)
     app.include_router(settings_router)
     app.include_router(skills_router)
+    app.include_router(kbs_router)
     app.include_router(internal_router)
 
     @app.exception_handler(RequestValidationError)

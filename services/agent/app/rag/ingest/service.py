@@ -15,6 +15,8 @@ from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.store import AttachmentStore
 from app.attachments.sweeper import OrphanSweeper
+from app.kb.store import KbStore
+from app.rag.ingest.records import IngestRecords
 from app.context.tokens import default_counter
 from app.db import Database
 from app.models.config import load_models_config
@@ -56,6 +58,7 @@ async def run(settings: Settings, stop: asyncio.Event) -> None:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     models_config = load_models_config(settings.config_dir)
     attachments = AttachmentStore(db)
+    kbs = KbStore(db)
 
     def objects(key: str, secret: str) -> ObjectStore:
         return ObjectStore(
@@ -71,11 +74,13 @@ async def run(settings: Settings, stop: asyncio.Event) -> None:
         counter=default_counter(),
         attachments=attachments,
         objects=objects(settings.minio_access_key, settings.minio_secret_key),
+        kbs=kbs,
     )
     sweeping = documents.config.orphan_sweeper
+    # Attachments and KB documents share the uploads bucket; an object either names is kept (phase 08).
     sweeper = OrphanSweeper(
         objects(settings.minio_sweeper_access_key, settings.minio_sweeper_secret_key),
-        attachments,
+        IngestRecords(attachments, kbs),
         min_age=timedelta(minutes=sweeping.min_age_minutes),
     )
     # The administrator's overrides (ADR-0276): read, never seeded, reloaded on the agent's notice.

@@ -73,6 +73,15 @@ refusal it expects (`expect.refused`) is its outcome, not a lost case. Skill sui
 a time with a longer, jittered 429 backoff; a skill suite with more than 5% of its cases lost to
 the provider's 429s stops the run and reports the rate (a key or tier with more headroom is the
 owner's cost decision).
+
+Phase 08 (I6, ADR-0338): a suite may need knowledge bases in place first: `fixtures.yaml` beside it
+lists them with their documents and source metadata, and the harness creates them as the admin
+(an existing knowledge base or document is kept), uploads what is missing and waits until it is indexed. A
+case's `selected_kbs` goes with its turn (the composer's toggles). More turn fields, for metrics
+that name them: `citations` (the done event's), `retrieved` (the trace's `rag.retrieve` results)
+and `documents` (each fixture key's id). More scorers: `retrieved` (hit@8), `cites` (citations with
+their attribution) and `text_first` (the latest figure before any superseded one). Generic: no
+capability and no knowledge base is named here.
 """
 
 import asyncio
@@ -157,7 +166,9 @@ def abstained(answer: str, citations: list) -> bool:
 
 
 # A capability label or a bracketed file name copied into an answer (owner decision C1).
-_LABEL = re.compile(r"\[(?:docs|general|kb|sql|web)\]|\[[^\]\n]*\.(?:pdf|docx|xlsx|txt|md)\b", re.I)
+# Any bracketed lower-case tag ([docs], a capability's slug) or a bracketed file name (phase 08: generic,
+# so the harness names no capability).
+_LABEL = re.compile(r"\[[a-z_]{2,20}\](?!\()|\[[^\]\n]*\.(?:pdf|docx|xlsx|txt|md)\b", re.I)
 
 
 def has_label(answer: str) -> bool:
@@ -268,6 +279,8 @@ def run_turn(
     }
     if case.get("skill"):
         body["skill"] = case["skill"]  # the composer's picker (phase 06, ADR-0292)
+    if case.get("selected_kbs"):
+        body["selected_kbs"] = case["selected_kbs"]  # the composer's knowledge base toggles (phase 08, I3)
     headers = {"Authorization": f"Bearer {token}", "Accept": "text/event-stream"}
 
     def once() -> dict:
@@ -733,6 +746,14 @@ def numbers(answer: str) -> list[float]:
     return [float(value) for value in _NUMBER.findall(text)]
 
 
+_URL = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>()\[\]{}\"'«»]+")
+
+
+def urls(answer: str) -> list[str]:
+    """The links an answer holds (http, https or www.), without trailing punctuation."""
+    return [match.rstrip(".,;:!?؟،…*_`") for match in _URL.findall(answer or "")]
+
+
 def case_value(case: dict, path: str):
     value = case
     for key in path.split("."):
@@ -742,6 +763,15 @@ def case_value(case: dict, path: str):
 
 def _alternatives(item) -> list[str]:
     return [item] if isinstance(item, str) else [str(alt) for alt in item]
+
+
+def _alternatives_all(items) -> list[str]:
+    """A text, or a list of texts and lists of alternatives, flattened."""
+    if items is None:
+        return []
+    if isinstance(items, str):
+        return [items]
+    return [alt for item in items for alt in _alternatives(item)]
 
 
 def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
@@ -783,6 +813,50 @@ def score_check(check: dict, case: dict, answer: str, turn: dict) -> bool:
         else:
             sections = check["sections"]
         return sections_in_order(answer, sections)
+    if scorer == "urls_from_inputs":
+        # Every link in the answer is in the case's inputs, word for word (phase 08, F3): the message,
+        # plus any case field `inputs` names. An answer with no link passes.
+        given = " ".join(str(case_value(case, path) or "") for path in check.get("inputs", ["message"]))
+        return all(url in given for url in urls(answer))
+    if scorer == "retrieved":
+        # Retrieval hit@8 (phase 08, I6): each expected {document, pages} (`min: all`, or at least one with
+        # `min: 1`) is among the turn's retrieved chunks; documents are the suite's fixture keys.
+        documents = turn.get("documents") or {}
+        results = turn.get("retrieved") or []
+        hits = [any(r.get("attachment_id") == documents.get(item["document"]) and r.get("page") in item.get("pages", [])
+                    for r in results) for item in expected or []]
+        return bool(hits) and (all(hits) if check.get("min", "all") == "all" else sum(hits) >= int(check["min"]))
+    if scorer == "cites":
+        # Citations with their source attribution (phase 08, I4, I6): every expected {document, pages, ...}
+        # is cited on expected (or acceptable) pages, with every other field of the expected item equal
+        # (e.g. the source's collection slug) and every field `required` names present (e.g. its name,
+        # publisher and date); a citation of a document neither expected nor in `allow` fails.
+        documents = turn.get("documents") or {}
+        citations = turn.get("citations") or []
+        keys = [item["document"] for item in expected or []]
+        keys += list(case_value(case, check["allow"]) or []) if "allow" in check else []
+        allowed = {documents.get(key) for key in keys}
+        if any(c.get("document_id") not in allowed for c in citations):
+            return False
+        required = check.get("required", [])
+        for item in expected or []:
+            pages = set(item.get("pages", [])) | set(item.get("acceptable_pages", []))
+            fields = {k: v for k, v in item.items() if k not in ("document", "pages", "acceptable_pages")}
+            match = [c for c in citations if c.get("document_id") == documents.get(item["document"])]
+            if not any(all(c.get(k) == v for k, v in fields.items()) and all(c.get(k) for k in required)
+                       and c.get("pages") and set(c["pages"]) <= pages for c in match):
+                return False
+        return bool(expected)
+    if scorer == "text_first":
+        # The expected text (or an alternative) is in the answer, before any `before` text (phase 08, D3):
+        # a superseded figure may be noted as the change, never given first as the answer.
+        folded = fold(answer)
+        found = [folded.find(fold(alt)) for alt in _alternatives_all(expected)]
+        first = min((at for at in found if at >= 0), default=-1)
+        if first < 0:
+            return False
+        earlier = [folded.find(fold(alt)) for alt in _alternatives_all(case_value(case, check["before"]) if "before" in check else [])]
+        return all(at < 0 or at > first for at in earlier)
     if scorer == "length_between":
         words = len(re.findall(r"\w+", answer))
         return int(check.get("min", 0)) <= words <= int(check.get("max", 10**9))
@@ -800,6 +874,75 @@ def sections_in_order(answer: str, sections: list) -> bool:
             return False
         at += min(m.end() for m in found)
     return bool(sections)
+
+
+FIXTURES_FILE = "fixtures.yaml"
+FIXTURE_WAIT_S = 240
+
+
+def load_fixtures(path: Path) -> dict | None:
+    """What a suite needs in place before its cases (phase 08): `knowledge_bases`, each with its
+    documents and their source metadata, from fixtures.yaml beside the suite; None when it has none."""
+    file = path.parent / FIXTURES_FILE
+    if not file.is_file():
+        return None
+    fixtures = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+    # `include`: another suite's fixtures, by path from the repository root, so two suites share them.
+    for included in fixtures.pop("include", []) or []:
+        other = yaml.safe_load((REPO / included).read_text(encoding="utf-8")) or {}
+        fixtures["knowledge_bases"] = [*(fixtures.get("knowledge_bases") or []), *(other.get("knowledge_bases") or [])]
+    return fixtures
+
+
+def prepare_fixtures(http: httpx.Client, cfg: dict, fixtures: dict) -> dict[str, str]:
+    """Creates the suite's knowledge bases as the admin (an existing one is kept), uploads each
+    document not there yet with its metadata (`supersedes` names another document's key), and waits
+    until every one is indexed. Returns each document key's id. Generic: the KBs are the suite's."""
+    gateway = cfg["GATEWAY_PUBLIC_URL"]
+    admin = {"Authorization": f"Bearer {login(*ADMIN_USER)['access_token']}"}
+    ids: dict[str, str] = {}
+    for base in fixtures.get("knowledge_bases") or []:
+        slug = base["slug"]
+        created = http.post(f"{gateway}/v1/admin/kbs", headers=admin, json={
+            "slug": slug, "name": base["name"], "description": base.get("description") or {"ar": "", "en": ""}})
+        if created.status_code not in (201, 409):
+            created.raise_for_status()
+        listed = http.get(f"{gateway}/v1/admin/kbs/{slug}/documents", headers=admin)
+        listed.raise_for_status()
+        held = {d["metadata"]["title"]: d for d in listed.json()["data"]["documents"] if d["status"] != "failed"}
+        for document in base.get("documents") or []:
+            meta = dict(document["metadata"])
+            if meta.get("supersedes"):
+                meta["supersedes"] = ids[meta["supersedes"]]
+            if meta["title"] in held:
+                ids[document["key"]] = held[meta["title"]]["id"]
+                continue
+            path = DOCS / document["file"]
+            fields = {k: str(v) for k, v in meta.items() if v}
+            for _ in range(5):
+                with path.open("rb") as handle:
+                    response = http.post(f"{gateway}/v1/admin/kbs/{slug}/documents", headers=admin, data=fields,
+                                         files={"file": (path.name, handle)})
+                if response.status_code != 429:
+                    break
+                time.sleep(61)  # the per-user upload allowance is per minute (ADR-0177)
+            response.raise_for_status()
+            ids[document["key"]] = response.json()["data"]["id"]
+        deadline = time.monotonic() + FIXTURE_WAIT_S
+        while True:
+            listed = http.get(f"{gateway}/v1/admin/kbs/{slug}/documents", headers=admin)
+            listed.raise_for_status()
+            status = {d["id"]: d["status"] for d in listed.json()["data"]["documents"]}
+            wanted = [ids[d["key"]] for d in base.get("documents") or []]
+            if any(status.get(i) == "failed" for i in wanted):
+                raise SystemExit(f"a document of knowledge base {slug} failed to index")
+            if all(status.get(i) == "indexed" for i in wanted):
+                break
+            if time.monotonic() > deadline:
+                raise SystemExit(f"the documents of knowledge base {slug} were not indexed in {FIXTURE_WAIT_S} s")
+            time.sleep(1)
+        print(f"  (fixture: knowledge base {slug}, {len(wanted)} documents indexed)")
+    return ids
 
 
 def load_metrics(path: Path) -> dict | None:
@@ -935,6 +1078,8 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
     checkers: dict[str, str] = {}
     document_outcomes: list[tuple[dict, dict]] = []
     metrics = load_metrics(path)  # the suite's own metrics (a capability's evals/metrics.yaml)
+    fixtures = load_fixtures(path)  # what the suite needs in place first (phase 08: knowledge bases)
+    documents = prepare_fixtures(http, cfg, fixtures) if fixtures else {}
     threshold = thresholds.get(name.removesuffix(MCP_SUFFIX))
     metric_outcomes: list[dict[str, bool]] = []
     report_sets: dict[str, list[bool]] = {}  # cases scored and reported under a set, never gated
@@ -1053,7 +1198,10 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
             capabilities = event["data"]["state_digest"]["capabilities"]
             trace_id = event["data"].get("trace_id")
             turn_fields = {"capabilities": capabilities, "skill": applied_skill(event["data"]),
-                           "cited": bool(event["data"].get("citations")), "refused": None}
+                           "cited": bool(event["data"].get("citations")), "refused": None,
+                           "citations": event["data"].get("citations") or [], "documents": documents}
+            if metrics is not None and '"retrieved"' in json.dumps(metrics):
+                turn_fields["retrieved"] = retrieved(http, cfg, auth, trace_id) if trace_id else None
             if metrics is not None and "traced_skill" in json.dumps(metrics):
                 turn_fields["traced_skill"] = traced_skill(
                     http, cfg, auth, trace_id, (event["data"].get("state_digest") or {}).get("skill"))
@@ -1069,7 +1217,8 @@ def run_suite(http, cfg, auth, run_name, name, path, thresholds, sections, rows,
             answer, problems, trace_id = "", [f"no done event ({lost})"], None
             if metrics is not None:
                 scored = {m: False for m in metric_outcome(metrics, case, "", {})[0]}
-        if metrics is not None:
+        if metrics is not None and not case.get("report_set"):
+            # A case of a report set is scored and reported under its set, never in a gated metric.
             metric_outcomes.append(scored)
         if metrics is not None and isinstance(threshold, dict):
             # A metric the threshold does not name is reported, never gated (ADR-0320).

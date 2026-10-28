@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.5.0"
+    "version" : "2.6.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -12,6 +12,586 @@
     "bearer" : [ ]
   } ],
   "paths" : {
+    "/v1/admin/kbs" : {
+      "get" : {
+        "operationId" : "list_1",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbList"
+                }
+              }
+            },
+            "description" : "The knowledge bases"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The tenant's live knowledge bases, each with its role and document counts",
+        "tags" : [ "admin-knowledge-bases" ]
+      },
+      "post" : {
+        "operationId" : "create",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/KbCreate"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbView"
+                }
+              }
+            },
+            "description" : "Created, with its role"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_exists: the slug is taken, by a live or a deleted KB"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "identity_unavailable (Keycloak) or agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Creates a knowledge base and its realm role kb:<slug>:read",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
+    "/v1/admin/kbs/{slug}" : {
+      "delete" : {
+        "operationId" : "delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDeleted"
+                }
+              }
+            },
+            "description" : "Deleted"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found"
+          }
+        },
+        "summary" : "Deletes a knowledge base: hidden, its role kept, its documents purged from the index",
+        "tags" : [ "admin-knowledge-bases" ]
+      },
+      "get" : {
+        "operationId" : "get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbView"
+                }
+              }
+            },
+            "description" : "The knowledge base"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found: another tenant's, deleted or unknown"
+          }
+        },
+        "summary" : "One knowledge base",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents" : {
+      "get" : {
+        "operationId" : "documents",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDocumentList"
+                }
+              }
+            },
+            "description" : "The documents"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found"
+          }
+        },
+        "summary" : "A knowledge base's documents with their status and D3 metadata, oldest first",
+        "tags" : [ "admin-knowledge-bases" ]
+      },
+      "post" : {
+        "description" : "Checked against the limits of config/docs.yaml before it is stored; the agent then indexes it in the background. Poll the document list for its status.",
+        "operationId" : "upload_1",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "title",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "publisher",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "published_on",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "source_url",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "supersedes",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                },
+                "required" : [ "file" ]
+              }
+            }
+          }
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDocumentView"
+                }
+              }
+            },
+            "description" : "Stored and registered; status pending"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found"
+          },
+          "408" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "upload_timeout"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_supersedes_invalid"
+          },
+          "413" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "file_too_large"
+          },
+          "415" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "file_type_unsupported"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "upload_rate_limited or too_many_uploads"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable or storage_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Uploads one document to a knowledge base with its source metadata",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents/{documentId}" : {
+      "get" : {
+        "operationId" : "document",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "documentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDocumentView"
+                }
+              }
+            },
+            "description" : "The document"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found or kb_document_not_found"
+          }
+        },
+        "summary" : "One knowledge base document",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents/{documentId}/metadata" : {
+      "put" : {
+        "operationId" : "metadata",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "documentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SourceMetadata"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDocumentView"
+                }
+              }
+            },
+            "description" : "The document"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found or kb_document_not_found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_supersedes_invalid"
+          }
+        },
+        "summary" : "Corrects a knowledge base document's source metadata, its earlier version included",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
     "/v1/admin/policies" : {
       "get" : {
         "operationId" : "listPolicies",
@@ -1000,6 +1580,45 @@
         "tags" : [ "attachments" ]
       }
     },
+    "/v1/capabilities" : {
+      "get" : {
+        "operationId" : "list_5",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeCapabilityList"
+                }
+              }
+            },
+            "description" : "Capabilities and readable knowledge bases"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          }
+        },
+        "summary" : "The caller's capabilities and the knowledge bases it may toggle",
+        "tags" : [ "capabilities" ]
+      }
+    },
     "/v1/chat/turns" : {
       "post" : {
         "description" : "Streams agent events as Server-Sent Events. Event payloads are defined in docs/events.schema.json. Errors before the stream starts are JSON envelopes.",
@@ -1102,7 +1721,7 @@
     },
     "/v1/conversations" : {
       "get" : {
-        "operationId" : "list_3",
+        "operationId" : "list_4",
         "parameters" : [ {
           "description" : "Page size, 1 to 100; 30 when absent.",
           "in" : "query",
@@ -1632,7 +2251,7 @@
     },
     "/v1/memory" : {
       "get" : {
-        "operationId" : "list_2",
+        "operationId" : "list_3",
         "responses" : {
           "200" : {
             "content" : {
@@ -1750,7 +2369,7 @@
     },
     "/v1/memory/{itemId}" : {
       "delete" : {
-        "operationId" : "delete",
+        "operationId" : "delete_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "itemId",
@@ -1820,7 +2439,7 @@
     },
     "/v1/skills" : {
       "get" : {
-        "operationId" : "list_1",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "content" : {
@@ -1902,6 +2521,20 @@
         },
         "required" : [ "request_id" ]
       },
+      "ApiEnvelopeCapabilityList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/CapabilityList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiEnvelopeConversationList" : {
         "properties" : {
           "data" : {
@@ -1920,6 +2553,76 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/ConversationMessages"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeKbDeleted" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/KbDeleted"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeKbDocumentList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/KbDocumentList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeKbDocumentView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/KbDocumentView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeKbList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/KbList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeKbView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/KbView"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -2317,6 +3020,57 @@
         },
         "required" : [ "conversation_id", "created_at", "id", "kind", "mime", "name", "size", "status" ]
       },
+      "CapabilityList" : {
+        "properties" : {
+          "capabilities" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CapabilityView"
+            }
+          },
+          "knowledge_bases" : {
+            "type" : "array",
+            "description" : "Only the KBs the caller may read",
+            "items" : {
+              "$ref" : "#/components/schemas/KbToggle"
+            }
+          }
+        },
+        "required" : [ "capabilities", "knowledge_bases" ]
+      },
+      "CapabilityUi" : {
+        "properties" : {
+          "mode" : {
+            "type" : "string",
+            "enum" : [ "toggle", "auto", "button" ]
+          },
+          "order" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "mode", "order" ]
+      },
+      "CapabilityView" : {
+        "properties" : {
+          "description" : {
+            "$ref" : "#/components/schemas/Text"
+          },
+          "icon" : {
+            "type" : "string"
+          },
+          "name" : {
+            "$ref" : "#/components/schemas/Text"
+          },
+          "slug" : {
+            "type" : "string"
+          },
+          "ui" : {
+            "$ref" : "#/components/schemas/CapabilityUi"
+          }
+        },
+        "required" : [ "description", "icon", "name", "slug", "ui" ]
+      },
       "ChatTurnRequest" : {
         "properties" : {
           "attachment_ids" : {
@@ -2409,6 +3163,20 @@
           }
         },
         "required" : [ "id", "last_turn_at", "title" ]
+      },
+      "Description" : {
+        "properties" : {
+          "ar" : {
+            "type" : "string",
+            "maxLength" : 500,
+            "minLength" : 0
+          },
+          "en" : {
+            "type" : "string",
+            "maxLength" : 500,
+            "minLength" : 0
+          }
+        }
       },
       "HealthResponse" : {
         "properties" : {
@@ -2518,13 +3286,196 @@
       "JsonNode" : {
         "description" : "The checker's settings; DATA policies may name `targets`."
       },
+      "KbCreate" : {
+        "properties" : {
+          "description" : {
+            "$ref" : "#/components/schemas/Description"
+          },
+          "icon" : {
+            "type" : "string",
+            "pattern" : "^[a-z][a-z0-9-]{0,39}$"
+          },
+          "name" : {
+            "$ref" : "#/components/schemas/Label"
+          },
+          "slug" : {
+            "type" : "string",
+            "description" : "Lower-case letters, digits, - and _; its realm role is kb:<slug>:read",
+            "pattern" : "^[a-z][a-z0-9_-]{0,62}$"
+          }
+        },
+        "required" : [ "name", "slug" ]
+      },
+      "KbDeleted" : {
+        "properties" : {
+          "index_purged" : {
+            "type" : "boolean",
+            "description" : "False while a backend owes the purge, or keeps its copy (an MCP server)"
+          },
+          "role" : {
+            "type" : "string",
+            "description" : "Kept (I1)"
+          },
+          "slug" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "index_purged", "role", "slug" ]
+      },
+      "KbDocumentList" : {
+        "properties" : {
+          "documents" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/KbDocumentView"
+            }
+          }
+        },
+        "required" : [ "documents" ]
+      },
+      "KbDocumentView" : {
+        "properties" : {
+          "chunks" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "indexed_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "kb" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "pdf", "docx", "xlsx", "txt", "md" ]
+          },
+          "metadata" : {
+            "$ref" : "#/components/schemas/SourceMetadata"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "pages" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "reason" : {
+            "type" : "string"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "pending", "indexed", "failed" ]
+          },
+          "superseded_by" : {
+            "type" : "string",
+            "description" : "The document of this KB that supersedes it"
+          },
+          "uploaded_by_name" : {
+            "type" : "string"
+          },
+          "uploaded_by_username" : {
+            "type" : "string"
+          },
+          "warnings" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Warning"
+            }
+          }
+        },
+        "required" : [ "created_at", "id", "kb", "kind", "metadata", "name", "size", "status" ]
+      },
+      "KbList" : {
+        "properties" : {
+          "kbs" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/KbView"
+            }
+          }
+        },
+        "required" : [ "kbs" ]
+      },
+      "KbToggle" : {
+        "description" : "Only the KBs the caller may read",
+        "properties" : {
+          "description" : {
+            "$ref" : "#/components/schemas/Text"
+          },
+          "icon" : {
+            "type" : "string"
+          },
+          "name" : {
+            "$ref" : "#/components/schemas/Text"
+          },
+          "slug" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "description", "icon", "name", "slug" ]
+      },
+      "KbView" : {
+        "properties" : {
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "created_by_name" : {
+            "type" : "string"
+          },
+          "created_by_username" : {
+            "type" : "string"
+          },
+          "description" : {
+            "$ref" : "#/components/schemas/Description"
+          },
+          "documents" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "icon" : {
+            "type" : "string"
+          },
+          "indexed" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "name" : {
+            "$ref" : "#/components/schemas/Label"
+          },
+          "role" : {
+            "type" : "string",
+            "description" : "kb:<slug>:read"
+          },
+          "slug" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "created_at", "description", "documents", "icon", "indexed", "name", "role", "slug" ]
+      },
       "Label" : {
         "properties" : {
           "ar" : {
-            "type" : "string"
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 1
           },
           "en" : {
-            "type" : "string"
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 1
           }
         },
         "required" : [ "ar", "en" ]
@@ -3497,6 +4448,37 @@
         },
         "required" : [ "description", "name", "slug" ]
       },
+      "SourceMetadata" : {
+        "properties" : {
+          "published_on" : {
+            "type" : "string",
+            "format" : "date",
+            "pattern" : "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "publisher" : {
+            "type" : "string",
+            "maxLength" : 200,
+            "minLength" : 1
+          },
+          "source_url" : {
+            "type" : "string",
+            "maxLength" : 2000,
+            "minLength" : 0,
+            "pattern" : "^https?://\\S+$"
+          },
+          "supersedes" : {
+            "type" : "string",
+            "description" : "An earlier version of the same source in this KB",
+            "pattern" : "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "title" : {
+            "type" : "string",
+            "maxLength" : 300,
+            "minLength" : 1
+          }
+        },
+        "required" : [ "published_on", "publisher", "title" ]
+      },
       "TenantUsage" : {
         "properties" : {
           "in_flight" : {
@@ -3512,6 +4494,17 @@
           }
         },
         "required" : [ "in_flight", "tenant_id" ]
+      },
+      "Text" : {
+        "properties" : {
+          "ar" : {
+            "type" : "string"
+          },
+          "en" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "ar", "en" ]
       },
       "TimeoutPair" : {
         "properties" : {
@@ -3590,7 +4583,6 @@
         "required" : [ "in_flight", "per_user_max", "tenants", "top_user_in_flight" ]
       },
       "Warning" : {
-        "description" : "Indexed with something the user should know (phase 05, D7, ADR-0201): [{code: pages_without_text, count}] for a partly scanned PDF.",
         "properties" : {
           "code" : {
             "type" : "string",

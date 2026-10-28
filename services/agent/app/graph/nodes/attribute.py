@@ -25,6 +25,7 @@ def _supplied(citation: dict) -> dict:
         "locator": citation.get("locator"),
         "document_id": citation.get("document_id"),
         "pages": sorted(citation.get("pages") or []),
+        **{key: citation[key] for key in ("kb_name", "publisher", "published_on") if citation.get(key) is not None},
     }
 
 

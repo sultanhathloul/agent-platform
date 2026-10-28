@@ -117,6 +117,16 @@ export type DocumentId = string | null;
  * Pages of that document the answer drew on, ascending (ADR-0140).
  */
 export type Pages = number[];
+export type Ar1 = string;
+export type En1 = string;
+/**
+ * Who published the source (phase 08, D3); additive.
+ */
+export type Publisher = string | null;
+/**
+ * The source's publication date, ISO 8601 (phase 08, D3); additive.
+ */
+export type PublishedOn = string | null;
 export type RequestId6 = string;
 export type TurnId6 = string | null;
 /**
@@ -139,8 +149,8 @@ export type TurnId7 = string | null;
 export type Seq7 = number;
 export type Type7 = "skill";
 export type Slug = string;
-export type Ar1 = string;
-export type En1 = string;
+export type Ar2 = string;
+export type En2 = string;
 export type RequestId8 = string;
 export type TurnId8 = string | null;
 /**
@@ -364,6 +374,16 @@ export interface Citation {
   locator?: Locator;
   document_id?: DocumentId;
   pages?: Pages;
+  /**
+   * A knowledge base document's KB, by name (phase 08, I4); additive.
+   */
+  kb_name?: KbLabel | null;
+  publisher?: Publisher;
+  published_on?: PublishedOn;
+}
+export interface KbLabel {
+  ar: Ar1;
+  en: En1;
 }
 /**
  * A capability reports how far it got (ADR-0047).
@@ -400,8 +420,8 @@ export interface SkillData {
   label: SkillLabel;
 }
 export interface SkillLabel {
-  ar: Ar1;
-  en: En1;
+  ar: Ar2;
+  en: En2;
 }
 export interface DoneEvent {
   request_id: RequestId8;

@@ -1,0 +1,34 @@
+slug: kb
+version: 1.0.0
+name: {ar: "قواعد المعرفة", en: "Knowledge bases"}
+description:
+  ar: "إجابات من قواعد المعرفة التي يختارها المستخدم، مع ذكر المصدر وتاريخه وصفحته."
+  en: "Answers from the knowledge bases the user selects, with each source, its date and its page."
+icon: "library"
+enabled_by_default: true
+permission: "cap:kb"
+risk: read
+ui:
+  mode: auto                       # the composer toggles knowledge bases, not this capability (I3)
+  order: 25
+routing_hints:
+  description:
+    ar: "أسئلة تُجاب من قواعد المعرفة التي اختارها المستخدم لهذه الرسالة."
+    en: "Questions answered from the knowledge bases the user selected for this message."
+  keywords: {ar: [], en: []}
+  rules:
+    - when: kbs_selected             # the user toggled one or more knowledge bases (I3); none: never
+model:
+  min_tier: standard                 # README §19.4
+  steps: {}
+  on_overflow: compress
+context:
+  needs: [state_digest, summary, window, memory, retrieval, findings]   # the answer's blocks, as docs
+  max_input_tokens: 14000            # room for 8 passages beside the answer's own blocks
+tools: [kb_search]                       # the only tool the broker lets this capability call (ADR-0160)
+documents:
+  collections: [kb]                      # the selected and permitted knowledge bases; never a session's files (I1)
+limits:
+  max_iterations: 1
+  timeout_s: 60
+state_namespace: "cap.kb"

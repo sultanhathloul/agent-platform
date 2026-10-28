@@ -28,6 +28,13 @@ public enum ErrorCode {
     /** Another administrator saved the settings first (ADR-0276). */
     SETTINGS_CONFLICT("settings_conflict", 409),
     SETTINGS_VERSION_NOT_FOUND("settings_version_not_found", 404),
+    /** None of the caller's tenant's live knowledge bases (phase 08): another tenant's, deleted or unknown. */
+    KB_NOT_FOUND("kb_not_found", 404),
+    /** The slug is taken by a live or a deleted knowledge base (its role stays, I1). */
+    KB_EXISTS("kb_exists", 409),
+    KB_DOCUMENT_NOT_FOUND("kb_document_not_found", 404),
+    /** The earlier version a KB document names is not valid (D3). */
+    KB_SUPERSEDES_INVALID("kb_supersedes_invalid", 409),
     TURN_IN_FLIGHT("turn_in_flight", 409),
     /** The caller's or its tenant's turns in flight at their limit (config/turn.yaml; ADR-0262). */
     TOO_MANY_TURNS("too_many_turns", 429),

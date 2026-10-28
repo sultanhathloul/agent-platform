@@ -1,0 +1,45 @@
+# kb evals (phase 08, I6): generic scorers only (ADR-0240); the harness names no capability and no
+# knowledge base. The suite's KBs and documents are fixtures.yaml's; a case names documents by key.
+#   retrieved     hit@8: each expected {document, pages} is among the turn's retrieved chunks (the trace)
+#   cites         every expected {document, kb, pages} is cited with that KB and the `required` fields (its name,
+#                 publisher, date), on expected or acceptable pages; no citation of a document neither expected
+#                 nor allowed
+#   text_first    the latest figure is in the answer, before any superseded figure (D3)
+#   abstention    the answer says it found nothing, as whole words; field_equals cited: no source line
+#   text_present  the facts the answer should keep (reported)
+# Cases in the report set `cross_language` (an English answer with no figure over Arabic documents) are
+# scored and reported, never gated: page attribution matches words, or numbers across writing systems,
+# and has neither to match there (ADR-0354, docs/BACKLOG.md).
+case_kind: expect.kind
+common:
+  - {scorer: field_equals, field: capabilities, expected: expect.capabilities, default: [kb]}
+_abstain: &abstain
+  scorer: abstention
+  phrases: ["لم اجد", "لا اجد", "لم يرد", "لا يرد", "لا يتضمن", "لا تتضمن", "لم يتضمن", "لم تتضمن", "لا يحتوي",
+            "لا تحتوي", "لم يذكر", "لم تذكر", "لا يذكر", "لا تذكر", "غير مذكور", "لا توجد معلومات", "لا تتوفر",
+            "لم تشر", "لا تشير", "لا يشير", "لا توجد اي معلومات", "لا يمكن تحديد", "لا يوجد ذكر", "لم ترد", "لا ترد",
+            "لا يمكنني العثور", "لم يعثر", "لا تحتوي قواعد المعرفة", "not mentioned", "does not mention", "no information",
+            "not found", "could not find", "couldn't find", "do not contain", "does not contain", "nothing in"]
+# What a KB citation must carry besides its document and pages (I4).
+_attribution: &attribution [kb_name, publisher, published_on]
+metrics:
+  hit_at_8:
+    answerable: [{scorer: retrieved, expected: expect.retrieved}]
+    latest: [{scorer: retrieved, expected: expect.retrieved}]
+    cross: [{scorer: retrieved, expected: expect.retrieved}]
+  citation_accuracy:
+    answerable: [{scorer: cites, expected: expect.cites, required: *attribution}]
+    latest: [{scorer: cites, expected: expect.cites, allow: expect.allow, required: *attribution}]
+  latest_version:
+    latest: [{scorer: text_first, expected: expect.latest, before: expect.superseded}]
+  cross_kb_attribution:
+    cross: [{scorer: cites, expected: expect.cites, allow: expect.allow, required: *attribution}]
+  abstention:
+    abstain:
+      - *abstain
+      - {scorer: field_equals, field: cited, expected: expect.cited, default: false}
+  # Reported, not gated.
+  facts_kept:
+    answerable: [{scorer: text_present, expected: expect.facts}]
+    latest: [{scorer: text_present, expected: expect.facts}]
+    cross: [{scorer: text_present, expected: expect.facts}]

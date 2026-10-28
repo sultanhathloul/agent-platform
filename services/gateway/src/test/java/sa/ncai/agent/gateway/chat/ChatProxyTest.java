@@ -51,11 +51,17 @@ class ChatProxyTest extends GatewayTestSupport {
 
     @Test
     void streamsAgentEventsUnchangedAndAuditsTheTurn() throws Exception {
+        // The gateway's own check that the selected KB is live for the caller's tenant (phase 08, I7).
+        AGENT.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("{\"live\":[\"moe\"]}"));
         AGENT.enqueue(sse(DONE_STREAM));
 
         MockHttpServletResponse response = mvc.perform(chat(body("  ما عاصمة المملكة؟  ", List.of("moe"))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse();
+
+        RecordedRequest liveCheck = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(liveCheck.getPath()).isEqualTo("/v1/internal/kbs/live?slug=moe");
+        assertThat(liveCheck.getHeader("X-Tenant-Id")).isEqualTo("tenant-a");
 
         assertThat(response.getContentType()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
         assertThat(response.getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-cache");

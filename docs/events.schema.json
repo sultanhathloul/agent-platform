@@ -78,6 +78,44 @@
           },
           "title": "Pages",
           "type": "array"
+        },
+        "kb_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KbLabel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A knowledge base document's KB, by name (phase 08, I4); additive."
+        },
+        "publisher": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who published the source (phase 08, D3); additive.",
+          "title": "Publisher"
+        },
+        "published_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The source's publication date, ISO 8601 (phase 08, D3); additive.",
+          "title": "Published On"
         }
       },
       "required": [
@@ -682,6 +720,25 @@
         "tokens_out"
       ],
       "title": "GuardUsage",
+      "type": "object"
+    },
+    "KbLabel": {
+      "additionalProperties": false,
+      "properties": {
+        "ar": {
+          "title": "Ar",
+          "type": "string"
+        },
+        "en": {
+          "title": "En",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ar",
+        "en"
+      ],
+      "title": "KbLabel",
       "type": "object"
     },
     "ProgressData": {

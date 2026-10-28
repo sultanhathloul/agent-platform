@@ -156,6 +156,12 @@ public class ChatController {
                 return;
             }
             List<String> denied = kbAccess.denied(principal, body.selectedKbs());
+            if (denied.isEmpty() && !body.selectedKbs().isEmpty()) {
+                // Held is not enough: a deleted KB, or another tenant's, is unreachable too (phase 08, I7).
+                // Asked of the agent's records, bounded; the agent checks again at admission.
+                denied = kbAccess.notLive(body.selectedKbs(),
+                        agent.liveKbs(principal, body.selectedKbs().stream().distinct().toList(), requestId));
+            }
             if (!denied.isEmpty()) {
                 detail.put("denied_kbs", denied);
                 detail.put("error_code", ErrorCode.KB_FORBIDDEN.code());

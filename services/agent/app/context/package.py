@@ -87,8 +87,8 @@ class AssemblyRequest(BaseModel):
     findings: list[dict[str, str]] = Field(default=[], description="[{capability, findings}] from this turn.")
     retrieved: list[dict[str, Any]] = Field(
         default=[],
-        description="Chunks {id, document_id?, source, page?, locator?, kb?, score, text} for the answer, "
-        "fetched at prepare time and checked at POST_TOOL (S4).",
+        description="Chunks {id, document_id?, source, page?, locator?, kb?, publisher?, published_on?, "
+        "superseded_by?, score, text} for the answer, fetched at prepare time and checked at POST_TOOL (S4).",
     )
     tool_results: list[dict[str, Any]] = Field(
         default=[], description="This turn's tool results {tool, content, sources?}, already sanitized."

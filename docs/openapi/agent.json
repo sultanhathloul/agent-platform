@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.5.0"
+    "version": "2.6.0"
   },
   "paths": {
     "/v1/health": {
@@ -104,7 +104,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "conversation_forbidden: another owner's conversation; skill_forbidden: the picked skill is not available to the caller",
+            "description": "conversation_forbidden: another owner's conversation; skill_forbidden: the picked skill is not available to the caller; kb_forbidden: a selected knowledge base the caller may not read, deleted or unknown",
             "content": {
               "application/json": {
                 "schema": {
@@ -4200,6 +4200,1779 @@
         }
       }
     },
+    "/v1/admin/kbs": {
+      "get": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "List Kbs",
+        "operationId": "list_kbs_v1_admin_kbs_get",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Create Kb",
+        "operationId": "create_kb_v1_admin_kbs_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KbCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "kb_exists: the slug is taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/kbs/{slug}": {
+      "get": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Get Kb",
+        "operationId": "get_kb_v1_admin_kbs__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found: none of the caller's tenant's live KBs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Delete Kb",
+        "description": "Soft delete (I1): hidden, role kept, its documents purged from the index.",
+        "operationId": "delete_kb_v1_admin_kbs__slug__delete",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDeleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found: none of the caller's tenant's live KBs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents": {
+      "get": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "List Documents",
+        "operationId": "list_documents_v1_admin_kbs__slug__documents_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found: none of the caller's tenant's live KBs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Register Document",
+        "description": "Registers a stored KB document as `pending` with its D3 metadata and hands it to the KB backend\n(I2), answering within register_response_s.",
+        "operationId": "register_document_v1_admin_kbs__slug__documents_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KbDocumentRegistration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found: none of the caller's tenant's live KBs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "kb_supersedes_invalid: the earlier version named is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "file_type_unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "too_many_uploads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Get Document",
+        "operationId": "get_document_v1_admin_kbs__slug__documents__document_id__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found or kb_document_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents/{document_id}/metadata": {
+      "put": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Update Metadata",
+        "description": "Corrects a document's D3 metadata, its supersedes link included.",
+        "operationId": "update_metadata_v1_admin_kbs__slug__documents__document_id__metadata_put",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KbSourceMetadata"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found or kb_document_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "kb_supersedes_invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "List Capabilities",
+        "description": "The caller's capabilities (README §18.4: manifests filtered by the principal) and the\nknowledge bases it may read, its tenant's live ones it holds kb:<slug>:read for (I3, I7).",
+        "operationId": "list_capabilities_v1_capabilities_get",
+        "parameters": [
+          {
+            "name": "x-user-permissions",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "The caller's permissions, comma-separated, from the verified token.",
+              "default": "",
+              "title": "X-User-Permissions"
+            },
+            "description": "The caller's permissions, comma-separated, from the verified token."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityList"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/internal/kbs/live": {
+      "get": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Live Kbs",
+        "description": "Which of a turn's selected slugs are live KBs of the caller's tenant: the gateway refuses the\nothers itself, before the agent's own check (phase 08, I7).",
+        "operationId": "live_kbs_v1_internal_kbs_live_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "description": "The slugs a turn selected.",
+              "default": [],
+              "title": "Slug"
+            },
+            "description": "The slugs a turn selected."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveKbs"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/v1/internal/settings/limits": {
       "get": {
         "tags": [
@@ -4508,6 +6281,85 @@
         "title": "AttachmentWarning",
         "description": "D7 (ADR-0201): `count` pages of an indexed PDF held too little text and were not read."
       },
+      "CapabilityList": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityView"
+            },
+            "type": "array",
+            "title": "Capabilities"
+          },
+          "knowledge_bases": {
+            "items": {
+              "$ref": "#/components/schemas/KbToggle"
+            },
+            "type": "array",
+            "title": "Knowledge Bases",
+            "description": "Only the KBs the caller may read (I3, I7)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "capabilities",
+          "knowledge_bases"
+        ],
+        "title": "CapabilityList",
+        "description": "What the composer renders (README §13, I3): the caller's capabilities and the knowledge bases\nit may read, each a toggle."
+      },
+      "CapabilityUi": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "toggle",
+              "auto",
+              "button"
+            ],
+            "title": "Mode"
+          },
+          "order": {
+            "type": "integer",
+            "title": "Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "order"
+        ],
+        "title": "CapabilityUi"
+      },
+      "CapabilityView": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "$ref": "#/components/schemas/SkillLabel"
+          },
+          "description": {
+            "$ref": "#/components/schemas/SkillLabel"
+          },
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          },
+          "ui": {
+            "$ref": "#/components/schemas/CapabilityUi"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "icon",
+          "ui"
+        ],
+        "title": "CapabilityView"
+      },
       "Citation": {
         "properties": {
           "id": {
@@ -4577,6 +6429,41 @@
             "title": "Pages",
             "description": "Pages of that document the answer drew on, ascending (ADR-0140).",
             "default": []
+          },
+          "kb_name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KbLabel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A knowledge base document's KB, by name (phase 08, I4); additive."
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher",
+            "description": "Who published the source (phase 08, D3); additive."
+          },
+          "published_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published On",
+            "description": "The source's publication date, ISO 8601 (phase 08, D3); additive."
           }
         },
         "additionalProperties": false,
@@ -4868,6 +6755,520 @@
           "exception"
         ],
         "title": "InducedFlag"
+      },
+      "KbCreate": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+            "title": "Slug",
+            "description": "Its realm role is kb:<slug>:read."
+          },
+          "name": {
+            "$ref": "#/components/schemas/KbLabelText"
+          },
+          "description": {
+            "$ref": "#/components/schemas/KbDescription",
+            "default": {
+              "ar": "",
+              "en": ""
+            }
+          },
+          "icon": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,39}$",
+            "title": "Icon",
+            "default": "library"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "title": "KbCreate",
+        "description": "An administrator creates a knowledge base (I1); the gateway created its role first."
+      },
+      "KbDeleted": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "description": "Kept: the role stays (I1)."
+          },
+          "index_purged": {
+            "type": "boolean",
+            "title": "Index Purged",
+            "description": "False while a backend still owes the purge; retried at start."
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "role",
+          "index_purged"
+        ],
+        "title": "KbDeleted"
+      },
+      "KbDescription": {
+        "properties": {
+          "ar": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Ar",
+            "default": ""
+          },
+          "en": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "En",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "KbDescription"
+      },
+      "KbDocumentList": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/KbDocumentView"
+            },
+            "type": "array",
+            "title": "Documents",
+            "description": "Oldest first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "documents"
+        ],
+        "title": "KbDocumentList"
+      },
+      "KbDocumentRegistration": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "mime": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Mime"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size"
+          },
+          "object_key": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Object Key"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/KbSourceMetadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "mime",
+          "size",
+          "object_key",
+          "metadata"
+        ],
+        "title": "KbDocumentRegistration",
+        "description": "The gateway registers a KB document it stored in MinIO, with its D3 metadata (I2)."
+      },
+      "KbDocumentView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kb": {
+            "type": "string",
+            "title": "Kb"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx",
+              "xlsx",
+              "txt",
+              "md"
+            ],
+            "title": "Kind"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "indexed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Why ingestion failed (failed only)."
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages"
+          },
+          "chunks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunks"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AttachmentWarning"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "default": []
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/KbSourceMetadata"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By",
+            "description": "The document of this KB that supersedes it."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "indexed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed At"
+          },
+          "uploaded_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By Username"
+          },
+          "uploaded_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kb",
+          "name",
+          "kind",
+          "size",
+          "status",
+          "metadata",
+          "created_at"
+        ],
+        "title": "KbDocumentView"
+      },
+      "KbLabel": {
+        "properties": {
+          "ar": {
+            "type": "string",
+            "title": "Ar"
+          },
+          "en": {
+            "type": "string",
+            "title": "En"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ar",
+          "en"
+        ],
+        "title": "KbLabel"
+      },
+      "KbLabelText": {
+        "properties": {
+          "ar": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Ar"
+          },
+          "en": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "En"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ar",
+          "en"
+        ],
+        "title": "KbLabelText"
+      },
+      "KbList": {
+        "properties": {
+          "kbs": {
+            "items": {
+              "$ref": "#/components/schemas/KbView"
+            },
+            "type": "array",
+            "title": "Kbs",
+            "description": "The tenant's live knowledge bases, by slug."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kbs"
+        ],
+        "title": "KbList"
+      },
+      "KbSourceMetadata": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "publisher": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Publisher"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "pattern": "^https?://\\S+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "published_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Published On"
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes",
+            "description": "An earlier version of the same source in this KB."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "publisher",
+          "published_on"
+        ],
+        "title": "KbSourceMetadata",
+        "description": "D3: a KB document's source."
+      },
+      "KbToggle": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "$ref": "#/components/schemas/KbLabelText"
+          },
+          "description": {
+            "$ref": "#/components/schemas/KbDescription"
+          },
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "icon"
+        ],
+        "title": "KbToggle"
+      },
+      "KbView": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "$ref": "#/components/schemas/KbLabelText"
+          },
+          "description": {
+            "$ref": "#/components/schemas/KbDescription"
+          },
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "description": "The realm role that reads it: kb:<slug>:read (ADR-0006)."
+          },
+          "documents": {
+            "type": "integer",
+            "title": "Documents",
+            "description": "Its documents, every status."
+          },
+          "indexed": {
+            "type": "integer",
+            "title": "Indexed",
+            "description": "Its indexed documents."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Username"
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "icon",
+          "role",
+          "documents",
+          "indexed",
+          "created_at"
+        ],
+        "title": "KbView"
+      },
+      "LiveKbs": {
+        "properties": {
+          "live": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Live",
+            "description": "Those of the asked slugs that are live KBs of the caller's tenant."
+          }
+        },
+        "type": "object",
+        "required": [
+          "live"
+        ],
+        "title": "LiveKbs"
       },
       "MCPDisabledTool": {
         "properties": {

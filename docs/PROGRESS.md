@@ -2129,17 +2129,135 @@ Left for the owner:
 Files for review: skills/internal-comms/skill.platform.yaml and SOURCE.txt, evals/golden/routing.jsonl, skills/*/evals/*, services/web/package.json (react-markdown 10.1.0, remark-gfm 4.0.1).
 Pages for the visual check: /chat/[id] in ar and en: answers with bold, lists, a table and a memo; the composer's picker «المهارة» / "Skill" with «التواصل الداخلي» and «مذكرة داخلية».
 
+## Phase 08: Knowledge bases
+
+- Branch: `phase/08-kb`, from `main` at 43e7509 (PR #14, phase 06, merged on 2026-10-26T10:50:42Z). The session prompt is kept verbatim in `docs/PHASE-08-BUILD-PROMPT.md`; it arrived whole (it ends with END).
+- Status: **awaiting the owner's review; not marked done.** Owner decision of 2026-10-27 (ADR-0359) implemented: make test green at 59ecf68; the kb suite passed all three before-merge runs (cross_kb_attribution 0.92, 1.00, 1.00 over 12 gated cases); make smoke 231/231 on its second attempt. Each of the three full make eval runs failed on directions alone, from 16 cases lost to the development provider (429 and one 20 s model-call bound) before any tool call; directions, unchanged on this branch, then passed 27/27 alone. See "Owner decision on the kb gate" below; the owner decides whether that meets G10.
+- Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- Done when (CLAUDE.md phase 08 row, plus the prompt): KB CRUD creates a Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent; plus owner decisions D1–D5, implementation choices I1–I7 and carried fixes F1–F4 below; `make test`, `make eval` once (all suites), `make smoke` and `make smoke-airgap` green, recorded per rule 11.
+- Baseline on `main` (rule 11): main at 43e7509 carries the code of 001a990, whose last recorded runs are the fix session of 2026-10-26 at 4eb3ae3:
+  - `make test`: agent 1041 / 0 / 0, gateway 180 / 0 / 0, gateway-db 5 / 0 / 0, web 183 / 0 / 0, evals harness 28 / 0 / 0, timeout budget 32 / 0 / 0, scripts/tests 16 / 0 / 0.
+  - `make smoke` 213/213 at 4eb3ae3; `make smoke-airgap` 220/220, last at b72892d.
+  - No layer may end lower unless an ADR names each removed test and why.
+
+Restated (five lines, session protocol):
+1. Admins create and soft-delete knowledge bases at gateway AND agent; creating one creates the realm role `kb:<slug>:read`; every KB document carries D3 source metadata (title, publisher, optional URL, publication date, optional supersedes) and is ingested through the phase 04 pipeline and the DocumentBackend contract, scoped by KB.
+2. The composer shows KB toggles from `GET /v1/capabilities`, only KBs the user may read; `selected_kbs` ⊆ permitted and active is checked at the gateway AND the agent; with none selected the kb capability does not run.
+3. The kb capability retrieves across the selected KBs (hybrid, rerank when on), prefers the latest version of a source before rerank, and every citation shows KB name, document title, publisher, date and page.
+4. Negative permission tests at gateway AND agent on every endpoint (list, toggle, retrieve, citations, documents) and for a deleted KB; kb.jsonl on generated fake KBs with thresholds; routing cases with toggles; `make kb-poc` (development only, manifest committed, content never); F1–F4 fixed, each in its own commit.
+5. Done = make test, make eval once (all suites), make smoke and make smoke-airgap green, recorded per rule 11 with each suite's per-metric scores, lost cases and build/evals record.
+
+Phase 08 ground rules. The prompt carries no section titled "ground rules"; its four sections below are this phase's rules, verbatim, and CLAUDE.md's permanent rules apply (rule 11 counts, rule 12 resilience for all new code, rule 13 evals by what changed).
+
+OWNER DECISIONS (record as ADRs, decided):
+- D1. Phase order changed: phase 08 now, then a standalone "report" PR (HTML report artifacts, pulled forward from phase 11), then phase 07 (planner). Update CLAUDE.md's phase table note and docs/BACKLOG.md accordingly.
+- D2. Knowledge bases are filled ahead of time, never by searching the internet at question time: the platform answers from what is already ingested. Sources enter by admin upload in this phase; an automated fetcher in a connected zone is a later decision.
+- D3. Every KB document carries source metadata: title, publisher, source URL (optional), publication date, and an optional "supersedes" link to an earlier version of the same source. Retrieval prefers the latest version of a source; an answer citing a figure states the source and its date; when two versions disagree, the answer uses the latest and may note the change.
+- D4. Proof of concept KB «الاقتصاد الدولي» / "International economy", for analyst and evaluator, seeded by `make kb-poc` from the freely downloadable public sources the owner listed (IMF Article IV China 2025 report and press release, IMF WEO April and July 2026 pages, stats.gov.cn and english.gov.cn releases, english.scio.gov.cn, fmprc.gov.cn and mfa.gov.cn pages, SPA, SAMA, PIF and Aramco news pages, the World Bank blog post on Hormuz, qna.org.qa, bricspolicycenter.org, sab.com, un.china-mission). Paywalled or rating-agency pages (Moody's, Fitch, S&P, Bloomberg) are excluded and listed as "upload by subscription". Downloaded content is never committed to git; `make kb-poc` fetches it in development only, with a manifest (URL, retrieved date, hash) committed instead. Under smoke-airgap the POC KB is absent and nothing depends on it. Evals use generated fake documents as always (ADR-0065).
+- D5. Keyword-free routing (ADR-0247) moves to phase 07: the planner's route decision uses a model on every turn there. Phase 08 keeps keyword candidacy, and KB use is explicit through the user's toggles.
+
+IMPLEMENTATION CHOICES (record as ADRs, decided):
+- I1. KB CRUD (admin only, gateway AND agent): create creates realm role kb:<slug>:read; delete is soft (hidden, role kept) with its documents purged from the index; audited fail-closed with actor names.
+- I2. Ingestion reuses the phase 04 pipeline and DocumentBackend contract (internal and MCP backends), scoped by KB instead of conversation; same sandbox, limits and resilience rules (rule 12).
+- I3. The composer offers KB toggles (from /v1/capabilities, only KBs the user may read); selected_kbs ⊆ permitted checked at the gateway AND the agent; none selected means kb is not used.
+- I4. Cross-KB retrieval: hybrid search and rerank across the selected KBs, every citation shows KB name, document title, publisher, date and page; the D3 version preference applied before rerank.
+- I5. Admin pages: /admin/kbs (list, create, delete, role shown) and /admin/kbs/<slug> (upload, metadata form for D3, status badges, supersedes picker); Arabic first, Western digits (ADR-0288), code-free.
+- I6. Evals: kb.jsonl on generated fake KBs: retrieval hit@8, citation accuracy with KB attribution, latest-version preference (a superseded figure must not be the answer), cross-KB attribution, abstention; thresholds in evals/thresholds.yaml. Routing cases for kb with toggles.
+- I7. Negative permission tests: a user without kb:<slug>:read cannot list it, toggle it, retrieve from it, see its citations or its documents, through any endpoint, at the gateway AND the agent; a deleted KB is unreachable.
+
+CARRIED FIXES FROM PHASE 06 (each its own commit, ADR where it changes a decision):
+- F1. script_of (services/agent/app/text/script.py): emoji variation selectors, modifiers and joiners count as neutral, never as a writing system. Tests: Arabic, English and mixed answers with 🏖️, ⚙️, flags and skin tones pass; a real disallowed script still fails. The internal-comms suite and the lost routing case must pass again.
+- F2. Skill loader (services/agent/app/skills/registry.py): a reference written as ./path, as a Markdown link [text](./path) or as a bare relative path is matched and loaded, so a public skill loads unmodified (ADR-0317, ADR-0318). Tests for each form.
+- F3. Answer system prompt (ar and en, version bump): one rule outside {% if has_evidence %}, present on every turn: never invent a URL; a link appears only if it is in the findings or the user's message. Keep the skill precedence line. An eval case where internal-comms writes a newsletter asserts no URL absent from the inputs.
+- F4. The reply chip and the skill_forbidden message say «المهارة» / "Skill" instead of «نموذج» / "template".
+
+OUT OF SCOPE: the report capability and HTML artifacts (next PR); PDF export; the planner; automated source fetching; phase 12 backlog.
+
+Checklist:
+- [x] A. First commit: the prompt verbatim (docs/PHASE-08-BUILD-PROMPT.md), this section.
+- [x] B. ADRs: D1–D5 and I1–I7 decided (ADR-0328 to ADR-0339); F1–F4 (ADR-0340 to ADR-0343); assumptions as they arise from ADR-0344. CLAUDE.md phase table note (D1); BACKLOG: the new order, the report PR, D5 (routing for all capabilities → phase 07), the phase 08 items' status.
+- [x] C. Carried fixes, one commit each, tests first: F1 `script_of` (emoji selectors, modifiers, joiners, tags neutral); F2 skill references `./path`, `[text](./path)`, bare relative path; F3 `answer.system` (ar, en) never-invent-a-URL rule on every turn, version bump, an internal-comms newsletter case with no URL absent from the inputs; F4 chip and `skill_forbidden` wording.
+- [x] D. Contracts first, as types with tests: migration (agent.kbs, agent.kb_documents with D3 metadata and supersedes, chunks owned by a KB document); the agent's admin KB API and `GET /v1/capabilities` schemas; the citation's additive KB fields; the routing rule for selected KBs; API minor bump (agent and gateway), `make openapi`.
+- [x] E. Agent: KB store; admin KB CRUD (X-User-Admin checked, soft delete purging chunks); KB document register, list, status, metadata (D3, supersedes in the same KB, no cycle); ingestion of KB documents through the same pipeline, sandbox and limits; the internal backend's kb collections (cross-KB hybrid retrieval, version preference before rerank); the MCP backend and the reference RAG server with kb collections; turn admission refusing `selected_kbs` outside permitted ∩ active (403 `kb_forbidden`); `GET /v1/capabilities`.
+- [x] F. kb capability package: manifest (`documents.collections: [kb]`, rule for selected KBs), `kb_search` tool, prompts (evidence with source and date), config/kb.yaml; tests; zero capability names in core files.
+- [x] G. Gateway: KB admin endpoints (admin check, Keycloak role creation bounded, agent call, audit fail-closed with actor names); KB document upload through the attachment limits and gate; list and status; `GET /v1/capabilities`; the chat check against permitted and active KBs; negative tests (I7).
+- [x] H. Web: KB toggles in the composer from `/v1/capabilities`, persisted per conversation; citations with KB name, title, publisher, date and page; /admin/kbs and /admin/kbs/[slug] (upload, D3 form, status badges, supersedes picker), Arabic first, Western digits, code-free; i18n ar/en; component tests.
+- [x] I. Evals: generated fake KBs (two KBs, a superseded version pair), kb.jsonl with metrics (hit@8, citation accuracy with KB attribution, latest version, cross-KB attribution, abstention), thresholds; the harness runs it with no kb-named branch; routing cases with toggles.
+- [x] J. Smoke and smoke-airgap: KB create makes its role; upload to indexed; an analyst turn with KB citations; the viewer's negatives on every endpoint; a deleted KB unreachable; the POC KB absent under airgap and nothing depends on it.
+- [x] K. `make kb-poc` (D4): committed manifest (URL, retrieved date, SHA-256), development-only fetch, upload with D3 metadata through the gateway, realm role for analyst and evaluator; the "upload by subscription" list; nothing downloaded is committed (.gitignore).
+- [x] L. Rule 12 for the new paths (Keycloak Admin API bound, KB catalog read bound, uploads under the existing caps, retrieval bounded), RESILIENCE.md rows and tests (12h) where a new shared resource is added.
+- [x] M. Docs: README §5.3, §6.2, §9.4, §11, §13, §20.8 (phase 08 keys); BACKLOG statuses.
+- [ ] N. (make test and make smoke green at 59ecf68; kb passed three before-merge runs; the three full runs failed on directions from provider losses, directions 27/27 alone; see "Owner decision on the kb gate") make test; make eval once (all suites); make smoke; make smoke-airgap; rule 11 counts; files for human review and pages for the visual check.
+
+Results (rule 11; every attempt recorded, rule 13)
+
+make test
+- 12:34:42Z–12:47:39Z at 92af7c1: agent 1093 / 0 / 0, gateway 193 / 0 / 0, gateway-db 5 / 0 / 0, web 192 / 0 / 0 (16 files), evals harness 31 / 0 / 0, timeout budget 36 / 0 / 0 (self-test 36 / 0 / 0, deploy-values ok), scripts/tests 17 / 0 / 0.
+- make test-agent at acd0cf4 (ADR-0357): agent 1094 / 0 / 0.
+- 15:05:05Z–15:16:30Z at 5807dbd: **failed**, agent 1094 / 1 / 0: app/capabilities/docs/tests/test_docs.py::test_the_configured_rule_is_the_one_tested pins config/citations.yaml's rule and did not hold the new `source_phrasing` (ADR-0358); fixed in c41bf95.
+- 16:18:28Z–16:31:49Z at c41bf95 (the branch's code): agent 1095 / 0 / 0, gateway 193 / 0 / 0, gateway-db 5 / 0 / 0, web 192 / 0 / 0 (16 files), evals harness 31 / 0 / 0, timeout budget 36 / 0 / 0 (self-test 36 / 0 / 0, deploy-values ok), scripts/tests 17 / 0 / 0. Against the baseline: agent +54, gateway +13, web +9, evals harness +3, timeout budget +4, scripts/tests +1; no layer lower.
+
+make eval (all suites), three full runs
+1. 12:48:11Z–13:45:13Z at 92af7c1, make-eval-20261026T124812Z (build/evals/make-eval-20261026T124812Z.json): **failed**, rc 2, kb FAIL.
+   - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53). rag 52/53: hit@8 1.00, citation page accuracy 0.97, faithfulness 0.95, answer correctness 0.89, abstention 1.00. rag@mcp 52/53: 1.00, 0.97, 0.93, 0.89, 1.00 (5 provider retries). routing 113/113 (1.00; lost 1 validation_failed in the reported keyword_free set; keyword_free 0/9, skill_keyword_free 0/5 reported). directions 26/27: places_resolved 0.94, distance_duration_correct 1.00, unknown_or_ambiguous_handled 1.00, injection_no_effect 1.00 (route-en-airport-masmak, known since phase 05). general 28/28. internal-comms 11/11: skill_applied 1.00, skill_block_loaded 1.00, no_invented_url 1.00 (4); reported format_adherence 1.00, facts_kept 1.00. official_memo 8/8: gated 1.00; reported no_invented_fields 0.60, facts_kept 0.80.
+   - kb 22/23: hit_at_8 1.00 (19), citation_accuracy 1.00 (15), latest_version 1.00 (5), **cross_kb_attribution 0.75 (4) < 0.80**, abstention 1.00 (4); reported facts_kept 1.00, cross_language 0/2. Failed: cross-probation-fertilizer-gulf, the trade report cited on pages 2 and 3 (expected 2). Cause reproduced offline on the case's answer and the indexed chunks: a clause holding only «في عام 2030» was visited first by the per-claim pass. Fixed in acd0cf4 (ADR-0357, a unit test with the case's texts).
+2. 14:00:12Z–15:02:12Z at acd0cf4, make-eval-20261026T140012Z: **failed**, rc 2, kb and directions FAIL.
+   - guardrails 142/142 (1.00, 1.00, 0.00). rag 50/53: hit@8 1.00, citation page accuracy 0.91, faithfulness 0.95, answer correctness 0.90, abstention 1.00. rag@mcp 51/53: 1.00, 0.94, 0.98, 0.90, 1.00. routing 113/113. general 28/28. internal-comms 11/11 and official_memo 8/8 as in run 1.
+   - directions 25/27: places_resolved **0.88** < 0.90, distance_duration_correct 0.94; lost 1 capability_failed: route-msa-kafd-diriyah, the development provider answering 429 (agent log 14:56:06 and 14:56:09, turn f9352fd0a9364729b738f2151aece6b6); plus route-en-airport-masmak. No phase 08 code involved.
+   - kb 21/23: cross_kb_attribution **0.50**; the rest 1.00, facts_kept 0.95. Failed: cross-remote-unemployment-ar (the words introducing the source diluted the claim; fixed in 5807dbd, ADR-0358, replayed on the 50 kb answers of runs 1 and 2: only this case changes) and cross-annual-inflation-ar («واحد وعشرين» / «مدة» against «واحد وعشرون» / «مدتها», no shared bigram; not fixed, docs/BACKLOG.md). Old and new attribution give the same citations on both answers: ADR-0357 caused neither.
+3. 15:16:52Z–16:17:38Z at 5807dbd, make-eval-20261026T151652Z: **failed**, rc 2, kb FAIL.
+   - guardrails 139/142: deterministic 1.00, llm_judge accuracy 0.94 (pol-ar-fuel-decision, pol-ar-ministry-rating, pol-ar-border-dispute allowed), false-positive rate 0.00; PASS. rag 52/53: 1.00, 0.97, 0.96, 0.87, 1.00. rag@mcp 52/53: 1.00, 0.97, 0.93, 0.89, 1.00. routing 112/113 (0.99; lost 1 validation_failed, skill-negative-throne-speech). directions 26/27: 0.94, 1.00, 1.00, 1.00. general 28/28. internal-comms 11/11, official_memo 8/8 as above.
+   - kb 22/23: cross_kb_attribution **0.75** < 0.80, the rest 1.00, facts_kept 0.95. Failed: cross-annual-inflation-ar, the word-form gap above.
+   - Every other gated metric of every suite passed in this run. I stopped here instead of tuning attribution further against the model's phrasing: the gated cross-KB metric has four cases at 0.80, so one miss fails it.
+
+make smoke and make smoke-airgap
+- make smoke 16:31:49Z–16:32:01Z at c41bf95: **failed** at its first turn (health, login, authorization ok; "events end with done" failed). Trace b17d6fdb7b3d69a506c777f2a3bf9a7d: model.call `ModelUnavailable: LiteLLM returned 429` (the development provider, after three full eval runs).
+- make smoke-airgap 16:32:01Z–16:34:53Z: **failed** at the same check after the airgap layout (internal network, agent on the airgap MCP profile) and the egress probe passed. Trace acaf133871842cde87176ac576530dba ends at the embedding call; the stack was restored before its spans were exported, so the model call is not recorded (likely the same 429).
+- The development smoke of the implementation (before the done-check) passed 233/233 checks, phase 08 section included.
+- Second attempt, make smoke 16:37:02Z–16:37:13Z (16 ok, 1 failed) and make smoke-airgap 16:37:13Z–16:40:17Z (24 ok, 1 failed): **failed** at the same check, started three minutes after the first attempt. A diagnostic turn at 16:41 (turn 6732d10aaab04d7495ed4deb6a3432b2) got `model_unavailable`; LiteLLM's log names the cause: OpenRouter `429 … qwen/qwen3.6-27b is temporarily rate-limited upstream` (provider Reka, not BYOK), the standard tier's development model (ADR-0065). Nothing in the platform is involved; smoke needs another attempt once the upstream limit clears.
+- Third attempt, after a 20-minute wait, at c41bf95: make smoke 17:01:56Z–17:07:20Z **231/231** (rc 0; all phase 01 to 08 checks, history, timeout budget and platform settings); make smoke-airgap 17:07:20Z–17:15:31Z **239/239** (rc 0). Against the baseline: smoke 213 → 231, smoke-airgap 220 → 239.
+
+### Owner decision on the kb gate (2026-10-27, ADR-0359)
+
+The owner chose options 1 then 2: fold Arabic number words to digits before citation matching (both sides; case endings and forms, tens and units with «و», hundreds, thousands, percentages as words; English too), in the shared Arabic text module, with unit tests per form; raise the gated cross-KB attribution cases to at least ten, threshold 0.80 kept; then make test, make eval (all suites) three times as before-merge runs (G10), make smoke once, recorded per rule 11, and the PR. docs/HANDOFF.md untouched.
+
+Done:
+- `fold_number_words` in services/agent/app/text/arabic.py (ADR-0360), 66 unit tests in tests/unit/test_number_words.py (each form, and what is left as it is: a lone «واحد»/"one", weekdays with the article, «المئة» as the percent sign, «آلاف» alone, dual nouns, digits); `attribute` folds the answer, question, sources' names and each chunk (5547f60; ADRs in 25b2e8d).
+- The development run below showed two faults of the numbers path (ADR-0361): a source's date removed its day and month from every answer's figures (2031-02-10 hid 10), and a claim split «3.6» at its point. Fixed in 5547f60 with two unit tests that fail without the fix.
+- kb.jsonl: 33 cases, 12 gated cross-KB (4 Arabic, 4 Gulf, 4 English; labour figures written as words, economy figures as digits), 0.80 kept (59ecf68).
+- Offline replay of the 108 kb answers of the four records below against the indexed fake KB chunks: ten citation sets go from failing to passing, none from passing to failing.
+
+Development run (not a before-merge run):
+- make eval s=kb, 13:16:22Z–13:20:16Z, make-eval-20261027T131623Z, at the folding change before ADR-0361: rc 0, kb PASS. hit_at_8 1.00 (27), citation_accuracy 1.00 (15), latest_version 1.00 (5), cross_kb_attribution 0.83 (12), abstention 1.00 (4); reported facts_kept 0.96, cross_language 0/2. 6 provider retries, lost 0. Missed: cross-maternity-unemployment-en and cross-annual-growth-en (the ADR-0361 faults).
+
+make test at 59ecf68, 13:23:18Z–13:36:38Z: agent 1166 / 0 / 0, gateway 193 / 0 / 0, gateway-db 5 / 0 / 0, web 192 / 0 / 0 (16 files), evals harness 31 / 0 / 0, timeout budget 36 / 0 / 0 (self-test 36 / 0 / 0, deploy-values ok), scripts/tests 17 / 0 / 0. Against c41bf95: agent +71 (66 number-word tests, 5 attribution tests), every other layer equal.
+
+make eval (all suites), three before-merge runs (G10) at 59ecf68, after make up (13:36:58Z). kb passed all three; each run failed on directions, from cases lost to the development provider:
+1. 13:36:58Z–14:58:03Z, make-eval-20261027T133658Z (build/evals/make-eval-20261027T133658Z.json): rc 2, directions FAIL.
+   - kb 30/31 PASS: hit_at_8 1.00 (27), citation_accuracy 1.00 (15), latest_version 1.00 (5), cross_kb_attribution 0.92 (12), abstention 1.00 (4); reported facts_kept 1.00, cross_language set 0/2. 10 provider retries, lost 0. Missed: cross-annual-growth-en. The answer's sentence «a GDP growth of 3.6 percent for 2031, revising the previous April 2031 forecast of 3.1 percent» is one claim holding the July figure and the April one; the two pages tie and the April page is taken, so July page 2 is not cited. Reproduced offline on the answer and the indexed chunks; without the April chunks, July page 2 is cited. Not fixed (docs/BACKLOG.md): a fix now would void the before-merge runs.
+   - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53). rag 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.94, answer correctness 0.89, abstention 1.00 (34 provider retries). rag@mcp 53/53: 1.00, 1.00, 0.95, 0.88, 1.00. routing 112/113 (0.99; lost 1 validation_failed, negative-msa-career-path; 19 provider retries). general 28/28. internal-comms 11/11: skill_applied 1.00, skill_block_loaded 1.00, no_invented_url 1.00 (4); reported format_adherence 1.00, facts_kept 1.00. official_memo 8/8: skill_applied 1.00, skill_block_loaded 1.00, permission_refused 1.00; reported no_invented_fields 0.60, facts_kept 0.80, citations_kept 1.00.
+   - directions 21/27: places_resolved **0.65** (17), distance_duration_correct **0.65** (17) < 0.90, unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3). Lost 6 capability_failed (route-msa-faisaliah-kingdom-foot, route-gulf-durrah-rajhi, route-gulf-gallery-kafd-walk, route-en-kingdom-boulevard, route-en-airport-masmak, route-en-front-imam; audit rows 9155, 9161, 9162, 9166, 9167, 9169, 14:46:34Z–14:47:49Z, no tool call reached). LiteLLM's log at 14:46 shows OpenRouter `429 … qwen/qwen3.6-27b is temporarily rate-limited upstream` (provider Reka). Every case that got an answer passed.
+2. 14:58:03Z–16:01:55Z, make-eval-20261027T145804Z: rc 2, directions FAIL.
+   - kb 31/31 PASS: hit_at_8 1.00, citation_accuracy 1.00, latest_version 1.00, cross_kb_attribution 1.00 (12), abstention 1.00; reported facts_kept 0.96. 4 provider retries, lost 0.
+   - guardrails 142/142 (1.00, 1.00, 0.00). rag 50/53: 1.00, 0.91, 0.95, 0.90, 1.00. rag@mcp 53/53: 1.00, 1.00, 0.95, 0.90, 1.00. routing 110/113 (0.97; lost 3: directions-msa-how-far and directions-gulf-kaif-arooh capability_failed, negative-msa-career-path validation_failed). general 28/28. internal-comms 11/11, official_memo 8/8 as in run 1.
+   - directions 17/27: places_resolved **0.65**, distance_duration_correct **0.71**, unknown_or_ambiguous_handled **0.43** (7), injection_no_effect 1.00. Lost 9 capability_failed (audit rows 10279–10295, 15:53:53Z–15:55:11Z, and 10137, 10141 in routing; no tool call reached); plus route-en-airport-masmak (an Arabic answer to an English question, known since phase 05).
+3. 16:01:55Z–17:09:38Z, make-eval-20261027T160155Z: rc 2, directions FAIL.
+   - kb 31/31 PASS: every gated metric 1.00, cross_kb_attribution 1.00 (12); reported facts_kept 1.00. 8 provider retries, lost 0.
+   - guardrails 142/142 (1.00, 1.00, 0.00). rag 51/53: 1.00, 0.94, 0.96, 0.89, 1.00. rag@mcp 48/53: 1.00, 0.86, 0.95, 0.88, 1.00 (the twenty-past-truncation cases citing neighbouring pages, as in rag; PASS). routing 112/113 (0.99; skill-none-letter-directions routed to directions and general). general 28/28. internal-comms 11/11, official_memo 8/8 as above.
+   - directions 26/27: places_resolved 1.00, distance_duration_correct 1.00, unknown_or_ambiguous_handled **0.86** (7) < 0.90, injection_no_effect 1.00. Lost 1 capability_failed: unknown-en-alhamra, trace 612c6ea7f634411277b8a59d98c08538, audit row 11388: the directions capability's model call `ModelUnavailable: model call past its 20 s bound` (the provider did not answer in time; no 429).
+   - The agent container started anew at 16:39:12Z during this run (restart count 0, not OOM-killed); nothing in this session restarted it, and no case was lost around that time.
+- No phase 08 change touches directions: its manifest, prompts, dataset and the routing server are unchanged since main. All 16 directions losses are provider refusals or provider timeouts before any tool call.
+
+make smoke at 59ecf68, 17:09:38Z–17:09:42Z: **failed** at the first turn ("events end with done"; health, login and authorization checks ok). Trace b5c3c9a350f14f9b39b063fea011af39, audit row 11494 `model_unavailable`: LiteLLM returned 429 at 17:09:40Z and 17:09:42Z, straight after the third eval run.
+- Second attempt, after a 20-minute wait, at 59ecf68: make smoke 17:32:41Z–17:37:47Z **231/231** (rc 0; all phase 01 to 08 checks, history, timeout budget and platform settings).
+
+make eval s=directions at 59ecf68, 17:37:48Z–17:39:28Z, make-eval-20261027T173748Z (build/evals/make-eval-20261027T173748Z.json), after the smoke above: rc 0, directions **27/27** PASS: places_resolved 1.00 (17), distance_duration_correct 1.00 (17), unknown_or_ambiguous_handled 1.00 (7), injection_no_effect 1.00 (3); 0 provider retries, lost 0. This is a single-suite run, not a fourth before-merge run: it shows the directions failures above were the provider's, not the code's.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
 - Status: not started
 - Done when: compound requests produce a plan of steps (capability, MCP tool or skill), each step's inputs may reference earlier steps' outputs; simple requests keep single-step routing with no added latency; capabilities declare structured output schemas in their manifests; dependent steps run in order and independent ones in parallel, every step through the broker; step and time budgets; when a step fails, a partial answer that states what is missing; plan progress shown to the user; `planning.jsonl` ≥ threshold; reference compound case: docs → routing (reference MCP server) → official memo skill.
-
-## Phase 08: UC4 KB plugins (`kb` capability)
-
-- Branch: `phase/08-kb`
-- Status: not started
-- Done when: KB CRUD creates Keycloak role; plugin toggles from `/v1/capabilities`; cross-KB retrieval with attribution; negative permission tests at gateway AND agent.
 
 ## Phase 09: UC2 web (`web` capability)
 

@@ -99,6 +99,12 @@ class Retrieval(_Strict):
     rerank: Rerank = Rerank()
     top_k: int = Field(gt=0)
     stopwords: dict[str, list[str]] = {}
+    # Knowledge bases (phase 08, D3, ADR-0335): how many chunks of an older version of a source stay
+    # beside its latest version when both are found, so the answer may note the change.
+    superseded_keep: int = Field(default=1, ge=0, le=4)
+    # Cross-KB retrieval (phase 08, I4): with several collections searched at once, each keeps at least
+    # this many of its best chunks in the top_k, so one question over two KBs reaches both.
+    min_per_collection: int = Field(default=0, ge=0, le=8)
 
 
 class OrphanSweeper(_Strict):

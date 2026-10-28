@@ -112,9 +112,18 @@ Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0323; docs/
 
 ---
 
+## Phase order of 2026-10-26 (owner decision, phase 08 prompt D1, ADR-0328)
+
+Phase 08 (kb) is built first, from main after phase 06; then a standalone **report PR** (HTML report artifacts, pulled forward from phase 11's artifact outputs, MCP item 7 above); then phase 07 (planner). Phase 11 keeps the rest of artifact outputs and long-running tool calls. CLAUDE.md's phase table carries the note.
+
+### Report PR (after phase 08, before phase 07)
+Status: not started. Scope to be written in its own prompt: HTML report artifacts (a capability or skill returns an HTML page, stored, shown in a sandboxed preview, downloadable, its text through runtime DATA policies). Out of phase 08 (its prompt's OUT OF SCOPE).
+
+---
+
 ## Planner → phase 07 (owner decision, 2026-10-14)
 
-Status: not started. Done-check in `CLAUDE.md` (phase 07).
+Status: not started; now built after phase 08 and the report PR (ADR-0328). Done-check in `CLAUDE.md` (phase 07). It also takes the routing decision for all capabilities (keyword-free routing, ADR-0247), moved here from phase 08 by the owner (D5, ADR-0332): the planner's route decision uses a model on every turn.
 
 ### Why before kb
 The planner fixes the structured-output contract every later capability is built on: a step's inputs may reference an earlier step's outputs, so capabilities declare structured output schemas in their manifests. Building kb, web and sql first would mean retrofitting each of them to that contract.
@@ -150,14 +159,24 @@ Phases it needs: 04 docs (search the file), 05 MCP (routing), 06 skills (the pag
 
 ## kb phase (phase 08) — carried from phase 04
 
-- **DocumentScope generalisation** must land first: see MCP item 10 above (it is scheduled in phase 05). Done in phase 05 (ADR-0202): kb is a manifest with `documents.collections: [kb]` and a backend whose `kb_{slug}` collections hold the KB documents. (Source: PROGRESS phase 04, fix session round 2, item 5.)
-- **KB documents need their own record for their chunks**: `agent.rag_chunks.attachment_id` is a foreign key to `agent.attachments` with ON DELETE CASCADE (migration 0010), so a chunk cannot exist without an attachment record. (Source: ADR-0166.)
-- **`kb:` and `tool:` exceptions at OUTPUT and DATA stay refused**: page attribution says which pages an answer drew on, not which sentence came from which source, so an exception scoped to one KB cannot apply to its part of the answer. Revisit with the kb capability. (Source: ADR-0146.)
-- **Re-measure the reranker on large KB documents**: phase 04's measurement used six small documents of at most 40 chunks, where fusion alone put the answer in the top 8 every time. (Source: ADR-0184; also listed under the hardening phase below.)
-- **Routing for all capabilities** (owner decision of 2026-10-18, ADR-0247): decide whether every turn goes to the router model or keyword candidacy (ADR-0216) stays, with the router's latency measured and the keyword-free coverage set of `evals/golden/routing.jsonl` (ADR-0241; 0/9 in runs make-eval-20261018T141208Z and make-eval-20261018T150216Z) as the measure. Until then keyword candidacy stays for directions.
-- **The eval harness still names docs** (tech debt, PR #10 review round 2, 2026-10-19): in `evals/run_evals.py` (lines at 09a02a4) the document-case branch (line 712) never reads a capability's `metrics.yaml`; `name == "rag"` decides the second backend run (line 659); `DOCS_BACKEND` is set by name (lines 640–646). A kb suite with document cases and its own `metrics.yaml` must run with no harness change (zero core change, ADR-0240).
+Status: → phase 08 (docs/PHASE-08-BUILD-PROMPT.md, ADR-0328 onward), except "Routing for all capabilities", → phase 07 (D5, ADR-0332). Each item below gets its outcome when phase 08 ends.
+
+- → done in phase 05 and used in phase 08. **DocumentScope generalisation** must land first: see MCP item 10 above (it is scheduled in phase 05). Done in phase 05 (ADR-0202): kb is a manifest with `documents.collections: [kb]` and a backend whose `kb_{slug}` collections hold the KB documents. (Source: PROGRESS phase 04, fix session round 2, item 5.)
+- → done in phase 08 (ADR-0346: agent.kb_documents, rag_chunks.kb_document_id). **KB documents need their own record for their chunks**: `agent.rag_chunks.attachment_id` is a foreign key to `agent.attachments` with ON DELETE CASCADE (migration 0010), so a chunk cannot exist without an attachment record. (Source: ADR-0166.)
+- → still refused after phase 08: page attribution now says which document each claim drew on (ADR-0354), not which sentence of the answer came from which KB, so a KB-scoped exception still cannot apply to its part of the answer; revisit with a sentence-level attribution. **`kb:` and `tool:` exceptions at OUTPUT and DATA stay refused**: page attribution says which pages an answer drew on, not which sentence came from which source, so an exception scoped to one KB cannot apply to its part of the answer. Revisit with the kb capability. (Source: ADR-0146.)
+- → not done in phase 08 (rerank stays off in development; the kb suite's documents are small); stays with the hardening phase. **Re-measure the reranker on large KB documents**: phase 04's measurement used six small documents of at most 40 chunks, where fusion alone put the answer in the top 8 every time. (Source: ADR-0184; also listed under the hardening phase below.)
+- → phase 07 (owner decision D5, ADR-0332). **Routing for all capabilities** (owner decision of 2026-10-18, ADR-0247): decide whether every turn goes to the router model or keyword candidacy (ADR-0216) stays, with the router's latency measured and the keyword-free coverage set of `evals/golden/routing.jsonl` (ADR-0241; 0/9 in runs make-eval-20261018T141208Z and make-eval-20261018T150216Z) as the measure. Until then keyword candidacy stays for directions.
+- → partly done in phase 08: the kb suite runs with no kb-named branch (suite fixtures, generic scorers, ADR-0355) and the harness lint now covers every scored capability; the rag@mcp second run and `DOCS_BACKEND` are still set by name. **The eval harness still names docs** (tech debt, PR #10 review round 2, 2026-10-19): in `evals/run_evals.py` (lines at 09a02a4) the document-case branch (line 712) never reads a capability's `metrics.yaml`; `name == "rag"` decides the second backend run (line 659); `DOCS_BACKEND` is set by name (lines 640–646). A kb suite with document cases and its own `metrics.yaml` must run with no harness change (zero core change, ADR-0240).
 
 ---
+
+### From phase 08 (listed, not implemented)
+- **Attribution across languages beyond numbers** (ADR-0354): an English answer over Arabic KB documents is cited only when it states a figure; one with no figure shows no source line (kb.jsonl's reported `cross_language` set, 0/2 in development). Option to measure: multilingual embedding similarity (bge-m3) between answer clauses and the retrieved chunks, decided on eval numbers (citation accuracy, no source on abstentions).
+- **Attribution across Arabic word forms** (ADR-0358): number words — done in phase 08 (ADR-0359, ADR-0360: folded to digits before matching). Left: suffixed nouns («مدة» / «مدتها») and dual nouns («يومين» = 2), to measure with the cross-language item above.
+- **A claim holding a current and a superseded figure** (phase 08 before-merge run 1, cross-annual-growth-en): «3.6 percent …, revising the previous April forecast of 3.1 percent» is one claim; the July and April pages tie and the per-claim pass (ADR-0357) takes one, the April page, so the current page goes uncited. Options: cite every page tied at a claim's best score, or prefer the newer version of the same title at a tie (D3). Measure on the recorded kb answers before changing.
+- **An MCP-backed KB's server copy after a delete** (ADR-0344): no MCP operation may delete (D6), so the reference RAG server keeps a deleted KB's documents and chunks; operations remove them (`DELETE FROM rag_ref.documents WHERE collection = 'kb_<slug>'`). A purge operation would need an owner decision on D6.
+- **The proof-of-concept KB's remaining sources** (ADR-0356): the exact pages of the sources the prompt names by site (stats.gov.cn, english.gov.cn, english.scio.gov.cn, fmprc.gov.cn, mfa.gov.cn, SPA, SAMA, PIF, Aramco, qna.org.qa, bricspolicycenter.org, sab.com, the China UN mission) go into scripts/kb_poc/sources.yaml; the IMF pages refuse a script and are saved from a browser into build/kb-poc/manual/.
+- **KB role assignment from the admin page**: the role is shown; assigning it to users stays in Keycloak (ADR-0337).
 
 ## Hardening phase tech debt (was phase 09, then phase 10 after the MCP shift, now phase 12 after the 2026-10-14 order; notes rather than risks unless stated)
 

@@ -214,15 +214,18 @@ async def test_user_without_any_capability_gets_an_error_event(client):
     assert events[0]["data"]["message_ar"] and events[0]["data"]["message_en"]
 
 
-async def test_unpermitted_kbs_are_filtered_again(client, services, litellm):
+async def test_unpermitted_kbs_are_refused_again(client, services, litellm):
+    """The gateway refuses a KB the token does not hold; the agent refuses it again, before any stream
+    and before anything is checkpointed (phase 08, I3, I7: it no longer filters silently)."""
     conversation = str(uuid.uuid4())
     principal = {**USER, "permissions": ["cap:general", "kb:moe:read"]}
-    await post_turn(client, conversation_id=conversation, principal=principal, selected_kbs=["moe", "moh"])
+    response = await post_turn(client, conversation_id=conversation, principal=principal, selected_kbs=["moe", "moh"])
+    assert response.status_code == 403 and response.json()["error"]["code"] == "kb_forbidden"
     snapshot = await services.graph.aget_state({"configurable": {"thread_id": conversation}})
-    assert snapshot.values["selected_kbs"] == ["moe"]
+    assert not snapshot.values
 
 
 async def test_health_lists_enabled_capabilities(client):
     response = await client.get("/v1/health")
     body = response.json()
-    assert (body["status"], body["capabilities"]) == ("ok", ["docs", "directions", "general"])
+    assert (body["status"], body["capabilities"]) == ("ok", ["docs", "kb", "directions", "general"])

@@ -4,7 +4,9 @@ For a locale with a script policy (config/validation.yaml), letters may come onl
 from the allowed Unicode scripts, and a whitespace-delimited token may not mix
 letters of two scripts: `الريyal` fails, `الرياض (Riyadh)` passes, and a Cyrillic
 or CJK letter fails anywhere. Digits, punctuation, symbols, whitespace and
-combining or modifier marks carry no script. Deterministic and model-free;
+combining or modifier marks carry no script, nor do the parts of an emoji sequence:
+variation selectors (🏖️ and ⚙️ end in U+FE0F, a mark), skin-tone modifiers, the
+zero-width joiner, keycaps, regional indicators and tags (F1, ADR-0340). Deterministic and model-free;
 `validate` (README §5.2) and the answer node's retry use it.
 """
 
@@ -54,7 +56,7 @@ def script_of(char: str) -> str | None:
     if unicodedata.category(char)[0] not in "LM":
         return None
     name = unicodedata.name(char, "")
-    if not name or name.startswith(("COMBINING", "MODIFIER")):
+    if not name or name.startswith(("COMBINING", "MODIFIER")) or "VARIATION SELECTOR" in name:
         return None
     return name.split(" ", 1)[0]
 

@@ -42,9 +42,16 @@ class RoutingRule(_Strict):
     # may choose this capability when no other rule decided (ADR-0145).
     # keyword_candidate: a routing keyword in the message makes the capability a router-model
     # candidate and never selects it (phase 05, I15, ADR-0216).
+    # kbs_selected: the user toggled one or more knowledge bases for this turn (phase 08, I3).
     # fallback: chosen when no other capability's rule matched.
     when: Literal[
-        "toggled", "keyword", "keyword_candidate", "attachments", "conversation_attachments", "fallback"
+        "toggled",
+        "keyword",
+        "keyword_candidate",
+        "attachments",
+        "conversation_attachments",
+        "kbs_selected",
+        "fallback",
     ]
 
 
@@ -289,6 +296,13 @@ class Source(_Strict):
     # stay internal: no citation, event or persisted reply carries them (ADR-0202).
     backend: str | None = None
     collection: str | None = None
+    # A knowledge base document's source metadata (phase 08, D3, I4): the KB's name, the publisher,
+    # the publication date (ISO), and the title and date of the version that supersedes it, if one
+    # does. Citations and the answer's evidence show them; `title` is the document's title.
+    kb_name: Localized | None = None
+    publisher: str | None = None
+    published_on: str | None = None
+    superseded_by: str | None = None
 
 
 class Citation(_Strict):
@@ -303,6 +317,9 @@ class Citation(_Strict):
     locator: str | None = None
     document_id: str | None = None
     pages: list[int] = []
+    kb_name: Localized | None = None
+    publisher: str | None = None
+    published_on: str | None = None
 
 
 class Artifact(_Strict):

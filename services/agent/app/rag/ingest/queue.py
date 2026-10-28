@@ -1,5 +1,5 @@
-"""The ingestion queue (ADR-0130): attachment ids on a Redis list. Registering an upload puts
-its id here; the ingest service takes it (app/rag/ingest/service.py). The agent only enqueues:
+"""The ingestion queue (ADR-0130): attachment ids on a Redis list, and KB document ids as
+`kb:<id>` (phase 08). Registering an upload puts its id here; the ingest service takes it (app/rag/ingest/service.py). The agent only enqueues:
 it never parses a file (owner decision R4)."""
 
 from collections.abc import Sequence
@@ -7,6 +7,14 @@ from collections.abc import Sequence
 
 def queue_name(namespace: str) -> str:
     return f"{namespace}:rag:ingest"
+
+
+# A KB document's queue item (phase 08, I2): its id behind this prefix; an attachment's is its id.
+KB_ITEM = "kb:"
+
+
+def kb_item(document_id: str) -> str:
+    return f"{KB_ITEM}{document_id}"
 
 
 class IngestQueue:
