@@ -221,6 +221,7 @@ services:
       RERANK_API_BASE: ${RERANK_API_BASE:?set RERANK_API_BASE in .env, see .env.example}
       MODEL_REASONING_ENABLED: ${MODEL_REASONING_ENABLED:-false}
       MODEL_PROVIDER_ALLOW_FALLBACKS: ${MODEL_PROVIDER_ALLOW_FALLBACKS:-false}
+      MODEL_PROVIDER_SORT: ${MODEL_PROVIDER_SORT:-throughput}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro
