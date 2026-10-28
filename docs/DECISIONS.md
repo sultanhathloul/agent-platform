@@ -3363,3 +3363,93 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Phase: reports PR
 - Status: decided
 - Decision: smoke checks that a report turn produces a version served with the CSP headers, that the download has no external reference, that another user cannot fetch it, and that a follow-up creates v2.
+
+### ADR-0378: How a turn becomes a report: the picker, keyword candidacy through the router, a follow-up on a conversation with a report
+- Date: 2026-10-28
+- Phase: reports PR (details of D1, D3, D4)
+- Status: assumed
+- Context: D3 asks for selection "through the router as skills are" or from a composer picker; D4 asks that a follow-up edit the latest report. A follow-up such as «غيّر الألوان» holds no report keyword.
+- Decision:
+  - The chat request carries an optional `output` (`text` | `report`), the composer's picker. A picked form is applied with no router decision on it.
+  - Without a picker, a turn is a report candidate when one of config/artifacts/report.yaml's keywords is in the message (matched as a skill's, Arabic-normalized), or when the conversation already holds a report. The router model is then asked, beside its capability and skill questions, for `output`: "report" or "text" (router.system 1.3.0, router.request 1.4.0, with the current report's title escaped); the candidacy and that title enter the router's cache key. A candidate costs one router call when nothing else needed one. An unusable answer or a router failure gives text.
+  - A report turn applies no skill: a picked or chosen skill is dropped (`skill_dropped`, reason `report_turn`).
+  - In a conversation that holds a report, every report turn writes the next version of its latest report (D4); a new report is asked for in a new conversation. The route node records `output {form, decided_by}` on the state and the span; the done event's `state_digest.output` and its `artifact {id, kind, title, version}` say what was written.
+- Consequences: A conversation with a report pays a router call on each later turn, so a plain question there can still be answered as text. «عرض» is also an everyday word ("offer", "width", "display"): it only makes a candidate, and the router decides. Two reports in one conversation are not supported; asking for a different report there revises the current one.
+
+### ADR-0379: The report deadline profile is chosen at admission and sent to the gateway in a response header
+- Date: 2026-10-28
+- Phase: reports PR (details of I1)
+- Status: assumed
+- Context: I1 gives report turns their own deadline (300 s, answer 270 s, gateway bound deadline + margin), but the turn's deadline opens when its request arrives (ADR-0264), before the route node knows whether the answer is a report, and the gateway sets its relay's bound before the agent answers.
+- Decision: config/turn.yaml gains `profiles.report {deadline_s 300, answer_s 270, role report_writer}`. At admission, inside admission_s, the agent chooses the profile from the same conditions that make a report candidate (ADR-0378): the picker chose report; or it chose nothing and a keyword is in the message or the conversation holds a report (one indexed read of agent.reports). The turn's deadline is then the profile's from its arrival. The agent's stream response carries `X-Turn-Deadline-S`; the gateway's whole-exchange bound is the longest profile's deadline plus gateway_margin_s, and its relay ends a stream at its start plus min(the header's value, the longest deadline) plus the margin (a missing header: deadline_s, as before). budget.py gains three rules per profile (its turn in the relay, its answer in its turn with the post-answer reserve kept, its role's call in its answer), each with a mutation; /admin/settings shows and edits the report deadline, the answer ceiling and the report_writer call's ceiling, checked by the same rules. The internal limits read by the gateway gains `profile_deadlines_s`.
+- Consequences: A candidate that turns out to be text still runs under the 300 s deadline; its own model calls keep their ceilings (reasoning 90 s), so it is not slower. The report answer's call is min(270 s, what remains − post_answer_reserve_s); capabilities run under their own manifest bounds as on any turn.
+
+### ADR-0380: The report writer's context: the kit block, the current version block, and citations from the page's text
+- Date: 2026-10-28
+- Phase: reports PR (details of D1, D4, I1, I2, I3)
+- Status: assumed
+- Decision:
+  - The answer node branches on `output.form == report` to app/artifacts/writer.py; the core graph is unchanged. The writer assembles node `report` (config/context.yaml): the blocks the turn's capabilities need, as for a text answer, without the skill block, plus two new blocks: `report_kit` (design-system.md, reviewed text, system role, `<design_kit id= version=>`, never dropped; its size is checked at startup against blocks.report_kit.max_tokens 4000) and `report_current` (a follow-up's latest version, without the platform's marks and sources section, as data in the user role inside `<current_report>`; never cut, so a version over blocks.report_current.max_tokens 24000 ends the turn `report_edit_too_large`). Prompt report.system 1.0.0 (ar, en).
+  - The role report_writer's output ceiling is 16000 tokens (config/models.yaml `role_max_output`, a new key); its assembly budget reserves the same, so the heavy tier's 65536 window leaves about 48k input tokens. Its temperature is 0.3, its call ceiling 270 s.
+  - The report's id is generated before the page streams, so the panel follows one id from artifact_start to artifact_done, and across versions.
+  - Citations: page attribution (ADR-0140 onward) runs on the page's visible text, as on a text answer; validate checks them against this turn's sources as usual. A follow-up's sources section keeps the previous version's citations beside this turn's.
+  - The chat's reply is one line (config/artifacts/report.yaml `text.created` / `text.updated`), so history, memory and later context never hold the page; the assistant message keeps `artifact {id, kind, title, version}` for the history's report card.
+- Consequences: A report costs one heavy call of up to 16k output tokens and holds a turn slot up to 300 s. Later turns see the report's title and version, not its content, except a follow-up's report_current block.
+
+### ADR-0381: What counts as a figure, and what a figure is matched against
+- Date: 2026-10-28
+- Phase: reports PR (details of D2, I3)
+- Status: assumed
+- Decision: A figure is a run of Western or Arabic-Indic digits with thousands separators and one decimal part, not glued to a word (a letter or a letter and a hyphen before it, a Latin letter after it: Q1, COVID-19, 5G are names). Its canonical form drops separators and leading and trailing zeros (1,250 = ١٬٢٥٠ = 1250.0). The allowed set is the canonical figures of: the capabilities' findings, the passages fetched for the answer, the sources' titles, publishers, KB names and dates (with a written date's parts), the user's message, and on a follow-up the figures the previous version verified; number words on that side are folded to digits first (ADR-0359). In the page, every figure of the body's text not in the set is wrapped in `<span class="kit-unverified">` (inside an SVG drawing, followed by a `<tspan>` with the marker's words); in report-data, each point and each label holding one is flagged (`unverified`, `unverified_labels`) and the kit marks the dataset and the chart. The document's `<title>` and attribute values are not marked (no element can wrap them). Counts go to the turn's span and log; the unverified values themselves only when content capture is on.
+- Consequences: Rounding, unit changes and computed figures (a sum, a share) are marked unverified even when their inputs are sourced: the safe side of D2. Number words in the page are not figures; the prompt asks for digits.
+
+### ADR-0382: The page is rebuilt from an allowlist; the model writes no script; the kit is added when the page is served
+- Date: 2026-10-28
+- Phase: reports PR (details of I2, I4)
+- Status: assumed
+- Context: I4 allows scripts "from the kit path and inline". A model-written script could rebuild a URL from strings and leak the page's content by navigating the frame, which no CSP directive in the frame stops, and a download opened from a file runs without the gateway's headers.
+- Decision: The model's output is parsed once, as it streams, by the standard library's HTMLParser (linear, after a cap of report.yaml max_model_chars) and rebuilt: allowed HTML and inline SVG elements and attributes only, every text escaped, CSS with no url() other than an in-document #reference, no import or font-face, no event attribute, no link other than an in-page anchor, no image other than a data: image, no script other than the first `<script type="application/json" id="report-data">` block, which is reduced to the charts the kit renders (types, titles, labels, numbers) and re-serialized with `<` escaped. Text before the document and after `</html>` (a Markdown fence) is dropped. The platform writes the frame: doctype, `<html lang dir>` from the turn's locale (dir="rtl" for Arabic), charset, viewport and a `<!--report-kit-->` marker where the kit goes. Interactivity is the kit's (kit.js: charts, theme toggle, tabs, sortable tables). The kit is never stored in the page: the view links kit.css and the scripts from the gateway's kit path; the download inlines them, the fonts as data: URLs, with a meta CSP whose script-src lists the inlined scripts' SHA-256 hashes only and connect-src 'none'.
+- Consequences: The served page needs no inline script, so its CSP's script-src is the kit path alone; inline styles stay allowed (a report's colours). A report cannot have hand-written behaviour beyond the kit's; a kit change is a reviewed PR.
+
+### ADR-0383: The page streams through the guards segment by segment, then the whole page once
+- Date: 2026-10-28
+- Phase: reports PR (details of I1, I4)
+- Status: assumed
+- Decision: As the text answer streams sentence by sentence through OUTPUT (redact policies) and DATA (ADR-0039, ADR-0106), the page streams by segment: the sanitizer's pieces gather until their visible text reaches report.yaml stream.flush_chars (600) or the report-data block closes; the visible texts (text, the attribute values a person reads: title, alt, aria-label, data-label; the data block's titles, units and labels) are checked as one joined payload (app/guardrails/fields.py, so a redaction lands in its own field), the figure marks are added, and the segment leaves as `artifact_delta`, after one `artifact_start`. At the end, OUTPUT with every action and DATA run on the whole page's visible text (ADR-0111's pass): a block ends the turn, a rewrite ends it as a block (a page is not rewritten), a redaction changes the pieces; the stored page is rendered again from the checked pieces with the sources section, and `artifact_done` tells the panel to read the stored version. In buffered mode (an OUTPUT policy that can block, rewrite or redact applies) nothing leaves until the whole page passed. An error before artifact_done leaves no version; the panel drops the unfinished build.
+- Consequences: A personal number split across two text nodes by a tag («<b>050</b>1234567») is seen by neither the segment nor the whole-page pass as one number; the same limit as the text path's newline case, now at element boundaries. The judge checker on OUTPUT or DATA would see a whole page's text (up to a few tens of thousands of characters) in the final pass.
+
+### ADR-0384: Report storage: the agent's own MinIO user, bounded calls, and the version row
+- Date: 2026-10-28
+- Phase: reports PR (details of I5)
+- Status: assumed
+- Decision: minio-init creates the bucket `artifacts` and a user (MINIO_ARTIFACTS_ACCESS_KEY, .env) whose policy allows PutObject and GetObject there only; the agent, which held no MinIO credentials, gets that user. Pages are keyed <tenant>/<conversation>/<report>/v<n>.html. Migration 0016 adds agent.reports (owner, conversation, title, latest_version) and agent.report_versions (title, object key, size, SHA-256, locale, turn, citations, verified figures, counts). A version is numbered under the report row's lock and its page written before its row, so a row always names a stored page; a read checks the page's hash against its row. Every read names the owner: another user's or tenant's report, like a missing one, is `report_not_found`. MinIO is reached by the minio client in a worker thread with urllib3 timeouts (connect 3 s, read 10 s, no retry) and the caller's deadline around each call (report.yaml storage.store_s 10 s): past the deadline the caller stops waiting and the thread ends by its own read timeout. scripts/init_env.sh gains `--add-missing`, which appends to an existing .env only the variables docker-compose.yml requires with no default.
+- Consequences: The worker thread can outlive its caller by up to its read timeout (the residual of LiteLLM's ADR-0257 row, here bounded at 10 s). No report is ever deleted by the product (ADR-0166); a conversation's reports stay with it.
+
+### ADR-0385: The reports eval suite: where it lives, its page checks and its thresholds (details of I8)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: assumed
+- Decision: The suite is evals/outputs/reports/ (reports.jsonl, metrics.yaml, fixtures.yaml including the kb suite's fake knowledge bases, judge.md); the harness globs evals/outputs/*/*.jsonl and names no form. Twelve cases: four general-knowledge (Arabic, Gulf, English, one by the picker), three over the fake KBs, two over the fake budget workbook, one follow-up (D4) and two that must stay text («العرض والطلب», and the picker's text with a report word). The harness gains generic hooks: a case's `output` (the picker) and `before` (earlier turns in the same conversation); turn fields `form`, `artifact`, `page` (the stored version read back through the gateway as its owner) and `download`; scorers `page` (evals/pages.py: parses, direction, kit_only on the page and its download, sources, size, figures_marked, figures_sourced, version) and `page_judge` (the judge alias rates the design 1 to 5 from judge.md; reported at 4 or more). Gated: html_parses, direction, kit_only, unverified_marked, sources_section, size_cap and version at 1.00; form_chosen 0.90 (the router decides on candidates); sourced_figures 0.80 (whether the model shows an expected figure is the model's).
+- Consequences: A report case costs one heavy call (up to 270 s); the suite adds roughly 20 to 40 minutes to make eval in development. The form's choice is measured here rather than in routing.jsonl, whose scorer reads capabilities.
+
+### ADR-0386: The gateway's report paths: the view link, a separate filter chain, audit actions, the relay bound (details of I4, I5, I6)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: assumed
+- Decision:
+  - The view link is an HMAC-SHA256 ticket over [user, tenant, report, version, expiry], valid 60 s, verified in constant time; its key is 32 random bytes made when the gateway starts. Nothing is stored. Before issuing one, the gateway checks the report's conversation is the caller's in its own conversations table (an unknown conversation is nobody's: 404), and the agent checks the owner again on every read, the page's included.
+  - /report-views/** and /report-kit/** run in their own Spring Security chain: GET only, no token, no CORS, no frame options and no default cache headers there; the view sends the CSP of ADR-0372 with `sandbox allow-scripts` and `frame-ancestors` the web's origin, nosniff and no-referrer. The kit serves only the files report.yaml lists, by exact name, read into memory at start (a missing, oversized or wrongly typed file fails startup), with `Access-Control-Allow-Origin: *` for the sandboxed page's opaque origin.
+  - Audit actions, fail-closed, with the report id and version and never its title or page: `report.read`, `report.list`, `report.view_link`, `report.view`, `report.download`; `chat.turn` gains `output_requested`, `output` and `artifact` (`<id>@v<n>`). Another owner's report is 404 `report_not_found`; another owner's conversation's list is 403 `conversation_forbidden`, as the messages endpoint answers.
+  - The relay bound (ADR-0379): the stream client's whole-exchange bound is the longest profile's deadline plus the margin; once the agent's headers arrive the stream closes at its start plus min(`X-Turn-Deadline-S`, the longest) plus the margin; a missing or unusable header keeps deadline_s. The gateway's copy of the limits takes `profile_deadlines_s`, the file's values when absent, and refuses an answer with a deadline of zero or less.
+  - API 2.7.0.
+- Consequences: A gateway restart invalidates view links (the panel asks for a new one), and a link works only on the gateway that issued it: a second replica needs a shared key or sticky routing (docs/BACKLOG.md, hardening).
+
+### ADR-0387: The web's report panel and output picker (details of I7, D3)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: assumed
+- Decision:
+  - The output picker has three choices, «تلقائي» / «نص» / «تقرير تفاعلي» (automatic first, sending no `output`), kept per conversation in the browser like the KB toggles and not reset after a turn. While «تقرير تفاعلي» is chosen the skill picker is disabled and a picked skill cleared (D1).
+  - The panel is the second item of the conversation's flex row, so it sits on the left in RTL and on the right in English with no left or right in the code; half the width from Tailwind's `md` (768 px), a full overlay below it; not resizable. Switching conversation closes it; a report card reopens it at its version.
+  - The live build is an `<iframe sandbox="allow-scripts">` with `srcdoc` redrawn at most every 300 ms; the `<!--report-kit-->` marker is replaced by a meta CSP (the view's directives without frame-ancestors and sandbox, which a meta cannot carry) and the kit's links from the gateway's kit path; until the marker has streamed, they are put right after the doctype, so no part of a partial page runs without the policy. After `artifact_done` the frame loads the gateway's view link (a new one for every load), `referrerPolicy="no-referrer"`; the frame stays mounted behind the Code tab. A build that ends without `artifact_done` is dropped and the panel returns to the version it showed, or closes.
+  - Errors show the envelope's message_ar / message_en, else the catalog's. Version dates use the existing page format (ar-SA with Western digits, ADR-0288).

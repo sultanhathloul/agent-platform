@@ -211,6 +211,12 @@ From phase 05 (resilience, `docs/RESILIENCE.md`, CLAUDE.md rule 12):
 - **Move per-user and per-tenant limits to Bucket4j + Redis**, required before running more than one gateway (supersedes the in-memory counters of ADR-0185 and ADR-0190).
 - **Settle the four scaling traps of `docs/RESILIENCE.md`**: fail open for limits when Redis is down (recommended), with a local fallback cap per process and an immediate alert; a TTL on concurrency counters so a crashed replica cannot hold slots; MCP `max_concurrency` written as a total per server and shared between replicas (or agreed in the ICD); breakers stay per process.
 
+From the reports PR (2026-10-28, listed, not implemented):
+- **The report view link's key lives in one gateway's memory** (ADR-0386): a second gateway replica needs a shared key (a mounted secret) or sticky routing.
+- **A personal number split across two elements of a report page** («<b>050</b>1234567») is seen whole by no guard pass (ADR-0383), as the text path's newline case.
+- **Report figures by rounding, unit change or arithmetic** are marked unverified even when their inputs are sourced (ADR-0381); a tolerance or unit folding would be decided on the reports suite's numbers.
+- **A conversation holds one report** (ADR-0378): asking for a different report there revises the current one.
+
 From the timeout budget PR (fix/timeout-budget, 2026-10-21; T1: listed, not fixed):
 - **Rows of the timeout budget still unbounded** (docs/RESILIENCE.md): the ingest service's per-job deadline (up to 125 embedding batches of 60 s each); the agent's Redis client (no timeout set; 5 s only in the installed redis-py); the gateway's MinIO Java client (library default, not verified); the web's chat request (no timer; the gateway ends the stream at 135 s); overlapping status polls in the web (a 2 s period over a 2 s read).
 - **LiteLLM relays a flooding stream on its own event loop**: another user's call through LiteLLM waited 4.02 s while one provider sent 20 000 one-character chunks, and 0.56 s while one sent a 2 MiB embedding; the agent's own loop stayed under 50 ms (ADR-0257). Measure under the k6 load test and decide on LiteLLM workers or replicas.

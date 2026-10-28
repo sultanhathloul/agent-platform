@@ -240,6 +240,8 @@ Loop behaviour (`reason → tool_decision → guard(PRE_TOOL) → execute → gu
 
 > **Amendment 2026-10-26 (phase 08, ADR-0332, ADR-0348).** A manifest rule `kbs_selected` selects a capability when the turn carries knowledge bases the user toggled, admitted as permitted and live; the kb capability has only that rule, so with none toggled it never runs. Keyword-free routing for every capability moves to phase 07 (the planner's route decision uses a model on every turn); phase 08 keeps keyword candidacy.
 
+> **Amendment 2026-10-28 (reports PR, ADR-0364, ADR-0378).** The route node also decides the answer's **form**: text or an interactive HTML report (§13 amendment). The composer's output picker decides alone; otherwise a turn is a report candidate when a keyword of config/artifacts/report.yaml is in the message or the conversation already holds a report, and the router model returns `output: report | text` (router.system 1.3.0, router.request 1.4.0; the candidacy and the current report's title enter the cache key). A report turn applies no skill; in a conversation that holds a report, a report turn writes the next version of it.
+
 ## 6. Gateway (Spring Boot)
 
 ### 6.1 Responsibilities
@@ -269,6 +271,7 @@ GET  /v1/health
 > **Amendment 2026-10-21 (fix session on the PR #12 review, ADR-0262, ADR-0265).** Agent and gateway API version 2.3.0, additive: `POST /v1/turns` (agent) and `POST /v1/chat/turns` (gateway) may answer 429 `too_many_turns` before any stream; the agent's attachment registration may answer 429 `too_many_uploads`, which the gateway's upload already documented. The events schema is unchanged.
 > **Amendment 2026-10-24 (phase 06, ADR-0301, ADR-0310, ADR-0313).** Agent and gateway API version 2.5.0, additive: the chat request's optional `skill` (403 `skill_forbidden` before any stream when the caller may not use it); `GET /v1/skills` (the caller's skills: slug, name, description); a history reply's optional `skill {slug, label}`; the `skill` event `{slug, label {ar, en}}` before the answer's tokens; the done event's `state_digest.skill` (`slug@version`). The gateway forwards `skill:*` roles as permissions beside `cap:*` and `kb:*:read`.
 > **Amendment 2026-10-26 (phase 08, ADR-0333, ADR-0349, ADR-0350).** Agent and gateway API version 2.6.0, additive: the admin-only `/v1/admin/kbs` (list, create, read, delete) and `/v1/admin/kbs/{slug}/documents` (list, upload with source metadata, read, `PUT …/metadata`), checked at the gateway and, through `X-User-Admin`, at the agent; `GET /v1/capabilities` (the caller's capabilities and the KBs it may read); the agent's `GET /v1/internal/kbs/live`, which the gateway asks on a turn that selects KBs; a turn selecting a KB the caller may not read, deleted or another tenant's is 403 `kb_forbidden` before any stream at both; citations gain `kb_name`, `publisher` and `published_on`, omitted when empty.
+> **Amendment 2026-10-28 (reports PR, ADR-0374, ADR-0379).** Agent and gateway API version 2.7.0, additive: the chat request's optional `output` (`text` | `report`); the events `artifact_start {id, title, version}`, `artifact_delta {id, text}` and `artifact_done {id, version, size, title}`, the done event's `artifact {id, kind, title, version}` and `state_digest.output`; a history reply's optional `artifact`; `GET /v1/reports/{id}`, `GET /v1/conversations/{id}/reports`, `GET /v1/reports/{id}/versions/{n}` (with the stored page), the gateway's `POST …/versions/{n}/view` (a 60 s view link), `GET /report-views/{ticket}` (the sandboxed page with its CSP headers), `GET …/versions/{n}/download` (one self-contained file) and the static kit at `/report-kit/v1/`; owner only, checked at the gateway and the agent, audited (`report.read`, `report.view`, `report.download`). The agent's turn stream carries `X-Turn-Deadline-S`, and its internal limits `profile_deadlines_s`; the gateway bounds a relay by them.
 
 ### 6.3 API standards
 
@@ -465,6 +468,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-26 (phase 08, ADR-0353).** The composer shows one toggle per KB the caller may read (`GET /v1/capabilities`), none on by default, kept per conversation in the browser; a KB citation shows «KB › title», the publisher and the date in Western digits. `/admin/kbs` and `/admin/kbs/<slug>` manage KBs and their documents, Arabic first and code-free.
 
+> **Amendment 2026-10-28 (reports PR, ADR-0375).** The composer offers an output picker («نص» / «تقرير تفاعلي»). A report opens a side panel like Claude's artifacts (chat on the right and panel on the left in RTL, mirrored in English): the page builds live in an `<iframe sandbox="allow-scripts">`, then the stored version loads from the gateway's view link; tabs «معاينة» / «الكود», download, full screen, copy code, a version switcher and close. A reply that wrote a report shows a report card that reopens the panel, in the live chat and in the history.
+
 ---
 
 ## 14. Docker Compose (v1 services)
@@ -490,6 +495,8 @@ Seed policies in `config/policies/`:
 - Provide `docker-compose.prod.md` notes for Kubernetes migration (Helm later, not v1).
 
 > **Amendment 2026-10-11 (ADR-0134, ADR-0141).** `rerank` runs `michaelf34/infinity:0.0.75` (amd64 and arm64) on CPU with `bge-reranker-v2-m3` from the volume `rerank-models`, which `make models` fills; nothing is downloaded at start. `litellm` is published on `127.0.0.1` only, behind its master key, so `make eval` can score Ragas metrics through the judge alias. MinIO credentials reach the agent and the gateway from `.env`. `make smoke-airgap` runs smoke with every container but `litellm` on a network without egress.
+
+> **Amendment 2026-10-28 (reports PR, ADR-0384).** `minio-init` also creates the bucket `artifacts` and the agent's own MinIO user (`MINIO_ARTIFACTS_ACCESS_KEY`), limited to it; `scripts/init_env.sh --add-missing` appends to an existing `.env` the variables compose requires with no default. The gateway mounts config/artifacts/report.yaml and config/artifacts/kit/ read-only and serves the kit at `/report-kit/v1/`.
 
 > **Amendment 2026-10-06 (ADR-0097, ADR-0087).** `presidio-analyzer` is pinned to `2.2.362` with one worker and loads only `infra/presidio/recognizers.yaml`; it takes about 740 MiB. The agent now uses Redis (policy cache, change notifications, judge verdicts) and waits for `redis` and `presidio-analyzer` to be healthy.
 
@@ -895,6 +902,23 @@ Rules:
 | `evals/golden/fixtures.yaml` (new) | `include` | routing.jsonl's kb cases use the kb suite's fixture KBs |
 | `scripts/kb_poc/` (new) | `sources.yaml`, `manifest.json` | The proof-of-concept KB's sources and what `make kb-poc` fetched (D4, ADR-0356) |
 | `infra/keycloak/realm-export.json` | `kb:intl-economy:read`, `kb:eval-economy:read`, `kb:eval-labor:read`, `kb:smoke-deleted:read`; `cap:kb` for evaluator | The seed KB roles (§11 amendment) |
+
+### 20.9 Configuration keys added in the reports PR (owner decision D1 of phase 08, ADR-0364 onward)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/artifacts/report.yaml` (new) | `keywords.{ar,en}`, `max_bytes` (512 KB), `max_model_chars`, `current_max_tokens`, `stream.flush_chars`, `storage.{bucket, store_s}`, `kit.{version, path, stylesheet, scripts, fonts}`, `text.*` | Report candidacy keywords (D3), the version size cap (I4), the model output read before parsing, a follow-up's current version, streaming segments, MinIO storage and its bound, the kit's files, and the text the platform writes (sources section, the chat's line) in ar and en |
+| `config/artifacts/design-system.md` (new) | front-matter `id`, `version`; Markdown | The design kit's prompt part (I2), the report writer's `report_kit` block |
+| `config/artifacts/kit/` (new) | kit.css, kit.js, vendor/chart.umd.min.js (Chart.js 4.4.4), fonts/ (IBM Plex Sans Arabic woff2), SOURCE.md | The kit the gateway serves and a download inlines; third-party files pinned by SHA-256 |
+| `config/turn.yaml` | `profiles.report.{deadline_s, answer_s, role}` | The report deadline profile: 300 s, the answer's ceiling 270 s (I1, ADR-0379) |
+| `config/models.yaml` | `roles.report_writer` (heavy), `role_max_output.report_writer` (16000), `temperature.report_writer`, `timeouts.roles.report_writer` (270) | The report writer (I1, ADR-0369) |
+| `config/context.yaml` | `pipeline: report_kit, report_current`, `blocks.report_kit`, `blocks.report_current`, `nodes.report` | The report writer's context (ADR-0380) |
+| `config/prompts/` | `report.system` 1.0.0, `context.report_kit`, `context.report_current`, `router.system` 1.3.0, `router.request` 1.4.0 | The report writer's prompt, its blocks' wrappers, the router's `output` |
+| `config/messages/errors.yaml` | `report_not_found`, `report_unavailable`, `report_too_large`, `report_edit_too_large` | Report refusals and failures in Arabic and English |
+| `config/messages/settings.yaml` | `turn.report_deadline_s`, `turn.report_answer_s`, `models.report_writer_s` and the `profile-*` rule families | The report profile on /admin/settings |
+| `evals/outputs/reports/` (new) | `reports.jsonl`, `metrics.yaml`, `fixtures.yaml`, `judge.md` | The reports suite (I8) |
+| `evals/thresholds.yaml` | `reports` | Gated page metrics; visual_quality reported |
+| `.env` | `MINIO_ARTIFACTS_ACCESS_KEY`, `MINIO_ARTIFACTS_SECRET_KEY` | The agent's MinIO user for report pages (ADR-0384) |
 
 ## 21. Getting started on a new machine
 
