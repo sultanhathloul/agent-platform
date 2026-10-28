@@ -67,7 +67,8 @@ async def test_general_turn_streams_tokens_then_done(client, litellm):
 
     done = events[-1]["data"]
     assert done["answer"] == MOCK_ANSWER
-    assert done["state_digest"] == {"turn": 1, "capabilities": ["general"], "skill": None}
+    assert done["state_digest"] == {"turn": 1, "capabilities": ["general"], "skill": None, "output": "text"}
+    assert "artifact" not in done  # a text turn wrote no report (reports PR, additive)
     assert done["usage"]["tokens_out"] > 0 and done["usage"]["tokens_in"] > 0
 
 

@@ -9,6 +9,7 @@ from app.memory.types import MemoryScope
 BlockName = Literal[
     "system",
     "skill",
+    "report_kit",
     "state_digest",
     "window",
     "summary",
@@ -16,6 +17,7 @@ BlockName = Literal[
     "retrieval",
     "tool_results",
     "findings",
+    "report_current",
     "user_message",
 ]
 BLOCK_NAMES: tuple[str, ...] = get_args(BlockName)
@@ -30,8 +32,13 @@ SKILL_BLOCK = "skill"
 # The blocks that form the current user message; only these merge (ADR-0076). The evidence
 # blocks are data in the user role and travel with the question (owner decision S2).
 CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset(
-    {"summary", "memory", "retrieval", "tool_results", "findings", "user_message"}
+    {"summary", "memory", "retrieval", "tool_results", "findings", "report_current", "user_message"}
 )
+# A report turn's blocks (reports PR, ADR-0380): the design kit's prompt part (system role, reviewed
+# text) and, on a follow-up, the latest version being revised (user role, data). Only the report writer
+# requests them; neither is ever dropped.
+REPORT_KIT_BLOCK = "report_kit"
+REPORT_CURRENT_BLOCK = "report_current"
 
 
 class HistoryEndsWithUserMessage(RuntimeError):
@@ -67,6 +74,20 @@ class SkillBlockRequest(BaseModel):
     instructions: str = Field(repr=False)
 
 
+class ReportBlockRequest(BaseModel):
+    """What the report writer's two blocks render: the design kit's text (design-system.md) and, on a
+    follow-up, the version it revises, without the platform's marks (ADR-0380)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kit_id: str
+    kit_version: str
+    kit_text: str = Field(repr=False)
+    current_title: str | None = None
+    current_version: int | None = None
+    current_html: str | None = Field(default=None, repr=False)
+
+
 class AssemblyRequest(BaseModel):
     """What a node asks Context Assembly for. `state` is a read-only AgentState snapshot."""
 
@@ -96,6 +117,9 @@ class AssemblyRequest(BaseModel):
     policy_hints: list[str] = []
     skill: SkillBlockRequest | None = Field(
         default=None, description="The turn's selected skill; its instructions are the `skill` block (ADR-0300)."
+    )
+    report: ReportBlockRequest | None = Field(
+        default=None, description="A report turn's kit and current version (reports PR, ADR-0380)."
     )
     prompt_vars: dict[str, Any] = Field(
         default={}, description="Extra variables for the node's system and request prompts (guard judge)."

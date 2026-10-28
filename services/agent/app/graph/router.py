@@ -17,7 +17,12 @@ model as delimited data in the user role (`router.request`, ADR-0068).
 Phase 06 (ADR-0299): when skills are candidates (a keyword of theirs is in the message), their
 slugs, descriptions and when-to-use lines enter `router.request`, and the model also returns
 `skill`: one of them or null. The candidates (slug and version) are part of the cache key, and a
-cached skill is kept only while it is still a candidate."""
+cached skill is kept only while it is still a candidate.
+
+Reports PR (ADR-0378): when the turn is a report candidate (a report keyword is in the message, or the
+conversation holds a report a follow-up may edit, D3, D4), the request says so, with the current report's
+title, and the model also returns `output`: "report" or "text". The candidacy and the title are part of the
+cache key."""
 
 import contextlib
 import hashlib
@@ -52,9 +57,20 @@ class RouterDecision:
     skill: str | None = None
     # A skill the model named that was not a candidate: dropped, reported as `skill_dropped`.
     dropped_skill: str | None = None
+    # The answer's form on a report candidate (ADR-0378): "report" or "text"; None when not asked.
+    output: str | None = None
 
 
-def parse_decision(text: str, allowed: Sequence[str], skills: Sequence[str] = ()) -> RouterDecision | None:
+@dataclass(frozen=True)
+class OutputCandidate:
+    """The turn may be a report (ADR-0378): `current` is the title of the conversation's report, if any."""
+
+    current: str | None = None
+
+
+def parse_decision(
+    text: str, allowed: Sequence[str], skills: Sequence[str] = (), *, output: bool = False
+) -> RouterDecision | None:
     """The model's JSON `{capabilities, skill, complexity, risk}`. Capabilities outside `allowed`
     are ignored; a `skill` outside `skills` (the candidates) is dropped and reported; any other
     value of `skill` (null, a list, a number) is no skill."""
@@ -78,7 +94,8 @@ def parse_decision(text: str, allowed: Sequence[str], skills: Sequence[str] = ()
     named = raw.get("skill")
     skill = named if isinstance(named, str) and named in skills else None
     dropped = named if isinstance(named, str) and named and skill is None else None
-    return RouterDecision(chosen, complexity, risk, "model", skill=skill, dropped_skill=dropped)
+    form = ("report" if raw.get("output") == "report" else "text") if output else None
+    return RouterDecision(chosen, complexity, risk, "model", skill=skill, dropped_skill=dropped, output=form)
 
 
 def _window(state: dict, size: int) -> list[str]:
@@ -92,7 +109,12 @@ def _files(state: dict) -> list[str]:
 
 
 async def _cache_key(
-    ctx: TurnContext, state: dict, allowed: Sequence[str], window: list[str], skills: Sequence[LoadedSkill] = ()
+    ctx: TurnContext,
+    state: dict,
+    allowed: Sequence[str],
+    window: list[str],
+    skills: Sequence[LoadedSkill] = (),
+    output: OutputCandidate | None = None,
 ) -> str:
     services = ctx.services
     prompts = [services.prompts.ref(p, state["locale"]) for p in ("router.system", "router.request")]
@@ -109,6 +131,7 @@ async def _cache_key(
             normalize(state["user_message"]),
             window,
             [s.manifest.ref for s in skills],
+            None if output is None else ["report", output.current],
         ],
         ensure_ascii=False,
     )
@@ -123,17 +146,21 @@ async def choose(
     fallback: Sequence[LoadedCapability],
     config: RouterConfig,
     skills: Sequence[LoadedSkill] = (),
+    output: OutputCandidate | None = None,
 ) -> RouterDecision:
-    """The router model's choice among `candidates` and `fallback`, and of at most one skill among
-    `skills`, cached for an hour. An unusable answer or a model failure: the candidates, no skill."""
+    """The router model's choice among `candidates` and `fallback`, of at most one skill among `skills`,
+    and, for a report candidate, of the answer's form; cached for an hour. An unusable answer or a model
+    failure: the candidates, no skill, a text answer."""
     services = ctx.services
     span = trace.get_current_span()
     pool = [*candidates, *(c for c in fallback if c not in candidates)]
     allowed = [c.slug for c in pool]
     skill_slugs = [s.slug for s in skills]
-    default = RouterDecision([c.slug for c in candidates], None, None, "router_default")
+    default = RouterDecision(
+        [c.slug for c in candidates], None, None, "router_default", output="text" if output else None
+    )
     window = _window(state, config.window_messages)
-    key = await _cache_key(ctx, state, allowed, window, skills)
+    key = await _cache_key(ctx, state, allowed, window, skills, output)
     redis = services.redis
     if redis is not None:
         try:
@@ -144,7 +171,10 @@ async def choose(
             raw = json.loads(cached)
             span.set_attribute("route.router.cached", True)
             skill = raw.get("skill") if raw.get("skill") in skill_slugs else None
-            return RouterDecision(raw["capabilities"], raw.get("complexity"), raw.get("risk"), "cache", skill=skill)
+            form = (raw.get("output") or "text") if output else None
+            return RouterDecision(
+                raw["capabilities"], raw.get("complexity"), raw.get("risk"), "cache", skill=skill, output=form
+            )
     span.set_attribute("route.router.cached", False)
     locale = state["locale"]
     node = services.assembler.node("router")
@@ -167,6 +197,8 @@ async def choose(
                 {"slug": s.slug, "description": getattr(s.manifest.description, locale)}
                 for s in skills
             ],
+            "report_candidate": output is not None,
+            "current_report": output.current if output else None,
         },
     )
     try:
@@ -176,7 +208,7 @@ async def choose(
             raise
         span.add_event("route.router.unavailable")
         return default
-    decision = parse_decision(result.text, allowed, skill_slugs)
+    decision = parse_decision(result.text, allowed, skill_slugs, output=output is not None)
     if decision is None:
         span.add_event("route.router.unusable_answer")
         return default
@@ -190,6 +222,7 @@ async def choose(
                         "complexity": decision.complexity,
                         "risk": decision.risk,
                         "skill": decision.skill,
+                        "output": decision.output,
                     }
                 ),
                 ex=config.cache_ttl_s,

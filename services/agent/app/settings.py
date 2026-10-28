@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     minio_sweeper_secret_key: str = ""
     minio_secure: bool = False
     uploads_bucket: str = "uploads"
+    # Interactive reports (reports PR, ADR-0384): the agent's own MinIO user, limited to the bucket of
+    # config/artifacts/report.yaml storage.bucket. Empty: reports cannot be stored, and a report turn ends
+    # report_unavailable.
+    minio_artifacts_access_key: str = ""
+    minio_artifacts_secret_key: str = ""
     # The ingest service's health port (compose healthcheck).
     ingest_health_port: int = 8001
     # The reranker, per environment (review round 2, finding 3): development leaves it off; a GPU

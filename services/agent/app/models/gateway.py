@@ -169,7 +169,8 @@ class ModelGateway:
                     for attempt in range(2):
                         streamed = _Streamed()
                         try:
-                            await self._stream(tier, messages, temperature, budget, streamed, on_token)
+                            spec = self._config.spec_for(decision.role, decision.final)
+                            await self._stream(spec, messages, temperature, budget, streamed, on_token)
                             break
                         except AnswerTooLarge as exc:  # refused unparsed: never retried
                             raise ModelUnavailable(f"LiteLLM answer refused: {exc}") from None

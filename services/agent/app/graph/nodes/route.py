@@ -10,6 +10,10 @@ Phase 08 (I3): the rule `kbs_selected` selects a capability when the turn carrie
 the user toggled, admitted as permitted and live; with none, it never matches.
 Phase 06 (ADR-0299): the same node selects at most one skill: the picker's, or one the router
 model chooses among the skills whose keywords match. A turn with neither adds no router call.
+Reports PR (ADR-0378): the same node decides the answer's form. The composer's output picker decides
+alone; otherwise a turn admitted on the report profile (a report keyword in the message, or a conversation
+that holds a report, D3, D4) is a report candidate, and the router model returns `output`. A report turn
+applies no skill (D1).
 The core has no capability-specific branch: adding a capability changes the
 candidates, not this code."""
 
@@ -23,7 +27,7 @@ from app.capabilities.registry import LoadedCapability
 from app.errors import TurnError
 from app.graph.deps import TurnContext
 from app.graph.nodes import traced
-from app.graph.router import choose
+from app.graph.router import OutputCandidate, choose
 from app.graph.state import AgentState
 from app.skills.registry import LoadedSkill
 from app.text.arabic import contains_keyword
@@ -136,7 +140,14 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     fallback_only = all(reason.endswith(":fallback") for reason in reasons)
     has_indexed = any(a["status"] == "indexed" for a in state.get("attachments") or [])
     pool = router_candidates(candidates, has_indexed=has_indexed, message=message) if fallback_only else []
-    if pool or skill_candidates:
+    # The answer's form (ADR-0378): the picker's, else the router model's on a report candidate.
+    picked = state.get("requested_output")
+    output = {"form": picked, "decided_by": "picker"} if picked in ("text", "report") else {"form": "text", "decided_by": "none"}
+    candidate = None
+    if picked is None and ctx.profile == "report":
+        reports = [a for a in state.get("artifacts") or [] if a.get("kind") == "report"]
+        candidate = OutputCandidate(current=reports[-1]["title"] if reports else None)
+    if pool or skill_candidates or candidate is not None:
         if pool:
             fallback = [
                 c for c in candidates if any(r.when == "fallback" for r in c.manifest.routing_hints.rules)
@@ -146,7 +157,11 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
             # The rules decided the capabilities; the router model is asked for the skill only, among
             # the capabilities already chosen (its capability answer is not used).
             choice, others = [services.registry.get(slug) for slug in slugs], []
-        decision = await choose(ctx, dict(state), choice, others, services.router, skills=skill_candidates)
+        decision = await choose(
+            ctx, dict(state), choice, others, services.router, skills=skill_candidates, output=candidate
+        )
+        if candidate is not None:
+            output = {"form": decision.output or "text", "decided_by": decision.source}
         if pool:
             slugs = decision.capabilities[:MAX_CAPABILITIES]
             reasons = [f"{slug}:{decision.source}" for slug in slugs]
@@ -158,6 +173,9 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
             skill_source = decision.source
     if not slugs:
         raise TurnError("no_capability_available", detail="rules matched nothing and no router candidate")
+    if skill is not None and output["form"] == "report":
+        _drop(span, skill.slug, "report_turn")  # D1: a report turn applies no text skill
+        skill = None
     if skill is not None and skill_source != "picker":
         missing = set(skill.manifest.requires.capabilities) - set(slugs)
         if missing:
@@ -169,7 +187,10 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     if skill is not None:
         span.set_attribute("route.skill", skill.manifest.ref)  # id@version, never its text (G8)
         span.set_attribute("route.skill.decided_by", skill_source or "")
+    span.set_attribute("route.output", output["form"])
+    span.set_attribute("route.output.decided_by", output["decided_by"])
     return {
         "intent": {"capabilities": slugs, "decided_by": reasons, "complexity": complexity, "risk": risk},
         "skill": _skill_state(skill),
+        "output": output,
     }
