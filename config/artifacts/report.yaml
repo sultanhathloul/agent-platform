@@ -1,0 +1,59 @@
+# Interactive HTML reports (reports PR, owner decisions D1–D5, I1–I9; ADR-0364 onward).
+# A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
+# today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
+# (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
+version: 1.0.0
+
+# D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
+# skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
+# words (app/text/arabic.py contains_keyword). A conversation that already holds a report is a candidate
+# on every turn, so a follow-up such as «غيّر الألوان» can edit it (D4).
+keywords:
+  ar: [داشبورد, لوحة مؤشرات, لوحة معلومات, لوحة بيانات, تقرير تفاعلي, إنفوجرافيك, انفوجرافيك, انفوغرافيك, عرض, عرض تقديمي, صفحة تقرير]
+  en: [dashboard, infographic, report page, interactive report, indicators board, presentation, slide page]
+
+# I4: one version's stored HTML, after the sources section; past it the turn ends report_too_large.
+max_bytes: 524288
+# The model's raw output read before any parsing (12d: size-capped before parsing). The tier's own
+# output ceiling (role_max_output, 16k tokens) ends a longer answer first.
+max_model_chars: 600000
+# The latest version a follow-up edits, in the report_current block (D4); a larger one cannot be edited
+# in one call and the turn ends report_edit_too_large.
+current_max_tokens: 24000
+
+# Streaming (I1, ADR-0383): a segment of the page is released once it holds this much visible text or a
+# block element closed, after the OUTPUT redact policies and DATA ran on its visible text.
+stream:
+  flush_chars: 600
+
+# Storage (I5, ADR-0373): MinIO bucket and its bound per call; the version row in the same deadline.
+storage:
+  bucket: artifacts
+  store_s: 10
+
+# The design kit (I2): served by the gateway at `path` (same origin as the report page), read from
+# config/artifacts/kit/; never from the internet. `version` is part of the path, so a cached asset never
+# outlives a kit change.
+kit:
+  version: v1
+  path: /report-kit/v1/
+  # Served at `path` + file; a download inlines the scripts in this order and the stylesheet with its fonts
+  # as data: URLs. Each file's SHA-256 is pinned in config/artifacts/kit/SOURCE.md and checked by a test.
+  stylesheet: kit.css
+  scripts: [vendor/chart.umd.min.js, kit.js]
+  fonts: [fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2, fonts/ibm-plex-sans-arabic-latin-400-normal.woff2,
+          fonts/ibm-plex-sans-arabic-arabic-500-normal.woff2, fonts/ibm-plex-sans-arabic-latin-500-normal.woff2,
+          fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2, fonts/ibm-plex-sans-arabic-latin-600-normal.woff2,
+          fonts/ibm-plex-sans-arabic-arabic-700-normal.woff2, fonts/ibm-plex-sans-arabic-latin-700-normal.woff2]
+
+# What the platform writes into the page and the chat: the sources section and the reply's line.
+text:
+  sources_heading: {ar: "المصادر", en: "Sources"}
+  no_sources: {ar: "لا مصدر موثق لهذه الأرقام: كل رقم معلَّم «غير موثق» مصدره المعرفة العامة للنموذج.",
+               en: "No verified source for these figures: every figure marked \"Unverified\" comes from the model's general knowledge."}
+  unverified_note: {ar: "الأرقام المعلَّمة «غير موثق» من المعرفة العامة للنموذج ولم تُطابَق بمصدر.",
+                    en: "Figures marked \"Unverified\" come from the model's general knowledge and were matched to no source."}
+  page: {ar: "ص", en: "p."}
+  created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
+  updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}
+  untitled: {ar: "تقرير", en: "Report"}
