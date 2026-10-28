@@ -957,6 +957,8 @@ Seed users in realm `agent` (password = username): `admin/admin` (admin console)
 >
 > Switch back by restoring the `.env.example` values. Embeddings stay on Ollama (`EMBED_MODEL`, `EMBED_API_BASE`). A remote Ollama or vLLM server is the same edit: `MODEL_API_BASE` (and `EMBED_API_BASE`) pointing at it, with `ollama_chat/<model>` or `openai/<model>` as the model values. `MODEL_REASONING_ENABLED` and `MODEL_PROVIDER_ALLOW_FALLBACKS` (both `false`) are read by OpenRouter and ignored by Ollama. `num_ctx` stays in `infra/litellm/config.yaml`, equal to the tier windows, because LiteLLM passes environment values as strings and Ollama requires an integer. The text below describes the layout before this amendment.
 
+> **Amendment 2026-10-28 (ADR-0362).** On the OpenRouter profile, also set `MODEL_PROVIDER_ALLOW_FALLBACKS=true` in `.env`: OpenRouter may then route each model to any provider that serves it, sorted by throughput (`MODEL_PROVIDER_SORT=throughput`, read by `infra/litellm/config.yaml` for `fast`, `standard` and `heavy`). This works around upstream capacity refusals (429 `upstream_provider_shared_pool`). The offline profile and production (local models) ignore both values.
+
 Nothing in the repository names a model except `infra/litellm/config.yaml`, and nothing names an endpoint except `.env`. To use models served elsewhere — a GPU box on the network, or a colleague's machine — leave the code alone and change those two files.
 
 **A remote Ollama server.** In `.env`:
