@@ -125,6 +125,12 @@ def _script(text: str) -> str | None:
     return max(counts, key=counts.__getitem__) if counts else None
 
 
+def _best_index(scores: Sequence[float], sources: Sequence[dict[str, Any]]) -> int:
+    """The source a claim scores best on; among sources tied there, one no newer version supersedes,
+    then the first retrieved."""
+    return max(range(len(scores)), key=lambda i: (scores[i], not sources[i].get("superseded_by")))
+
+
 def ngrams(terms: Sequence[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(terms[i : i + n]) for i in range(len(terms) - n + 1)}
 
@@ -223,7 +229,9 @@ def attribute(
         best = max(claim_scores, default=0.0)
         if best <= 0:
             continue
-        document = sources[claim_scores.index(best)]["document_id"]
+        # At a tie the newer version of a source wins (D3): a claim holding the current figure and the one
+        # it revised («3.6 …, revising the April forecast of 3.1») cites the current page (ADR-0363).
+        document = sources[_best_index(claim_scores, sources)]["document_id"]
         if document in documents:
             continue
         documents.add(document)

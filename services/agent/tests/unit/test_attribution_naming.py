@@ -177,3 +177,30 @@ def test_a_decimal_figure_is_one_claim_and_the_dates_written_are_no_figures(conf
                       question="How many days of annual leave does a worker get, and what is the latest growth "
                                "forecast for 2031?")
     assert {c["document_id"]: c["pages"] for c in cited} == {"dl": [2], "dj": [2]}
+
+
+APRIL = ("توقعات النمو والتضخم\nيتوقع الصندوق أن ينمو الناتج المحلي لاقتصاد الواحة بنسبة 3.1 بالمئة في عام 2031.\n"
+         "ويتوقع أن يبلغ معدل التضخم 2.4 بالمئة في عام 2031.")
+JULY_UPDATE = ("توقعات النمو والتضخم بعد التحديث\nيتوقع الصندوق الآن أن ينمو الناتج المحلي لاقتصاد الواحة بنسبة 3.6 بالمئة "
+               "في عام 2031.\nويتوقع أن يبلغ معدل التضخم 2.2 بالمئة في عام 2031.")
+
+
+def test_a_claim_holding_the_current_and_the_revised_figure_cites_the_newer_version(config_dir):
+    # make-eval-20261027T133658Z, cross-annual-growth-en (ADR-0363): «3.6 …, revising the April forecast of 3.1»
+    # is one claim; the July and April pages tie on it and the older one, retrieved first, was cited.
+    april = {"id": "ap", "ref": "ap", "document_id": "da", "title": "آفاق اقتصاد الواحة - أبريل 2031", "kind": "kb",
+             "page": 2, "publisher": "صندوق الواحة للنقد", "published_on": "2031-04-15",
+             "superseded_by": "آفاق اقتصاد الواحة - يوليو 2031 (2031-07-20)"}
+    july = {"id": "jl", "ref": "jl", "document_id": "dj", "title": "آفاق اقتصاد الواحة - يوليو 2031", "kind": "kb",
+            "page": 2, "publisher": "صندوق الواحة للنقد", "published_on": "2031-07-20"}
+    answer = ("According to the Oasis Labor System published by the Oasis Ministry of Human Resources on November 1, "
+              "2030, a worker is entitled to 21 days of annual leave, which increases to 30 days after five years of "
+              "service. Regarding the economic forecast, the Oasis Monetary Fund updated its projections in its July "
+              "2031 report, \"Oasis Economic Outlook,\" to expect a GDP growth of 3.6 percent for 2031, revising the "
+              "previous April 2031 forecast of 3.1 percent.")
+    question = ("How many days of annual leave does a worker in the Oasis get, and what is the latest GDP growth "
+                "forecast for 2031?")
+    texts = {"a1": ANNUAL, "ap": APRIL, "jl": JULY_UPDATE}
+    for order in ([april, A_SOURCE, july], [july, A_SOURCE, april]):
+        cited = attribute(answer, order, texts, _rule(config_dir), question=question)
+        assert {c["document_id"]: c["pages"] for c in cited} == {"dl": [2], "dj": [2]}
