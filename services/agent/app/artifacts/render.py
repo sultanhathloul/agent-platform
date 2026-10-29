@@ -59,6 +59,14 @@ def markdown(text: str) -> str:
     return "".join(out)
 
 
+def kpi_columns(count: int) -> int:
+    """Columns for a row of KPI cards so the last row is not one card alone when that can be avoided
+    (ADR-0416): up to 4 in one row; 5, 6 and 9 in rows of 3; 7 and 8 in rows of 4."""
+    if count <= 4:
+        return max(count, 1)
+    return 3 if count in (5, 6, 9) else 4
+
+
 class PageRenderer:
     """The page in parts: `start` (the frame and the header), one `section` each, then `end`."""
 
@@ -111,7 +119,8 @@ class PageRenderer:
                 f'<div class="kit-kpi"><div class="kit-kpi-label">{e(item.label)}</div>'
                 f'<div class="{value_class}">{_number(item.value)}{unit}</div>{delta}</div>'
             )
-        return f'<section class="kit-section">{title}<div class="kit-kpis">{"".join(tiles)}</div></section>'
+        cols = kpi_columns(len(row.items))
+        return f'<section class="kit-section">{title}<div class="kit-kpis kit-kpis-{cols}">{"".join(tiles)}</div></section>'
 
     def _chart(self, chart: Chart) -> str:
         self._charts += 1

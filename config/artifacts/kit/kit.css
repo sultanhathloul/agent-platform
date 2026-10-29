@@ -142,6 +142,17 @@ svg { max-inline-size: 100%; }
 
 /* ------------------------------------------------------------------ KPI tiles */
 .kit-kpis { display: grid; gap: var(--kit-gap); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-block: 0 var(--kit-gap); }
+/* Balanced KPI rows (ADR-0416): the platform picks the columns so a last row does not hold one card alone. */
+.kit-kpis-1 { grid-template-columns: minmax(0, 1fr); }
+.kit-kpis-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kit-kpis-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kit-kpis-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 720px) {
+  .kit-kpis-3, .kit-kpis-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .kit-kpis-2, .kit-kpis-3, .kit-kpis-4 { grid-template-columns: minmax(0, 1fr); }
+}
 .kit-kpi { background: var(--kit-surface); border: 1px solid var(--kit-border); border-radius: var(--kit-radius); padding: 18px 20px; box-shadow: var(--kit-shadow); display: flex; flex-direction: column; gap: 4px; min-inline-size: 0; }
 .kit-kpi-label { color: var(--kit-ink-2); font-size: 0.88rem; font-weight: 500; }
 .kit-kpi-value { font-size: clamp(1.6rem, 1.2vw + 1.2rem, 2.2rem); font-weight: 700; color: var(--kit-ink); line-height: 1.2; }
