@@ -478,6 +478,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-29 (report branch, owner decisions 1 to 3 on PR #17, ADR-0402 to ADR-0405).** A report over knowledge bases or files first plans its sections, charts and tables (one fast-tier call) and searches once per planned chart or table beside the general search, keeping at most 40 passages. A version stores the passages behind its citations by reference; an edit with the knowledge base still toggled fetches them again from the knowledge base under its own turn's permissions. A workbook's precise figure matches the page's rounding to one or two decimals. A chart or table whose values are all «غير متوفر» is left out of the page; one with some gaps stays, gaps shown.
 
+> **Amendment 2026-10-29 (report branch, owner decisions A to D on PR #17, "option C", ADR-0406 to ADR-0409).** The report writer no longer writes HTML: it answers with a report spec, JSON matching the versioned config/artifacts/report-spec.schema.json (title, subtitle, period, language and ordered sections: kpi_row, chart, table, text, callout), each kpi_row, chart and table naming in `sources` the passages it used (P1, P2… as the context numbers them) or "general". The platform renders the spec to the stored page deterministically with the design kit, draws charts with Apache ECharts (vendored, pinned; Chart.js removed), and streams each section into the panel as it completes. Each value is checked against its element's cited passages, with a word of its position and of its measure (rounding to one or two decimals allowed); a value not found reads «—» and is listed as not available; an element with nothing found is dropped; with KB or file findings "general" is not allowed, and without them every element is general. No label sits beside any figure: a sourced report ends with «المصادر», one entry per document and under it the elements it supports with their pages or sheets; a general-knowledge report opens with «هذا التقرير من المعرفة العامة للنموذج، دون مصادر موثقة» and has no sources section. An edit changes the spec. The reports suite reads the stored spec (spec_valid, no_general, general_only, sourced figures, sources per element, request language).
+
 ---
 
 ## 14. Docker Compose (v1 services)
@@ -959,6 +961,12 @@ Rules:
 | `config/context.yaml` | `nodes.report_plan`; `nodes.report.blocks.retrieval` (24,000 tokens, top 40) | The section plan's call and the writer's passages (ADR-0403) |
 | `config/prompts/report/` | `report.plan`, `report.plan_request` 1.0.0; `report.system` 1.7.0 | The section plan; charts and tables with no evidence left out (ADR-0403, ADR-0405) |
 | `services/agent/app/db/migrations/0019_report_passages.sql` | `report_versions.passages` | The passages an edit fetches again (ADR-0402) |
+| `config/artifacts/report-spec.schema.json` (new) | `report-spec/1.0.0` | The report spec, generated from app/artifacts/spec.py (ADR-0406) |
+| `config/artifacts/report.yaml` | `version` 2.0.0; `kit.scripts` [vendor/echarts.min.js, kit.js]; `text.general_banner`, `kinds`, `untitled_element`, `sheet`, `unavailable`, `change`, `chart_gaps` (the per-figure labels removed) | Option C's page and sources (ADR-0406, ADR-0408) |
+| `config/artifacts/design-system.md`, `config/prompts/report/`, `config/prompts/context/` | 2.0.0 (the spec guide); `report.system` 2.0.0; `report.plan` 1.1.0; `context.report_current` 2.0.0; `context.retrieval` 2.2.0 | The spec, passage ids, an edit of the spec (ADR-0406) |
+| `config/artifacts/kit/` | `vendor/echarts.min.js` (5.5.1), `ECHARTS-LICENSE.txt`, `ECHARTS-NOTICE.txt`; kit.js, kit.css | Charts with ECharts; no figure labels (ADR-0406, ADR-0408) |
+| `services/agent/app/db/migrations/0020_report_spec.sql` | `report_versions.spec` | The checked spec an edit changes (ADR-0406) |
+| `evals/outputs/reports/metrics.yaml`, `evals/thresholds.yaml` | `spec_valid`, `no_general`, `general_only` (new); `figures_labelled` removed | The suite on the spec (ADR-0409) |
 
 ## 21. Getting started on a new machine
 
