@@ -26,6 +26,6 @@ __all__ = ["EXTRACTORS", "ExtractionFailed", "Extractor", "detect_kind", "extrac
 
 def extractor_version(kind: str) -> str:
     """The version of a kind's extractor; a KB document indexed by another is re-indexed by the seed (ADR-0410)."""
-    from app.rag.extract import xlsx
+    from app.rag.extract import pdf, xlsx
 
-    return {"xlsx": xlsx.VERSION}.get(kind, "1")
+    return {"xlsx": xlsx.VERSION, "pdf": pdf.VERSION}.get(kind, "1")

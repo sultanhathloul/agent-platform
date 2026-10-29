@@ -52,6 +52,52 @@ def pdf_bytes(pages: Sequence[Sequence[str]], *, visual: bool = True) -> bytes:
     return buffer.getvalue()
 
 
+def rtl_pieces_pdf_bytes(lines: Sequence[Sequence[str]], *, gap: float = 3.0) -> bytes:
+    """A page drawn as the Q2 2026 labour-market bulletin's producer drew it (ADR-0411): each line from the
+    right margin leftwards, an Arabic piece as one string in logical order, and a number one glyph at a time
+    from its rightmost glyph, so «6.5» is drawn «5», «.», «6». A piece starting with «|» is a number drawn
+    whole, a table cell; `gap` points separate pieces."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfgen import canvas
+
+    if "ArabicTest" not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont("ArabicTest", font_path()))
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4, invariant=1)
+    width, height = A4
+    pdf.setFont("ArabicTest", 12)
+    y = height - 60
+    for pieces in lines:
+        # One text object per line, a text origin per piece, as the bulletin's content stream does; Arabic
+        # stored unshaped in visual order (pypdf turns it to logical order), a number glyph by glyph.
+        line = pdf.beginText()
+        x = width - 50
+        for piece in pieces:
+            if piece.startswith("|") or not any(ch.isdigit() for ch in piece):
+                text = piece.lstrip("|")
+                x -= pdfmetrics.stringWidth(text, "ArabicTest", 12)
+                line.setFont("ArabicTest", 12)
+                line.setTextOrigin(x, y)
+                line.textOut(text if piece.startswith("|") or not any("\u0600" <= c <= "\u06ff" for c in text) else text[::-1])
+            else:
+                for ch in reversed(piece):
+                    x -= pdfmetrics.stringWidth(ch, "ArabicTest", 12)
+                    # The bulletin's producer sets the font before every glyph run, so pypdf gives each one
+                    # to its visitor on its own, in stream order.
+                    line.setFont("ArabicTest", 12)
+                    line.setTextOrigin(x, y)
+                    line.textOut(ch)
+            x -= gap if not piece.startswith("|") else 40
+        line.setFont("ArabicTest", 12)  # the last piece is handed over too
+        pdf.drawText(line)
+        y -= 20
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
 def scanned_pdf_bytes(pages: int = 2) -> bytes:
     """Pages that carry only an image of text: no text layer (ADR-0128)."""
     from PIL import Image, ImageDraw
