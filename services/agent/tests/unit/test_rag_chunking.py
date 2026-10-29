@@ -69,7 +69,8 @@ def test_xlsx_chunks_repeat_the_sheet_the_tables_titles_and_its_header(docs_conf
         ["السفر", 45000, "مهام رسمية"],
     ]
     [segment] = extract("xlsx", xlsx_bytes({"الميزانية": rows}), docs_config).segments
-    assert segment.repeat == "[الميزانية]\nميزانية هيئة الواحة لعام 2031\nأُعدت في 1 محرم\nالبند | المبلغ | الملاحظة"
+    assert segment.repeat == ("[الميزانية]\nميزانية هيئة الواحة لعام 2031\nأُعدت في 1 محرم\nالبند | المبلغ | الملاحظة\n"
+                              "[columns] البند | المبلغ | الملاحظة")
     assert segment.text.split("\n") == ["التدريب | 120000 | دورات داخلية", "السفر | 45000 | مهام رسمية"]
 
 
@@ -89,13 +90,14 @@ def test_a_statistical_tables_multi_row_header_and_title_open_every_chunk(docs_c
     [segment] = extract("xlsx", xlsx_bytes({"3-1": rows}), docs_config).segments
     assert segment.repeat.split("\n")[:3] == ["[3-1]", " | إحصاءات سوق العمل الربع الثاني 2026",
                                                " | التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس(%) - سلسلة زمنية"]
-    assert segment.repeat.endswith(" | الذكور | الاناث | الذكور | الاناث")
+    assert " | الذكور | الاناث | الذكور | الاناث\n[columns] " in segment.repeat
     chunks = chunk_segments([segment], _Words(), max_tokens=120, overlap_tokens=10)
     last = next(c for c in chunks if "الربع الثاني 2026 | 66.366373" in c.text)
     assert "التوزيع النسبي للمشتغلين" in last.text and "الذكور | الاناث" in last.text
     years = [["جدول (2)"], ["المؤشر", "2025", "2026"], ["معدل البطالة", 3.2, 3.0]]
     [segment] = extract("xlsx", xlsx_bytes({"2": years}), docs_config).segments
-    assert segment.repeat.endswith("المؤشر | 2025 | 2026") and segment.text == "معدل البطالة | 3.2 | 3"
+    assert segment.repeat.endswith("المؤشر | 2025 | 2026\n[columns] المؤشر | 2025 | 2026")
+    assert segment.text == "معدل البطالة | 3.2 | 3"
 
 
 def test_a_sheet_without_a_table_takes_its_first_row(docs_config):
@@ -103,3 +105,56 @@ def test_a_sheet_without_a_table_takes_its_first_row(docs_config):
         "xlsx", xlsx_bytes({"ملاحظات": [["ملاحظة أولى"], ["ملاحظة ثانية"]]}), docs_config
     ).segments
     assert segment.repeat == "[ملاحظات]\nملاحظة أولى" and segment.text == "ملاحظة ثانية"
+
+
+def _gastat_table() -> bytes:
+    """Table 1 of the Q2 2026 labour-market workbook, as GASTAT builds it: a title merged over the table, the
+    nationality merged over its three columns, the cells stored at full precision with a one-decimal format."""
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "1"
+    sheet["B1"] = "المؤشرات الرئيسية لاحصاءات سوق العمل حسب الجنسية والجنس"
+    sheet.merge_cells("B1:G1")
+    sheet["A2"], sheet["B2"], sheet["E2"] = "المؤشرات", "السعوديين", "غير السعوديين"
+    sheet.merge_cells("B2:D2")
+    sheet.merge_cells("E2:G2")
+    for col, sex in zip("BCDEFG", ["الذكور", "الاناث", "الإجمالي"] * 2, strict=True):
+        sheet[f"{col}3"] = sex
+    values = [4.84352836909752, 9.56074240840159, 6.48407237148921, 1.09065752454951, 3.81932584269662,
+              1.32960919200363]
+    sheet["A4"] = "معدل البطالة"
+    for col, value in zip("BCDEFG", values, strict=True):
+        sheet[f"{col}4"] = value
+        sheet[f"{col}4"].number_format = "[$-10401]#,##0.0;\\(#,##0\\)"
+    sheet["A5"], sheet["B5"], sheet["C5"] = "عدد المشتغلين", 12345678, 0.256
+    sheet["B5"].number_format, sheet["C5"].number_format = "#,##0", "0.0%"
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+def test_merged_headers_name_every_column_and_cells_read_as_displayed(docs_config):
+    """ADR-0413: «غير السعوديين» merged over three columns names each of them, each column's full label is
+    written once, and a cell reads as the workbook shows it, not at full float precision."""
+    [segment] = extract("xlsx", _gastat_table(), docs_config).segments
+    lines = segment.repeat.split("\n")
+    assert lines[1] == " | المؤشرات الرئيسية لاحصاءات سوق العمل حسب الجنسية والجنس"  # a title is not repeated
+    assert "المؤشرات | السعوديين | السعوديين | السعوديين | غير السعوديين | غير السعوديين | غير السعوديين" in lines
+    assert lines[-1] == ("[columns] المؤشرات | السعوديين › الذكور | السعوديين › الاناث | السعوديين › الإجمالي | "
+                         "غير السعوديين › الذكور | غير السعوديين › الاناث | غير السعوديين › الإجمالي")
+    assert segment.text.split("\n") == ["معدل البطالة | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3",
+                                        "عدد المشتغلين | 12,345,678 | 25.6%"]
+
+
+def test_number_formats_as_a_spreadsheet_shows_them():
+    from app.rag.extract.xlsx import displayed
+
+    assert displayed(83.60299013, "[$-10401]#,##0.0;\\(#,##0\\)") == "83.6"
+    assert displayed(1234.5, "#,##0") == "1,235" and displayed(0.4567, "0.00%") == "45.67%"
+    assert displayed(12.5, '0.0" %"') == "12.5 %" and displayed(3.0, "General") == "3"
+    assert displayed(83.60299013456789, "General") == "83.60299013" and displayed(46000, "dd/mm/yyyy") == "46000"
+
