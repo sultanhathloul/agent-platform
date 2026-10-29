@@ -165,7 +165,9 @@ class SpecStream:
     async def _head(self, head: Head) -> Head:
         data = head.model_dump(mode="json")
         await self._checked(data)
-        return Head.model_validate(data)
+        checked = Head.model_validate(data)
+        self._verifier.period = checked.period  # a label with no period of its own is the report's (ADR-0414)
+        return checked
 
     async def _section(self, raw: dict, *, emit: bool) -> None:
         self._seen += 1

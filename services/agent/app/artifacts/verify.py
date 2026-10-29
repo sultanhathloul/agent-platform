@@ -22,8 +22,140 @@ from dataclasses import dataclass, field
 
 from app.artifacts.figures import ARABIC, LATIN, canonical, canonical_number, figures, spans, words
 from app.artifacts.spec import Callout, Chart, KpiRow, ReportSpec, Table, Text
+from app.text.arabic import normalize
 
 MISSING = "—"
+
+
+# ------------------------------------------------------------------ qualifiers (owner decision 1 on PR #17, ADR-0414)
+
+_AMBIGUOUS = "*"
+_NON_SAUDI = re.compile(r"غير\s*(?:ال)?سعودي|non[- ]?saudi", re.I)
+_SAUDI = re.compile(r"سعودي|سعوديات|saudi", re.I)
+_SAUDI_WOMEN = re.compile(r"سعوديات")
+_MALE = re.compile(r"(?<![\w])(?:وال|بال|لل|ال|ل|و)?(?:ذكور|ذكر|رجال)(?![\w])|\b(?:males?|men)\b", re.I)
+_FEMALE = re.compile(r"(?<![\w])(?:وال|بال|لل|ال|ل|و)?(?:اناث|انثي|نساء|بينهن)(?![\w])|سعوديات|\b(?:females?|women)\b", re.I)
+_QUARTERS = {"الاول": 1, "الثاني": 2, "الثالث": 3, "الرابع": 4}
+_QUARTER = re.compile(r"الربع\s*(الاول|الثاني|الثالث|الرابع)|\bQ([1-4])\b", re.I)
+_YEAR = re.compile(r"(?<!\d)(20\d\d)(?!\d)")
+_TOTAL = re.compile(r"اجمالي|الاجمالي|لاجمالي|\btotal\b|\boverall\b", re.I)
+_BOTH = re.compile(
+    r"(?:لل|ال)?سعوديين\s*و\s*غير\s*(?:ال)?سعوديين|(?:ال)?ذكور\s*و\s*(?:ال)?اناث|(?:ال)?اناث\s*و\s*(?:ال)?ذكور"
+)
+# How far before a figure prose's qualifiers are read (ADR-0414), back to the last full stop at most.
+PROSE_WINDOW = 400
+_FULL_STOP = re.compile(r"[.!?؟]\s+(?=[^\W\d_])")
+
+
+@dataclass(frozen=True)
+class Qualifiers:
+    """What a label or a row says of its group: sex, nationality (None: the total; "*": both named, which
+    prose cannot settle), and its period."""
+
+    sex: str | None = None
+    nationality: str | None = None
+    quarter: int | None = None
+    year: str | None = None
+
+    @classmethod
+    def of(cls, text: str) -> "Qualifiers":
+        folded = normalize(text)
+        rest = _NON_SAUDI.sub(" ", folded)
+        non_saudi, saudi = bool(_NON_SAUDI.search(folded)), bool(_SAUDI.search(rest))
+        nationality = _AMBIGUOUS if non_saudi and saudi else "non_saudi" if non_saudi else "saudi" if saudi else None
+        male, female = bool(_MALE.search(folded)), bool(_FEMALE.search(folded))
+        sex = _AMBIGUOUS if male and female else "male" if male else "female" if female else None
+        quarter = _QUARTER.search(folded)
+        years = set(_YEAR.findall(folded))
+        return cls(
+            sex=sex,
+            nationality=nationality,
+            quarter=(_QUARTERS.get(quarter.group(1)) if quarter.group(1) else int(quarter.group(2))) if quarter else None,
+            year=next(iter(years)) if len(years) == 1 else None,
+        )
+
+    @classmethod
+    def before(cls, text: str) -> "Qualifiers":
+        """The qualifiers prose gives a figure: in the text before it, the nearest sex and nationality named
+        win («… السعوديات … 30.5 … أما الذكور السعوديون … 63.9»: 63.9 is the men's), a «الإجمالي» after them
+        makes it the total, and a pair named together («للسعوديين وغير السعوديين»، «الذكور والإناث») is the
+        total too."""
+        folded = _BOTH.sub(" اجمالي ", normalize(text))
+
+        def last(*patterns: re.Pattern) -> list[int]:
+            return [max((m.end() for m in p.finditer(folded)), default=-1) for p in patterns]
+
+        total = max((m.end() for m in _TOTAL.finditer(folded)), default=-1)
+        rest = _NON_SAUDI.sub(lambda m: " " * len(m.group(0)), folded)
+        non_saudi = max((m.end() for m in _NON_SAUDI.finditer(folded)), default=-1)
+        saudi = max((m.end() for m in _SAUDI.finditer(rest)), default=-1)
+        male, female = last(_MALE, _FEMALE)
+        nationality = None
+        if max(saudi, non_saudi) > total:
+            nationality = "non_saudi" if non_saudi > saudi else "saudi"
+        sex = None
+        if max(male, female) > total:
+            sex = "male" if male > female else "female"
+        # No period from prose: the one near a figure is as often the one it is compared with («مقارنةً
+        # بالربع الأول»); a workbook row names its own.
+        return cls(sex=sex, nationality=nationality)
+
+    def agrees(self, row: "Qualifiers") -> bool:
+        """A label's qualifiers against its row's: sex and nationality equal, a total (None) only against a
+        total; a row that names both (prose) does not constrain; a period, when both name one, equal."""
+        for mine, theirs in ((self.sex, row.sex), (self.nationality, row.nationality)):
+            if theirs != _AMBIGUOUS and mine != theirs:
+                return False
+        if self.quarter and row.quarter and self.quarter != row.quarter:
+            return False
+        return not (self.year and row.year and self.year != row.year)
+
+
+@dataclass
+class _Unit:
+    """One place a passage states figures: a workbook cell (its row and column) or a sentence of prose."""
+
+    context: str
+    figures: set[str]
+    words: set[str]
+    qualifiers: Qualifiers
+
+
+_SENTENCE = re.compile(r"(?<=[.!?؟])\s+(?=\D)|\n+")
+
+
+def _units(text: str) -> list[_Unit]:
+    lines = text.split("\n")
+    columns = next((line[len("[columns] "):].split(" | ") for line in lines if line.startswith("[columns] ")), None)
+    units: list[_Unit] = []
+    if columns is not None:
+        # A workbook chunk (ADR-0413): its title lines, then rows «label | v1 | v2 …» under [columns].
+        titles = [line for line in lines if line.startswith(" | ") or line.startswith("[") and not line.startswith("[columns]")]
+        title = " ".join(t.strip(" |[]") for t in titles if "|" not in t.strip(" |") or t.startswith(" | "))
+        for line in lines:
+            cells = line.split(" | ")
+            if line.startswith("[") or len(cells) < 2 or not any(spans(c) for c in cells[1:]):
+                continue
+            for col, cell in enumerate(cells[1:], start=1):
+                found = figures([cell])
+                if not found:
+                    continue
+                label = columns[col] if col < len(columns) else ""
+                row_and_column = f"{cells[0]} {label}"
+                context = f"{title} {row_and_column}"
+                units.append(_Unit(context, found, words([context]), Qualifiers.of(row_and_column)))
+        return units
+    # Prose (a PDF page, a document's text): one unit per figure, read with the text just before it, its
+    # layout line breaks joined.
+    flat = re.sub(r"\s+", " ", text)
+    for start, end, figure in spans(flat):
+        before = flat[max(0, start - PROSE_WINDOW) : start]
+        stops = list(_FULL_STOP.finditer(before))
+        if stops:
+            before = before[stops[-1].end() :]
+        context = before + flat[start : end + 40]
+        units.append(_Unit(context, figures([flat[start:end]]), words([context]), Qualifiers.before(before)))
+    return units
 
 
 @dataclass
@@ -38,36 +170,36 @@ class Passage:
     kb_name: dict | None = None
     page: int | None = None
     locator: str | None = None
-    _figures: set[str] | None = None
-    _words: set[str] | None = None
+    _units: list[_Unit] | None = None
 
     @property
-    def figures(self) -> set[str]:
-        if self._figures is None:
-            self._figures = figures([self.text])
-        return self._figures
+    def units(self) -> list[_Unit]:
+        if self._units is None:
+            self._units = _units(self.text)
+        return self._units
 
-    @property
-    def words(self) -> set[str]:
-        if self._words is None:
-            self._words = words([self.text])
-        return self._words
-
-    def holds(self, figure: str, groups: Sequence[Sequence[str]]) -> bool:
-        """The passage holds the figure and, for each group of labels that has a word of its own, one of
-        them: the value's position (its category or row) and its measure (its series or column, the
-        element's title), so 84.3 under «ذكور» in a participation table is not a share of employed men."""
-        if figure not in self.figures:
-            return False
-        for labels in groups:
-            wanted = words(labels)
-            if not wanted or wanted & self.words:
+    def holds(self, figure: str, groups: Sequence[Sequence[str]], qualifiers: Qualifiers | None = None) -> bool:
+        """The figure sits in one of the passage's rows (a workbook cell's row and column, or a sentence) that
+        also holds, for each group of labels with a word of its own, one of its words (the value's position,
+        its measure), and whose qualifiers agree with the label's (ADR-0414): a total's label only in a total's
+        row or column, «الذكور» only in the men's, the period its own. So 4.8, Saudi men's unemployment, is not
+        «معدل البطالة الإجمالي», and 84.3 under «ذكور» in a participation table is not a share of employed men."""
+        for unit in self.units:
+            if figure not in unit.figures:
                 continue
-            # A label in a script the passage does not use was translated (ADR-0396): the figure decides.
-            text = " ".join(labels)
-            if (ARABIC.search(text) and ARABIC.search(self.text)) or (LATIN.search(text) and LATIN.search(self.text)):
-                return False
-        return True
+            if qualifiers is not None and not qualifiers.agrees(unit.qualifiers):
+                continue
+            if all(self._worded(labels, unit) for labels in groups):
+                return True
+        return False
+
+    def _worded(self, labels: Sequence[str], unit: _Unit) -> bool:
+        wanted = words(labels)
+        if not wanted or wanted & unit.words:
+            return True
+        # A label in a script the passage does not use was translated (ADR-0396): the figure decides.
+        text = " ".join(labels)
+        return not ((ARABIC.search(text) and ARABIC.search(unit.context)) or (LATIN.search(text) and LATIN.search(unit.context)))
 
 
 @dataclass
@@ -110,6 +242,8 @@ class Verifier:
         self.kinds = kinds  # the sources section's word per element kind
         self.untitled = untitled
         self.change = change  # how a KPI's delta is named among the unavailable values
+        # The report's period (its head's `period`): a value's label that names none is of this period.
+        self.period: str | None = None
         self.result = Verified(spec=None, sourced=sourced)  # type: ignore[arg-type]
         self._docs: dict[str, Document] = {}
 
@@ -137,8 +271,13 @@ class Verifier:
             nonlocal total, found
             total += 1
             figure = canonical_number(value) if isinstance(value, int | float) else canonical(str(value))
+            label = " ".join(text for group in groups for text in group if text)
+            qualifiers = Qualifiers.of(label)
+            if self.period and qualifiers.quarter is None and qualifiers.year is None:
+                period = Qualifiers.of(self.period)
+                qualifiers = Qualifiers(qualifiers.sex, qualifiers.nationality, period.quarter, period.year)
             for passage in cited:
-                if passage.holds(figure, groups):
+                if passage.holds(figure, groups, qualifiers):
                     found += 1
                     self._use(uses, section, title, passage)
                     if passage.ref not in self.result.refs:
@@ -218,6 +357,7 @@ class Verifier:
 
     # ------------------------------------------------------------------ the whole spec
     def spec(self, spec: ReportSpec) -> Verified:
+        self.period = spec.period
         kept = [s for s in (self.element(section) for section in spec.sections) if s is not None]
         self.result.spec = spec.model_copy(update={"sections": kept})
         return self.result

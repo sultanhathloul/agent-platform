@@ -26,17 +26,45 @@ KINDS = {"kpi_row": "مؤشرات", "chart": "رسم", "table": "جدول"}
 TABLE_1 = ("جدول 1: المؤشرات الرئيسة لسوق العمل السعودي حسب أرباع السنة المؤشرات الربع الثاني 2025 الربعالاول 2026 "
            "الربعالثاني 2026 ذكور إناث الإجمالي معدل البطالة 2.0 8.7 3.2 2.2 7.2 3.1 2.1 7.6 3.0 سعودي 4.3 11.3 6.8 "
            "4.9 9.0 6.4 4.8 9.6 6.5 معدل المشاركة في القوى العاملة 83.5 35.4 67.1 84.0 34.3 67.2 84.3 34.0 67.2")
-TABLE_3_1 = ("التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس(%) | السعوديين | غير السعوديين | الإجمالي | الذكور | الاناث "
-             "الربع الثاني 2026 | 66.366373 | 33.633627 | 100 | 91.46388445 | 8.536115554 | 100 | 83.60299013 | 16.39700987 | 100")
+# Sheets 1 and 3-1 of the workbook as the extractor (version 3, ADR-0413) cuts them: titles, filled headers,
+# each column's full label, cells as displayed.
+SHEET_1 = """[1]
+ | المؤشرات الرئيسية لاحصاءات سوق العمل حسب الجنسية والجنس
+جدول (1)
+المؤشرات (مسح القوى العاملة ) | السعوديين | السعوديين | السعوديين | غير السعوديين | غير السعوديين | غير السعوديين | الإجمالي | الإجمالي | الإجمالي
+المؤشرات (مسح القوى العاملة ) | الذكور | الاناث | الإجمالي | الذكور | الاناث | الإجمالي | الذكور | الاناث | الإجمالي
+[columns] المؤشرات (مسح القوى العاملة ) | السعوديين › الذكور | السعوديين › الاناث | السعوديين › الإجمالي | غير السعوديين › الذكور | غير السعوديين › الاناث | غير السعوديين › الإجمالي | الإجمالي › الذكور | الإجمالي › الاناث | الإجمالي
+معدل البطالة | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3 | 2.1 | 7.6 | 3.0
+معدل المشتغلين من السكان في سن العمل | 60.8 | 30.5 | 45.5 | 93.6 | 33.4 | 81.1 | 82.5 | 31.5 | 65.2
+معدل المشاركة في قوة العمل (%) | 63.9 | 33.7 | 48.7 | 94.6 | 34.7 | 82.2 | 84.3 | 34.0 | 67.2"""
+TABLE_3_1 = """[3-1]
+ | التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس(%) - سلسلة زمنية
+جدول (3-1)
+الربع / السنة | السعوديين | السعوديين | السعوديين | غير السعوديين | غير السعوديين | غير السعوديين | الإجمالي | الإجمالي | الإجمالي
+الربع / السنة | الذكور | الاناث | الإجمالي | الذكور | الاناث | الإجمالي | الذكور | الاناث | الإجمالي
+[columns] الربع / السنة | السعوديين › الذكور | السعوديين › الاناث | السعوديين › الإجمالي | غير السعوديين › الذكور | غير السعوديين › الاناث | غير السعوديين › الإجمالي | الإجمالي › الذكور | الإجمالي › الاناث | الإجمالي
+الربع الأول 2026 | 66.2 | 33.8 | 100 | 91.4 | 8.6 | 100 | 83.5 | 16.5 | 100
+الربع الثاني 2026 | 66.4 | 33.6 | 100 | 91.5 | 8.5 | 100 | 83.6 | 16.4 | 100"""
+# The bulletin's text about Saudi men (p. 1): 4.8, 63.9 and 60.8 are theirs, not the totals 3.0, 67.2, 65.2.
+SAUDI_MEN = ("وانخفاض معدل المشتغلات السعوديات إلى السكان بمقدار 0.3 نقطة مئوية ليبلغ 30.5 .%، وذلك مقارنةً بالربع "
+             "السابق أما فيما يتعلق بالذكور السعوديين، فقد انخفض معدل البطالة بمقدار 0.1 نقطة مئوية ليبلغ 4.8 %، كما "
+             "تراجع معدل المشاركة في القوى العاملة بمقدار 0.3 نقطة مئوية ليبلغ 63.9 %، فيما سجّل معدل المشتغلين إلى "
+             "السكان انخفاضًا بمقدار 0.2 نقطة مئوية ليبلغ 60.8.%، مقارنةً بالربع السابق")
 P1 = Passage("P1", "r1", TABLE_1, document_id="bulletin", title="إحصاءات سوق العمل للربع الثاني 2026",
              publisher="الهيئة العامة للإحصاء", published_on="2026-09-30",
              kb_name={"ar": "إحصاءات الهيئة العامة للإحصاء", "en": "GASTAT statistics"}, page=1)
 P2 = Passage("P2", "r2", TABLE_3_1, document_id="workbook", title="إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)",
              publisher="الهيئة العامة للإحصاء", published_on="2026-09-30", locator="3-1")
+P3 = Passage("P3", "r3", SHEET_1, document_id="workbook", title="إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)",
+             publisher="الهيئة العامة للإحصاء", published_on="2026-09-30", locator="1")
+P4 = Passage("P4", "r4", SAUDI_MEN, document_id="bulletin", title="إحصاءات سوق العمل للربع الثاني 2026",
+             publisher="الهيئة العامة للإحصاء", published_on="2026-09-30", page=1)
 
 
-def verifier(*, sourced: bool = True) -> Verifier:
-    return Verifier([P1, P2], sourced=sourced, kinds=KINDS, untitled=TEXT.untitled_element.of("ar"))
+def verifier(*, sourced: bool = True, period: str | None = None) -> Verifier:
+    v = Verifier([P1, P2, P3, P4], sourced=sourced, kinds=KINDS, untitled=TEXT.untitled_element.of("ar"))
+    v.period = period
+    return v
 
 
 def spec(*sections, language="ar") -> ReportSpec:
@@ -94,8 +122,8 @@ def test_canonical_figures(raw, expected):
 
 
 def test_names_with_digits_are_not_figures_and_a_workbooks_precision_rounds():
-    assert [c for _, _, c in spans("Q1 و COVID-19 و 5G و 3 872")] == ["3872"]
-    assert {"83.6", "16.4", "66.37", "66.4"} <= figures([TABLE_3_1])
+    assert [c for _, _, c in spans("Q1 و COVID-19 و 5G و 3\u202f872")] == ["3872"]
+    assert {"83.6", "16.4", "66.37", "66.4"} <= figures(["83.60299013 | 16.39700987 | 66.366373"])
     assert "3.7" not in figures(["3.65"]) and canonical_number(3.0) == "3"
 
 
@@ -109,8 +137,8 @@ def test_a_value_counts_only_with_its_label_in_one_of_its_elements_cited_passage
     assert "توزيع المشتغلين حسب الجنس" in v.result.dropped
 
 
-def test_the_gender_doughnut_is_found_in_table_3_1_by_its_rounding():
-    v = verifier()
+def test_the_gender_doughnut_is_found_in_table_3_1_in_its_quarters_row():
+    v = verifier(period="الربع الثاني 2026")
     checked = v.element(spec(GENDER).sections[0])
     assert checked.series[0].data == [83.6, 16.4]
     [doc] = v.result.documents
@@ -238,3 +266,45 @@ def test_the_model_strip_names_each_call_and_is_removed_when_not_shown():
     checked = v.spec(s)
     with_strip = render_page(checked.spec, renderer, "", strip)
     assert "kit-model-info" in with_strip and "kit-model-info" not in without_model_info(with_strip)
+
+
+# ------------------------------------------------------------------ a value in its own row and column (ADR-0414)
+
+
+def _kpis(items, sources):
+    return spec({"kind": "kpi_row", "items": [{"label": label, "value": value} for label, value in items],
+                 "sources": sources}).sections[0]
+
+
+def test_a_total_kpi_matches_the_totals_row_never_a_subgroups():
+    """The dashboard runs of 2026-10-29: v1 showed 63.9 and 60.8 (Saudi men's) as the participation and
+    employment-to-population rates, v2 showed 4.8 (Saudi men's) as the total unemployment rate."""
+    v = verifier(period="الربع الثاني 2026")
+    from_text = v.element(_kpis([("معدل البطالة الإجمالي", 4.8), ("معدل المشاركة في القوى العاملة", 63.9),
+                                 ("معدل المشتغلين إلى السكان", 60.8)], ["P4"]))
+    assert from_text is None  # nothing is the total's: all three are the men's
+    from_sheet = v.element(_kpis([("معدل البطالة الإجمالي", 4.8), ("معدل المشاركة في القوى العاملة", 63.9),
+                                  ("معدل المشتغلين من السكان", 60.8)], ["P3"]))
+    assert from_sheet is None
+    totals = v.element(_kpis([("معدل البطالة الإجمالي", 3.0), ("معدل المشاركة في القوى العاملة", 67.2),
+                              ("معدل المشتغلين من السكان", 65.2)], ["P3"]))
+    assert [i.value for i in totals.items] == [3.0, 67.2, 65.2]
+    men = v.element(_kpis([("معدل البطالة للسعوديين الذكور", 4.8), ("معدل المشاركة للسعوديين الذكور", 63.9)], ["P4"]))
+    assert [i.value for i in men.items] == [4.8, 63.9]
+
+
+def test_nationality_and_sex_qualifiers_choose_the_column():
+    v = verifier(period="الربع الثاني 2026")
+    rates = v.element(_kpis([("معدل البطالة للسعوديين", 6.5), ("معدل البطالة لغير السعوديين", 1.3),
+                             ("معدل البطالة لغير السعوديين", 6.5)], ["P3"]))
+    assert [i.value for i in rates.items] == [6.5, 1.3, None]
+
+
+def test_the_period_chooses_the_row():
+    v = verifier(period="الربع الثاني 2026")
+    q1 = {**GENDER, "series": [{"name": "الإجمالي", "data": [83.5, 16.5]}]}  # the first quarter's row
+    assert v.element(spec(q1).sections[0]) is None
+    labelled = {**GENDER, "labels": ["الذكور", "الإناث"], "title": "توزيع المشتغلين حسب الجنس - الربع الأول 2026",
+                "series": [{"name": "الإجمالي", "data": [83.5, 16.5]}]}
+    assert v.element(spec(labelled).sections[0]).series[0].data == [83.5, 16.5]
+
