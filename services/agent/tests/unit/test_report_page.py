@@ -131,10 +131,15 @@ def test_invalid_report_data_is_an_empty_block():
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("1,250", "1250"), ("١٬٢٥٠", "1250"), ("3.60", "3.6"), ("٣٫٦", "3.6"), ("007", "7"), ("2031", "2031"), ("0.50", "0.5")],
+    [("1,250", "1250"), ("١٬٢٥٠", "1250"), ("3\u202f872", "3872"), ("1\u00a0419.5", "1419.5"), ("3.60", "3.6"), ("٣٫٦", "3.6"), ("007", "7"), ("2031", "2031"), ("0.50", "0.5")],
 )
 def test_canonical_figures(raw, expected):
     assert canonical(raw) == expected
+
+
+def test_a_number_with_no_break_space_separators_is_one_figure():
+    # make-eval-20261029T103028Z: the heavy model wrote 3 872 with U+202F, labelled as 3 and 872.
+    assert [c for _, _, c in spans("السعة 3\u202f872 جيجاواط، و 2024 300 وحدة")] == ["3872", "2024", "300"]
 
 
 def test_names_with_digits_are_not_figures():

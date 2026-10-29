@@ -25,12 +25,15 @@ _INDIC = str.maketrans(
 )
 _DIGIT = r"[0-9٠-٩۰-۹]"
 _DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{2,4}")
-FIGURE = re.compile(rf"{_DIGIT}{{1,3}}(?:[,٬]{_DIGIT}{{3}})+(?:[.٫]{_DIGIT}+)?|{_DIGIT}+(?:[.٫]{_DIGIT}+)?")
+# Thousands separators: the comma, the Arabic one, and the narrow and plain no-break spaces of the SI
+# style ("3 872"), which a model writes too; a plain space never joins two figures.
+FIGURE = re.compile(rf"{_DIGIT}{{1,3}}(?:[,٬\u202f\u00a0]{_DIGIT}{{3}})+(?:[.٫]{_DIGIT}+)?|{_DIGIT}+(?:[.٫]{_DIGIT}+)?")
 
 
 def canonical(raw: str) -> str:
     """A figure's canonical form: Western digits, no separators, no leading or trailing zeros."""
-    text = raw.translate(_INDIC).replace(",", "").replace("٬", "").replace("٫", ".")
+    text = raw.translate(_INDIC).replace(",", "").replace("٬", "").replace("\u202f", "").replace("\u00a0", "")
+    text = text.replace("٫", ".")
     whole, _, fraction = text.partition(".")
     whole = whole.lstrip("0") or "0"
     fraction = fraction.rstrip("0")
