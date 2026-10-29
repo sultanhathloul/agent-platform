@@ -1,170 +1,114 @@
-/* Sovereign report kit v1 (reports PR, I2, ADR-0370): renders a report's charts from its one
-   <script type="application/json" id="report-data"> block with the vendored Chart.js, marks the
-   source of every value the platform labelled (owner decision A, ADR-0388), and adds the theme toggle, tabs and sortable tables.
-   No network, no storage (the page runs sandboxed with an opaque origin, connect-src 'none'), and
-   text from the data is only ever set with textContent. */
+/* Sovereign report kit v1 (reports PR, I2, ADR-0370; option C, ADR-0406): draws a report's charts from the
+   platform-rendered page with the vendored Apache ECharts, one <script type="application/json"
+   class="kit-chart-data" id="cN"> per chart beside its <div class="kit-chart" data-chart="cN">, and adds the
+   theme toggle, tabs and sortable tables. A missing value (null) is a gap; no figure carries a label (ADR-0408).
+   No network, no storage (the page runs sandboxed with an opaque origin, connect-src 'none'), and text from the
+   data is only ever set as text (ECharts escapes it in its SVG renderer). */
 (function () {
   "use strict";
 
   var root = document.documentElement;
   var rtl = (root.getAttribute("dir") || "").toLowerCase() === "rtl";
   var english = /^en\b/i.test(root.getAttribute("lang") || "");
-  var TEXT = english
-    ? { sources: "Sources of this chart's values:", dark: "Dark", light: "Light", missing: "No data for this chart." }
-    : { sources: "مصادر قيم هذا الرسم:", dark: "داكن", light: "فاتح", missing: "لا بيانات لهذا الرسم." };
+  var TEXT = english ? { dark: "Dark", light: "Light" } : { dark: "داكن", light: "فاتح" };
   var charts = [];
 
   function css(name) {
     return getComputedStyle(root).getPropertyValue(name).trim();
   }
 
-  function series(index) {
+  function color(index) {
     return css("--kit-series-" + ((index % 8) + 1)) || "#2a78d6";
   }
 
-  function readData() {
-    var node = document.getElementById("report-data");
-    if (!node) return {};
-    try {
-      var data = JSON.parse(node.textContent || "{}");
-      return data && typeof data === "object" ? data : {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function numberFormat(unit) {
+  function format(unit) {
     return function (value) {
-      if (typeof value !== "number") return value;
+      if (typeof value !== "number") return value === null || value === undefined ? "—" : String(value);
       var text = value.toLocaleString("en-US", { maximumFractionDigits: 2 });
       return unit ? text + (unit === "%" ? "%" : " " + unit) : text;
     };
   }
 
-  function chartType(spec) {
-    var kind = String(spec.type || "bar");
-    if (kind === "area") return "line";
-    if (kind === "horizontalBar" || kind === "stackedBar") return "bar";
-    return ["bar", "line", "pie", "doughnut", "radar", "polarArea"].indexOf(kind) >= 0 ? kind : "bar";
+  function readChart(node) {
+    try {
+      var data = JSON.parse(node.textContent || "{}");
+      return data && typeof data === "object" ? data : null;
+    } catch (e) {
+      return null;
+    }
   }
 
-  function config(spec) {
-    var kind = String(spec.type || "bar");
-    var type = chartType(spec);
-    var round = type === "pie" || type === "doughnut" || type === "polarArea";
-    var surface = css("--kit-surface");
+  function option(spec) {
+    var kind = spec.type;
+    var unit = typeof spec.unit === "string" ? spec.unit : "";
+    var fmt = format(unit);
     var labels = Array.isArray(spec.labels) ? spec.labels.map(String) : [];
-    var datasets = (Array.isArray(spec.datasets) ? spec.datasets : []).map(function (set, i) {
-      var general = Array.isArray(set.general) && set.general.length > 0;
-      var color = series(i);
-      var label = String(set.label || "");
+    var list = Array.isArray(spec.series) ? spec.series : [];
+    var ink = css("--kit-ink-2") || "#52514e";
+    var grid = css("--kit-grid") || "#e5e4e0";
+    var font = getComputedStyle(document.body).fontFamily;
+    var text = { color: ink, fontFamily: font };
+    var base = {
+      animation: false,
+      textStyle: text,
+      color: list.map(function (_, i) { return color(i); }),
+      tooltip: { trigger: kind === "pie" || kind === "doughnut" ? "item" : "axis", valueFormatter: fmt, confine: true },
+      legend: { show: list.length > 1 || kind === "pie" || kind === "doughnut", top: 0, textStyle: text, right: rtl ? 0 : "auto", left: rtl ? "auto" : 0 }
+    };
+    if (kind === "pie" || kind === "doughnut") {
+      var first = list[0] || { data: [] };
+      base.color = labels.map(function (_, i) { return color(i); });
+      base.series = [{
+        type: "pie",
+        name: String(first.name || ""),
+        radius: kind === "doughnut" ? ["45%", "70%"] : "70%",
+        top: 28,
+        label: { color: ink, fontFamily: font, formatter: function (p) { return p.name + ": " + fmt(p.value); } },
+        data: labels.map(function (name, i) { var v = (first.data || [])[i]; return { name: name, value: typeof v === "number" ? v : null }; })
+          .filter(function (d) { return d.value !== null; })
+      }];
+      return base;
+    }
+    base.grid = { top: 36, bottom: 8, left: 8, right: 8, containLabel: true };
+    base.xAxis = { type: "category", data: labels, inverse: rtl, axisLabel: { color: ink, fontFamily: font, hideOverlap: true }, axisLine: { lineStyle: { color: grid } } };
+    base.yAxis = { type: "value", position: rtl ? "right" : "left", axisLabel: { color: ink, fontFamily: font, formatter: fmt }, splitLine: { lineStyle: { color: grid } } };
+    base.series = list.map(function (set) {
       var data = (Array.isArray(set.data) ? set.data : []).map(function (v) { return typeof v === "number" ? v : null; });
-      var out = { label: label, data: data, borderWidth: 2 };
-      if (round) {
-        out.backgroundColor = data.map(function (_, j) { return series(j); });
-        out.borderColor = surface;
-      } else if (type === "line") {
-        out.borderColor = color;
-        out.backgroundColor = kind === "area" ? color + "33" : color;
-        out.fill = kind === "area";
-        out.tension = 0.3;
-        out.pointRadius = 3;
-        out.pointHoverRadius = 6;
-        if (general) out.borderDash = [6, 4];
+      var out = { name: String(set.name || ""), data: data, connectNulls: false };
+      if (kind === "line" || kind === "area") {
+        out.type = "line";
+        out.symbolSize = 6;
+        if (kind === "area") out.areaStyle = { opacity: 0.18 };
       } else {
-        out.backgroundColor = color;
-        out.borderColor = color;
-        out.borderRadius = 4;
-        out.borderSkipped = "start";
-        out.maxBarThickness = 44;
-        if (general) { out.backgroundColor = color + "66"; out.borderDash = [4, 3]; }
+        out.type = "bar";
+        out.barMaxWidth = 36;
+        if (kind === "stacked_bar") out.stack = "total";
       }
       return out;
     });
-    var ink = css("--kit-ink-2"), grid = css("--kit-grid"), muted = css("--kit-muted");
-    var format = numberFormat(spec.unit);
-    var options = {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 400 },
-      locale: "en-US",
-      font: { family: css("--kit-font") },
-      plugins: {
-        legend: { display: datasets.length > 1 || round, position: "bottom", rtl: rtl, textDirection: rtl ? "rtl" : "ltr", labels: { color: ink, usePointStyle: true, boxWidth: 8, font: { family: css("--kit-font") } } },
-        tooltip: { rtl: rtl, textDirection: rtl ? "rtl" : "ltr", callbacks: {
-          title: function (items) { var it = items[0]; if (!it) return ""; var named = Array.isArray(spec.label_sources) ? spec.label_sources[it.dataIndex] : null; return String(it.label || "") + (named ? " (" + named + ")" : ""); },
-          label: function (ctx) { var v = ctx.parsed && typeof ctx.parsed === "object" ? (kind === "horizontalBar" ? ctx.parsed.x : ctx.parsed.y) : ctx.parsed; var set = (spec.datasets || [])[ctx.datasetIndex] || {}; var from = Array.isArray(set.sources) ? set.sources[ctx.dataIndex] : null; return (ctx.dataset.label ? ctx.dataset.label + ": " : "") + format(v) + (from ? " (" + from + ")" : ""); }
-        } },
-        title: { display: false }
-      }
-    };
-    if (!round && type !== "radar") {
-      var horizontal = kind === "horizontalBar";
-      var category = { reverse: rtl && !horizontal, grid: { display: false }, ticks: { color: muted, font: { family: css("--kit-font") } }, border: { color: css("--kit-axis") }, stacked: !!spec.stacked || kind === "stackedBar" };
-      var value = { beginAtZero: true, position: horizontal ? "bottom" : (rtl ? "right" : "left"), grid: { color: grid }, ticks: { color: muted, callback: format, font: { family: css("--kit-font") } }, border: { display: false }, stacked: !!spec.stacked || kind === "stackedBar" };
-      if (horizontal) { options.indexAxis = "y"; options.scales = { x: value, y: category }; value.reverse = rtl; category.position = rtl ? "right" : "left"; }
-      else options.scales = { x: category, y: value };
-    }
-    return { type: type, data: { labels: labels, datasets: datasets }, options: options };
-  }
-
-  // Under each chart, the sources of its values, one chip each (general knowledge in its marker colour).
-  function note(container, labels) {
-    var p = document.createElement("div");
-    p.className = "kit-chart-note";
-    p.appendChild(document.createTextNode(TEXT.sources + " "));
-    labels.forEach(function (item) {
-      var b = document.createElement("span");
-      b.className = "kit-figure-note";
-      b.setAttribute("data-kit-source", item.general ? "general" : "source");
-      b.textContent = item.text;
-      p.appendChild(b);
-    });
-    container.parentNode.insertBefore(p, container.nextSibling);
-  }
-
-  function chartSources(spec) {
-    var seen = {}, out = [];
-    (spec.datasets || []).forEach(function (set) {
-      var general = {};
-      (Array.isArray(set.general) ? set.general : []).forEach(function (i) { general[i] = true; });
-      (Array.isArray(set.sources) ? set.sources : []).forEach(function (text, i) {
-        if (typeof text !== "string" || !text || seen[text]) return;
-        seen[text] = true;
-        out.push({ text: text, general: !!general[i] });
-      });
-    });
-    return out;
+    return base;
   }
 
   function renderCharts() {
-    charts.forEach(function (c) { c.destroy(); });
+    charts.forEach(function (c) { c.dispose(); });
     charts = [];
-    var data = readData();
-    var specs = data.charts && typeof data.charts === "object" ? data.charts : {};
-    var nodes = document.querySelectorAll(".kit-chart[data-chart]");
-    Array.prototype.forEach.call(nodes, function (node) {
-      var spec = specs[node.getAttribute("data-chart")];
-      node.textContent = "";
-      if (!spec || typeof window.Chart !== "function") {
-        var empty = document.createElement("div");
-        empty.className = "kit-chart-missing";
-        empty.textContent = TEXT.missing;
-        node.appendChild(empty);
-        return;
-      }
-      var canvas = document.createElement("canvas");
-      canvas.setAttribute("role", "img");
-      canvas.setAttribute("aria-label", String(spec.title || ""));
-      node.appendChild(canvas);
-      charts.push(new window.Chart(canvas, config(spec)));
-      var labels = chartSources(spec);
-      if (labels.length && !node.getAttribute("data-kit-noted")) {
-        node.setAttribute("data-kit-noted", "1");
-        note(node, labels);
-      }
+    if (typeof echarts === "undefined") return;
+    var dark = root.getAttribute("data-theme") === "dark" ||
+      (!root.getAttribute("data-theme") && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    Array.prototype.forEach.call(document.querySelectorAll("script.kit-chart-data"), function (node) {
+      var spec = readChart(node);
+      var box = document.querySelector('.kit-chart[data-chart="' + node.id + '"]');
+      if (!spec || !box || box.offsetParent === null) return;
+      if (!box.style.height) box.style.height = "320px";
+      var chart = echarts.init(box, dark ? "dark" : null, { renderer: "svg" });
+      var opts = option(spec);
+      if (dark) opts.backgroundColor = "transparent";
+      chart.setOption(opts);
+      charts.push(chart);
     });
   }
+
+  window.addEventListener("resize", function () { charts.forEach(function (c) { c.resize(); }); });
 
   function themeToggle() {
     var button = document.createElement("button");

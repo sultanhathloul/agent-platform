@@ -366,7 +366,7 @@ class ReportProxyTest extends GatewayTestSupport {
     void theKitServesItsListedFilesOnlyWithTheirHeaders() throws Exception {
         for (String[] file : List.of(new String[] {"kit.css", "text/css; charset=utf-8"},
                 new String[] {"kit.js", "text/javascript; charset=utf-8"},
-                new String[] {"vendor/chart.umd.min.js", "text/javascript; charset=utf-8"},
+                new String[] {"vendor/echarts.min.js", "text/javascript; charset=utf-8"},
                 new String[] {"fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2", "font/woff2"},
                 new String[] {"fonts/ibm-plex-sans-arabic-latin-700-normal.woff2", "font/woff2"})) {
             // A font load from the sandboxed page is a CORS request from origin "null".
@@ -381,7 +381,7 @@ class ReportProxyTest extends GatewayTestSupport {
             assertThat(served.getHeaders(HttpHeaders.CACHE_CONTROL)).containsExactly("public, max-age=86400");
         }
         for (String unlisted : List.of("/report-kit/v1/SOURCE.md", "/report-kit/v1/fonts/OFL.txt",
-                "/report-kit/v1/vendor/CHART-JS-LICENSE.md", "/report-kit/v1/", "/report-kit/v1/fonts/",
+                "/report-kit/v1/vendor/ECHARTS-LICENSE.txt", "/report-kit/v1/", "/report-kit/v1/fonts/",
                 "/report-kit/v1/fonts", "/report-kit/v2/kit.css", "/report-kit/kit.css", "/report-kit/v1/KIT.CSS",
                 "/report-kit/v1/kit.css/")) {
             assertThat(mvc.perform(get(unlisted)).andReturn().getResponse().getStatus()).as(unlisted).isEqualTo(404);

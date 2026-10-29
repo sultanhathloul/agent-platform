@@ -21,10 +21,10 @@ def test_every_vendored_file_has_the_hash_source_md_pins():
 def test_the_kit_loads_every_file_report_yaml_names():
     artifacts = load_artifacts(CONFIG)
     kit = artifacts.kit
-    assert [name for name, _ in kit.scripts] == ["vendor/chart.umd.min.js", "kit.js"]
+    assert [name for name, _ in kit.scripts] == ["vendor/echarts.min.js", "kit.js"]
     assert len(kit.fonts) == 8 and all(data[:4] == b"wOF2" for data in kit.fonts.values())
     assert "data:font/woff2;base64," in kit.inline_stylesheet()
-    assert artifacts.design.ref == "artifacts.design_system@1.2.0"
+    assert artifacts.design.ref == "artifacts.design_system@2.0.0"
 
 
 def test_the_kits_own_code_names_no_url_outside_itself():
@@ -33,9 +33,9 @@ def test_the_kits_own_code_names_no_url_outside_itself():
     assert "localStorage" not in own and "fetch(" not in own and "XMLHttpRequest" not in own
 
 
-def test_a_figures_label_is_shown_from_the_platforms_attribute():
-    # Owner decision A (ADR-0388): the label is the platform's text in data-kit-label, shown after the figure.
+def test_no_label_is_drawn_beside_any_figure_and_charts_come_from_echarts():
+    # Owner decision B on PR #17 (ADR-0408): no label beside any figure; option C draws charts with ECharts.
     css = (KIT / "kit.css").read_text()
-    assert "content: attr(data-kit-label)" in css and "غير موثق" not in css and "Unverified" not in css
     js = (KIT / "kit.js").read_text()
-    assert "غير موثق" not in js and "Unverified" not in js
+    assert "data-kit-label" not in css and "kit-figure" not in css and "kit-figure" not in js
+    assert "echarts.init" in js and "kit-chart-data" in js and "Chart(" not in js

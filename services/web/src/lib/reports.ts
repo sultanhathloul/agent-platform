@@ -141,7 +141,7 @@ export function kitUrl(gatewayUrl: string): string {
 
 const attr = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-/** The CSP, the kit's stylesheet and its two scripts (Chart.js first), as the served view has them. */
+/** The CSP, the kit's stylesheet and its two scripts (ECharts first, ADR-0406), as the served view has them. */
 export function kitBlock(kit: string): string {
   const k = attr(kit);
   const csp =
@@ -150,7 +150,7 @@ export function kitBlock(kit: string): string {
   return (
     `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
     `<link rel="stylesheet" href="${k}kit.css">` +
-    `<script src="${k}vendor/chart.umd.min.js"></script>` +
+    `<script src="${k}vendor/echarts.min.js"></script>` +
     `<script src="${k}kit.js"></script>`
   );
 }

@@ -156,7 +156,7 @@ describe("the report panel's live build (I7)", () => {
         `font-src ${KIT}; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">`,
     );
     const css = html.indexOf(`<link rel="stylesheet" href="${KIT}kit.css">`);
-    const chart = html.indexOf(`<script src="${KIT}vendor/chart.umd.min.js"></script>`);
+    const chart = html.indexOf(`<script src="${KIT}vendor/echarts.min.js"></script>`);
     const kit = html.indexOf(`<script src="${KIT}kit.js"></script>`);
     expect(css).toBeGreaterThan(html.indexOf("<head>"));
     expect(chart).toBeGreaterThan(css);

@@ -217,23 +217,6 @@ svg { max-inline-size: 100%; }
 .kit-icon { inline-size: 40px; block-size: 40px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--kit-accent) 14%, var(--kit-surface)); color: var(--kit-accent); font-size: 1.2rem; flex: none; }
 
 /* ------------------------------------------------------------------ platform marks (never written by the model) */
-/* A figure's source label (owner decision A, ADR-0388): the platform writes it after every figure; general
-   knowledge reads in the warm marker colour, a source in the muted ink. The full label is also the title. */
-.kit-figure { border-radius: 4px; white-space: nowrap; }
-.kit-figure::after {
-  content: attr(data-kit-label); display: inline-block; max-inline-size: 16em; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; margin-inline-start: 4px; padding: 0 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;
-  line-height: 1.5; vertical-align: middle; letter-spacing: 0; color: var(--kit-muted); border: 1px solid var(--kit-border);
-}
-.kit-figure[data-kit-source="general"] { background: var(--kit-general-bg); box-shadow: inset 0 -2px 0 var(--kit-general); padding-inline: 3px; }
-.kit-figure[data-kit-source="general"]::after { color: var(--kit-general); border-color: var(--kit-general); }
-/* A figure the turn's findings do not hold: «غير متوفر» in its place, muted, no label after it (ADR-0398). */
-.kit-figure[data-kit-source="unavailable"] { color: var(--kit-muted); font-style: italic; }
-.kit-figure[data-kit-source="unavailable"]::after { content: none; }
-.kit-figure-svg { font-size: 0.75em; fill: var(--kit-muted); }
-.kit-figure-svg[data-kit-source="general"] { fill: var(--kit-general); }
-.kit-figure-note { display: inline-block; margin-inline-end: 6px; padding: 0 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; color: var(--kit-muted); border: 1px solid var(--kit-border); }
-.kit-figure-note[data-kit-source="general"] { color: var(--kit-general); border-color: var(--kit-general); background: var(--kit-general-bg); }
 .kit-sources { margin-block: 40px 0; padding-block-start: 20px; border-block-start: 1px solid var(--kit-grid); font-size: 0.88rem; }
 .kit-sources h2 { font-size: 1.1rem; }
 .kit-sources ol { color: var(--kit-ink-2); }
@@ -255,3 +238,14 @@ svg { max-inline-size: 100%; }
   .kit-theme-toggle { display: none; }
   .kit-card, .kit-kpi { box-shadow: none; break-inside: avoid; }
 }
+
+/* Option C (ADR-0406, ADR-0408): no label beside any figure. A value the check did not find reads «—»; a
+   general-knowledge report opens with one line; the sources list each document and the elements under it. */
+.kit-missing { color: var(--kit-muted); }
+.kit-general-note { margin: 0 0 24px; padding: 10px 14px; border-radius: 8px; background: var(--kit-general-bg); color: var(--kit-general); font-weight: 600; }
+.kit-chart { min-block-size: 280px; }
+.kit-sources .kit-source-doc { font-weight: 600; color: var(--kit-ink); }
+.kit-sources ol > li { margin-block-end: 10px; }
+.kit-sources ul { margin-block: 4px 0; padding-inline-start: 18px; color: var(--kit-ink-2); }
+.kit-sources-missing { font-size: 0.82rem; color: var(--kit-muted); }
+

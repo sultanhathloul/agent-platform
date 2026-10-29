@@ -4,7 +4,7 @@ The kit is served by the platform (gateway path `/report-kit/v1/`) and inlined i
 
 | File | Source | Licence | SHA-256 |
 |---|---|---|---|
-| vendor/chart.umd.min.js | chart.js 4.4.4, `package/dist/chart.umd.js` (minified UMD build); tarball sha512-emICKGBABnxhMjUjlYRR12PmOXhJ2eJjEHL2/dZlWjxRAZT1D8xplLFq5M0tMQK8ja+wBS/tuVEJB5C6r7VxJA== | MIT, vendor/CHART-JS-LICENSE.md | fed6a739f8d0f0687174de6cd14745fc0fc7809144ab113d22908a26bf0d7fea |
+| vendor/echarts.min.js | echarts 5.5.1, `package/dist/echarts.min.js`; tarball sha512-Fce8upazaAXUVUVsjgV6mBnGuqgO+JNDlcgF79Dksy4+wgGpQB2lmYoO4TSweFg/mZITdpGHomw/cNBJZj1icA== (matched the registry's `integrity` when fetched, 2026-10-29) | Apache-2.0, vendor/ECHARTS-LICENSE.txt and vendor/ECHARTS-NOTICE.txt | e84270bd0cd5bdf60fefc26d00c2a391cb2e81f4d26a7a9ee16185a54773a3cf |
 | fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2 | @fontsource/ibm-plex-sans-arabic 5.2.9, `package/files/`; tarball sha512-mAs+anYcmatmhTuYApDy/CEEu5iYcfalXp2DB1gBN/6o2ex24lcBs635bwtgV5BNbByCYslIGsQvD4X6s7eVgw== | SIL OFL 1.1, fonts/OFL.txt | 6010e7fd0dce5d527583951750728cbe3c895efbd16aa0f809ab8c824878c9d8 |
 | fonts/ibm-plex-sans-arabic-arabic-500-normal.woff2 | same | same | 90aef64fea9794f232332e907d45810ab268d1a11721340025eba2a2cdb36d5c |
 | fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2 | same | same | 16734a5adb27b0f363e566cbbeacec480da0dc0baa19c8f0053251c2e2bc0eac |
