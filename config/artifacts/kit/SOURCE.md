@@ -14,4 +14,4 @@ The kit is served by the platform (gateway path `/report-kit/v1/`) and inlined i
 | fonts/ibm-plex-sans-arabic-latin-600-normal.woff2 | same | same | 63f4757271e403f7baec0862f284ffaa4560ea6096ba9fe8bc6e585ca656e724 |
 | fonts/ibm-plex-sans-arabic-latin-700-normal.woff2 | same | same | ae2d59f91ecf9f7ed279e4a1fc1a9da8170fb0ce5b9152917a8f759033f5777c |
 
-The categorical palette in `kit.css` is the validated reference instance of the dataviz method (eight hues in a fixed order, light and dark steps; adjacent-pair colour-vision separation checked).
+The categorical palette in `kit.css` follows the platform's identity (ADR-0415): the brand green and gold first, then blue, orange, teal, olive, purple and rose, in light and dark steps; the order was chosen for the largest adjacent-pair colour difference under normal, deuteranopic and protanopic vision (worst ΔE 33 light, 21 dark, the dark green and gold under protanopia). The page's surfaces, ink, grid and accent are the identity's tokens.

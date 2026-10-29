@@ -33,27 +33,27 @@
 :root {
   color-scheme: light;
   --kit-font: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --kit-accent: #2a78d6;
-  --kit-plane: #f9f9f7;
-  --kit-surface: #fcfcfb;
-  --kit-surface-2: #f3f2ee;
-  --kit-ink: #0b0b0b;
-  --kit-ink-2: #52514e;
-  --kit-muted: #6f6d68;
-  --kit-grid: #e1e0d9;
-  --kit-axis: #c3c2b7;
-  --kit-border: rgba(11, 11, 11, 0.10);
+  --kit-accent: #195b38;
+  --kit-plane: #fafaf7;
+  --kit-surface: #ffffff;
+  --kit-surface-2: #f1f3ee;
+  --kit-ink: #14211a;
+  --kit-ink-2: #3b4a41;
+  --kit-muted: #5b6b61;
+  --kit-grid: #e4e7e1;
+  --kit-axis: #c9d0c6;
+  --kit-border: rgba(20, 33, 26, 0.10);
   --kit-shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 16px rgba(11, 11, 11, 0.05);
-  --kit-up: #006300;
-  --kit-down: #c02f2f;
+  --kit-up: #1e6b40;
+  --kit-down: #a52a21;
   --kit-good: #0ca30c;
   --kit-warning: #fab219;
   --kit-serious: #ec835a;
   --kit-critical: #d03b3b;
-  --kit-general: #9a5b00;
-  --kit-general-bg: #fff4dc;
-  --kit-series-1: #2a78d6; --kit-series-2: #eb6834; --kit-series-3: #1baf7a; --kit-series-4: #eda100;
-  --kit-series-5: #e87ba4; --kit-series-6: #008300; --kit-series-7: #6250d6; --kit-series-8: #e34948;
+  --kit-general: #7a5a17;
+  --kit-general-bg: #f5efe0;
+  --kit-series-1: #195b38; --kit-series-2: #b8954a; --kit-series-3: #2f7fb5; --kit-series-4: #c2622d;
+  --kit-series-5: #4f9d8a; --kit-series-6: #6b7c3a; --kit-series-7: #7b5ea7; --kit-series-8: #b84a62;
   --kit-radius: 14px;
   --kit-radius-s: 8px;
   --kit-gap: 20px;
@@ -62,28 +62,28 @@
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --kit-accent: #3987e5;
-    --kit-plane: #0d0d0d; --kit-surface: #1a1a19; --kit-surface-2: #242422;
-    --kit-ink: #f0efec; --kit-ink-2: #c3c2b7; --kit-muted: #9a9890;
-    --kit-grid: #2c2c2a; --kit-axis: #383835; --kit-border: rgba(255, 255, 255, 0.10);
+    --kit-accent: #3e9a66;
+    --kit-plane: #0e1411; --kit-surface: #161f1a; --kit-surface-2: #1d2822;
+    --kit-ink: #e8eee9; --kit-ink-2: #c3cdc6; --kit-muted: #9aaa9f;
+    --kit-grid: #26332b; --kit-axis: #3a4a40; --kit-border: rgba(232, 238, 233, 0.10);
     --kit-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --kit-up: #0ca30c; --kit-down: #e66767;
-    --kit-general: #f5c06a; --kit-general-bg: #3a2c12;
-    --kit-series-1: #3987e5; --kit-series-2: #d95926; --kit-series-3: #199e70; --kit-series-4: #c98500;
-    --kit-series-5: #d55181; --kit-series-6: #008300; --kit-series-7: #9085e9; --kit-series-8: #e66767;
+    --kit-up: #7ccb9c; --kit-down: #f2958c;
+    --kit-general: #d9bc78; --kit-general-bg: #2a2618;
+    --kit-series-1: #3e9a66; --kit-series-2: #d9bc78; --kit-series-3: #5aa7dc; --kit-series-4: #e08a55;
+    --kit-series-5: #6fc2ad; --kit-series-6: #a5b86a; --kit-series-7: #a58bd1; --kit-series-8: #e07a92;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --kit-accent: #3987e5;
-  --kit-plane: #0d0d0d; --kit-surface: #1a1a19; --kit-surface-2: #242422;
-  --kit-ink: #f0efec; --kit-ink-2: #c3c2b7; --kit-muted: #9a9890;
-  --kit-grid: #2c2c2a; --kit-axis: #383835; --kit-border: rgba(255, 255, 255, 0.10);
+  --kit-accent: #3e9a66;
+  --kit-plane: #0e1411; --kit-surface: #161f1a; --kit-surface-2: #1d2822;
+  --kit-ink: #e8eee9; --kit-ink-2: #c3cdc6; --kit-muted: #9aaa9f;
+  --kit-grid: #26332b; --kit-axis: #3a4a40; --kit-border: rgba(232, 238, 233, 0.10);
   --kit-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --kit-up: #0ca30c; --kit-down: #e66767;
-  --kit-general: #f5c06a; --kit-general-bg: #3a2c12;
-  --kit-series-1: #3987e5; --kit-series-2: #d95926; --kit-series-3: #199e70; --kit-series-4: #c98500;
-  --kit-series-5: #d55181; --kit-series-6: #008300; --kit-series-7: #9085e9; --kit-series-8: #e66767;
+  --kit-up: #7ccb9c; --kit-down: #f2958c;
+  --kit-general: #d9bc78; --kit-general-bg: #2a2618;
+  --kit-series-1: #3e9a66; --kit-series-2: #d9bc78; --kit-series-3: #5aa7dc; --kit-series-4: #e08a55;
+  --kit-series-5: #6fc2ad; --kit-series-6: #a5b86a; --kit-series-7: #a58bd1; --kit-series-8: #e07a92;
 }
 
 /* ------------------------------------------------------------------ base */
