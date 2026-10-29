@@ -228,6 +228,12 @@ class Verified:
     sourced: bool
     documents: list[Document] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
+    # Charts that lost the categories with no value found (ADR-0416): (chart title, the categories removed).
+    trimmed: list[tuple[str, list[str]]] = field(default_factory=list)
+    # Elements of value checked (KPI rows, charts, tables) and those kept: a sourced report with none kept has
+    # found nothing on its subject (ADR-0416).
+    checked: int = 0
+    kept: int = 0
     values: int = 0
     found: int = 0
     unavailable: int = 0
@@ -301,6 +307,15 @@ class Verifier:
                     category = section.labels[i] if i < len(section.labels) else ""
                     if not check(value, [[category], [series.name, section.title]], f"{category} · {series.name}"):
                         series.data[i] = None
+            # A category no series has a value for leaves the chart (ADR-0416): no empty group of bars.
+            empty = [i for i in range(len(section.labels)) if all(i >= len(s.data) or s.data[i] is None for s in section.series)]
+            if empty and len(empty) < len(section.labels):
+                removed = [section.labels[i] for i in empty]
+                keep = [i for i in range(len(section.labels)) if i not in empty]
+                section.labels = [section.labels[i] for i in keep]
+                for series in section.series:
+                    series.data = [series.data[i] if i < len(series.data) else None for i in keep]
+                self.result.trimmed.append((title, removed))
         elif isinstance(section, Table):
             for row in section.rows:
                 for c, cell in enumerate(row):
@@ -318,10 +333,16 @@ class Verifier:
         self.result.values += total
         self.result.found += found
         self.result.unavailable += total - found
+        self.result.checked += 1
         # Nothing found, or nothing to find (a chart or KPI row the model left all null): the element leaves.
         if (total and not found) or (not total and not isinstance(section, Table)):
             self.result.dropped.append(title)
             return None
+        # A chart with fewer than two categories left says nothing as a chart (ADR-0416).
+        if isinstance(section, Chart) and len(section.labels) < 2:
+            self.result.dropped.append(title)
+            return None
+        self.result.kept += 1
         if missing:
             first = next(iter(uses.values()))
             first.unavailable.extend(dict.fromkeys(missing))

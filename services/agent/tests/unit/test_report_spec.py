@@ -308,3 +308,42 @@ def test_the_period_chooses_the_row():
                 "series": [{"name": "الإجمالي", "data": [83.5, 16.5]}]}
     assert v.element(spec(labelled).sections[0]).series[0].data == [83.5, 16.5]
 
+
+
+# ------------------------------------------------------------------ never silent, trimmed charts, balanced KPIs (ADR-0416)
+
+
+def test_a_category_with_nothing_found_leaves_the_chart_and_one_left_drops_it():
+    v = verifier(period="الربع الثاني 2026")
+    by_nationality = {"kind": "chart", "type": "bar", "title": "معدل البطالة حسب الجنسية",
+                      "labels": ["السعوديين", "غير السعوديين", "الإجمالي"],
+                      "series": [{"name": "الإجمالي", "data": [6.5, 1.3, 9.9]}], "sources": ["P3"]}
+    checked = v.element(spec(by_nationality).sections[0])
+    assert checked.labels == ["السعوديين", "غير السعوديين"] and checked.series[0].data == [6.5, 1.3]
+    assert v.result.trimmed == [("معدل البطالة حسب الجنسية", ["الإجمالي"])]
+    lone = {**by_nationality, "title": "معدل البطالة للسعوديين", "series": [{"name": "الإجمالي", "data": [6.5, 7.7, 9.9]}]}
+    assert v.element(spec(lone).sections[0]) is None and "معدل البطالة للسعوديين" in v.result.dropped
+
+
+def test_the_reply_says_what_the_report_could_not_do_in_its_language():
+    from app.artifacts.writer import shortfall
+
+    v = verifier(period="الربع الثاني 2026")
+    checked = v.spec(spec(UNEMPLOYMENT, {**GENDER, "sources": ["P1"]},
+                          {"kind": "kpi_row", "items": [{"label": "عدد المشتغلين", "value": 14.2}, {"label": "معدل البطالة", "value": 3.0}],
+                           "sources": ["P1"]}))
+    note = shortfall(checked, checked.spec, TEXT, edit=True)
+    assert note.startswith("أضفت ما أمكن.") and "«توزيع المشتغلين حسب الجنس»" in note and "«—»" in note
+    english = checked.spec.model_copy(update={"language": "en"})
+    assert shortfall(checked, english, TEXT, edit=False).startswith("I found no data in the sources for")
+    clean = verifier().spec(spec(UNEMPLOYMENT))
+    assert shortfall(clean, clean.spec, TEXT, edit=True) == ""
+
+
+def test_kpi_rows_are_balanced():
+    from app.artifacts.render import kpi_columns
+
+    assert [kpi_columns(n) for n in range(1, 10)] == [1, 2, 3, 4, 3, 3, 4, 4, 3]
+    page, _ = page_of(spec({"kind": "kpi_row", "items": [{"label": f"م{i}", "value": i} for i in range(5)], "sources": ["general"]}),
+                      sourced=False)
+    assert 'class="kit-kpis kit-kpis-3"' in page
