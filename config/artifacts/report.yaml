@@ -2,14 +2,16 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 2.0.0
+version: 2.1.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
 # words (app/text/arabic.py contains_keyword). A conversation that already holds a report is a candidate
-# on every turn, so a follow-up such as «غيّر الألوان» can edit it (D4).
+# on every turn, so a follow-up such as «غيّر الألوان» can edit it (D4). «عرض» alone is not a keyword: it is
+# too common in ordinary requests («اعرض لي»، «العرض والطلب»); «عرض تقديمي» and the composer's picker remain
+# (owner decision 3 on PR #17, ADR-0412).
 keywords:
-  ar: [داشبورد, لوحة مؤشرات, لوحة معلومات, لوحة بيانات, تقرير تفاعلي, إنفوجرافيك, انفوجرافيك, انفوغرافيك, عرض, عرض تقديمي, صفحة تقرير]
+  ar: [داشبورد, لوحة مؤشرات, لوحة معلومات, لوحة بيانات, تقرير تفاعلي, إنفوجرافيك, انفوجرافيك, انفوغرافيك, عرض تقديمي, صفحة تقرير]
   en: [dashboard, infographic, report page, interactive report, indicators board, presentation, slide page]
 
 # I4: one version's stored HTML, after the sources section; past it the turn ends report_too_large.

@@ -206,11 +206,14 @@ async def test_a_keyword_makes_a_candidate_and_the_router_decides(reports):
     events, _, admission = await _turn(services, principal, "أبي داشبورد عن سوق العمل")
     assert admission.profile == "report" and _of(events, "artifact_done")
     services, gateway = reports({"router": ROUTE_TEXT})
-    events, _, admission = await _turn(services, principal, "ما معنى كلمة عرض في الاقتصاد؟")
-    assert admission.profile == "report"  # «عرض» is a keyword: a candidate, and the router said text
+    events, _, admission = await _turn(services, principal, "ما معنى كلمة داشبورد؟")
+    assert admission.profile == "report"  # «داشبورد» is a keyword: a candidate, and the router said text
     assert events[-1].type == "done" and not _of(events, "artifact_start")
     assert events[-1].data.state_digest.output == "text"
     assert "report_writer" not in gateway.calls
+    # Owner decision 3 on PR #17 (ADR-0412): «عرض» alone is no longer a keyword.
+    events, _, admission = await _turn(services, principal, "ما معنى كلمة عرض في الاقتصاد؟ اعرض لي مثالًا")
+    assert admission.profile is None and events[-1].type == "done"
 
 
 async def test_a_turn_with_no_keyword_no_report_and_no_picker_keeps_the_default_deadline(services):
