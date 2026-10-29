@@ -80,7 +80,7 @@ class AdminPolicyProxyTest extends GatewayTestSupport {
         // ADR-0123: the names from the same verified token, percent-encoded UTF-8.
         assertThat(upstream.getHeader("X-User-Name")).isEqualTo("analyst");
         assertThat(upstream.getHeader("X-User-Display-Name"))
-                .isEqualTo("%D8%B3%D8%A7%D8%B1%D8%A9%20%D8%A7%D9%84%D9%85%D8%AD%D9%84%D9%84%D8%A9");
+                .isEqualTo("%D8%B3%D9%84%D8%B7%D8%A7%D9%86%20%D8%A7%D9%84%D9%87%D8%B0%D9%84%D9%88%D9%84");
         assertThat(java.net.URLDecoder.decode(upstream.getHeader("X-User-Display-Name"), StandardCharsets.UTF_8))
                 .isEqualTo("سلطان الهذلول");
         AuditEvent event = singleAudit();
