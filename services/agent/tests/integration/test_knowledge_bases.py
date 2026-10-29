@@ -402,6 +402,28 @@ async def test_a_report_over_a_kb_keeps_the_values_its_cited_passages_hold_and_l
     assert record.citations and record.citations[0]["title"] == "تقرير التجارة" and record.passages
 
 
+
+async def test_a_report_whose_sources_hold_nothing_on_its_subject_says_so_and_saves_no_page(services, api):
+    """ADR-0416, the Al Hilal case: a KB toggled whose passages hold nothing on the subject; no generic validation
+    message, no page: the reply names the KB and says untoggling it builds the report from general knowledge."""
+    trade = _slug()
+    await _create(api, trade, name_ar="التجارة")
+    await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
+    hilal = json.dumps({"title": "نادي الهلال", "language": "ar", "sections": [
+        {"kind": "text", "markdown": "نادي الهلال من أكثر الأندية تتويجًا بـ 66 بطولة."},
+        {"kind": "kpi_row", "items": [{"label": "عدد البطولات", "value": 66}], "sources": ["P1"]}]}, ensure_ascii=False)
+    swapped, _ = replacing(services, {"report_writer": hilal})
+    principal = _reader(f"kb:{trade}:read")
+    request = TurnRequest(conversation_id=str(uuid.uuid4()), principal=principal, message="سوّ لي لوحة معلومات عن نادي الهلال",
+                          locale="ar", selected_kbs=[trade], output="report")
+    events = [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, "req-nothing")]
+    assert events[-1]["type"] == "done", events[-1]
+    assert not [e for e in events if e["type"].startswith("artifact_")]
+    answer = events[-1]["data"]["answer"]
+    assert "لا تحوي المصادر المختارة (التجارة) بيانات عن هذا الموضوع" in answer and "ألغِ تحديدها" in answer
+    assert not await services.reports.has_report(principal.tenant_id, principal.user_id, request.conversation_id)
+
+
 async def test_a_version_keeps_its_passages_and_an_edit_fetches_them_only_under_its_own_scope(services, api):
     """ADR-0402: v1 stores the passages behind its citations by reference; an edit with the KB still toggled
     fetches them again from the KB; an edit with nothing toggled gets nothing from them and is general."""

@@ -92,6 +92,11 @@ class ReportText(_Strict):
     created: Localized
     updated: Localized
     untitled: Localized
+    partial: Localized
+    missing_elements: Localized
+    trimmed_categories: Localized
+    gaps: Localized
+    nothing_found: Localized
     model_info: ModelInfoText
 
 

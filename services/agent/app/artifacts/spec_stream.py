@@ -22,7 +22,7 @@ from opentelemetry import trace
 
 from app.artifacts.config import ReportConfig
 from app.artifacts.render import PageRenderer
-from app.artifacts.spec import SECTION, Head, ReportSpec, SectionReader, SpecError, parse, section
+from app.artifacts.spec import SECTION, Callout, Head, ReportSpec, SectionReader, SpecError, Text, parse, section
 from app.artifacts.verify import Verifier
 from app.errors import TurnError
 from app.graph.deps import TurnContext
@@ -39,6 +39,11 @@ _END = object()
 BUFFERED_PART_CHARS = 8000
 # Keys whose values are the spec's structure, never text a person reads.
 _STRUCTURE = frozenset({"kind", "type", "tone", "sources", "language"})
+
+
+class NothingFound(Exception):
+    """A report over knowledge bases or files whose findings hold nothing on its subject: no KPI row, chart
+    or table kept (ADR-0416). The turn says so instead of saving a page."""
 
 
 def strings(value: Any, path: tuple = ()) -> list[tuple[tuple, str]]:
@@ -96,6 +101,9 @@ class SpecStream:
         self.sections: list[Any] = []  # checked and verified sections, in order (None: dropped)
         self._seen = 0  # sections the reader completed
         self.streamed: list[str] = []
+        # On a sourced turn, prose waits for the first element kept: a report that finds nothing never opens
+        # the panel (ADR-0416).
+        self._held: list[Any] = []
         self._started = False
         self._matched = False
         self._fed = 0
@@ -125,8 +133,14 @@ class SpecStream:
         for raw in spec.model_dump(mode="json")["sections"][len(self.sections):]:
             await self._section(raw, emit=not self._buffered)
         kept = [s for s in self.sections if s is not None]
+        if self._verifier.sourced and not self._verifier.result.kept:
+            raise NothingFound()
         if not kept:
             raise SpecError("no section survived")
+        if not self._buffered:
+            for held in self._held:
+                self._delta(self._renderer.section(held))
+            self._held = []
         checked = await self._whole(ReportSpec(
             title=self.head.title, subtitle=self.head.subtitle, period=self.head.period, language=self.head.language,
             sections=kept,
@@ -179,8 +193,15 @@ class SpecStream:
         await self._checked(data)
         verified = self._verifier.element(SECTION.validate_python(data))
         self.sections.append(verified)
-        if emit and verified is not None:
-            self._delta(self._renderer.section(verified))
+        if not emit or verified is None:
+            return
+        if self._verifier.sourced and isinstance(verified, Text | Callout) and not self._verifier.result.kept:
+            self._held.append(verified)
+            return
+        for held in self._held:
+            self._delta(self._renderer.section(held))
+        self._held = []
+        self._delta(self._renderer.section(verified))
 
     async def _checked(self, data: dict) -> None:
         """OUTPUT (sentence actions) and DATA on a part's strings, written back in place."""
@@ -253,4 +274,4 @@ class SpecStream:
         return outcome
 
 
-__all__ = ["SpecError", "SpecStream", "strings", "visible_text"]
+__all__ = ["NothingFound", "SpecError", "SpecStream", "strings", "visible_text"]

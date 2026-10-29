@@ -32,9 +32,10 @@ from app.artifacts.config import ReportText
 from app.artifacts.document import ModelCall, model_strip
 from app.artifacts.render import PageRenderer, render_page
 from app.artifacts.spec import SpecError
-from app.artifacts.spec_stream import SpecStream, visible_text
+from app.artifacts.spec import Chart, KpiRow, ReportSpec, Table
+from app.artifacts.spec_stream import NothingFound, SpecStream, visible_text
 from app.artifacts.store import ReportUnavailable
-from app.artifacts.verify import Passage, Verified, Verifier
+from app.artifacts.verify import MISSING, Passage, Verified, Verifier
 from app.context.package import BLOCK_NAMES, AssemblyRequest, ReportBlockRequest
 from app.context.selectors.blocks import ReportTooLargeToEdit
 from app.errors import TurnError
@@ -157,6 +158,56 @@ def script_failure(text: str, scripts: ScriptPolicy | None) -> dict | None:
     return {"issues": issues, "tokens": script_tokens(text, scripts)[:5]} if issues and scripts else None
 
 
+def _quoted(items: list[str], language: str) -> str:
+    if language == "en":
+        return ", ".join(f'"{item}"' for item in items)
+    return "، ".join(f"«{item}»" for item in items)
+
+
+def gaps(spec: ReportSpec) -> int:
+    """Values the page shows as «—»: a KPI with no value, a chart point with none, a table's «—» cell."""
+    count = 0
+    for section in spec.sections:
+        if isinstance(section, KpiRow):
+            count += sum(1 for item in section.items if item.value is None)
+        elif isinstance(section, Chart):
+            count += sum(1 for series in section.series for value in series.data if value is None)
+        elif isinstance(section, Table):
+            count += sum(1 for row in section.rows for cell in row[1:] if cell == MISSING)
+    return count
+
+
+def shortfall(verified: Verified, spec: ReportSpec, text: ReportText, *, edit: bool) -> str:
+    """What the report could not do, in one or two plain sentences in its language, or "" (ADR-0416): the
+    elements left out for want of data, the categories a chart lost, the values shown as «—»."""
+    language = spec.language
+    parts: list[str] = []
+    if verified.dropped:
+        parts.append(text.missing_elements.of(language).format(items=_quoted(list(dict.fromkeys(verified.dropped)), language)))
+    for chart, removed in verified.trimmed:
+        parts.append(text.trimmed_categories.of(language).format(chart=chart, items=_quoted(removed, language)))
+    if gaps(spec):
+        parts.append(text.gaps.of(language))
+    if not parts:
+        return ""
+    if edit:
+        parts.insert(0, text.partial.of(language))
+    return " ".join(parts)
+
+
+async def source_names(state: AgentState, ctx: TurnContext, locale: str) -> str:
+    """The toggled knowledge bases' names (or the turn's files'), for a reply that found nothing in them."""
+    names: list[str] = []
+    selected = list(state.get("selected_kbs") or [])
+    kbs = ctx.services.kbs
+    if selected and kbs is not None:
+        by_slug = {kb.slug: kb for kb in await kbs.readable(ctx.principal)}
+        names += [(by_slug[s].name_en if locale == "en" else by_slug[s].name_ar) if s in by_slug else s for s in selected]
+    files = set(state.get("turn_attachment_ids") or [])
+    names += [a.get("name") or "" for a in state.get("attachments") or [] if a.get("id") in files]
+    return ("، " if locale != "en" else ", ").join(n for n in names if n)
+
+
 def model_calls(ctx: TurnContext, written: ModelResult, locale: str, text: ReportText) -> list[ModelCall]:
     """The call that wrote the page, then each call that produced findings (ADR-0391)."""
     info = text.model_info
@@ -265,6 +316,22 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             spec = invalid = None
             try:
                 spec = await stream.close()
+            except NothingFound:
+                # The toggled sources hold nothing on the subject (ADR-0416): said plainly, no page saved.
+                span.set_attribute("report.nothing_found", True)
+                line = text_config.nothing_found.of(locale).format(sources=await source_names(state, ctx, locale))
+                log.info("report nothing found turn=%s", ctx.turn_id)
+                emit(runtime, "token", {"text": line})
+                ctx.answer_sent = True
+                return {
+                    "answer_mode": "streaming",
+                    "draft_answer": line,
+                    "shown_answer": line,
+                    "citations": [],
+                    "guard_events": ctx.guard_records(),
+                    "tokens_in": (state.get("tokens_in") or 0) + tokens_in,
+                    "tokens_out": (state.get("tokens_out") or 0) + tokens_out,
+                }
             except SpecError as exc:
                 invalid = str(exc)[:300]
             span.set_attribute(f"report.spec.attempt{attempt}", "invalid" if invalid else "valid")
@@ -339,6 +406,11 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     line = (text_config.updated if current else text_config.created).of(locale).format(
         title=record.title, version=record.version
     )
+    # Never silent (ADR-0416): what could not be done, after the line naming the report.
+    missing = shortfall(verified, spec, text_config, edit=current is not None)
+    if missing:
+        line = f"{line} {missing}"
+        span.set_attribute("report.shortfall", True)
     emit(runtime, "token", {"text": line})
     ctx.answer_sent = True
     artifact = {"id": record.report_id, "kind": "report", "title": record.title, "version": record.version}

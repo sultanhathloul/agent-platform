@@ -2,7 +2,7 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 2.1.0
+version: 2.2.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
@@ -77,6 +77,13 @@ text:
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
   updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}
   untitled: {ar: "تقرير", en: "Report"}
+  # Never silent (owner visual check on PR #17, ADR-0416): what a report could not do, said in its reply, in the
+  # request's language. {items} are titles in quotes, joined; {sources} the toggled KBs' or the files' names.
+  partial: {ar: "أضفت ما أمكن.", en: "I added what I could."}
+  missing_elements: {ar: "لم أجد في المصادر بيانات {items}، فتركت ذلك خارج التقرير.", en: "I found no data in the sources for {items}, so I left that out of the report."}
+  trimmed_categories: {ar: "وأزلت من «{chart}» ما لا بيانات له في المصادر: {items}.", en: "From \"{chart}\" I removed what has no data in the sources: {items}."}
+  gaps: {ar: "وبعض القيم غير متوفرة في المصادر فظهرت «—».", en: "Some values are not in the sources and show as «—»."}
+  nothing_found: {ar: "لا تحوي المصادر المختارة ({sources}) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.", en: "The selected sources ({sources}) hold no data on this subject, so I did not create the report. Untoggle them to build it from general knowledge."}
   # The model strip (ADR-0391).
   model_info:
     heading: {ar: "معلومات النموذج (بيئة التطوير)", en: "Model information (development)"}
