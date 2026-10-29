@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from app.artifacts.figures import ARABIC, LATIN, canonical, canonical_number, figures, spans, words
 from app.artifacts.spec import Callout, Chart, KpiRow, ReportSpec, Table, Text
-from app.text.arabic import normalize
+from app.text.arabic import fold_number_words, normalize
 
 MISSING = "—"
 
@@ -146,8 +146,9 @@ def _units(text: str) -> list[_Unit]:
                 units.append(_Unit(context, found, words([context]), Qualifiers.of(row_and_column)))
         return units
     # Prose (a PDF page, a document's text): one unit per figure, read with the text just before it, its
-    # layout line breaks joined.
-    flat = re.sub(r"\s+", " ", text)
+    # layout line breaks joined, and number words folded to digits first, as figures() reads them: «مدتها واحد
+    # وعشرون يوما» states 21.
+    flat = fold_number_words(re.sub(r"\s+", " ", text))
     for start, end, figure in spans(flat):
         before = flat[max(0, start - PROSE_WINDOW) : start]
         stops = list(_FULL_STOP.finditer(before))

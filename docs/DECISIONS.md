@@ -3746,3 +3746,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Decision: Before a chart's values are checked (app/artifacts/verify.py), a category whose label is a total («الإجمالي», «إجمالي», «المجموع», «total», «overall», folded) leaves the chart when other categories remain, its points with it; a series named as a total leaves when other series remain. A total-only chart (one category or one series, the total) keeps it, and a KPI or a table is not touched. A chart left with fewer than two categories is dropped and named in the reply (ADR-0416). Tests: a stacked bar, a pie (and one left with one slice), a grouped bar (and a total series alone).
 - Consequences: A chart compares parts only; the total, when it matters, is a KPI. A series that is the total of the others («الإجمالي» beside «السعوديين») leaves even on a line chart of rates.
 
+
+### ADR-0419: A figure a passage writes in words is found in its prose sentence (fix, found by the before-merge eval runs)
+- Date: 2026-10-29
+- Phase: reports PR (the final before-merge runs)
+- Status: assumed (a fix)
+- Context: reports/kb-gulf-leave failed in all three before-merge eval runs (make-eval-20261029T162319Z, T171258Z, T180017Z) with the nothing-found reply. The eval KB's labour law states «إجازة سنوية مدتها واحد وعشرون يوما، تزيد إلى ثلاثين يوما». `figures()` folds number words to digits, but the prose units of ADR-0414 were cut from the unfolded text, so a sentence whose figures are words gave no unit: every value was unavailable, every element dropped, and since ADR-0416 the turn ended without a page (before it, the page kept its text).
+- Decision: Prose is folded with `fold_number_words` (app/text/arabic.py, the same folding as `figures()`) before it is cut into units; each figure's sentence and qualifiers are read on the folded text. Workbook cells are unchanged. Test: the labour-law passage, 21, 30 and 10 found, 25 not.
+- Consequences: A value stated in words is found under the same row and qualifier rules as one in digits. The words a figure was written in are no longer in its context, which matched no label anyway.

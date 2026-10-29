@@ -391,3 +391,20 @@ def test_a_grouped_bars_total_series_leaves_and_a_total_alone_stays():
     alone = {**grouped, "series": [{"name": "الإجمالي", "data": [2.1, 7.6]}]}
     assert [s.name for s in v.element(spec(alone).sections[0]).series] == ["الإجمالي"]
 
+
+
+def test_a_figure_written_in_words_in_prose_is_found():
+    """ADR-0419: the eval KB's labour law states «مدتها واحد وعشرون يوما … ثلاثين يوما»; prose units were cut
+    from digits only, so every value was unavailable and the report ended as nothing found."""
+    text = ("الإجازات\nتستحق العاملة إجازة أمومة مدتها عشرة أسابيع بأجر كامل.\nيستحق العامل إجازة سنوية مدتها واحد "
+            "وعشرون يوما، تزيد إلى ثلاثين يوما بعد خمس سنوات خدمة.")
+    law = Passage("P1", "r1", text, document_id="law", title="نظام العمل في الواحة", page=2)
+    v = Verifier([law], sourced=True, kinds=KINDS, untitled=TEXT.untitled_element.of("ar"))
+    kpis = {"kind": "kpi_row", "items": [{"label": "الإجازة السنوية", "value": 21, "unit": "يوم"},
+                                         {"label": "الإجازة السنوية بعد خمس سنوات", "value": 30, "unit": "يوم"},
+                                         {"label": "إجازة الأمومة", "value": 10, "unit": "أسابيع"}], "sources": ["P1"]}
+    checked = v.element(spec(kpis).sections[0])
+    assert [item.value for item in checked.items] == [21, 30, 10] and v.result.kept == 1
+    # A figure the words do not state is still not found.
+    wrong = {**kpis, "items": [{"label": "الإجازة السنوية", "value": 25, "unit": "يوم"}]}
+    assert v.element(spec(wrong).sections[0]) is None
