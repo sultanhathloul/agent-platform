@@ -43,10 +43,19 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
         retrieval = rt.config.get("retrieval") or {}
         # A report builds every figure from the passages, so it reads deeper (ADR-0401).
         k = int(retrieval.get("report_top_k", 20) if request.output == "report" else retrieval.get("top_k", 8))
-        # An edit searches the report's subject with the request ("add a pie chart" alone finds nothing).
-        query = f"{request.report_title}\n{request.message}" if request.report_title else request.message
-        result = await rt.broker.execute("docs_search", {"query": query[:8000], "k": k})
-        unavailable = result.status != "ok"
+        # An edit searches the report's subject at the report's depth, then the request ("add a pie chart by
+        # sex") at a text answer's, so the figures the page already shows are fetched again (ADR-0401).
+        searches = [(request.report_title, k), (request.message, int(retrieval.get("top_k", 8)))] if request.report_title else [(request.message, k)]
+        hits: dict[str, dict] = {}
+        failures = 0
+        for query, size in searches:
+            result = await rt.broker.execute("docs_search", {"query": query[:8000], "k": size})
+            if result.status != "ok":
+                failures += 1
+                continue
+            for hit in result.sources:
+                hits.setdefault(hit["id"], hit)
+        unavailable = failures == len(searches)
         if not unavailable:
             sources = [
                 Source(
@@ -61,7 +70,7 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
                     backend=hit.get("backend"),
                     collection=hit.get("collection"),
                 )
-                for hit in result.sources
+                for hit in hits.values()
             ]
     pending, failed = _names(attachments, "pending"), _names(attachments, "failed")
     findings = ""
