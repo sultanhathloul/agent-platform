@@ -253,3 +253,10 @@ From phase 06 (make eval make-eval-20261024T190302Z, 2026-10-24; listed, not imp
 - **Label density on dense pages** (ADR-0389): every figure carries its label, years included; a table of many figures carries many. A per-column or per-table label would need the owner's view of "exactly one label per figure".
 - **The API count `general`** (ADR-0389): renamed from `unverified` in API 2.7.0 before merge; clients of an unmerged branch only.
 
+
+## KB content quality (future track) — owner decision, 2026-10-29
+
+No more KB content-accuracy work for now; these are recorded, not scheduled.
+- Search terms that differ from a source's own words: a report's plan searched «التوزيع النسبي للعاملين حسب الجنس» (the request's word) and missed table 3-1 «التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس» of the Q2 2026 labour-market workbook, so the pie edit of 2026-10-29 found no source (docs/PROGRESS.md, owner decisions 1 and 2, re-runs). Options raised: the planner writes queries in the sources' terms, or a small synonym list for statistical terms (العاملين ↔ المشتغلين ↔ القوى العاملة). The owner declined both for now.
+- A KB text answer cites the documents by claim score: the answer of 2026-10-29 took 1.3 from the workbook's sheet 2-1 and cited only the bulletin, p. 1.
+- A table flattened by the PDF extractor (the bulletin's Table 1) names its columns far from its values; its values are checked by figure and nearest qualifier only (ADR-0414); the workbook states them by column.
