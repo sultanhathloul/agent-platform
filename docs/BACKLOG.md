@@ -175,7 +175,7 @@ Status: → phase 08 (docs/PHASE-08-BUILD-PROMPT.md, ADR-0328 onward), except "R
 - **Attribution across Arabic word forms** (ADR-0358): number words — done in phase 08 (ADR-0359, ADR-0360: folded to digits before matching). Left: suffixed nouns («مدة» / «مدتها») and dual nouns («يومين» = 2), to measure with the cross-language item above.
 - → done in the reports PR (ADR-0363: the newer version wins a tie; measured on the recorded kb answers first). **A claim holding a current and a superseded figure** (phase 08 before-merge run 1, cross-annual-growth-en): «3.6 percent …, revising the previous April forecast of 3.1 percent» is one claim; the July and April pages tie and the per-claim pass (ADR-0357) takes one, the April page, so the current page goes uncited. Options: cite every page tied at a claim's best score, or prefer the newer version of the same title at a tie (D3). Measure on the recorded kb answers before changing.
 - **An MCP-backed KB's server copy after a delete** (ADR-0344): no MCP operation may delete (D6), so the reference RAG server keeps a deleted KB's documents and chunks; operations remove them (`DELETE FROM rag_ref.documents WHERE collection = 'kb_<slug>'`). A purge operation would need an owner decision on D6.
-- **The proof-of-concept KB's remaining sources** (ADR-0356): the exact pages of the sources the prompt names by site (stats.gov.cn, english.gov.cn, english.scio.gov.cn, fmprc.gov.cn, mfa.gov.cn, SPA, SAMA, PIF, Aramco, qna.org.qa, bricspolicycenter.org, sab.com, the China UN mission) go into scripts/kb_poc/sources.yaml; the IMF pages refuse a script and are saved from a browser into build/kb-poc/manual/.
+- **The proof-of-concept KB's remaining sources** (ADR-0356): the exact pages of the sources the prompt names by site (stats.gov.cn, english.gov.cn, english.scio.gov.cn, fmprc.gov.cn, mfa.gov.cn, SPA, SAMA, PIF, Aramco, qna.org.qa, bricspolicycenter.org, sab.com, the China UN mission) go into scripts/kb_poc/sources.yaml; the IMF pages refuse a script and are saved from a browser into build/kb-poc/manual/. Since 2026-10-29 (ADR-0392): saved into kb-seed/intl-economy/ with a sidecar and a manifest line; the list is in that folder's README.md.
 - **KB role assignment from the admin page**: the role is shown; assigning it to users stays in Keycloak (ADR-0337).
 
 ## Hardening phase tech debt (was phase 09, then phase 10 after the MCP shift, now phase 12 after the 2026-10-14 order; notes rather than risks unless stated)
@@ -245,3 +245,11 @@ From phase 06 (make eval make-eval-20261024T190302Z, 2026-10-24; listed, not imp
 - Memory retention.
 - Whether entities need self-managed policies later (a tenant-admin role; ADR-0117 makes admin a platform operator).
 - Whether external MCP servers (internet services) are ever allowed, and under which policy.
+
+## Owner decisions A to D on the report branch (2026-10-29)
+
+- **A seeded document whose file left kb-seed/** (ADR-0392): `make kb-seed` reports it and the index keeps it; deleting a single KB document is not in the product yet (phase 08 deletes a whole KB). Add a per-document delete to /admin/kbs/<slug>, then let the seed offer it.
+- **stats-gov's per-category year rule** (ADR-0393): read literally, it leaves out sub-categories whose newest year is older than their category's (for example health status 2025 under الصحة, 2026). If the owner wants every current series, change `select` in scripts/kb_fetch.py to per sub-category.
+- **Label density on dense pages** (ADR-0389): every figure carries its label, years included; a table of many figures carries many. A per-column or per-table label would need the owner's view of "exactly one label per figure".
+- **The API count `general`** (ADR-0389): renamed from `unverified` in API 2.7.0 before merge; clients of an unmerged branch only.
+

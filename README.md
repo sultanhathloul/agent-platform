@@ -367,6 +367,8 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 
 > **Amendment 2026-10-26 (phase 08, ADR-0328 to ADR-0356).** KBs are filled ahead of time by an administrator's upload, never from the internet at question time (D2). A KB belongs to the tenant of the administrator who created it; its slug, and its role `kb:<slug>:read` created through the Keycloak Admin API first, are unique on the platform; deleting is soft (hidden, role kept, slug kept, its chunks purged from the internal index; an MCP server keeps its copy for operations to remove, since no MCP operation deletes, D6). Every document carries a title, publisher, optional source URL, publication date and optional `supersedes` (an earlier version of the same source in the same KB; one successor at most, no loop) (D3). Documents go through the phase 04 pipeline and the `DocumentBackend` of config/kb.yaml (I2); their records are `agent.kb_documents`, their chunks `agent.rag_chunks.kb_document_id`. The kb capability searches all toggled KBs in one hybrid search, each KB keeping its best 2 chunks in the top 8, prefers the latest version of a source before and after rerank (an older chunk stays beside its newer version only once, labelled), and its citations show KB › title, publisher, date and pages; the answer states a figure's source and date. The composer's toggles come from `GET /v1/capabilities`; the gateway and the agent each refuse a KB the caller may not read, a deleted one or another tenant's. Admin pages: `/admin/kbs` and `/admin/kbs/<slug>`. The proof-of-concept KB «الاقتصاد الدولي» is seeded in development by `make kb-poc` (D4).
 
+> **Amendment 2026-10-29 (report branch, owner decision B, ADR-0392, ADR-0393).** Development KBs are seeded from the repository: `kb-seed/<slug>/` holds kb.yaml (names, description, role `kb:<slug>:read` and the development users that hold it in the realm export), the documents, a `<file>.meta.yaml` sidecar per document and manifest.json (URL, retrieval date, SHA-256), all committed. `make up` runs `make kb-seed` after the stack is healthy: it creates a missing KB, uploads each document whose SHA-256 the KB does not hold (the gateway hashes every KB upload; `agent.kb_documents.sha256`) and skips the rest, offline and idempotent; a file without a sidecar is uploaded under its file name, flagged `metadata_missing` on its admin page until corrected; a document whose file left the folder is reported, never deleted. Two KBs are seeded: «الاقتصاد الدولي» (`intl-economy`, which replaces `make kb-poc`) and «إحصاءات الهيئة العامة للإحصاء» (`stats-gov`), fetched in development by `make kb-fetch` from stats.gov.sa's social statistics (ten categories, the latest year of each, the latest edition of each publication, PDF and Excel).
+
 ### 9.5 General (UC5)
 
 No tools. Small context. Still passes input/output guards and validation. Router model is the main cost here; cache aggressively.
@@ -469,6 +471,8 @@ Seed policies in `config/policies/`:
 > **Amendment 2026-10-26 (phase 08, ADR-0353).** The composer shows one toggle per KB the caller may read (`GET /v1/capabilities`), none on by default, kept per conversation in the browser; a KB citation shows «KB › title», the publisher and the date in Western digits. `/admin/kbs` and `/admin/kbs/<slug>` manage KBs and their documents, Arabic first and code-free.
 
 > **Amendment 2026-10-28 (reports PR, ADR-0375).** The composer offers an output picker («نص» / «تقرير تفاعلي»). A report opens a side panel like Claude's artifacts (chat on the right and panel on the left in RTL, mirrored in English): the page builds live in an `<iframe sandbox="allow-scripts">`, then the stored version loads from the gateway's view link; tabs «معاينة» / «الكود», download, full screen, copy code, a version switcher and close. A reply that wrote a report shows a report card that reopens the panel, in the live chat and in the history.
+
+> **Amendment 2026-10-29 (report branch, owner decisions A, C and D, ADR-0388 to ADR-0391).** Every figure a report shows carries one visible source label: «من: <KB name>» / "From: <KB name>", «من: <file title>», «من: <capability>», «من: طلبك» / "From: your request", or «من المعرفة العامة» / "General knowledge" (replacing «غير موثق»); chart points carry theirs in the tooltip and under the chart. A report's visible text and report-data pass the same allowed-script check as a text answer; a failure is written again once with the failure named, then the turn ends `validation_failed`. In development (`PLATFORM_PROFILE=development`, config/artifacts/report.yaml `show_model_info`) a report ends with a strip naming the model, provider, tier alias, time and tokens of the call that wrote it and of the calls behind its findings; it is never served in production.
 
 ---
 
@@ -900,7 +904,7 @@ Rules:
 | `config/messages/errors.yaml` | `kb_forbidden`, `kb_not_found`, `kb_exists`, `kb_document_not_found`, `kb_supersedes_invalid` | The KB refusals in Arabic and English |
 | `evals/thresholds.yaml` | `kb`, `internal-comms.no_invented_url` | Gated KB metrics (ADR-0338); no link absent from the request (F3) |
 | `evals/golden/fixtures.yaml` (new) | `include` | routing.jsonl's kb cases use the kb suite's fixture KBs |
-| `scripts/kb_poc/` (new) | `sources.yaml`, `manifest.json` | The proof-of-concept KB's sources and what `make kb-poc` fetched (D4, ADR-0356) |
+| `scripts/kb_poc/` (new) | `sources.yaml`, `manifest.json` | The proof-of-concept KB's sources and what `make kb-poc` fetched (D4, ADR-0356); replaced by `kb-seed/intl-economy/` on 2026-10-29 (ADR-0392) |
 | `infra/keycloak/realm-export.json` | `kb:intl-economy:read`, `kb:eval-economy:read`, `kb:eval-labor:read`, `kb:smoke-deleted:read`; `cap:kb` for evaluator | The seed KB roles (§11 amendment) |
 
 ### 20.9 Configuration keys added in the reports PR (owner decision D1 of phase 08, ADR-0364 onward)
@@ -919,6 +923,20 @@ Rules:
 | `evals/outputs/reports/` (new) | `reports.jsonl`, `metrics.yaml`, `fixtures.yaml`, `judge.md` | The reports suite (I8) |
 | `evals/thresholds.yaml` | `reports` | Gated page metrics; visual_quality reported |
 | `.env` | `MINIO_ARTIFACTS_ACCESS_KEY`, `MINIO_ARTIFACTS_SECRET_KEY` | The agent's MinIO user for report pages (ADR-0384) |
+
+### 20.10 Configuration added by the owner's decisions on the report branch (2026-10-29, ADR-0388 to ADR-0393)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/artifacts/report.yaml` | `version` 1.1.0; `text.general_label`, `text.source_label`, `text.message_label`, `text.general_note` (was `unverified_note`), `text.no_sources` | A figure's source label (A, ADR-0389) |
+| `config/artifacts/report.yaml` | `show_model_info.{development, production}`, `text.model_info.*` | The development model strip, per deployment profile (C, ADR-0391) |
+| `config/artifacts/design-system.md` | 1.1.0 | The labels described to the model |
+| `config/prompts/report/` | `report.system` 1.3.0 | The labels (1.2.0); a script retry names the failure and the words (1.3.0, ADR-0390) |
+| `config/artifacts/kit/` | kit.css `.kit-figure`, `.kit-model-info`; kit.js chart sources | The labels and the strip drawn by the kit |
+| `evals/outputs/reports/metrics.yaml`, `evals/thresholds.yaml` | `figures_labelled` (was `unverified_marked`), `sourced_figures` | The labels gated |
+| `.env` | `PLATFORM_PROFILE` (development or production; production when unset) | The deployment profile (ADR-0391) |
+| `kb-seed/<slug>/` (new) | `kb.yaml` (`slug`, `name`, `description`, `role`, `users`, `default_publisher`), `<file>.meta.yaml`, `manifest.json`; `kb-seed/stats-gov/fetch.yaml` | Seeded KBs and what `make kb-fetch` takes (B, ADR-0392, ADR-0393) |
+| `infra/keycloak/realm-export.json` | `kb:stats-gov:read` for analyst and evaluator | The seeded KB's role |
 
 ## 21. Getting started on a new machine
 
