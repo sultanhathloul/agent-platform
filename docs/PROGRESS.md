@@ -2506,6 +2506,21 @@ Re-runs (analyst)
   - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس», edit=True, v2: pie «التوزيع النسبي للمشتغلين حسب الجنس (%)» الذكور 83.6, الإناث 16.4 (83.60299013 / 16.39700987), sources «إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)» › «رسم: التوزيع النسبي للمشتغلين حسب الجنس (%) — ورقة 3-1» ✓. But the KPI «معدل البطالة الإجمالي» became 4.8 (Saudi men's rate; the total is 3.0), and five job-search values became «—» (the edit cited other passages).
 - Open, for the owner: the check confirms a value is in a cited passage with a word of its position and of its measure, not that it is in the row of its label: «معدل البطالة الإجمالي» 4.8 passes in the paragraph about Saudi men, because «الإجمالي» is generic. A row-level rule (in a workbook chunk the value's line holds its row label; in prose its sentence, qualifiers such as «الإجمالي» / «الذكور» / «السعوديين» counted) would catch it.
 
+### Owner decisions 1 and 2 on PR #17: rows and qualifiers, workbook headers and formats (2026-10-29)
+
+- 2. Workbook extractor version 3 (merged headers fill their columns, `[columns]` labels, cells as displayed), then version 4 (a title merged over part of the table written once; sheets 2-2 and 2-3 repeated it per column): ADR-0413, commits feat(rag) and fix(rag). Re-index through the seed: version 3, 32 reindexed / 32 indexed, again 0; version 4, 32 / 32, again 0. Sheet 1 now reads «معدل البطالة | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3 | 2.1 | 7.6 | 3.0» under «[columns] … | غير السعوديين › الإجمالي | … | الإجمالي».
+- 1. Row and qualifier check: ADR-0414, commit feat(reports). Tests use the bulletin's text about Saudi men and sheets 1 and 3-1 as the extractor cuts them.
+- No tests, smoke or eval (owner decision); the new and changed tests were exercised by hand.
+
+Re-runs (analyst)
+- KB text question «ما معدل البطالة للسعوديين ولغير السعوديين في الربع الثاني 2026؟» (stats-gov):
+  - at version 3: «بلغ معدل البطالة للسعوديين 6.5 % … الإجمالي 3.0 %», non-Saudi not given. Traced (context recording on for one turn, then off): the passages were sheets 2-3 and 2-2 and the bulletin's page 1, not sheets 1 or 2-1; sheets 2-2 and 2-3 repeated their title once per column, which version 4 fixed.
+  - at version 4: «بلغ معدل البطالة للسعوديين 6.5%، ولغير السعوديين 1.3% خلال الربع الثاني من عام 2026» — both as expected (Table 1: 6.5 and 1.3); the passages included sheet 2-1's row «الربع الثاني 2026 | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3 | 2.1 | 7.6 | 3.0». Its citation names the bulletin, p. 1, only.
+- New conversation d9bc0eda-d37e-4937-a0ca-e9bf71007c9d at version 4:
+  - Turn 1, report 10659bbd v1 (27 values, 23 found, 4 «—», all KPI changes): KPIs total unemployment 3.0, Saudi 6.5, total participation 67.2, Saudi participation 48.7, Saudi employment-to-population 45.5 (Table 1: all equal); Saudi men 4.8, Saudi women 9.6 (equal); doughnuts from sheet 5-15, labour force / outside, total 67.2 / 32.8 and Saudi 48.7 / 51.3 (equal to the cells as displayed), and from sheet 5-11, outside the labour force by attachment, total 67.7, 20.6, 9.1, 2.6, 0.1 and Saudi 65.6, 21.6, 10.7, 2.0, 0.1.
+  - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس», edit=True, v2: every v1 element kept with the same values; the new doughnut «توزيع المشتغلين حسب الجنس (إجمالي)» was dropped: the writer gave 84.3 / 15.7 citing sheet 5-15 (84.3 is the men's labour-force participation), which the check refused. Sheet 3-1 (83.6 / 16.4) was not among the passages: the plan's query was «التوزيع النسبي للعاملين حسب الجنس» (the request's word), the table's title says «المشتغلين».
+- Open, for the owner: the pie needs sheet 3-1 retrieved for an edit whose words differ from the table's («العاملين» against «المشتغلين»).
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
