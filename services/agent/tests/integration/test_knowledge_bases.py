@@ -388,6 +388,45 @@ async def test_a_report_over_a_kb_labels_its_figures_with_the_kbs_name(services,
     assert "7.5" not in html and "من المعرفة العامة" not in html.split('data-kit="sources"')[0]
 
 
+
+async def test_a_version_keeps_its_passages_and_an_edit_fetches_them_only_under_its_own_scope(services, api):
+    """ADR-0402: v1 stores the passages behind its citations by reference; an edit with the KB still toggled
+    fetches them again from the KB; an edit with nothing toggled gets nothing from them and is general."""
+    trade = _slug()
+    await _create(api, trade, name_ar="التجارة")
+    await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
+    page = ('<!doctype html><html><head><title>لوحة التمور</title></head><body><main class="kit-page">'
+            '<div class="kit-kpi-label">صادرات التمور</div><div class="kit-kpi-value">812</div></main></body></html>')
+    edit = '{"capabilities": ["general"], "skill": null, "output": "report", "edit": true, "complexity": "low", "risk": "low"}'
+    plan = '{"sections": [{"title": "الصادرات", "query": "صادرات التمور"}]}'
+    swapped, _ = replacing(services, {"report_writer": page, "router": edit, "extractor": plan})
+    principal = _reader(f"kb:{trade}:read", "cap:general")
+    conversation = str(uuid.uuid4())
+
+    async def turn(message, kbs):
+        request = TurnRequest(conversation_id=conversation, principal=principal, message=message, locale="ar",
+                              selected_kbs=kbs, output="report")
+        return [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, f"req-{uuid.uuid4().hex[:6]}")]
+
+    first = await turn("اعمل لوحة مؤشرات عن صادرات التمور", [trade])
+    assert first[-1]["type"] == "done", first[-1]
+    done = next(e for e in first if e["type"] == "artifact_done")["data"]
+    v1 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 1)
+    assert v1.passages and all(p["kind"] == "kb" and p["ref"] and p["collection"] for p in v1.passages)
+
+    second = await turn("غيّر الألوان إلى الأخضر", [trade])
+    assert second[-1]["type"] == "done", second[-1]
+    v2 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 2)
+    assert {p["ref"] for p in v1.passages} <= {p["ref"] for p in v2.passages}
+    html2 = "".join(e["data"]["text"] for e in second if e["type"] == "artifact_delta")
+    assert 'data-kit-label="من: التجارة" title="من: التجارة">812</span>' in html2
+
+    third = await turn("غيّر الخط", [])
+    assert third[-1]["type"] == "done", third[-1]
+    v3 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 3)
+    assert v3.citations == [] and v3.passages == [] and v3.general == v3.figures
+
+
 async def test_a_registration_keeps_the_files_hash_and_a_missing_metadata_flag_until_corrected(services, api):
     # Owner decision B (ADR-0392): the seed step's idempotence and the admin page's flag.
     slug = _slug()

@@ -126,6 +126,13 @@ def _names(item: dict) -> list[str]:
     return [n for n in (kb.get("ar"), kb.get("en"), item.get("title"), item.get("publisher")) if isinstance(n, str) and n]
 
 
+def cited_passages(sources: list[dict], citations: list[dict], limit: int = 40) -> list[dict]:
+    """The passages behind the citations, as source references without text (ADR-0402): this turn's
+    fetched sources whose document the page cites, in order, at most `limit`."""
+    cited = {c.get("id") for c in citations}
+    return [s for s in sources if s.get("ref") and s.get("document_id") in cited][:limit]
+
+
 def known_sources(state: AgentState, previous: list[dict]) -> list[str]:
     """The source names a page could claim without this turn having used them (ADR-0398): the conversation's
     files and what its latest report cited (KB names, titles, publishers). A knowledge base no report cited
@@ -233,6 +240,9 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
 
     prepared = await prepare(request)
 
+    # A source whose text was not fetched this turn (an edit's cited passage from a knowledge base no longer
+    # toggled, or one the backend could not return) is not a source of this page (ADR-0402).
+    sources = [s for s in sources if not s.get("ref") or s["ref"] in ctx.evidence]
     labels = figure_labels(state, ctx, sources, config.text, sourced=sourced)
     known = known_sources(state, latest.citations if latest else [])
     buffered = services.guard.requires_buffering(principal, guard_context(state, ctx))
@@ -323,6 +333,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
                 citations=shown,
                 labels={figure: label.stored() for figure, label in sorted(count.sourced.items())},
                 figures=count.total,
+                passages=cited_passages(sources, shown),
                 general=count.general,
                 timeout_s=config.storage.store_s,
             )
