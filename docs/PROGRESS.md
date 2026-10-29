@@ -2391,8 +2391,8 @@ Pages for the owner's visual check (http://localhost:3000)
 Checklist
 - [x] 1. Tier = max(role default, capability floors); README §19.3; tests; BACKLOG line removed (ADR-0394).
 - [x] 2. «من: طلبك» / "From: your request" accepted (ADR-0389's status).
-- [ ] 3. kb-fetch: the newest edition of every publication series in the ten categories; re-run; per-category report of series and editions.
-- [ ] 4. A report's title, headings and labels in the request's language; the two failing cases gated.
+- [x] 3. kb-fetch: the newest edition of every publication series in the ten categories; re-run; per-category report of series and editions.
+- [x] 4. A report's title, headings and labels in the request's language; the two failing cases gated.
 - [ ] 5. From a clean stack: make test, make smoke, make eval s=reports and s=routing; rule 11; push.
 
 ## Phase 07: Planner
