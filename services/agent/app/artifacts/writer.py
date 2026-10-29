@@ -266,12 +266,18 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             # ADR-0398: the page names no source this turn did not cite.
             claimed = named_sources(text, known, citations)
             span.set_attribute(f"report.sources_named.attempt{attempt}", "failed" if claimed else "passed")
-            if failure is None and not claimed:
+            # A reply with no page (the model wrote a chat line instead of the document) is not stored (ADR-0398).
+            empty = not text.strip()
+            span.set_attribute(f"report.document.attempt{attempt}", "empty" if empty else "written")
+            if failure is None and not claimed and not empty:
                 break
             if attempt == 2:
                 issues = (failure or {}).get("issues", []) + (["uncited_source"] if claimed else [])
+                issues += ["no_document"] if empty else []
                 raise TurnError("validation_failed", detail="report: " + ",".join(issues))
             vars_ = dict(request.prompt_vars)
+            if empty:
+                vars_["document_retry"] = True
             if failure:
                 span.set_attribute("report.retry.issues", ",".join(failure["issues"]))
                 vars_["script_retry"] = failure

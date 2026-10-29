@@ -290,3 +290,21 @@ async def test_the_model_strip_follows_the_setting_in_the_page_the_version_and_t
             version = (await http.get(f"/v1/reports/{report_id}/versions/1", headers=mine)).json()["html"]
         assert ('data-kit="model-info"' in download) is (show and setting)
         assert ('data-kit="model-info"' in version) is (show and setting)
+
+
+async def test_a_reply_with_no_page_is_written_again_once_then_ends_the_turn(reports):
+    """The item 6 run: a new report in a conversation of report lines came back as a chat line, and an empty
+    page was stored. Now it is written again once with the failure named (ADR-0398)."""
+    line = "أُنشئ التقرير «لوحة نادي الهلال» (الإصدار 1)."
+    services, gateway = reports({"report_writer": [line, PAGE], "router": ROUTE_REPORT})
+    events, _, _ = await _turn(services, _principal(), "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    assert events[-1].type == "done", events[-1]
+    assert _of(events, "artifact_done")[0].data.size > 2000
+    assert "رفضت المنصة ردّك السابق" in gateway.systems["report_writer"][1]
+    assert "رفضت المنصة ردّك السابق" not in gateway.systems["report_writer"][0]
+
+    services, gateway = reports({"report_writer": [line, line], "router": ROUTE_REPORT})
+    events, _, _ = await _turn(services, _principal(), "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    assert events[-1].type == "error" and events[-1].data.code == "validation_failed"
+    assert not _of(events, "artifact_done")
+
