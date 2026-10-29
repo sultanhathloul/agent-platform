@@ -26,7 +26,8 @@ def _number(value) -> str:
     if value is None:
         return MISSING
     if isinstance(value, int):
-        return f"{value:,}"
+        # A year (1800 to 2100) is written as a year, never «1,957» (ADR-0416).
+        return str(value) if 1800 <= value <= 2100 else f"{value:,}"
     if value.is_integer():
         return f"{value:,.1f}"  # 3.0 as the source writes it
     return f"{value:,.2f}".rstrip("0").rstrip(".")

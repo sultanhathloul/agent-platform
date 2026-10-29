@@ -347,3 +347,10 @@ def test_kpi_rows_are_balanced():
     page, _ = page_of(spec({"kind": "kpi_row", "items": [{"label": f"م{i}", "value": i} for i in range(5)], "sources": ["general"]}),
                       sourced=False)
     assert 'class="kit-kpis kit-kpis-3"' in page
+
+
+def test_a_year_is_never_grouped_like_a_count():
+    from app.artifacts.render import _number
+
+    assert _number(1957) == "1957" and _number(68000) == "68,000" and _number(3.0) == "3.0"
+
