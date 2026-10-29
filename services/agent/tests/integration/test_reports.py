@@ -282,7 +282,7 @@ async def test_the_model_strip_follows_the_setting_in_the_page_the_version_and_t
         strip = re.search(r'<footer class="kit-model-info".*?</footer>', stored, re.S).group(0)
         tier = _of(events, "tier")[-1].data.tier  # the writer's tier, as the test stack resolves it
         assert "كتابة التقرير" in strip and f"<bdi>{tier}</bdi>" in strip and " ث</bdi>" in strip
-        assert strip in stored[stored.index('data-kit="sources"'):]  # last, after the sources section
+        assert stored.rindex('class="kit-section"') < stored.index(strip)  # last, after every section
     # A page stored while it was shown never leaves once the setting is false.
     for setting in (show, False):
         app = create_app(start_background=False, services=dataclasses.replace(
@@ -318,5 +318,5 @@ async def test_sections_stream_into_the_panel_as_each_one_completes(reports):
     events, _, _ = await _turn(services, _principal(), "اعمل لي لوحة مؤشرات عن النمو", output="report")
     deltas = [d.data.text for d in _of(events, "artifact_delta")]
     assert len(deltas) == 3  # one per section, the first with the frame and the header
-    assert deltas[0].startswith("<!doctype html>") and "<h1>لوحة النمو</h1>" in deltas[0] and 'class="kit-kpis"' in deltas[0]
+    assert deltas[0].startswith("<!doctype html>") and "<h1>لوحة النمو</h1>" in deltas[0] and 'class="kit-kpis kit-kpis-2"' in deltas[0]
     assert "0501234567" not in "".join(deltas) and 'data-chart="c1"' in deltas[2]

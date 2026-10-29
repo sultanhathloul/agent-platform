@@ -38,4 +38,4 @@ def test_no_label_is_drawn_beside_any_figure_and_charts_come_from_echarts():
     css = (KIT / "kit.css").read_text()
     js = (KIT / "kit.js").read_text()
     assert "data-kit-label" not in css and "kit-figure" not in css and "kit-figure" not in js
-    assert "echarts.init" in js and "kit-chart-data" in js and "Chart(" not in js
+    assert "echarts.init" in js and "kit-chart-data" in js and "new Chart(" not in js

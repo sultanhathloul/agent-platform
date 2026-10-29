@@ -147,9 +147,9 @@ def test_the_gender_doughnut_is_found_in_table_3_1_in_its_quarters_row():
 
 def test_a_value_not_found_is_a_gap_listed_under_its_document_and_the_element_stays():
     v = verifier()
-    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.8, 47.1]}]}
+    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.8, 47.1]}, {"name": "جميع المقيمين", "data": [3.2, 3.1]}]}
     checked = v.element(spec(chart).sections[0])
-    assert checked.series[0].data == [6.8, None]
+    assert [s.data for s in checked.series] == [[6.8, None], [3.2, 3.1]]
     use = v.result.documents[0].uses[0]
     assert use.kind == "رسم" and use.where == ["p1"] and use.unavailable == ["الربع الأول 2026 · سعوديون"]
 
@@ -199,7 +199,7 @@ def test_the_page_is_rendered_by_the_platform_deterministically_with_no_label_be
 
 
 def test_the_sources_list_each_document_and_under_it_the_elements_it_supports():
-    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.8, 47.1]}]}
+    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.8, 47.1]}, {"name": "جميع المقيمين", "data": [3.2, 3.1]}]}
     page, _ = page_of(spec(chart, GENDER))
     sources = re.search(r'<section class="kit-sources".*?</section>', page, re.S).group(0)
     assert "<h2>المصادر</h2>" in sources

@@ -224,6 +224,17 @@ def _without_totals(chart) -> None:
         chart.series = [s for s in chart.series if not is_total(s.name)]
 
 
+def _values(section) -> int:
+    """The values an element shows: a KPI's value and change, a chart's points, a table's figures."""
+    if isinstance(section, KpiRow):
+        return sum(1 for item in section.items for v in (item.value, item.delta) if v is not None)
+    if isinstance(section, Chart):
+        return sum(1 for series in section.series for v in series.data if v is not None)
+    if isinstance(section, Table):
+        return sum(len(spans(str(cell))) for row in section.rows for cell in row[1:] if cell is not None)
+    return 0
+
+
 @dataclass
 class Use:
     """One element's use of one document: where (pages, sheets) and the values it could not find."""
@@ -282,6 +293,8 @@ class Verifier:
         if not self.sourced:
             if hasattr(section, "sources"):
                 section.sources = ["general"]
+                # A general report counts its values too: the version's `figures`, all of them general.
+                self.result.values += _values(section)
             return section
         if isinstance(section, Text | Callout):
             section.markdown = self._text(section.markdown)
