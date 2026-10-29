@@ -19,20 +19,24 @@ from tests.fixtures.replace import ReplacingGateway
 
 pytestmark = pytest.mark.integration
 
-PAGE = """```html
-<!doctype html><html lang="ar" dir="rtl"><head><title>لوحة النمو</title>
-<script src="https://cdn.example.com/chart.js"></script></head>
-<body><main class="kit-page"><header class="kit-header"><h1>لوحة النمو</h1></header>
-<div class="kit-kpis"><div class="kit-kpi"><div class="kit-kpi-label">النمو</div><div class="kit-kpi-value">3.6</div></div>
-<div class="kit-kpi"><div class="kit-kpi-label">العام السابق</div><div class="kit-kpi-value">3.1</div></div></div>
-<p>للتواصل: 0501234567</p>
-<div class="kit-chart" data-chart="g"></div>
-<script type="application/json" id="report-data">{"charts":{"g":{"type":"line","labels":["2030","2031"],
-"datasets":[{"label":"النمو","data":[3.1,3.6]}]}}}</script></main></body></html>
-```"""
-EDITED = PAGE.replace("<h1>لوحة النمو</h1>", "<h1>لوحة النمو باللون الأخضر</h1>").replace(
-    "<title>لوحة النمو</title>", "<title>لوحة النمو</title><style>:root{--kit-accent:#0f766e}</style>"
-)
+def _spec(title: str = "لوحة النمو", **extra) -> dict:
+    return {
+        "title": title, "language": "ar", "period": "2031",
+        "sections": [
+            {"kind": "kpi_row", "items": [{"label": "النمو", "value": 3.6, "unit": "%"},
+                                          {"label": "العام السابق", "value": 3.1, "unit": "%"}], "sources": ["general"]},
+            {"kind": "text", "markdown": "للتواصل: 0501234567"},
+            {"kind": "chart", "type": "line", "title": "النمو", "labels": ["2030", "2031"],
+             "series": [{"name": "النمو", "data": [3.1, 3.6]}], "unit": "%", "sources": ["general"]},
+        ],
+        **extra,
+    }
+
+
+# The writer's answer is a report spec (option C, ADR-0406), in a fence as a model may write it.
+PAGE = "```json\n" + json.dumps(_spec(), ensure_ascii=False) + "\n```"
+EDITED = json.dumps({**_spec(), "sections": [*_spec()["sections"], {"kind": "callout", "tone": "success",
+                                                                     "markdown": "النمو باللون الأخضر"}]}, ensure_ascii=False)
 ROUTE_REPORT = '{"capabilities": ["general"], "skill": null, "output": "report", "complexity": "low", "risk": "low"}'
 ROUTE_TEXT = '{"capabilities": ["general"], "skill": null, "output": "text", "complexity": "low", "risk": "low"}'
 # With a report in the conversation the router also says whether the request edits it (ADR-0400).
@@ -107,18 +111,16 @@ async def test_a_picked_report_streams_checked_marked_and_stored_and_a_follow_up
     assert record.size == len(page.encode()) == done[0].data.size
     assert "cdn.example.com" not in page and "0501234567" not in page
     assert page.startswith('<!doctype html><html lang="ar" dir="rtl">')
-    # The labels (ADR-0398): no KB, no file, no findings: matching is skipped and every figure, 3.6 and
-    # 2031 of the message included, is general knowledge.
-    general = 'data-kit-source="general" data-kit-label="من المعرفة العامة" title="من المعرفة العامة">3.1</span>'
-    assert general in page
-    assert 'data-kit-source="general" data-kit-label="من المعرفة العامة" title="من المعرفة العامة">3.6</span>' in page
-    assert "غير موثق" not in page and "من: طلبك" not in page
-    data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))
-    assert data["charts"]["g"]["datasets"][0]["general"] == [0, 1]
-    assert data["charts"]["g"]["datasets"][0]["sources"] == ["من المعرفة العامة", "من المعرفة العامة"]
-    assert data["charts"]["g"]["label_sources"] == ["من المعرفة العامة", "من المعرفة العامة"]
-    assert '<section class="kit-sources" data-kit="sources"' in page and "<h2>المصادر</h2>" in page
-    assert record.figures >= 6 and record.general == record.figures
+    # Option C (ADR-0406 to ADR-0408): the platform renders the spec; no label beside any figure; a report
+    # with no KB, file or findings opens with the general-knowledge line and has no sources section.
+    assert "kit-figure" not in page and "data-kit-label" not in page and "من: طلبك" not in page
+    assert "هذا التقرير من المعرفة العامة للنموذج، دون مصادر موثقة" in page and 'data-kit="sources"' not in page
+    assert '<div class="kit-kpi-value">3.6<span class="kit-kpi-unit">%</span></div>' in page
+    chart = json.loads(re.search(r'class="kit-chart-data" id="c1">(.*?)</script>', page).group(1))
+    assert chart["series"][0]["data"] == [3.1, 3.6] and chart["labels"] == ["2030", "2031"]
+    stored = json.loads(re.search(r'class="kit-spec" id="report-spec">(.*?)</script>', page).group(1))
+    assert record.spec == stored and all(s.get("sources", ["general"]) == ["general"] for s in stored["sections"])
+    assert record.figures == 4 and record.general == record.figures
 
     # D4: a follow-up with no picker and no keyword is a candidate because the conversation holds a report.
     events2, _, admission2 = await _turn(services, principal, "غيّر الألوان إلى الأخضر", conversation=conversation)
@@ -131,9 +133,8 @@ async def test_a_picked_report_streams_checked_marked_and_stored_and_a_follow_up
     assert [v.version for v in report.versions] == [1, 2] and report.title == "لوحة النمو"
     page2 = (await services.reports.page(await services.reports.version(
         principal.tenant_id, principal.user_id, done2.id, 2), 10)).decode()
-    assert "--kit-accent:#0f766e" in page2
-    # Nothing is carried from v1 (ADR-0398): v2's turn has no findings, so every figure is general knowledge.
-    assert general in page2 and "من: طلبك" not in page2
+    # The edit changed the spec: v1's spec was its context, and v2 adds a section (ADR-0406).
+    assert "النمو باللون الأخضر" in page2 and "هذا التقرير من المعرفة العامة" in page2
 
 
 async def test_a_follow_up_on_another_subject_is_a_new_report_that_inherits_nothing(reports):
@@ -232,7 +233,7 @@ async def test_a_turn_with_no_keyword_no_report_and_no_picker_keeps_the_default_
 
 
 # report_b276fb00 v2 (owner decision D): Chinese letters inside Arabic text.
-CJK = PAGE.replace("<h1>لوحة النمو</h1>", "<h1>لوحة النمو مع أندريه في拉斯</h1>")
+CJK = json.dumps(_spec("لوحة النمو مع أندريه في拉斯"), ensure_ascii=False)
 
 
 async def test_a_page_outside_its_scripts_is_written_again_once_with_the_failure_named(reports):
@@ -243,8 +244,8 @@ async def test_a_page_outside_its_scripts_is_written_again_once_with_the_failure
     assert len(_of(events, "artifact_start")) == 2  # the panel starts over on the second page
     assert len(gateway.systems["report_writer"]) == 2
     first, retry = gateway.systems["report_writer"]
-    assert "رفضت المنصة محاولتك السابقة" not in first
-    assert "رفضت المنصة محاولتك السابقة" in retry and "«في拉斯»" in retry
+    assert "رفضت المنصة إجابتك السابقة" not in first
+    assert "رفضت المنصة إجابتك السابقة" in retry and "«في拉斯»" in retry
     done = _of(events, "artifact_done")[0].data
     record = await services.reports.version(principal.tenant_id, principal.user_id, done.id, 1)
     page = (await services.reports.page(record, 10)).decode()
@@ -252,7 +253,7 @@ async def test_a_page_outside_its_scripts_is_written_again_once_with_the_failure
 
 
 async def test_a_page_that_fails_its_scripts_twice_ends_the_turn_with_the_validation_message(reports):
-    data_cjk = PAGE.replace('"label":"النمو"', '"label":"النمو 增长"')
+    data_cjk = PAGE.replace('"name": "النمو"', '"name": "النمو 增长"')
     services, gateway = reports({"report_writer": [CJK, data_cjk], "router": ROUTE_REPORT})
     principal = _principal()
     events, conversation, _ = await _turn(services, principal, "اعمل لي لوحة مؤشرات عن النمو", output="report")
@@ -292,19 +293,27 @@ async def test_the_model_strip_follows_the_setting_in_the_page_the_version_and_t
         assert ('data-kit="model-info"' in version) is (show and setting)
 
 
-async def test_a_reply_with_no_page_is_written_again_once_then_ends_the_turn(reports):
-    """The item 6 run: a new report in a conversation of report lines came back as a chat line, and an empty
-    page was stored. Now it is written again once with the failure named (ADR-0398)."""
+async def test_a_reply_that_is_not_a_spec_is_written_again_once_then_ends_the_turn(reports):
+    """The item 6 runs: the Al Hilal report came back as the chat line. A reply that is not a report spec is
+    written again once with the failure named (ADR-0406), then ends validation_failed."""
     line = "أُنشئ التقرير «لوحة نادي الهلال» (الإصدار 1)."
     services, gateway = reports({"report_writer": [line, PAGE], "router": ROUTE_REPORT})
     events, _, _ = await _turn(services, _principal(), "اعمل لي لوحة مؤشرات عن النمو", output="report")
     assert events[-1].type == "done", events[-1]
     assert _of(events, "artifact_done")[0].data.size > 2000
-    assert "رفضت المنصة ردّك السابق" in gateway.systems["report_writer"][1]
-    assert "رفضت المنصة ردّك السابق" not in gateway.systems["report_writer"][0]
+    assert "لم تكن مواصفة تقرير صحيحة" in gateway.systems["report_writer"][1]
+    assert "لم تكن مواصفة تقرير صحيحة" not in gateway.systems["report_writer"][0]
 
     services, gateway = reports({"report_writer": [line, line], "router": ROUTE_REPORT})
     events, _, _ = await _turn(services, _principal(), "اعمل لي لوحة مؤشرات عن النمو", output="report")
     assert events[-1].type == "error" and events[-1].data.code == "validation_failed"
     assert not _of(events, "artifact_done")
 
+
+async def test_sections_stream_into_the_panel_as_each_one_completes(reports):
+    services, _ = reports({"report_writer": PAGE, "router": ROUTE_REPORT})
+    events, _, _ = await _turn(services, _principal(), "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    deltas = [d.data.text for d in _of(events, "artifact_delta")]
+    assert len(deltas) == 3  # one per section, the first with the frame and the header
+    assert deltas[0].startswith("<!doctype html>") and "<h1>لوحة النمو</h1>" in deltas[0] and 'class="kit-kpis"' in deltas[0]
+    assert "0501234567" not in "".join(deltas) and 'data-chart="c1"' in deltas[2]

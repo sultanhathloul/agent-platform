@@ -75,8 +75,8 @@ class SkillBlockRequest(BaseModel):
 
 
 class ReportBlockRequest(BaseModel):
-    """What the report writer's two blocks render: the design kit's text (design-system.md) and, on a
-    follow-up, the version it revises, without the platform's marks (ADR-0380)."""
+    """What the report writer's two blocks render: the spec guide's text (design-system.md) and, on an
+    edit, the current version's checked spec as JSON (ADR-0380, ADR-0406)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -85,7 +85,7 @@ class ReportBlockRequest(BaseModel):
     kit_text: str = Field(repr=False)
     current_title: str | None = None
     current_version: int | None = None
-    current_html: str | None = Field(default=None, repr=False)
+    current_spec: str | None = Field(default=None, repr=False)
 
 
 class AssemblyRequest(BaseModel):

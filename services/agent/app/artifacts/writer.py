@@ -1,25 +1,26 @@
-"""The report writer: the answer node's form on a report turn (reports PR, D1, I1, ADR-0380).
+"""The report writer: the answer node's form on a report turn (reports PR, D1, I1, ADR-0380; option C,
+ADR-0406 to ADR-0408).
 
 The turn's capabilities ran as on any turn; here the role `report_writer` (heavy tier, 16k output tokens)
-writes one HTML page from the same findings and passages, with the design kit's prompt part and, when the
-router judged the request an edit of the conversation's latest report, that report's latest version (D4,
-ADR-0400); any other report request starts a new report at version 1. The page streams through the guards
-(app/artifacts/stream.py) as it is written. A turn draws from one kind of source (ADR-0398): this turn's
-findings when knowledge bases are toggled, files attached or a capability found something, else general
-knowledge only; nothing of an earlier turn's findings, labels or sources is carried over. Then:
+answers with a report spec, JSON matching config/artifacts/report-spec.schema.json, from the same findings
+and passages, each passage given an id ("P1", "P2"…), with the spec guide's prompt part and, when the router
+judged the request an edit of the conversation's latest report, that report's current spec (ADR-0400); any
+other report request starts a new report at version 1. A turn draws from one kind of source (ADR-0398).
 
-1. citations: page attribution (app/rag/citations.py) over the page's visible text, as for a text answer;
-2. source names: the page names no knowledge base, file or publisher outside this turn's citations; a page
-   that does is written again once with the names given, then the turn fails (ADR-0398);
-3. figures (D2, I3, ADR-0388, ADR-0399): on a sourced turn a figure is labelled with the source whose
-   passage holds it with its row or column label (or whose metadata, or the user's message, holds it), and
-   any other reads «غير متوفر»; on an unsourced turn every figure is labelled general knowledge;
-4. the sources section from this turn's citations only;
-5. the 512 KB cap (I4), then the page is stored as the report's next version (I5) and `artifact_done` sent.
+Each section streams as it completes, guarded, verified against the passages it cites and rendered by the
+platform (app/artifacts/spec_stream.py, verify.py, render.py). Then:
 
-The chat's reply is one line naming the report and its version; the page itself never enters the
-conversation's messages."""
+1. the spec must parse and keep to its locale's scripts, and name no source this turn did not use; a reply
+   that fails is written again once with the failure named, then the turn ends validation_failed;
+2. the page is rendered deterministically from the checked spec: the header, a general-knowledge report's
+   one line, the sections, «المصادر» (one entry per document, the elements it supports under it), the model
+   strip; the checked spec travels in the page and in the version row;
+3. the 512 KB cap (I4), then the version is stored (I5) with the passages its elements cited, for an edit to
+   fetch again (ADR-0402), and `artifact_done` sent.
 
+The chat's reply is one line naming the report and its version; the page never enters the conversation."""
+
+import json
 import logging
 import math
 import uuid
@@ -28,10 +29,12 @@ from langgraph.runtime import Runtime
 from opentelemetry import trace
 
 from app.artifacts.config import ReportText
-from app.artifacts.document import ModelCall, Renderer, drop_empty, editable, model_strip, sources_section
-from app.artifacts.figures import FigureLabels, Label, source_texts
+from app.artifacts.document import ModelCall, model_strip
+from app.artifacts.render import PageRenderer, render_page
+from app.artifacts.spec import SpecError
+from app.artifacts.spec_stream import SpecStream, visible_text
 from app.artifacts.store import ReportUnavailable
-from app.artifacts.stream import ReportStream, visible_text
+from app.artifacts.verify import Passage, Verified, Verifier
 from app.context.package import BLOCK_NAMES, AssemblyRequest, ReportBlockRequest
 from app.context.selectors.blocks import ReportTooLargeToEdit
 from app.errors import TurnError
@@ -44,7 +47,6 @@ from app.graph.state import AgentState
 from app.models.gateway import ModelResult
 from app.memory.types import MemoryScope
 from app.platform_settings import effective
-from app.rag.citations import attribute
 from app.resilience import deadline
 from app.text.arabic import normalize
 from app.text.script import ScriptPolicy, script_issues, script_tokens
@@ -81,42 +83,6 @@ def sourced_turn(state: AgentState, sources: list[dict]) -> bool:
     )
 
 
-def figure_labels(state: AgentState, ctx: TurnContext, sources: list[dict], text: ReportText, *, sourced: bool) -> FigureLabels:
-    """Each figure's source from this turn only, first match first (ADR-0388, ADR-0398, ADR-0399): each
-    source's passage (with the figure's row or column label) and metadata in order, the capabilities'
-    findings, the user's message. An unsourced turn matches nothing: every figure is general knowledge."""
-    locale = state["locale"]
-    lang = "en" if locale == "en" else "ar"
-    labels = FigureLabels(
-        Label("general", text.general_label.of(locale)),
-        sourced=sourced,
-        unavailable=Label("unavailable", text.unavailable_label.of(locale)),
-    )
-    if not sourced:
-        return labels
-    for source in sources:
-        names = source.get("kb_name") if isinstance(source.get("kb_name"), dict) else None
-        if names and names.get(lang):
-            kind, name = "kb", names[lang]
-        elif source.get("kind", "doc") == "doc" and source.get("title"):
-            kind, name = "file", source["title"]
-        else:
-            kind, name = "source", source.get("title") or ""
-        if not name:
-            continue
-        label = Label(kind, text.source_label.of(locale).format(name=name))
-        labels.add([ctx.evidence.get(source.get("ref") or "", "")], label, passage=True)
-        labels.add(source_texts(source), label)
-    for output in state.get("capability_outputs") or []:
-        if output.get("findings"):
-            name = _capability_name(ctx, output["capability"], locale)
-            labels.add(
-                [output["findings"]], Label("capability", text.source_label.of(locale).format(name=name)), passage=True
-            )
-    labels.add([state.get("user_message") or ""], Label("message", text.message_label.of(locale)))
-    return labels
-
-
 # A name shorter than this, folded, is too likely a common word to be read as a source's name.
 MIN_SOURCE_NAME = 6
 
@@ -126,11 +92,38 @@ def _names(item: dict) -> list[str]:
     return [n for n in (kb.get("ar"), kb.get("en"), item.get("title"), item.get("publisher")) if isinstance(n, str) and n]
 
 
-def cited_passages(sources: list[dict], citations: list[dict], limit: int = 40) -> list[dict]:
-    """The passages behind the citations, as source references without text (ADR-0402): this turn's
-    fetched sources whose document the page cites, in order, at most `limit`."""
-    cited = {c.get("id") for c in citations}
-    return [s for s in sources if s.get("ref") and s.get("document_id") in cited][:limit]
+def passages_for(retrieved: list[dict], sources: list[dict]) -> list[Passage]:
+    """This turn's fetched chunks as the spec's passages, P1… in the order the context lists them (ADR-0407)."""
+    by_ref = {s.get("ref"): s for s in sources if s.get("ref")}
+    out: list[Passage] = []
+    for item in retrieved:
+        source = by_ref.get(item.get("id"), {})
+        out.append(Passage(
+            pid=item["pid"], ref=item.get("id") or "", text=item.get("text") or "",
+            document_id=item.get("document_id") or source.get("document_id") or "",
+            title=source.get("title") or item.get("source") or "", publisher=source.get("publisher"),
+            published_on=source.get("published_on"), kb_name=source.get("kb_name"),
+            page=item.get("page"), locator=item.get("locator"),
+        ))
+    return out
+
+
+def cited(verified: Verified, sources: list[dict]) -> tuple[list[dict], list[dict]]:
+    """The version's citations (one per document a value was found in, its pages) and the passages behind
+    them as source references without text, for an edit to fetch again (ADR-0402)."""
+    by_ref = {s.get("ref"): s for s in sources if s.get("ref")}
+    passages = [by_ref[ref] for ref in verified.refs if ref in by_ref][:40]
+    citations: list[dict] = []
+    for doc in verified.documents:
+        first = next((p for p in passages if p.get("document_id") == doc.document_id), {})
+        pages = sorted({int(w[1:]) for u in doc.uses for w in u.where if w.startswith("p") and w[1:].isdigit()})
+        citations.append({
+            "id": doc.document_id, "document_id": doc.document_id, "title": doc.title,
+            "source": first.get("kind") or "kb", "kb": first.get("kb"), "kb_name": doc.kb_name,
+            "publisher": doc.publisher, "published_on": doc.published_on, "url": first.get("url"),
+            "pages": pages, "locator": None,
+        })
+    return citations, passages
 
 
 def known_sources(state: AgentState, previous: list[dict]) -> list[str]:
@@ -183,6 +176,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     services = ctx.services
     art, reports = services.artifacts, services.reports
     config = art.report
+    text_config = config.text
     locale = state["locale"]
     span = trace.get_current_span()
     principal = ctx.principal
@@ -191,12 +185,9 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     # report, version 1, that inherits nothing.
     edit = bool((state.get("output") or {}).get("edit"))
     current = latest if edit else None
-    current_html = None
-    if current is not None:
-        try:
-            current_html = editable((await reports.page(current, config.storage.store_s)).decode("utf-8"))
-        except ReportUnavailable as exc:
-            raise TurnError("report_unavailable", retryable=True, detail=str(exc)) from None
+    # The current version's spec (ADR-0406); a version written before option C has none, and its edit
+    # writes a whole new spec under the same report.
+    current_spec = json.dumps(current.spec, ensure_ascii=False) if current is not None and current.spec else None
     span.set_attribute("report.edit", current is not None)
     sources = [s for o in state.get("capability_outputs") or [] for s in o.get("sources", [])]
     sourced = sourced_turn(state, sources)
@@ -208,6 +199,8 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
 
     needs = report_needs(state, ctx)
     retrieved = await load_evidence(state, ctx) if "retrieval" in needs else []
+    # Each passage gets the id the spec cites it by (ADR-0407).
+    retrieved = [{**item, "pid": f"P{i}"} for i, item in enumerate(retrieved, start=1)]
     selected = [services.registry.get(slug) for slug in state["intent"]["capabilities"]]
     node = services.assembler.node(NODE)
     request = AssemblyRequest(
@@ -224,9 +217,9 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             kit_text=art.design.text,
             current_title=current.title if current else None,
             current_version=current.version if current else None,
-            current_html=current_html,
+            current_spec=current_spec,
         ),
-        prompt_vars={"has_current": current is not None, "sourced": sourced},
+        prompt_vars={"has_current": current_spec is not None, "sourced": sourced},
         memory_scope=MemoryScope.of(principal),
     )
 
@@ -243,51 +236,54 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     # A source whose text was not fetched this turn (an edit's cited passage from a knowledge base no longer
     # toggled, or one the backend could not return) is not a source of this page (ADR-0402).
     sources = [s for s in sources if not s.get("ref") or s["ref"] in ctx.evidence]
-    labels = figure_labels(state, ctx, sources, config.text, sourced=sourced)
+    passages = passages_for(retrieved, sources)
     known = known_sources(state, latest.citations if latest else [])
     buffered = services.guard.requires_buffering(principal, guard_context(state, ctx))
     span.set_attribute("answer.mode", "buffered" if buffered else "streaming")
     # The report's id is known before the page streams, so the panel follows one id across its versions.
     report_id = current.report_id if current else str(uuid.uuid4())
     version = (current.version + 1) if current else 1
-    title_default = current.title if current else config.text.untitled.of(locale)
     scripts = services.validation.scripts_for(locale)
+    kinds = {k: getattr(text_config.kinds, k).of(locale) for k in ("kpi_row", "chart", "table")}
     tokens_in = tokens_out = 0
     with deadline.within(math.inf, margin_s=effective.turn(services.turn).post_answer_reserve_s):
-        # D of the owner's decisions on the branch (ADR-0390): the page keeps to its locale's scripts, as a
-        # text answer does; a failure is written again once with the failure named, then ends the turn.
+        # The spec must parse (ADR-0406), keep to the locale's scripts (ADR-0390) and name no source this turn
+        # did not use (ADR-0398); a failure is written again once with the failure named, then ends the turn.
         for attempt in (1, 2):
-            stream = ReportStream(
-                ctx, state, config, report_id=report_id, version=version, default_title=title_default,
-                labels=labels, buffered=buffered,
-            )
+            renderer = PageRenderer(locale, text_config, sourced=sourced)
+            verifier = Verifier(passages, sourced=sourced, kinds=kinds, untitled=text_config.untitled_element.of(locale))
+            stream = SpecStream(ctx, state, config, renderer, verifier, report_id=report_id, version=version,
+                                buffered=buffered)
             try:
                 result = await call_model(ctx, prepared, on_token=stream.feed)
             except BaseException:
                 await stream.abort()
                 raise
-            pieces = await stream.close()
             tokens_in += result.tokens_in
             tokens_out += result.tokens_out
-            text = visible_text(pieces)
-            failure = script_failure(text, scripts)
+            spec = invalid = None
+            try:
+                spec = await stream.close()
+            except SpecError as exc:
+                invalid = str(exc)[:300]
+            span.set_attribute(f"report.spec.attempt{attempt}", "invalid" if invalid else "valid")
+            text = visible_text(spec)
+            failure = script_failure(text, scripts) if spec else None
             span.set_attribute(f"report.scripts.attempt{attempt}", "failed" if failure else "passed")
-            citations = attribute(text, sources, ctx.evidence, services.citations, question=state.get("user_message") or "")
-            # ADR-0398: the page names no source this turn did not cite.
-            claimed = named_sources(text, known, citations)
+            verified = verifier.result
+            citations, cited_refs = cited(verified, sources) if spec else ([], [])
+            claimed = named_sources(text, known, citations) if spec else []
             span.set_attribute(f"report.sources_named.attempt{attempt}", "failed" if claimed else "passed")
-            # A reply with no page (the model wrote a chat line instead of the document) is not stored (ADR-0398).
-            empty = not text.strip()
-            span.set_attribute(f"report.document.attempt{attempt}", "empty" if empty else "written")
-            if failure is None and not claimed and not empty:
+            if spec is not None and failure is None and not claimed:
                 break
             if attempt == 2:
-                issues = (failure or {}).get("issues", []) + (["uncited_source"] if claimed else [])
-                issues += ["no_document"] if empty else []
+                issues = (["invalid_spec"] if invalid else []) + (failure or {}).get("issues", [])
+                issues += ["uncited_source"] if claimed else []
                 raise TurnError("validation_failed", detail="report: " + ",".join(issues))
             vars_ = dict(request.prompt_vars)
-            if empty:
-                vars_["document_retry"] = True
+            if invalid:
+                span.set_attribute("report.retry.spec", invalid)
+                vars_["spec_retry"] = invalid
             if failure:
                 span.set_attribute("report.retry.issues", ",".join(failure["issues"]))
                 vars_["script_retry"] = failure
@@ -296,36 +292,26 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
                 vars_["source_retry"] = claimed[:5]
             request = request.model_copy(update={"prompt_vars": vars_})
             prepared = await prepare(request)
-        shown = citations
-        # ADR-0405: a chart or table with nothing available leaves the page; the stored page is rendered
-        # from what stays (the streamed preview showed it whole; the panel then loads the stored version).
-        probe = Renderer(locale, labels)
-        probe.render(pieces)
-        kept = drop_empty(pieces, probe)
-        span.set_attribute("report.dropped.charts", len(probe.empty_charts))
-        span.set_attribute("report.dropped.tables", sum(1 for t, m in probe.tables if t and t == m))
-        renderer = Renderer(locale, labels)
-        body = renderer.render(kept)
-        end = sources_section(shown, locale, config.text, general=renderer.count.general > 0)
-        if art.show_model_info:
-            end += model_strip(model_calls(ctx, result, locale, config.text), locale, config.text.model_info)
-        page = body + renderer.end(end)
+        verified.spec = spec
+        renderer = PageRenderer(locale, text_config, sourced=sourced)
+        strip = model_strip(model_calls(ctx, result, locale, text_config), locale, text_config.model_info) if art.show_model_info else ""
+        page = render_page(spec, renderer, renderer.sources(verified.documents), strip)
+        if buffered:
+            stream.stream_page(page)
         size = len(page.encode("utf-8"))
-        count = renderer.count
         span.set_attribute("report.bytes", size)
-        span.set_attribute("report.figures", count.total)
-        span.set_attribute("report.figures.general", count.general)
-        span.set_attribute("report.figures.unavailable", count.unavailable)
+        span.set_attribute("report.values", verified.values)
+        span.set_attribute("report.values.unavailable", verified.unavailable)
+        span.set_attribute("report.dropped", len(verified.dropped))
         span.set_attribute("report.truncated", stream.truncated)
-        if services.settings.observability_capture_content and count.general_figures:
-            span.set_attribute("report.figures.general_values", ",".join(count.general_figures[:200]))
         log.info(
-            "report figures turn=%s version=%d figures=%d general=%d unavailable=%d",
-            ctx.turn_id, version, count.total, count.general, count.unavailable,
+            "report values turn=%s version=%d sections=%d values=%d found=%d unavailable=%d dropped=%s",
+            ctx.turn_id, version, len(spec.sections), verified.values, verified.found, verified.unavailable,
+            verified.dropped,
         )
         if size > config.max_bytes:
             raise TurnError("report_too_large", detail=f"{size} bytes over {config.max_bytes}")
-        title = (stream.title or title_default)[:300]
+        title = spec.title[:300] or text_config.untitled.of(locale)
         try:
             record = await reports.save_version(
                 report_id=report_id,
@@ -337,18 +323,19 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
                 page=page.encode("utf-8"),
                 locale="en" if locale == "en" else "ar",
                 turn_id=ctx.turn_id,
-                citations=shown,
-                labels={figure: label.stored() for figure, label in sorted(count.sourced.items())},
-                figures=count.total,
-                passages=cited_passages(sources, shown),
-                general=count.general,
+                citations=citations,
+                labels={},
+                figures=verified.values,
+                passages=cited_refs,
+                general=0 if sourced else verified.values,
+                spec=spec.model_dump(mode="json", exclude_none=True),
                 timeout_s=config.storage.store_s,
             )
         except ReportUnavailable as exc:
             raise TurnError("report_unavailable", retryable=True, detail=str(exc)) from None
     emit(runtime, "artifact_done", {"id": record.report_id, "version": record.version, "size": record.size,
                                     "title": record.title})
-    line = (config.text.updated if current else config.text.created).of(locale).format(
+    line = (text_config.updated if current else text_config.created).of(locale).format(
         title=record.title, version=record.version
     )
     emit(runtime, "token", {"text": line})

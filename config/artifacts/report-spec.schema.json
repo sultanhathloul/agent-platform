@@ -1,0 +1,457 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "report-spec/1.0.0",
+  "$defs": {
+    "Callout": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "callout",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tone": {
+          "default": "info",
+          "enum": [
+            "info",
+            "success",
+            "warning"
+          ],
+          "title": "Tone",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "markdown": {
+          "maxLength": 1000,
+          "title": "Markdown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "markdown"
+      ],
+      "title": "Callout",
+      "type": "object"
+    },
+    "Chart": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "chart",
+          "title": "Kind",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "bar",
+            "line",
+            "area",
+            "pie",
+            "doughnut",
+            "stacked_bar"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "labels": {
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Labels",
+          "type": "array"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/Series"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Series",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "sources": {
+          "items": {
+            "pattern": "^(P[1-9][0-9]{0,2}|general)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "type",
+        "title",
+        "labels",
+        "series",
+        "sources"
+      ],
+      "title": "Chart",
+      "type": "object"
+    },
+    "Kpi": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 200,
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "title": "Kpi",
+      "type": "object"
+    },
+    "KpiRow": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "kpi_row",
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Kpi"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "pattern": "^(P[1-9][0-9]{0,2}|general)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "items",
+        "sources"
+      ],
+      "title": "KpiRow",
+      "type": "object"
+    },
+    "Series": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        },
+        "data": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 200,
+          "title": "Data",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "data"
+      ],
+      "title": "Series",
+      "type": "object"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "table",
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxItems": 12,
+            "type": "array"
+          },
+          "maxItems": 100,
+          "title": "Rows",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "pattern": "^(P[1-9][0-9]{0,2}|general)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "columns",
+        "rows",
+        "sources"
+      ],
+      "title": "Table",
+      "type": "object"
+    },
+    "Text": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "text",
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "markdown": {
+          "maxLength": 4000,
+          "title": "Markdown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "markdown"
+      ],
+      "title": "Text",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+    },
+    "subtitle": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subtitle"
+    },
+    "period": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period"
+    },
+    "language": {
+      "enum": [
+        "ar",
+        "en"
+      ],
+      "title": "Language",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "callout": "#/$defs/Callout",
+            "chart": "#/$defs/Chart",
+            "kpi_row": "#/$defs/KpiRow",
+            "table": "#/$defs/Table",
+            "text": "#/$defs/Text"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/KpiRow"
+          },
+          {
+            "$ref": "#/$defs/Chart"
+          },
+          {
+            "$ref": "#/$defs/Table"
+          },
+          {
+            "$ref": "#/$defs/Text"
+          },
+          {
+            "$ref": "#/$defs/Callout"
+          }
+        ]
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Sections",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "language",
+    "sections"
+  ],
+  "title": "ReportSpec",
+  "type": "object"
+}

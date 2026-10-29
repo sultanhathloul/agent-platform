@@ -93,11 +93,11 @@ class ReportCurrent(Step):
 
     async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
         req = package.request
-        if req.report is None or req.report.current_html is None:
+        if req.report is None or req.report.current_spec is None:
             return package
         prompt = self.deps.prompts.render(
             "context.report_current", req.locale, title=req.report.current_title or "",
-            version=req.report.current_version or 0, html=req.report.current_html,
+            version=req.report.current_version or 0, spec=req.report.current_spec,
         )
         block = self.make_block("report_current", "user", prompt.text, prompt=prompt.ref)
         if block.tokens > self.budget_for(package).max_tokens:
@@ -283,6 +283,7 @@ class SemanticRetrieval(Step):
                 publisher=chunk.get("publisher"),
                 published_on=chunk.get("published_on"),
                 superseded_by=chunk.get("superseded_by"),
+                pid=chunk.get("pid"),
                 text=kept,
             )
             # Untrusted data travels in the user role, with the question, never as system

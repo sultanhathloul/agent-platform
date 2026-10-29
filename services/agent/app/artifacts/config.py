@@ -72,14 +72,21 @@ class ShowModelInfo(_Strict):
     production: bool
 
 
+class ElementKinds(_Strict):
+    kpi_row: Localized
+    chart: Localized
+    table: Localized
+
+
 class ReportText(_Strict):
     sources_heading: Localized
     no_sources: Localized
-    general_note: Localized
-    general_label: Localized
-    source_label: Localized
-    message_label: Localized
-    unavailable_label: Localized
+    general_banner: Localized
+    kinds: ElementKinds
+    untitled_element: Localized
+    sheet: Localized
+    unavailable: Localized
+    chart_gaps: Localized
     page: Localized
     created: Localized
     updated: Localized

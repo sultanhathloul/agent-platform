@@ -2,7 +2,7 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 1.2.0
+version: 2.0.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
@@ -48,7 +48,7 @@ kit:
   # Served at `path` + file; a download inlines the scripts in this order and the stylesheet with its fonts
   # as data: URLs. Each file's SHA-256 is pinned in config/artifacts/kit/SOURCE.md and checked by a test.
   stylesheet: kit.css
-  scripts: [vendor/chart.umd.min.js, kit.js]
+  scripts: [vendor/echarts.min.js, kit.js]
   fonts: [fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2, fonts/ibm-plex-sans-arabic-latin-400-normal.woff2,
           fonts/ibm-plex-sans-arabic-arabic-500-normal.woff2, fonts/ibm-plex-sans-arabic-latin-500-normal.woff2,
           fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2, fonts/ibm-plex-sans-arabic-latin-600-normal.woff2,
@@ -57,17 +57,19 @@ kit:
 # What the platform writes into the page and the chat: the sources section and the reply's line.
 text:
   sources_heading: {ar: "المصادر", en: "Sources"}
-  no_sources: {ar: "لا مصدر لهذه الأرقام: كل رقم معلَّم «من المعرفة العامة» مصدره المعرفة العامة للنموذج.",
-               en: "No source for these figures: every figure labelled \"General knowledge\" comes from the model's general knowledge."}
-  general_note: {ar: "الأرقام المعلَّمة «من المعرفة العامة» من المعرفة العامة للنموذج ولم تُطابَق بأي مصدر.",
-                 en: "Figures labelled \"General knowledge\" come from the model's general knowledge and were matched to no source."}
-  # Each figure's one label (owner decision A, ADR-0388): the source that holds it, or general knowledge.
-  # {name} is a knowledge base's name, a file's title, or a capability's name.
-  general_label: {ar: "من المعرفة العامة", en: "General knowledge"}
-  source_label: {ar: "من: {name}", en: "From: {name}"}
-  message_label: {ar: "من: طلبك", en: "From: your request"}
-  # A figure a sourced turn's findings do not hold, shown in its place (ADR-0398).
-  unavailable_label: {ar: "غير متوفر", en: "Not available"}
+  no_sources: {ar: "لم يُعثر على قيم هذا التقرير في المصادر.", en: "None of this report's values were found in the sources."}
+  # Owner decision B on PR #17 (ADR-0408): no label beside any figure. A general-knowledge report opens with
+  # this line and has no sources section; a sourced one ends with «المصادر», one entry per document and under
+  # it each element it supports ({kind}: {title} — pages or sheets) and the values it could not find.
+  general_banner: {ar: "هذا التقرير من المعرفة العامة للنموذج، دون مصادر موثقة", en: "This report is from the model's general knowledge, without verified sources"}
+  kinds:
+    kpi_row: {ar: "مؤشرات", en: "Indicators"}
+    chart: {ar: "رسم", en: "Chart"}
+    table: {ar: "جدول", en: "Table"}
+  untitled_element: {ar: "المؤشرات الرئيسة", en: "Key indicators"}
+  sheet: {ar: "ورقة", en: "sheet"}
+  unavailable: {ar: "غير متوفر في المصدر: {values}", en: "Not available in the source: {values}"}
+  chart_gaps: {ar: "قيم غير متوفرة في المصادر: {count}", en: "Values not available in the sources: {count}"}
   page: {ar: "ص", en: "p."}
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
   updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}

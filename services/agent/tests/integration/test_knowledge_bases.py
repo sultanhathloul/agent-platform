@@ -7,6 +7,7 @@ contract: CRUD, documents with their D3 metadata and supersedes rules, cross-KB 
 citations carry the KB, title, publisher, date and page (I4), and the latest version of a source
 first (D3)."""
 
+import json
 import uuid
 from datetime import date
 
@@ -368,25 +369,37 @@ async def test_kb_metadata_dates_are_iso_and_kept(services, api):
     assert date.fromisoformat(view["metadata"]["published_on"]) == date(2029, 12, 31)
 
 
-async def test_a_report_over_a_kb_labels_its_figures_with_the_kbs_name(services, api):
-    # Owner decision A (ADR-0388, ADR-0389), over a capability that returns findings: a figure the KB holds
-    # reads «من: <KB name>»; one the findings do not hold reads «غير متوفر» in its place, never general
-    # knowledge on a KB turn (ADR-0398). The passage holds 812 with «التمور», the page's label for it (ADR-0399).
+DATES_SPEC = json.dumps({"title": "لوحة التمور", "language": "ar", "sections": [
+    {"kind": "kpi_row", "items": [{"label": "صادرات التمور", "value": 812, "unit": "مليون ريال"},
+                                  {"label": "نمو الصادرات", "value": 7.5, "unit": "%"}], "sources": ["P1"]},
+    {"kind": "chart", "type": "bar", "title": "صادرات النخيل", "labels": ["2029"],
+     "series": [{"name": "القيمة", "data": [640]}], "sources": ["P1"]},
+    {"kind": "text", "markdown": "ونمت الصادرات 7.5 بالمئة."},
+]}, ensure_ascii=False)
+
+
+async def test_a_report_over_a_kb_keeps_the_values_its_cited_passages_hold_and_lists_them_under_their_document(services, api):
+    # Option C (ADR-0406 to ADR-0408): 812 is in the passage P1 with «التمور»; 7.5 is not, so it reads «—» and is
+    # listed as not available; the chart holds nothing P1 has, so it leaves; no label beside any figure.
     trade = _slug()
     await _create(api, trade, name_ar="التجارة")
     await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
-    page = ('<!doctype html><html><head><title>لوحة التمور</title></head><body><main class="kit-page">'
-            '<div class="kit-kpi-value">812</div><p>ونمت 7.5 بالمئة.</p></main></body></html>')
-    swapped, _ = replacing(services, {"report_writer": page})
+    swapped, _ = replacing(services, {"report_writer": DATES_SPEC})
     request = TurnRequest(conversation_id=str(uuid.uuid4()), principal=_reader(f"kb:{trade}:read"),
                           message="اعمل لوحة مؤشرات عن صادرات التمور", locale="ar", selected_kbs=[trade], output="report")
     events = [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, "req-kb-report")]
     assert events[-1]["type"] == "done", events[-1]
-    html = "".join(e["data"]["text"] for e in events if e["type"] == "artifact_delta")
-    assert 'data-kit-source="kb" data-kit-label="من: التجارة" title="من: التجارة">812</span>' in html
-    assert 'data-kit-source="unavailable" title="غير متوفر">غير متوفر</span>' in html
-    assert "7.5" not in html and "من المعرفة العامة" not in html.split('data-kit="sources"')[0]
-
+    done = next(e for e in events if e["type"] == "artifact_done")["data"]
+    principal = request.principal
+    record = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 1)
+    page = (await services.reports.page(record, 10)).decode()
+    assert '<div class="kit-kpi-value">812<span class="kit-kpi-unit">مليون ريال</span></div>' in page
+    assert '<div class="kit-kpi-value kit-missing">—</div>' in page and "صادرات النخيل" not in page.split("kit-spec")[0]
+    assert "ونمت الصادرات — بالمئة." in page and "kit-figure" not in page and "kit-general-note" not in page
+    sources = page[page.index('data-kit="sources"'):]
+    assert "التجارة › تقرير التجارة — هيئة الإحصاء — 2031-02-01" in sources
+    assert "مؤشرات: المؤشرات الرئيسة" in sources and "غير متوفر في المصدر: نمو الصادرات" in sources
+    assert record.citations and record.citations[0]["title"] == "تقرير التجارة" and record.passages
 
 
 async def test_a_version_keeps_its_passages_and_an_edit_fetches_them_only_under_its_own_scope(services, api):
@@ -395,8 +408,8 @@ async def test_a_version_keeps_its_passages_and_an_edit_fetches_them_only_under_
     trade = _slug()
     await _create(api, trade, name_ar="التجارة")
     await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
-    page = ('<!doctype html><html><head><title>لوحة التمور</title></head><body><main class="kit-page">'
-            '<div class="kit-kpi-label">صادرات التمور</div><div class="kit-kpi-value">812</div></main></body></html>')
+    page = json.dumps({"title": "لوحة التمور", "language": "ar", "sections": [
+        {"kind": "kpi_row", "items": [{"label": "صادرات التمور", "value": 812}], "sources": ["P1"]}]}, ensure_ascii=False)
     edit = '{"capabilities": ["general"], "skill": null, "output": "report", "edit": true, "complexity": "low", "risk": "low"}'
     plan = '{"sections": [{"title": "الصادرات", "query": "صادرات التمور"}]}'
     swapped, _ = replacing(services, {"report_writer": page, "router": edit, "extractor": plan})
@@ -419,7 +432,7 @@ async def test_a_version_keeps_its_passages_and_an_edit_fetches_them_only_under_
     v2 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 2)
     assert {p["ref"] for p in v1.passages} <= {p["ref"] for p in v2.passages}
     html2 = "".join(e["data"]["text"] for e in second if e["type"] == "artifact_delta")
-    assert 'data-kit-label="من: التجارة" title="من: التجارة">812</span>' in html2
+    assert '<div class="kit-kpi-value">812</div>' in html2 and v2.citations[0]["title"] == "تقرير التجارة"
 
     third = await turn("غيّر الخط", [])
     assert third[-1]["type"] == "done", third[-1]

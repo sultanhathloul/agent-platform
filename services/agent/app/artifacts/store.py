@@ -64,6 +64,8 @@ class VersionRecord(VersionInfo):
     # The passages behind the citations, as source references without text (ADR-0402): an edit fetches them
     # again from the knowledge base, under its own turn's permissions.
     passages: list[dict[str, Any]] = []
+    # The checked spec the page was rendered from (ADR-0406); None for a version written before it.
+    spec: dict[str, Any] | None = None
 
 
 class PageStore:
@@ -115,7 +117,7 @@ def object_key(tenant_id: str, conversation_id: str, report_id: str, version: in
 
 _VERSION_COLUMNS = (
     "v.report_id::text AS report_id, r.conversation_id, v.version, v.title, v.object_key, v.size, v.sha256, "
-    "v.locale, v.created_at, v.citations, v.figure_labels, v.figures, v.general, v.passages"
+    "v.locale, v.created_at, v.citations, v.figure_labels, v.figures, v.general, v.passages, v.spec"
 )
 
 
@@ -164,6 +166,7 @@ class ReportStore:
         general: int,
         timeout_s: float,
         passages: list[dict] | None = None,
+        spec: dict | None = None,
     ) -> VersionRecord:
         """A new report (`new`) or the next version of one: the page first, then its row."""
         title = title[:300] or "-"
@@ -189,11 +192,12 @@ class ReportStore:
             await self.pages.put(key, page, timeout_s)
             await conn.execute(
                 "INSERT INTO agent.report_versions (report_id, version, title, object_key, size, sha256, locale, "
-                "turn_id, citations, figure_labels, figures, general, passages) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "turn_id, citations, figure_labels, figures, general, passages, spec) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     report_id, version, title, key, len(page), hashlib.sha256(page).hexdigest(), locale,
                     turn_id, Jsonb(citations), Jsonb(labels), figures, general, Jsonb(passages or []),
+                    Jsonb(spec) if spec is not None else None,
                 ),
             )
             await conn.execute(

@@ -1,35 +1,21 @@
-"""The figure check of a report (reports PR, D2, I3, ADR-0381; source labels, ADR-0388; one kind of source
-per turn, ADR-0398 and ADR-0399).
+"""Figures and label words, the shared rules of a report's verification (reports PR, ADR-0381, ADR-0397,
+ADR-0399, ADR-0404; used per element by app/artifacts/verify.py, ADR-0407).
 
-A figure is a run of digits (Western or Arabic-Indic) with its thousands separators and one decimal
-part, not glued to a letter before it ("Q1", "H2", "COVID-19" are names, not figures). Its canonical
-form drops the separators, leading zeros and trailing decimal zeros, so «1,250», «١٬٢٥٠» and 1250.0
-are one figure. Every figure the page shows carries exactly one label.
+A figure is a run of digits (Western or Arabic-Indic) with its thousands separators (comma, the Arabic
+separator, a narrow or plain no-break space) and one decimal part, not glued to a letter before it ("Q1",
+"H2", "COVID-19" are names, not figures). Its canonical form drops the separators, leading zeros and
+trailing decimal zeros, so «1,250», «١٬٢٥٠» and 1250.0 are one figure. On the source side number words
+are folded to digits first (ADR-0359), a date gives its parts, and a figure stated with more than two
+decimals (a workbook cell, 83.60299013) also gives its rounding half up to one and two decimals (ADR-0404);
+no other rounding, no unit changes and no arithmetic are matched.
 
-A turn draws from one kind of source (ADR-0398). On a sourced turn (knowledge bases toggled, files
-attached, or a capability's findings) a figure is labelled with the first of this turn's sources that
-holds it: a fetched passage only when the same passage also holds the figure's row or column label
-(the words the page writes beside it: a table's row and column headers, a chart's category and series
-names, the text around it), labelled with its knowledge base's name or its file's title; a source's
-metadata (titles, publishers, dates); a capability's findings (same rule as a passage); the user's
-message. Anything else is not in the findings and reads «غير متوفر» / "Not available" in place of the
-number. On an unsourced turn no matching is done: every figure is the model's own, labelled general
-knowledge. Nothing comes from an earlier turn. Number words on the source side are folded to digits
-first (phase 08, ADR-0359). A source figure stated with more than two decimals (a statistical
-workbook's cell, 83.60299013) also matches its value rounded half up to one or two decimals (83.6, 83.60),
-as a page writes it (ADR-0404); no other rounding, no unit changes (1.2 million for 1,200,000) and no
-arithmetic are matched: the safe side of D2.
-
-A label matches a passage when one of its words is a word of the passage: words are light-stemmed and
-their number and nisba endings folded («سعوديون», «للسعوديين» and «سعودي» are one word), and generic words
-such as «عدد» or "total" are left out. A label with no letter in the passage's script (an English page over
-an Arabic passage, ADR-0396) cannot be matched word for word: the figure alone decides there (ADR-0399).
+A label's words are light-stemmed with their plural and nisba endings folded («سعوديون», «للسعوديين» and
+«سعودي» are one word), three letters or more, generic words such as «عدد» or "total" left out (ADR-0399).
 
 Linear in the text: one regular-expression pass per text, set lookups."""
 
 import re
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.text.arabic import fold_number_words, search_terms
@@ -106,19 +92,6 @@ def figures(texts: Iterable[str]) -> set[str]:
     return found
 
 
-def source_texts(source: dict) -> list[str]:
-    """What a source's metadata says (its title, publisher, KB name and date), for the allowed figures."""
-    names = source.get("kb_name") or {}
-    parts = [source.get("title"), source.get("publisher"), source.get("published_on")]
-    if isinstance(names, dict):
-        parts += [names.get("ar"), names.get("en")]
-    return [str(p) for p in parts if p]
-
-
-# A label's kinds: where its figure was found. `general` is the model's own knowledge (D2); `unavailable`
-# is a figure a sourced turn's findings do not hold (ADR-0398).
-KINDS = ("kb", "file", "source", "capability", "message", "general", "unavailable")
-
 # Words a label shares with almost any statistical passage; they never make a match on their own.
 _GENERIC = frozenset(
     w
@@ -142,8 +115,10 @@ def _key(word: str) -> str:
                 word = word[: -len(ending)]
                 break
     return word
-_ARABIC = re.compile(r"[\u0600-\u06ff]")
-_LATIN = re.compile(r"[A-Za-z]")
+
+
+ARABIC = re.compile(r"[\u0600-\u06ff]")
+LATIN = re.compile(r"[A-Za-z]")
 
 
 def words(texts: Iterable[str]) -> set[str]:
@@ -155,67 +130,3 @@ def words(texts: Iterable[str]) -> set[str]:
                 _key(w) for w in search_terms(text) if len(w) >= 3 and not w.isdigit() and w not in _GENERIC
             )
     return found
-
-
-@dataclass(frozen=True)
-class Label:
-    kind: str
-    text: str
-
-    def stored(self) -> dict[str, str]:
-        return {"kind": self.kind, "text": self.text}
-
-
-@dataclass(frozen=True)
-class _Entry:
-    label: Label
-    words: frozenset[str]
-    arabic: bool
-    latin: bool
-    needs_context: bool
-
-
-class FigureLabels:
-    """Each figure's one label from this turn's sources, first added first (ADR-0398, ADR-0399).
-
-    `general` is the label of every figure on an unsourced turn, where `sourced` is false and nothing is
-    matched; on a sourced turn a figure no source holds gets `unavailable`."""
-
-    def __init__(self, general: Label, *, sourced: bool = False, unavailable: Label | None = None):
-        self.general = general
-        self.sourced = sourced
-        self.unavailable = unavailable or general
-        self._entries: list[_Entry] = []
-        self._at: dict[str, list[int]] = {}
-
-    def add(self, texts: Iterable[str], label: Label, *, passage: bool = False) -> None:
-        """A source's texts. `passage`: a figure counts only with its row or column label in the same
-        texts (a fetched chunk, a capability's findings); else the figure alone (metadata, the message)."""
-        if not self.sourced:
-            return
-        texts = [t for t in texts if t]
-        joined = "\n".join(texts)
-        entry = _Entry(label, frozenset(words(texts)), bool(_ARABIC.search(joined)), bool(_LATIN.search(joined)), passage)
-        self._entries.append(entry)
-        for figure in figures(texts):
-            self._at.setdefault(figure, []).append(len(self._entries) - 1)
-
-    def of(self, figure: str, context: Sequence[str] = ()) -> Label:
-        if not self.sourced:
-            return self.general
-        wanted: set[str] | None = None
-        for index in self._at.get(figure, ()):
-            entry = self._entries[index]
-            if not entry.needs_context:
-                return entry.label
-            if wanted is None:
-                wanted = words(context)
-            if wanted & entry.words or (wanted and not _same_script(context, entry)):
-                return entry.label
-        return self.unavailable
-
-
-def _same_script(context: Sequence[str], entry: _Entry) -> bool:
-    """Whether the label is written in a script the passage has: else it was translated (ADR-0396)."""
-    text = " ".join(context)
-    return bool(_ARABIC.search(text)) and entry.arabic or bool(_LATIN.search(text)) and entry.latin
