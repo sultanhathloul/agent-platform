@@ -248,3 +248,25 @@ def test_the_stored_page_parses_and_editable_strips_the_platforms_marks():
     HTMLParser().feed(page)  # the stdlib parser accepts it
     clean = editable(page)
     assert "kit-figure" not in clean and "kit-sources" not in clean and "القيمة 5" in clean
+
+
+# ------------------------------------------------------------------ the script check (owner decision D, ADR-0390)
+
+
+def test_the_script_check_reads_the_text_the_attributes_and_report_data():
+    from app.artifacts.stream import visible_text
+    from app.artifacts.writer import script_failure
+    from app.text.script import ScriptPolicy
+
+    arabic = ScriptPolicy(letters=["ARABIC", "LATIN"])
+    sanitizer = Sanitizer()
+    sanitizer.feed_model(
+        '<html><body><p>أندريه في拉斯 و <bdi>GDP</bdi></p><div title="عنوان">x</div>'
+        '<script type="application/json" id="report-data">{"charts":{"g":{"labels":["2031"],'
+        '"datasets":[{"label":"增长","data":[1]}]}}}</script></body></html>'
+    )
+    pieces = sanitizer.drain() + sanitizer.finish()
+    failure = script_failure(visible_text(pieces), arabic)
+    assert failure == {"issues": ["disallowed_script", "mixed_script_token"], "tokens": ["في拉斯", "增长"]}
+    assert script_failure("لوحة النمو في <bdi>Riyadh</bdi> 2031", arabic) is None
+    assert script_failure("في拉斯", None) is None  # a locale without a policy (English) is not checked

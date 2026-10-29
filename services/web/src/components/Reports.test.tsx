@@ -139,6 +139,13 @@ describe("the report panel's live build (I7)", () => {
     expect(reportPanel(built, { type: "event", event: { ...meta, seq: seq++, type: "artifact_delta", data: { id: "other", text: "x" } } }).live?.html).toBe(page);
   });
 
+  it("starts over on a page written again, and an error still returns to the version shown before (ADR-0390)", () => {
+    const showing = reportPanel(CLOSED_PANEL, { type: "open", ref: { id: ID, title: "لوحة التضخم", version: 1 } });
+    const again = run([start(2), delta("<p>في拉斯</p>"), start(2), delta("<p>نص</p>")], showing);
+    expect(again.live?.html).toBe("<p>نص</p>");
+    expect(run([failure], again)).toMatchObject({ open: true, id: ID, version: 1, live: null });
+  });
+
   it("renders the page as srcdoc with the marker replaced by the CSP and the kit, in order", () => {
     const source = frameSource(run([start(), delta(page)]), null, KIT);
     expect(source.kind).toBe("srcdoc");

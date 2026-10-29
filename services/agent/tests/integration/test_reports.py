@@ -43,9 +43,11 @@ class CapturingGateway(ReplacingGateway):
     def __init__(self, inner, replies):
         super().__init__(inner, replies)
         self.blocks: dict[str, list[list[str]]] = {}
+        self.systems: dict[str, list[str]] = {}
 
     async def call(self, decision, package, *, on_token=None, temperature=None):
         self.blocks.setdefault(decision.role, []).append([b.name for b in package.blocks])
+        self.systems.setdefault(decision.role, []).append(next((b.content for b in package.blocks if b.name == "system"), ""))
         return await super().call(decision, package, on_token=on_token, temperature=temperature)
 
 
@@ -196,3 +198,33 @@ async def test_a_turn_with_no_keyword_no_report_and_no_picker_keeps_the_default_
         assert admission.profile is None  # the picker said text: no candidate, the default deadline
     finally:
         await admission.release()
+
+
+# report_b276fb00 v2 (owner decision D): Chinese letters inside Arabic text.
+CJK = PAGE.replace("<h1>لوحة النمو</h1>", "<h1>لوحة النمو مع أندريه في拉斯</h1>")
+
+
+async def test_a_page_outside_its_scripts_is_written_again_once_with_the_failure_named(reports):
+    services, gateway = reports({"report_writer": [CJK, PAGE], "router": ROUTE_REPORT})
+    principal = _principal()
+    events, _, _ = await _turn(services, principal, "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    assert events[-1].type == "done", events[-1]
+    assert len(_of(events, "artifact_start")) == 2  # the panel starts over on the second page
+    assert len(gateway.systems["report_writer"]) == 2
+    first, retry = gateway.systems["report_writer"]
+    assert "رفضت المنصة محاولتك السابقة" not in first
+    assert "رفضت المنصة محاولتك السابقة" in retry and "«في拉斯»" in retry
+    done = _of(events, "artifact_done")[0].data
+    record = await services.reports.version(principal.tenant_id, principal.user_id, done.id, 1)
+    page = (await services.reports.page(record, 10)).decode()
+    assert "拉" not in page and done.version == 1
+
+
+async def test_a_page_that_fails_its_scripts_twice_ends_the_turn_with_the_validation_message(reports):
+    data_cjk = PAGE.replace('"label":"النمو"', '"label":"النمو 增长"')
+    services, gateway = reports({"report_writer": [CJK, data_cjk], "router": ROUTE_REPORT})
+    principal = _principal()
+    events, conversation, _ = await _turn(services, principal, "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    assert events[-1].type == "error" and events[-1].data.code == "validation_failed"
+    assert not _of(events, "artifact_done") and len(gateway.systems["report_writer"]) == 2
+    assert not await services.reports.has_report(principal.tenant_id, principal.user_id, conversation)

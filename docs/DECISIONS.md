@@ -3474,3 +3474,14 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - The reports suite's `unverified_marked` becomes `figures_labelled` (every figure labelled once, and those not in the message general knowledge, threshold 1.00); `sourced_figures` now needs the KB's or the file's label on each expected figure. report.system 1.2.0 and design-system.md 1.1.0 describe the labels to the model.
 - Consequences: A page shows one label for every figure, years included, so dense tables carry many labels; the label is small and cut at 16 em. A figure in both a KB passage and the user's message reads as the KB's.
 
+
+### ADR-0390: A report's page keeps to its locale's writing scripts; one regeneration naming the failure (owner decision D)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, D)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: report_b276fb00 v2 held Chinese letters inside Arabic text («أندريه في拉斯»). A text answer is script-checked by validate (ADR-0060), but a report turn's answer is only the one-line reply, so its page never was.
+- Decision: The owner's rule: the same allowed-script validation as a text answer applies to the report's visible text and its report-data; on a failure the page is regenerated once with the failure named in the prompt, then the turn fails with the existing validation message. The details:
+  - What is checked is the page's visible text as the guards read it (app/artifacts/stream.py `visible_text`): its text, the title, the attribute values a person reads, and report-data's titles, units, labels and dataset labels; the policy is config/validation.yaml's for the turn's locale (Arabic: Arabic and Latin letters, no word mixing two scripts; English has no policy and is not checked).
+  - It runs after the page's guard pass, before the figure labels, the sources section and storage. On a failure the writer calls the model again on the same context package with `script_retry` (the issue codes and up to five offending words) in the prompt's variables; report.system 1.3.0 names them in words. The retry is a new page stream: its `artifact_start` starts the panel over (the web keeps the version it showed before the first build, so an error still returns to it). The two calls share the answer's deadline (ADR-0263); tokens of both count.
+  - A second failure ends the turn as `validation_failed` (config/messages/errors.yaml), detail `report: <issues>`; nothing is stored. The text answer's own retry stays off (ADR-0065); this regeneration is the report's only.
+- Consequences: A page that fails costs a second heavy-tier call within the same 270 s; when the first used most of it, the retry runs out of time and the turn ends with the deadline's error instead.

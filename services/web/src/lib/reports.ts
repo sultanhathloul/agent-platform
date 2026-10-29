@@ -110,7 +110,9 @@ export function reportPanel(state: ReportPanelState, action: ReportAction): Repo
         title: event.data.title,
         version: null,
         live: { id: event.data.id, version: event.data.version ?? null, html: "" },
-        before: { id: state.id, title: state.title, version: state.version, open: state.open },
+        // A page written again (a script retry, ADR-0390) starts over in place: what showed before the
+        // first build is still what an error returns to.
+        before: state.live ? state.before : { id: state.id, title: state.title, version: state.version, open: state.open },
       };
     case "artifact_delta":
       if (!state.live || state.live.id !== event.data.id) return state;

@@ -40,6 +40,7 @@ from app.memory.types import MemoryScope
 from app.platform_settings import effective
 from app.rag.citations import attribute
 from app.resilience import deadline
+from app.text.script import ScriptPolicy, script_issues, script_tokens
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,14 @@ def figure_labels(
     labels.add([state.get("user_message") or ""], Label("message", text.message_label.of(locale)))
     labels.keep(previous)
     return labels
+
+
+def script_failure(text: str, scripts: ScriptPolicy | None) -> dict | None:
+    """The page's visible text (its text, the attributes a person reads and report-data's strings) against
+    the locale's writing scripts (config/validation.yaml, ADR-0060): None when it keeps to them, else the
+    issues and up to five offending words, which the retry's prompt names."""
+    issues = script_issues(text, scripts) if scripts else []
+    return {"issues": issues, "tokens": script_tokens(text, scripts)[:5]} if issues and scripts else None
 
 
 def _merged(current: list[dict], new: list[dict]) -> list[dict]:
@@ -133,11 +142,16 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         prompt_vars={"has_current": current is not None},
         memory_scope=MemoryScope.of(principal),
     )
-    try:
-        prepared = await prepare_call(ctx, request, role=ROLE, step=NODE, capabilities=selected)
-    except ReportTooLargeToEdit as exc:
-        raise TurnError("report_edit_too_large", detail=str(exc)) from None
-    emit(runtime, "tier", tier_event(prepared.decision))
+
+    async def prepare(request: AssemblyRequest):
+        try:
+            prepared = await prepare_call(ctx, request, role=ROLE, step=NODE, capabilities=selected)
+        except ReportTooLargeToEdit as exc:
+            raise TurnError("report_edit_too_large", detail=str(exc)) from None
+        emit(runtime, "tier", tier_event(prepared.decision))
+        return prepared
+
+    prepared = await prepare(request)
 
     sources = [s for o in state.get("capability_outputs") or [] for s in o.get("sources", [])]
     labels = figure_labels(state, ctx, sources, current.figure_labels if current else {}, config.text)
@@ -147,17 +161,34 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     report_id = current.report_id if current else str(uuid.uuid4())
     version = (current.version + 1) if current else 1
     title_default = current.title if current else config.text.untitled.of(locale)
-    stream = ReportStream(
-        ctx, state, config, report_id=report_id, version=version, default_title=title_default,
-        labels=labels, buffered=buffered,
-    )
+    scripts = services.validation.scripts_for(locale)
+    tokens_in = tokens_out = 0
     with deadline.within(math.inf, margin_s=effective.turn(services.turn).post_answer_reserve_s):
-        try:
-            result = await call_model(ctx, prepared, on_token=stream.feed)
-        except BaseException:
-            await stream.abort()
-            raise
-        pieces = await stream.close()
+        # D of the owner's decisions on the branch (ADR-0390): the page keeps to its locale's scripts, as a
+        # text answer does; a failure is written again once with the failure named, then ends the turn.
+        for attempt in (1, 2):
+            stream = ReportStream(
+                ctx, state, config, report_id=report_id, version=version, default_title=title_default,
+                labels=labels, buffered=buffered,
+            )
+            try:
+                result = await call_model(ctx, prepared, on_token=stream.feed)
+            except BaseException:
+                await stream.abort()
+                raise
+            pieces = await stream.close()
+            tokens_in += result.tokens_in
+            tokens_out += result.tokens_out
+            failure = script_failure(visible_text(pieces), scripts)
+            span.set_attribute(f"report.scripts.attempt{attempt}", "failed" if failure else "passed")
+            if failure is None:
+                break
+            if attempt == 2:
+                raise TurnError("validation_failed", detail="report: " + ",".join(failure["issues"]))
+            span.set_attribute("report.retry.issues", ",".join(failure["issues"]))
+            vars_ = {**request.prompt_vars, "script_retry": failure}
+            request = request.model_copy(update={"prompt_vars": vars_})
+            prepared = await prepare(request)
         text = visible_text(pieces)
         citations = attribute(text, sources, ctx.evidence, services.citations, question=state.get("user_message") or "")
         shown = _merged(current.citations, citations) if current else citations
@@ -215,6 +246,6 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         "artifacts": [*others, artifact],
         "report": artifact,
         "guard_events": ctx.guard_records(),
-        "tokens_in": (state.get("tokens_in") or 0) + result.tokens_in,
-        "tokens_out": (state.get("tokens_out") or 0) + result.tokens_out,
+        "tokens_in": (state.get("tokens_in") or 0) + tokens_in,
+        "tokens_out": (state.get("tokens_out") or 0) + tokens_out,
     }
