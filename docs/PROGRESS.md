@@ -2344,6 +2344,19 @@ Pages for the owner's visual check (http://localhost:3000, analyst/analyst)
 5. Arabic and English: the same request with the interface in English (locale toggle) gives an English page, dir=ltr, the panel on the right; and a KB report: toggle «الاقتصاد الدولي» or, as evaluator, the fake «اقتصاد الواحة», ask for a dashboard of the 2031 outlook; its figures carry no mark and the «المصادر» section lists KB › title, publisher, date and page.
 6. The code tab, copy code, full screen and close; a narrow window (the panel overlays the chat).
 
+### Owner decisions A to D on the report branch (2026-10-29, same branch, PR #17)
+
+- The owner's message is kept verbatim in `docs/REPORTS-DECISIONS-PROMPT.md`. Each decision lands in its own commits with its ADR. `docs/HANDOFF.md` untouched.
+- Baseline (the PR's last green run, 1fa3bd8): agent 1198 / 0 / 0, gateway 213 / 0 / 0, gateway-db 5 / 0 / 0, web 211 / 0 / 0, evals harness 38 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 17 / 0 / 0; make smoke 253/253; reports suite 12/12 (make-eval-20261028T030650Z).
+- Done when: make test and make smoke green, the reports suite run (rule 13: the report prompts and checks changed), each recorded per rule 11; pushed.
+
+Checklist
+- [ ] A. Source labels on figures instead of «غير موثق»: «من المعرفة العامة» / "General knowledge", «من: <KB>» / "From: <KB>", «من: <file>»; one visible label per figure; kit, prompts, figure check, evals, messages; ADR superseding the wording of ADR-0365.
+- [ ] B. Seeded knowledge bases from kb-seed/<slug>/ (kb.yaml, documents, sidecars, manifest), a seed step after make up and `make kb-seed`, idempotent by sha256, offline; a document without a sidecar ingested by its file name and flagged "metadata missing"; realm roles for analyst and evaluator; KB stats-gov from `make kb-fetch` (ten social-statistics categories, latest year, latest edition); intl-economy moved to the same mechanism, `make kb-poc` retired; tests.
+- [ ] C. Development model info strip at the end of a report (model id, provider, tier alias, generation time, tokens in and out, of the writer's call and of the calls that produced its findings); `show_model_info` in config/artifacts, off in the production profile; in the download when shown; both settings tested.
+- [ ] D. The allowed-script check on a report's visible text and report-data; one regeneration naming the failure, then validation_failed; tested with CJK inside Arabic.
+- [ ] E. make test, make smoke, make eval s=reports; rule 11 counts; push.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
