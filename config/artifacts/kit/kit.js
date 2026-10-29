@@ -38,7 +38,7 @@
     }
   }
 
-  function option(spec) {
+  function option(spec, width) {
     var kind = spec.type;
     var unit = typeof spec.unit === "string" ? spec.unit : "";
     var fmt = format(unit);
@@ -52,8 +52,17 @@
       animation: false,
       textStyle: text,
       color: list.map(function (_, i) { return color(i); }),
-      tooltip: { trigger: kind === "pie" || kind === "doughnut" ? "item" : "axis", valueFormatter: fmt, confine: true },
-      legend: { show: list.length > 1 || kind === "pie" || kind === "doughnut", top: 0, textStyle: text, right: rtl ? 0 : "auto", left: rtl ? "auto" : 0 }
+      tooltip: {
+        trigger: kind === "pie" || kind === "doughnut" ? "item" : "axis", valueFormatter: fmt, confine: true,
+        extraCssText: rtl ? "direction: rtl; text-align: right;" : ""
+      },
+      // RTL (ADR-0416): the box is laid out left to right (see renderCharts) and the legend reads from the
+      // right, each colour mark on its item's right, with room between items.
+      legend: {
+        show: list.length > 1 || kind === "pie" || kind === "doughnut", top: 0, type: "scroll",
+        right: rtl ? 0 : "auto", left: rtl ? "auto" : 0, align: rtl ? "right" : "left",
+        itemGap: 18, itemWidth: 14, itemHeight: 10, textStyle: { color: ink, fontFamily: font, padding: [0, 4, 0, 4] }
+      }
     };
     if (kind === "pie" || kind === "doughnut") {
       var first = list[0] || { data: [] };
@@ -70,7 +79,13 @@
       return base;
     }
     base.grid = { top: 36, bottom: 8, left: 8, right: 8, containLabel: true };
-    base.xAxis = { type: "category", data: labels, inverse: rtl, axisLabel: { color: ink, fontFamily: font, hideOverlap: true }, axisLine: { lineStyle: { color: grid } } };
+    // Every category named, wrapped to its share of the width; mirrored in RTL (ADR-0416).
+    var slot = Math.max(56, Math.floor(((width || 600) - 64) / Math.max(labels.length, 1)) - 8);
+    base.xAxis = {
+      type: "category", data: labels, inverse: rtl,
+      axisLabel: { color: ink, fontFamily: font, interval: 0, width: slot, overflow: "break", lineHeight: 16 },
+      axisLine: { lineStyle: { color: grid } }
+    };
     base.yAxis = { type: "value", position: rtl ? "right" : "left", axisLabel: { color: ink, fontFamily: font, formatter: fmt }, splitLine: { lineStyle: { color: grid } } };
     base.series = list.map(function (set) {
       var data = (Array.isArray(set.data) ? set.data : []).map(function (v) { return typeof v === "number" ? v : null; });
@@ -100,8 +115,11 @@
       var box = document.querySelector('.kit-chart[data-chart="' + node.id + '"]');
       if (!spec || !box || box.offsetParent === null) return;
       if (!box.style.height) box.style.height = "320px";
+      // ECharts places its SVG text left to right; under dir="rtl" the text would run over its legend marks.
+      // The box is laid out left to right and the options mirror the chart for RTL (ADR-0416).
+      box.style.direction = "ltr";
       var chart = echarts.init(box, dark ? "dark" : null, { renderer: "svg" });
-      var opts = option(spec);
+      var opts = option(spec, box.clientWidth);
       if (dark) opts.backgroundColor = "transparent";
       chart.setOption(opts);
       charts.push(chart);
