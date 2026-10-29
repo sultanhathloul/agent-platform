@@ -397,6 +397,36 @@ public class KbAdminController {
                 KbDtos.KbDocumentView.class, 200, (detail, view) -> {});
     }
 
+    @PostMapping(path = BASE + "/{slug}/documents/{documentId}/reindex", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Re-indexes a knowledge base document an older extractor cut (ADR-0410); one already current "
+            + "is returned unchanged", responses = {
+        @ApiResponse(responseCode = "200", description = "The document, pending when it is re-indexed"),
+        @ApiResponse(responseCode = "400", description = "invalid_request", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "403", description = "forbidden: not an admin", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
+        @ApiResponse(responseCode = "404", description = "kb_not_found or kb_document_not_found", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class)))
+    })
+    public ResponseEntity<ApiEnvelope<KbDtos.KbDocumentView>> reindex(
+            @PathVariable("slug") String slug,
+            @PathVariable("documentId") String documentId,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        if (!UUID_PATTERN.matcher(documentId.toLowerCase(Locale.ROOT)).matches()) {
+            return failed(request, response, ErrorCode.INVALID_REQUEST);
+        }
+        Call call = admitted(jwt, request, response, "kb.document.reindex", slug);
+        if (call == null) {
+            return null;
+        }
+        call.detail.put("document_id", documentId.toLowerCase(Locale.ROOT));
+        return call.proxy(HttpMethod.POST,
+                BASE + "/" + slug + "/documents/" + documentId.toLowerCase(Locale.ROOT) + "/reindex", null,
+                KbDtos.KbDocumentView.class, 200, (detail, view) -> detail.put("status", view.status()));
+    }
+
     // ------------------------------------------------------------------ shared steps
 
     /** The stored file's SHA-256, lower-case hex: the seed step skips a file a KB already holds (ADR-0392). */

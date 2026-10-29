@@ -789,6 +789,9 @@ class KbDocumentView(BaseModel):
     metadata_missing: bool = Field(
         default=False, description="Uploaded without its source metadata; cleared when an administrator corrects it."
     )
+    reindex_due: bool = Field(
+        default=False, description="Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)."
+    )
 
 
 class KbDocumentList(BaseModel):

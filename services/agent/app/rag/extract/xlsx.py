@@ -1,12 +1,14 @@
-"""XLSX per sheet, with openpyxl (MIT). The header is the first row followed by a data row of
-the same width (owner decision A3): a title or a note above the table («ميزانية عام 2031»), one
-cell wide, is not taken for the header. The header is repeated at the top of every chunk cut
-from the sheet, so a chunk of rows still says what its columns are (ADR-0135); rows above it
-stay in the sheet's text, before the table. A sheet with no such pair takes its first row.
+"""XLSX per sheet, with openpyxl (MIT). Every chunk cut from a sheet opens with what says what its
+rows are (ADR-0135, ADR-0410): the sheet's name, then the table's preamble, every non-empty row above
+the first data row (two cells or more, one of them a number that is not a year): the workbook's title, the table's own title,
+its number and all of its header rows, so a statistical table's continuation chunk still names its
+table and «الذكور | الاناث» columns. A sheet with no data row (an index, a note) keeps the rule before
+it (owner decision A3): the first row followed by a row of the same width, else the first row.
 The archive is checked first and openpyxl parses through defusedxml (owner decision R4)."""
 
 import io
 import os
+import re
 import unicodedata
 import zipfile
 
@@ -32,6 +34,24 @@ def _cell(value) -> str:
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     return unicodedata.normalize("NFKC", str(value)).strip()
+
+
+# Bumped when the text a sheet gives changes, so the seed re-indexes what an older version cut (ADR-0410).
+VERSION = "2"
+_NUMBER = re.compile(r"^-?\d+(?:[.,]\d+)?%?$")
+
+
+_YEAR = re.compile(r"^(19|20|21)\d{2}$")
+
+
+def first_data_row(rows: list[list[str]]) -> int | None:
+    """The first row of two cells or more with a numeric cell that is not a year (a header row of years,
+    «2025 | 2026», is still a header), or None."""
+    for index, cells in enumerate(rows):
+        values = [c.replace(" ", "") for c in cells if c]
+        if len(values) >= 2 and any(_NUMBER.match(v) and not _YEAR.match(v) for v in values):
+            return index
+    return None
 
 
 def header_index(rows: list[list[str]]) -> int:
@@ -66,13 +86,17 @@ class XlsxExtractor:
                         rows.append(cells)
                 if not rows:
                     continue
-                at = header_index(rows)
                 lines = [" | ".join(cells) for cells in rows]
-                header, data = lines[at], lines[:at] + lines[at + 1 :]
+                start = first_data_row(rows)
+                if start:
+                    # The sheet's name and the table's preamble (titles and every header row) open each chunk.
+                    preamble = [line for line in lines[:start] if line.strip(" |")]
+                    header, data = "\n".join([f"[{sheet.title}]", *preamble]), lines[start:]
+                else:
+                    at = header_index(rows)
+                    header, data = f"[{sheet.title}]\n{lines[at]}", lines[:at] + lines[at + 1 :]
                 segments.append(
-                    Segment(
-                        text="\n".join(data) or header, section=sheet.title, repeat=header if data else None
-                    )
+                    Segment(text="\n".join(data) or header, section=sheet.title, repeat=header if data else None)
                 )
         except DefusedXmlException as exc:  # a sheet is parsed as it is read
             raise ExtractionFailed("xml_unsafe", detail=type(exc).__name__) from exc

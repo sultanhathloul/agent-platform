@@ -140,6 +140,7 @@ def _document_view(record: KbDocumentRecord, superseded_by: str | None = None) -
         uploaded_by_name=record.uploaded_by_name,
         sha256=record.sha256,
         metadata_missing=record.metadata_missing,
+        reindex_due=record.reindex_due,
     )
 
 
@@ -308,6 +309,25 @@ async def update_metadata(slug: Slug, document_id: DocumentId, body: KbSourceMet
         record = await store.update_metadata(call.tenant_id, slug, document_id, _metadata(body))
     except InvalidSupersedes as exc:
         return call.error("kb_supersedes_invalid", 409, [str(exc)])
+    if record is None:
+        return call.error("kb_document_not_found", 404)
+    return _document_view(record)
+
+
+@router.post(
+    "/v1/admin/kbs/{slug}/documents/{document_id}/reindex",
+    response_model=KbDocumentView,
+    responses={**_ADMIN_ERRORS, 404: {"model": ErrorEnvelope, "description": "kb_not_found or kb_document_not_found"}},
+)
+async def reindex_document(slug: Slug, document_id: DocumentId, call: Admin):
+    """Re-indexes a document an older version of its kind's extractor cut (ADR-0410); one already current is
+    returned unchanged, so the call is idempotent. The document is pending until its new chunks replace the old."""
+    if isinstance(call, JSONResponse):
+        return call
+    kb = await call.services.kbs.store.get(call.tenant_id, slug)
+    if kb is None:
+        return call.error("kb_not_found", 404)
+    record = await call.services.kbs.reindex(kb, document_id, call.actor)
     if record is None:
         return call.error("kb_document_not_found", 404)
     return _document_view(record)

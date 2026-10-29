@@ -274,6 +274,19 @@ class KbService:
             stored = await self.store.mark_register_failed(record.id) or await self.store.by_id(record.id)
             raise RegisterFailed(stored) from exc
 
+    async def reindex(self, kb: KbRecord, document_id: str, actor: Actor) -> KbDocumentRecord | None:
+        """Re-indexes a document an older extractor cut (ADR-0410): back to pending and handed to the backend
+        again, whose job replaces its chunks. A document already current is returned unchanged (the seed
+        calls this for every document it holds that is due, so a second run does nothing)."""
+        record = await self.store.get_document(kb.tenant_id, kb.slug, document_id)
+        if record is None or not record.reindex_due:
+            return record
+        queued = await self.store.requeue(kb.tenant_id, kb.slug, document_id)
+        if queued is None:
+            return record
+        self._handover(queued, actor, None)
+        return queued
+
     async def documents(self, tenant_id: str, slug: str) -> list[KbDocumentRecord]:
         """A live KB's documents, each with the status its backend reports, under one bound."""
         records = await self.store.list_documents(tenant_id, slug)

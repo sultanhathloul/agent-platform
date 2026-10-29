@@ -58,8 +58,9 @@ def test_real_token_counts_stay_within_the_budget_on_arabic_text():
     assert all(c.tokens <= 200 for c in chunks)
 
 
-def test_xlsx_title_rows_above_the_table_are_not_the_header(docs_config):
-    """Owner decision A3: the header is the first row followed by a data row of its width."""
+def test_xlsx_chunks_repeat_the_sheet_the_tables_titles_and_its_header(docs_config):
+    """ADR-0410 (superseding A3's header-only repeat): every chunk opens with the sheet's name and every row
+    above the first data row, titles and header together; the rows below are the text."""
     rows = [
         ["ميزانية هيئة الواحة لعام 2031"],
         ["أُعدت في 1 محرم"],
@@ -68,17 +69,37 @@ def test_xlsx_title_rows_above_the_table_are_not_the_header(docs_config):
         ["السفر", 45000, "مهام رسمية"],
     ]
     [segment] = extract("xlsx", xlsx_bytes({"الميزانية": rows}), docs_config).segments
-    assert segment.repeat == "البند | المبلغ | الملاحظة"
-    assert segment.text.split("\n") == [
-        "ميزانية هيئة الواحة لعام 2031",
-        "أُعدت في 1 محرم",
-        "التدريب | 120000 | دورات داخلية",
-        "السفر | 45000 | مهام رسمية",
+    assert segment.repeat == "[الميزانية]\nميزانية هيئة الواحة لعام 2031\nأُعدت في 1 محرم\nالبند | المبلغ | الملاحظة"
+    assert segment.text.split("\n") == ["التدريب | 120000 | دورات داخلية", "السفر | 45000 | مهام رسمية"]
+
+
+def test_a_statistical_tables_multi_row_header_and_title_open_every_chunk(docs_config):
+    """Table 3-1 of the Q2 2026 labour-market workbook, shortened: a title, the table number, three header
+    rows (nationality, then sex) and a header of years left as a header."""
+    rows = [
+        ["", "إحصاءات سوق العمل الربع الثاني 2026"],
+        ["", "التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس(%) - سلسلة زمنية"],
+        ["جدول (3-1)"],
+        ["الربع / السنة", "الجنسية"],
+        ["", "السعوديين", "", "غير السعوديين"],
+        ["", "الذكور", "الاناث", "الذكور", "الاناث"],
+        *[[f"الربع {q} 2021", 70.4, 29.5, 90.4, 9.5] for q in range(1, 40)],
+        ["الربع الثاني 2026", 66.366373, 33.633627, 91.46388445, 8.536115554],
     ]
+    [segment] = extract("xlsx", xlsx_bytes({"3-1": rows}), docs_config).segments
+    assert segment.repeat.split("\n")[:3] == ["[3-1]", " | إحصاءات سوق العمل الربع الثاني 2026",
+                                               " | التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس(%) - سلسلة زمنية"]
+    assert segment.repeat.endswith(" | الذكور | الاناث | الذكور | الاناث")
+    chunks = chunk_segments([segment], _Words(), max_tokens=120, overlap_tokens=10)
+    last = next(c for c in chunks if "الربع الثاني 2026 | 66.366373" in c.text)
+    assert "التوزيع النسبي للمشتغلين" in last.text and "الذكور | الاناث" in last.text
+    years = [["جدول (2)"], ["المؤشر", "2025", "2026"], ["معدل البطالة", 3.2, 3.0]]
+    [segment] = extract("xlsx", xlsx_bytes({"2": years}), docs_config).segments
+    assert segment.repeat.endswith("المؤشر | 2025 | 2026") and segment.text == "معدل البطالة | 3.2 | 3"
 
 
 def test_a_sheet_without_a_table_takes_its_first_row(docs_config):
     [segment] = extract(
         "xlsx", xlsx_bytes({"ملاحظات": [["ملاحظة أولى"], ["ملاحظة ثانية"]]}), docs_config
     ).segments
-    assert segment.repeat == "ملاحظة أولى" and segment.text == "ملاحظة ثانية"
+    assert segment.repeat == "[ملاحظات]\nملاحظة أولى" and segment.text == "ملاحظة ثانية"

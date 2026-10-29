@@ -95,6 +95,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/kbs/{slug}/documents/{documentId}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-indexes a knowledge base document an older extractor cut (ADR-0410); one already current is returned unchanged */
+        post: operations["reindex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/policies": {
         parameters: {
             query?: never;
@@ -1073,6 +1090,8 @@ export interface components {
             /** Format: int32 */
             pages?: number;
             reason?: string;
+            /** @description Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410) */
+            reindex_due?: boolean;
             /** @description The file's SHA-256, computed by the gateway as it stored it (ADR-0392) */
             sha256?: string;
             /** Format: int64 */
@@ -2115,6 +2134,56 @@ export interface operations {
             };
             /** @description kb_supersedes_invalid */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    reindex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document, pending when it is re-indexed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDocumentView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found or kb_document_not_found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

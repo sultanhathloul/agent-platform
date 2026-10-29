@@ -200,6 +200,12 @@ class Gateway:
             raise RuntimeError(f"{answered.status_code} {answered.text[:200]}")
         return answered.json()["data"]
 
+    def reindex(self, slug: str, document_id: str) -> dict:
+        """Re-indexes a document an older extractor cut (ADR-0410); one already current comes back unchanged."""
+        answered = self.http.post(f"{self.base}/v1/admin/kbs/{slug}/documents/{document_id}/reindex", headers=self.headers)
+        answered.raise_for_status()
+        return answered.json()["data"]
+
 
 def seed(gateway: Gateway, kb: SeedKb, *, wait_s: float, out=print) -> dict:
     """One KB; returns its counts for the summary."""
@@ -224,18 +230,32 @@ def seed(gateway: Gateway, kb: SeedKb, *, wait_s: float, out=print) -> dict:
         uploaded[view["id"]] = doc
         flag = " (metadata missing: no sidecar)" if doc.metadata_missing else ""
         out(f"  upload  {doc.name}{flag}")
+    # A document an older version of its kind's extractor indexed is re-indexed once (ADR-0410): its new
+    # chunks replace the old; a second run finds nothing due.
+    reindexed: dict[str, SeedDocument] = {}
     for doc, found in work.held:
         if found["status"] == "failed":
             out(f"  failed  {doc.name}: in the KB, ingestion failed ({found.get('reason')}); not retried")
+        elif found.get("reindex_due"):
+            try:
+                view = gateway.reindex(kb.slug, found["id"])
+            except httpx.HTTPError as exc:
+                out(f"  FAIL    {doc.name}: re-index refused: {exc}")
+                continue
+            if view["status"] == "pending":
+                reindexed[found["id"]] = doc
+                out(f"  reindex {doc.name}")
     for gone in work.removed:
         out(f"  REMOVED {gone['name']} («{gone['metadata']['title']}»): in the KB but no longer in "
             f"kb-seed/{kb.slug}/; kept in the index (delete it on /admin/kbs/{kb.slug} if that is meant)")
-    status = wait(gateway, kb.slug, set(uploaded), wait_s) if uploaded else {}
-    for doc_id, doc in uploaded.items():
+    waiting = {**uploaded, **reindexed}
+    status = wait(gateway, kb.slug, set(waiting), wait_s) if waiting else {}
+    for doc_id, doc in waiting.items():
         if status.get(doc_id) != "indexed":
             out(f"  {status.get(doc_id, 'pending'):<7} {doc.name}")
-    indexed = sum(1 for s in status.values() if s == "indexed")
+    indexed = sum(1 for i, s in status.items() if s == "indexed" and i in uploaded)
     return {"slug": kb.slug, "uploaded": len(uploaded), "indexed": indexed, "held": len(work.held),
+            "reindexed": len(reindexed), "reindexed_ok": sum(1 for i in reindexed if status.get(i) == "indexed"),
             "removed": len(work.removed), "failed_uploads": failed_uploads}
 
 

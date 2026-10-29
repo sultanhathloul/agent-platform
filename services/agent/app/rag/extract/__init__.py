@@ -22,3 +22,10 @@ def extract(kind: DocumentKind, data: bytes, config: DocsConfig) -> ExtractedDoc
 
 
 __all__ = ["EXTRACTORS", "ExtractionFailed", "Extractor", "detect_kind", "extract"]
+
+
+def extractor_version(kind: str) -> str:
+    """The version of a kind's extractor; a KB document indexed by another is re-indexed by the seed (ADR-0410)."""
+    from app.rag.extract import xlsx
+
+    return {"xlsx": xlsx.VERSION}.get(kind, "1")

@@ -100,7 +100,9 @@ public final class KbDtos {
             String uploadedByName,
             @Schema(description = "The file's SHA-256, computed by the gateway as it stored it (ADR-0392)") String sha256,
             @Schema(description = "Uploaded without its source metadata; cleared when an administrator corrects it")
-            boolean metadataMissing) {
+            boolean metadataMissing,
+            @Schema(description = "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)")
+            boolean reindexDue) {
         public KbDocumentView {
             warnings = warnings == null ? List.of() : List.copyOf(warnings);
         }

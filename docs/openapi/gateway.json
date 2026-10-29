@@ -601,6 +601,70 @@
         "tags" : [ "admin-knowledge-bases" ]
       }
     },
+    "/v1/admin/kbs/{slug}/documents/{documentId}/reindex" : {
+      "post" : {
+        "operationId" : "reindex",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "documentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDocumentView"
+                }
+              }
+            },
+            "description" : "The document, pending when it is re-indexed"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found or kb_document_not_found"
+          }
+        },
+        "summary" : "Re-indexes a knowledge base document an older extractor cut (ADR-0410); one already current is returned unchanged",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
     "/v1/admin/policies" : {
       "get" : {
         "operationId" : "listPolicies",
@@ -3890,6 +3954,10 @@
           },
           "reason" : {
             "type" : "string"
+          },
+          "reindex_due" : {
+            "type" : "boolean",
+            "description" : "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)"
           },
           "sha256" : {
             "type" : "string",

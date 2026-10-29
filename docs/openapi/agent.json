@@ -5753,6 +5753,204 @@
         }
       }
     },
+    "/v1/admin/kbs/{slug}/documents/{document_id}/reindex": {
+      "post": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Reindex Document",
+        "description": "Re-indexes a document an older version of its kind's extractor cut (ADR-0410); one already current is\nreturned unchanged, so the call is idempotent. The document is pending until its new chunks replace the old.",
+        "operationId": "reindex_document_v1_admin_kbs__slug__documents__document_id__reindex_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found or kb_document_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/capabilities": {
       "get": {
         "tags": [
@@ -7621,6 +7819,12 @@
             "type": "boolean",
             "title": "Metadata Missing",
             "description": "Uploaded without its source metadata; cleared when an administrator corrects it.",
+            "default": false
+          },
+          "reindex_due": {
+            "type": "boolean",
+            "title": "Reindex Due",
+            "description": "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410).",
             "default": false
           }
         },

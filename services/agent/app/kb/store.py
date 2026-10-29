@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.db import Database
 from app.rag.collections import kb_collection
+from app.rag.extract import extractor_version
 from app.rag.types import AttachmentStatus, DocumentKind, FailureReason, Owner
 
 SLUG_PATTERN = r"^[a-z][a-z0-9_-]{0,62}$"
@@ -112,6 +113,13 @@ class KbDocumentRecord(BaseModel):
     # (ADR-0392); None for a document registered before migration 0018.
     sha256: str | None = None
     metadata_missing: bool = False
+    # The version of its kind's extractor that indexed it (ADR-0410).
+    extractor: str = "1"
+
+    @property
+    def reindex_due(self) -> bool:
+        """Indexed by an older version of its kind's extractor: the seed re-indexes it (ADR-0410)."""
+        return self.status == "indexed" and self.extractor != extractor_version(self.kind)
 
     @property
     def owner(self) -> Owner:
@@ -146,7 +154,7 @@ _DOC_COLUMNS = (
     "id::text AS id, kb_slug, tenant_id, name, mime, kind, size, object_key, collection, backend, status, "
     "reason, pages, chunks, warnings, attempts, title, publisher, source_url, published_on, "
     "supersedes::text AS supersedes, uploaded_by, uploaded_by_username, uploaded_by_name, created_at, "
-    "updated_at, indexed_at, purged_at, sha256, metadata_missing"
+    "updated_at, indexed_at, purged_at, sha256, metadata_missing, extractor"
 )
 
 
@@ -478,12 +486,31 @@ class KbStore:
         """False when the document is no longer pending or its KB was deleted meanwhile: the job's
         chunks are then rolled back with this transaction."""
         cursor = await conn.execute(
+            "SELECT kind FROM agent.kb_documents WHERE id = %s", (document_id,)
+        )
+        row = await cursor.fetchone()
+        version = extractor_version(row["kind"]) if row else "1"
+        cursor = await conn.execute(
             "UPDATE agent.kb_documents SET status = 'indexed', reason = NULL, pages = %s, chunks = %s, "
-            "warnings = %s, indexed_at = now(), updated_at = now() "
+            "warnings = %s, extractor = %s, indexed_at = now(), updated_at = now() "
             "WHERE id = %s AND status = 'pending' AND purged_at IS NULL",
-            (pages, chunks, Jsonb(warnings or []), document_id),
+            (pages, chunks, Jsonb(warnings or []), version, document_id),
         )
         return cursor.rowcount == 1
+
+    async def requeue(self, tenant_id: str, slug: str, document_id: str) -> KbDocumentRecord | None:
+        """An indexed or failed document of a live KB back to pending, its attempts reset (ADR-0410); None
+        when there is no such document. Its chunks stay until the new ones replace them in one transaction."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE agent.kb_documents d SET status = 'pending', reason = NULL, attempts = 0, updated_at = now() "
+                "WHERE d.id = %s AND d.kb_slug = %s AND d.tenant_id = %s AND d.status IN ('indexed', 'failed') "
+                "AND d.purged_at IS NULL AND d.backend = 'internal' "
+                f"RETURNING {_DOC_COLUMNS}",
+                (document_id, slug, tenant_id),
+            )
+            row = await cursor.fetchone()
+        return _doc(row) if row else None
 
     async def mark_failed(self, document_id: str, reason: FailureReason, *, pages: int | None = None) -> bool:
         async with self._db.connection() as conn:

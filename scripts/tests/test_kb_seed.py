@@ -25,6 +25,7 @@ class FakeGateway:
         self.docs: dict[str, list[dict]] = {}
         self.deletes = 0
         self.uploads: list[dict] = []
+        self.reindexes: list[str] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -38,6 +39,15 @@ class FakeGateway:
             return httpx.Response(201, json={"data": body})
         parts = path.split("/")
         slug = parts[4]
+        if path.endswith("/reindex"):
+            # As the agent does (ADR-0410): a due document goes back to pending, then indexes with the new
+            # extractor; one already current comes back unchanged.
+            doc = next(d for d in self.docs[slug] if d["id"] == parts[6])
+            self.reindexes.append(doc["id"])
+            if doc.get("reindex_due"):
+                doc.update(reindex_due=False)
+                return httpx.Response(200, json={"data": {**doc, "status": "pending"}})
+            return httpx.Response(200, json={"data": doc})
         if len(parts) == 5:
             return httpx.Response(200 if slug in self.kbs else 404, json={"data": self.kbs.get(slug)})
         if request.method == "GET":
@@ -186,3 +196,17 @@ def test_each_seeded_kb_agrees_with_the_realm_and_its_manifest(folder):
 
 def test_both_seeded_kbs_are_there():
     assert {p.name for p in kb_seed.folders(None)} >= {"intl-economy", "stats-gov"}
+
+
+def test_a_document_an_older_extractor_cut_is_reindexed_once(tmp_path):
+    """ADR-0410: the seed re-indexes what an older version of its kind's extractor indexed; a second run finds
+    nothing due and re-indexes nothing."""
+    folder, fake = _folder(tmp_path), FakeGateway()
+    _run(fake, folder)
+    fake.docs["fixture-stats"][0]["reindex_due"] = True
+    first, lines = _run(fake, folder)
+    assert first["reindexed"] == 1 and first["reindexed_ok"] == 1 and first["uploaded"] == 0
+    assert any(line.startswith("  reindex ") for line in lines) and len(fake.uploads) == 2
+    again, _ = _run(fake, folder)
+    assert again["reindexed"] == 0 and len(fake.reindexes) == 1
+
