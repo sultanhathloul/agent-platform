@@ -1,0 +1,26 @@
+# What `make kb-fetch` takes from stats.gov.sa (owner decision B4 on the report branch, ADR-0393): the
+# publications (النشرات) of these categories of الإحصاءات → الإحصاءات الاجتماعية, the latest year each
+# category has, and in that year the latest edition of each publication, its PDF and Excel files.
+# Development only. Read with the site's own pages, as robots.txt allows (/ar/statistics,
+# /ar/statistics-tabs, /documents/); never its /api/ or /o/ paths.
+site: https://www.stats.gov.sa
+# The social statistics tab: its accordion lists each category and the sub-categories whose listings hold
+# the publications (a category's own listing renders none when it has sub-categories).
+social_tab: /ar/statistics?index=119025
+social_tab_id: "119025"
+# One listing page per sub-category: tab 436312 is النشرات; newest first; `start` pages it.
+listing: /ar/statistics-tabs?tab=436312&category={id}&delta=75&start={page}
+publisher: "الهيئة العامة للإحصاء"
+# The owner's ten categories, as the site names them, with their ids (2026-10-29). A category the tab does not
+# list, or lists with no sub-category, is read from its own listing.
+categories:
+  - {name: "إحصاءات سوق العمل", id: "123704"}
+  - {name: "إحصاءات الصحة", id: "123758"}
+  - {name: "إحصاءات النوع الاجتماعي والتنوع", id: "123610"}
+  - {name: "إحصاءات حيوية وسكانية", id: "124141"}
+  - {name: "إحصاءات أساليب الحياة", id: "119030"}
+  - {name: "إحصاءات الأحوال المعيشية", id: "127325"}
+  - {name: "إحصاءات الرياضة", id: "123932"}
+  - {name: "إحصاءات المساكن", id: "124107"}
+  - {name: "إحصاءات التعليم", id: "124262"}
+  - {name: "إحصاءات الخدمات الاجتماعية", id: "127321"}
