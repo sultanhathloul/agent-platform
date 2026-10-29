@@ -18,7 +18,7 @@ export function OutputPicker({
 }) {
   const t = useTranslations();
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-600">
+    <div className="flex items-center gap-2 text-xs text-muted">
       <label htmlFor="output-picker">{t("chat.outputPicker")}</label>
       <select
         id="output-picker"
@@ -26,7 +26,7 @@ export function OutputPicker({
         onChange={(e) => onChange(isOutput(e.target.value) ? e.target.value : AUTO_OUTPUT)}
         disabled={disabled}
         title={value ? undefined : t("chat.outputAutoHint")}
-        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-emerald-600 focus:outline-none disabled:opacity-40"
+        className="rounded-lg border border-line-strong bg-surface px-2 py-1 text-xs text-fg focus:border-focus focus:outline-none disabled:opacity-40"
       >
         <option value={AUTO_OUTPUT}>{t("chat.outputAuto")}</option>
         <option value="text">{t("chat.outputText")}</option>

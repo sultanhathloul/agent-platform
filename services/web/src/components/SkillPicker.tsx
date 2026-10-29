@@ -30,7 +30,7 @@ export function SkillPicker({
   if (skills.length === 0) return null;
   const chosen = skills.find((s) => s.slug === value);
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-600">
+    <div className="flex items-center gap-2 text-xs text-muted">
       <label htmlFor="skill-picker">{t("chat.skillPicker")}</label>
       <select
         id="skill-picker"
@@ -38,7 +38,7 @@ export function SkillPicker({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         title={disabledHint ?? (chosen ? skillName(chosen.description, locale) : t("chat.skillAutoHint"))}
-        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-emerald-600 focus:outline-none disabled:opacity-40"
+        className="rounded-lg border border-line-strong bg-surface px-2 py-1 text-xs text-fg focus:border-focus focus:outline-none disabled:opacity-40"
       >
         <option value={NO_SKILL}>{t("chat.skillAuto")}</option>
         {skills.map((s) => (

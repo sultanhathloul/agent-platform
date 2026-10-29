@@ -26,7 +26,7 @@ export function KbToggles({
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   if (kbs.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600" role="group" aria-label={t("chat.kbToggles")}>
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted" role="group" aria-label={t("chat.kbToggles")}>
       <span>{t("chat.kbToggles")}</span>
       {kbs.map((kb) => {
         const on = selected.includes(kb.slug);
@@ -41,7 +41,7 @@ export function KbToggles({
             disabled={disabled}
             title={hint}
             className={`rounded-full px-2.5 py-1 ring-1 disabled:opacity-40 ${
-              on ? "bg-emerald-700 text-white ring-emerald-700" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50"
+              on ? "bg-accent-subtle font-medium text-fg ring-2 ring-focus" : "bg-surface text-fg ring-line-strong hover:bg-surface-2"
             }`}
           >
             <bdi dir="auto">{labelIn(kb.name, locale)}</bdi>

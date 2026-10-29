@@ -26,7 +26,7 @@ export const LIVE_REDRAW_MS = 300;
 export type PanelTab = "preview" | "code";
 
 const iconButton =
-  "rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 disabled:opacity-40";
+  "rounded-lg p-1.5 text-muted hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-40";
 
 /** The latest value, at most once per `ms`; the last one always arrives. */
 function useThrottled<T>(value: T, ms: number): T {
@@ -64,18 +64,18 @@ export function ReportCard({ artifact, onOpen }: { artifact: ArtifactRef; onOpen
       aria-label={t("reports.open", { title: artifact.title })}
       data-report={artifact.id}
       data-report-version={artifact.version}
-      className="mt-2 flex w-full max-w-sm items-center gap-3 rounded-xl px-3 py-2.5 text-start ring-1 ring-slate-200 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+      className="mt-2 flex w-full max-w-sm items-center gap-3 rounded-xl px-3 py-2.5 text-start ring-1 ring-line hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
     >
-      <span className="rounded-lg bg-emerald-50 p-2 text-emerald-700" aria-hidden>
+      <span className="rounded-lg bg-accent-subtle p-2 text-accent-fg" aria-hidden>
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
         </svg>
       </span>
       <span className="flex min-w-0 flex-col">
-        <bdi dir="auto" className="truncate font-medium text-slate-800">
+        <bdi dir="auto" className="truncate font-medium text-fg">
           {artifact.title}
         </bdi>
-        <span className="text-xs text-slate-500">{t("reports.version", { version: String(artifact.version) })}</span>
+        <span className="text-xs text-muted">{t("reports.version", { version: String(artifact.version) })}</span>
       </span>
     </button>
   );
@@ -84,9 +84,9 @@ export function ReportCard({ artifact, onOpen }: { artifact: ArtifactRef; onOpen
 /** The preview frame: sandboxed with scripts only, never the parent's origin (I4). */
 export function ReportFrame({ source, title }: { source: FrameSource; title: string }) {
   const t = useTranslations();
-  if (source.kind === "loading") return <p className="p-6 text-center text-sm text-slate-500">{t("reports.loading")}</p>;
+  if (source.kind === "loading") return <p className="p-6 text-center text-sm text-muted">{t("reports.loading")}</p>;
   return source.kind === "srcdoc" ? (
-    <iframe title={title} sandbox={FRAME_SANDBOX} srcDoc={source.html} className="h-full w-full border-0 bg-white" />
+    <iframe title={title} sandbox={FRAME_SANDBOX} srcDoc={source.html} className="h-full w-full border-0 bg-surface" />
   ) : (
     // A fresh view link per load (I6); keyed so a new link reloads the frame.
     <iframe
@@ -95,7 +95,7 @@ export function ReportFrame({ source, title }: { source: FrameSource; title: str
       sandbox={FRAME_SANDBOX}
       src={source.url}
       referrerPolicy="no-referrer"
-      className="h-full w-full border-0 bg-white"
+      className="h-full w-full border-0 bg-surface"
     />
   );
 }
@@ -138,14 +138,14 @@ export function ReportPanelView(props: ReportPanelViewProps) {
       aria-label={t("reports.panel")}
       onKeyDown={onKeyDown}
       // Second in the row: on the left in Arabic, on the right in English; full width on a narrow screen.
-      className="fixed inset-0 z-40 flex flex-col bg-white md:static md:inset-auto md:z-auto md:h-full md:w-1/2 md:border-s md:border-slate-200"
+      className="fixed inset-0 z-40 flex flex-col bg-surface md:static md:inset-auto md:z-auto md:h-full md:w-1/2 md:border-s md:border-line"
     >
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+      <header className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
           <bdi dir="auto">{title}</bdi>
         </h2>
         {building && (
-          <span role="status" className="animate-pulse text-xs text-emerald-700">
+          <span role="status" className="animate-pulse text-xs text-primary">
             {t("reports.building")}
           </span>
         )}
@@ -155,7 +155,7 @@ export function ReportPanelView(props: ReportPanelViewProps) {
             value={version ?? ""}
             onChange={(e) => props.onSelect(Number(e.target.value))}
             disabled={building || versions.length < 2}
-            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-emerald-600 focus:outline-none disabled:opacity-60"
+            className="rounded-lg border border-line-strong bg-surface px-2 py-1 text-xs text-fg focus:border-focus focus:outline-none disabled:opacity-60"
           >
             {version !== null && !listed && <option value={version}>{t("reports.version", { version: String(version) })}</option>}
             {versions.map((v) => (
@@ -181,7 +181,7 @@ export function ReportPanelView(props: ReportPanelViewProps) {
           </svg>
         </button>
         {copied && (
-          <span role="status" className="text-xs text-emerald-700">
+          <span role="status" className="text-xs text-primary">
             {t("reports.copied")}
           </span>
         )}
@@ -192,7 +192,7 @@ export function ReportPanelView(props: ReportPanelViewProps) {
         </button>
       </header>
 
-      <div role="tablist" aria-label={t("reports.tabs")} className="flex gap-1 border-b border-slate-200 px-3">
+      <div role="tablist" aria-label={t("reports.tabs")} className="flex gap-1 border-b border-line px-3">
         {(["preview", "code"] as const).map((name) => (
           <button
             key={name}
@@ -203,7 +203,7 @@ export function ReportPanelView(props: ReportPanelViewProps) {
             aria-controls={`report-pane-${name}`}
             onClick={() => props.onTab(name)}
             className={`border-b-2 px-3 py-2 text-sm ${
-              tab === name ? "border-emerald-700 font-medium text-emerald-800" : "border-transparent text-slate-600 hover:text-slate-800"
+              tab === name ? "border-focus font-medium text-primary" : "border-transparent text-muted hover:text-fg"
             }`}
           >
             {t(`reports.${name}`)}
@@ -212,7 +212,7 @@ export function ReportPanelView(props: ReportPanelViewProps) {
       </div>
 
       {error && (
-        <p role="alert" className="px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="px-3 py-2 text-sm text-error">
           {panelMessage(error, locale, (key) => t(key))}
         </p>
       )}
@@ -224,15 +224,15 @@ export function ReportPanelView(props: ReportPanelViewProps) {
         role="tabpanel"
         aria-labelledby="report-tab-preview"
         hidden={tab !== "preview"}
-        className="min-h-0 flex-1 bg-white"
+        className="min-h-0 flex-1 bg-surface"
       >
         <ReportFrame source={source} title={title} />
       </div>
       <div id="report-pane-code" role="tabpanel" aria-labelledby="report-tab-code" hidden={tab !== "code"} className="min-h-0 flex-1 overflow-auto">
         {code === null ? (
-          <p className="p-6 text-center text-sm text-slate-500">{t("reports.loading")}</p>
+          <p className="p-6 text-center text-sm text-muted">{t("reports.loading")}</p>
         ) : (
-          <pre dir="ltr" tabIndex={0} className="whitespace-pre-wrap break-all p-3 text-start font-mono text-xs leading-5 text-slate-800">
+          <pre dir="ltr" tabIndex={0} className="whitespace-pre-wrap break-all p-3 text-start font-mono text-xs leading-5 text-fg">
             {code}
           </pre>
         )}

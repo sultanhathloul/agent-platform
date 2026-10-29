@@ -332,27 +332,27 @@ export function Chat({
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
       <div className="flex-1 overflow-y-auto px-4 py-6" aria-busy={streaming}>
-        {history === "failed" && <p className="mb-4 text-center text-sm text-red-700">{t("chat.historyFailed")}</p>}
+        {history === "failed" && <p className="mb-4 text-center text-sm text-error">{t("chat.historyFailed")}</p>}
         {turns.length === 0 && history === "loading" ? (
-          <p className="mt-24 text-center text-sm text-slate-500">{t("chat.historyLoading")}</p>
+          <p className="mt-24 text-center text-sm text-muted">{t("chat.historyLoading")}</p>
         ) : turns.length === 0 ? (
           <div className="mt-24 text-center">
-            <h1 className="text-2xl font-semibold text-slate-800">{t("chat.emptyTitle")}</h1>
-            <p className="mt-2 text-slate-500">{t("chat.emptyHint")}</p>
+            <h1 className="text-2xl font-semibold text-fg">{t("chat.emptyTitle")}</h1>
+            <p className="mt-2 text-muted">{t("chat.emptyHint")}</p>
           </div>
         ) : (
           <ol className="flex flex-col gap-6">
             {turns.map((turn) => (
               <li key={turn.id} className="flex flex-col gap-3">
-                <div className="max-w-[85%] self-end rounded-2xl bg-emerald-700 px-4 py-3 text-white shadow-sm">
+                <div className="max-w-[85%] self-end rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-sm">
                   <h2 className="sr-only">{t("chat.you")}</h2>
                   <p dir="auto" className="whitespace-pre-wrap leading-7">
                     {turn.question}
                   </p>
                   {turn.files.length > 0 && (
-                    <ul className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-emerald-50">
+                    <ul className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-on-primary">
                       {turn.files.map((name) => (
-                        <li key={name} className="rounded bg-emerald-800/60 px-1.5 py-0.5">
+                        <li key={name} className="rounded bg-primary-hover/60 px-1.5 py-0.5">
                           <bdi dir="auto">{name}</bdi>
                         </li>
                       ))}
@@ -375,9 +375,9 @@ export function Chat({
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
-        className={`border-t border-slate-200 bg-white px-4 py-3 ${dragging ? "ring-2 ring-emerald-500 ring-inset" : ""}`}
+        className={`border-t border-line bg-surface px-4 py-3 ${dragging ? "ring-2 ring-focus ring-inset" : ""}`}
       >
-        {dragging && <p className="mb-2 text-center text-sm text-emerald-700">{t("attachments.dropHere")}</p>}
+        {dragging && <p className="mb-2 text-center text-sm text-primary">{t("attachments.dropHere")}</p>}
         <AttachmentTray files={files} onRemove={removeFile} />
         <label htmlFor="composer" className="sr-only">
           {t("chat.inputLabel")}
@@ -400,7 +400,7 @@ export function Chat({
             disabled={streaming}
             aria-label={t("attachments.attach")}
             title={t("attachments.attach")}
-            className="rounded-xl border border-slate-300 px-3 py-2.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            className="rounded-xl border border-line-strong px-3 py-2.5 text-muted hover:bg-surface-2 disabled:opacity-40"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8.5-8.5" />
@@ -415,13 +415,13 @@ export function Chat({
             onKeyDown={onKeyDown}
             disabled={streaming}
             placeholder={t("chat.placeholder")}
-            className="min-h-[3rem] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2 leading-6 focus:border-emerald-600 focus:outline-none disabled:bg-slate-50"
+            className="min-h-[3rem] flex-1 resize-none rounded-xl border border-line-strong px-3 py-2 leading-6 focus:border-focus focus:outline-none disabled:bg-surface-2"
           />
           {streaming ? (
             <button
               type="button"
               onClick={() => controllerRef.current?.abort()}
-              className="rounded-xl bg-slate-700 px-4 py-2.5 font-medium text-white hover:bg-slate-800"
+              className="rounded-xl bg-muted px-4 py-2.5 font-medium text-on-primary hover:bg-fg"
             >
               {t("chat.stop")}
             </button>
@@ -430,7 +430,7 @@ export function Chat({
               type="submit"
               disabled={!draft.trim() || busy}
               title={busy ? t("chat.sendWaiting") : undefined}
-              className="rounded-xl bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800 disabled:opacity-40"
+              className="rounded-xl bg-primary px-4 py-2.5 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-40"
             >
               {t("chat.send")}
             </button>
@@ -447,12 +447,12 @@ export function Chat({
             disabledHint={skillAllowed(output) ? undefined : t("chat.skillOffForReport")}
           />
         </div>
-        {busy && <p className="mt-1.5 text-xs text-amber-700">{t("chat.sendWaiting")}</p>}
+        {busy && <p className="mt-1.5 text-xs text-warning">{t("chat.sendWaiting")}</p>}
         {limits && <div className="mt-1.5"><LimitsHint limits={limits} /></div>}
-        <p className="mt-1.5 text-xs text-slate-500">
+        <p className="mt-1.5 text-xs text-muted">
           {t.rich("chat.composerHint", {
             key: (chunks) => (
-              <kbd className="rounded border border-slate-300 bg-slate-50 px-1 font-mono text-[10px]">
+              <kbd className="rounded border border-line-strong bg-surface-2 px-1 font-mono text-[10px]">
                 <bdi>{chunks}</bdi>
               </kbd>
             ),

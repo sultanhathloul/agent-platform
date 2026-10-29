@@ -11,9 +11,9 @@ import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 import { pageFormat } from "@/lib/settings";
 import { useAuth } from "../AuthProvider";
 import { useRuntimeConfig } from "../ConfigProvider";
-import { Chip, button, card, quiet } from "./SettingsParts";
+import { Chip, button, card, danger, quiet } from "./SettingsParts";
 
-const field = "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-600 focus:outline-none";
+const field = "w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm focus:border-focus focus:outline-none";
 
 type Draft = { slug: string; nameAr: string; nameEn: string; descriptionAr: string; descriptionEn: string };
 const EMPTY: Draft = { slug: "", nameAr: "", nameEn: "", descriptionAr: "", descriptionEn: "" };
@@ -111,16 +111,16 @@ export function KbAdmin() {
     <div className="mx-auto max-w-5xl space-y-4 p-4">
       <header>
         <h1 className="text-xl font-semibold">{t("title")}</h1>
-        <p className="mt-1 text-sm text-slate-600">{t("intro")}</p>
+        <p className="mt-1 text-sm text-muted">{t("intro")}</p>
       </header>
 
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p role="alert" className="rounded-md bg-error-bg px-3 py-2 text-sm text-error">
           {message(error)}
         </p>
       )}
       {notice && (
-        <p role="status" className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        <p role="status" className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">
           {notice}
         </p>
       )}
@@ -131,34 +131,34 @@ export function KbAdmin() {
         </h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
-            <span className="text-slate-700">{t("nameAr")}</span>
+            <span className="text-fg">{t("nameAr")}</span>
             <input dir="auto" className={field} value={draft.nameAr} maxLength={120}
               onChange={(e) => setDraft({ ...draft, nameAr: e.target.value })} />
           </label>
           <label className="block text-sm">
-            <span className="text-slate-700">{t("nameEn")}</span>
+            <span className="text-fg">{t("nameEn")}</span>
             <input dir="ltr" className={field} value={draft.nameEn} maxLength={120}
               onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })} />
           </label>
           <label className="block text-sm">
-            <span className="text-slate-700">{t("slug")}</span>
+            <span className="text-fg">{t("slug")}</span>
             <input dir="ltr" className={field} value={draft.slug} maxLength={63} aria-invalid={draft.slug !== "" && !slugOk}
               onChange={(e) => setDraft({ ...draft, slug: e.target.value.trim().toLowerCase() })} />
-            <span className={`mt-0.5 block text-xs ${draft.slug && !slugOk ? "text-red-700" : "text-slate-500"}`}>
+            <span className={`mt-0.5 block text-xs ${draft.slug && !slugOk ? "text-error" : "text-muted"}`}>
               {t("slugHint")}
             </span>
           </label>
           <div className="text-sm">
-            <span className="text-slate-700">{t("role")}</span>
-            <p className="mt-1.5">{slugOk ? <Chip name="role">{roleOf(draft.slug)}</Chip> : <span className="text-xs text-slate-400">{t("roleAfterSlug")}</span>}</p>
+            <span className="text-fg">{t("role")}</span>
+            <p className="mt-1.5">{slugOk ? <Chip name="role">{roleOf(draft.slug)}</Chip> : <span className="text-xs text-subtle">{t("roleAfterSlug")}</span>}</p>
           </div>
           <label className="block text-sm">
-            <span className="text-slate-700">{t("descriptionAr")}</span>
+            <span className="text-fg">{t("descriptionAr")}</span>
             <textarea dir="auto" rows={2} className={field} value={draft.descriptionAr} maxLength={500}
               onChange={(e) => setDraft({ ...draft, descriptionAr: e.target.value })} />
           </label>
           <label className="block text-sm">
-            <span className="text-slate-700">{t("descriptionEn")}</span>
+            <span className="text-fg">{t("descriptionEn")}</span>
             <textarea dir="ltr" rows={2} className={field} value={draft.descriptionEn} maxLength={500}
               onChange={(e) => setDraft({ ...draft, descriptionEn: e.target.value })} />
           </label>
@@ -167,7 +167,7 @@ export function KbAdmin() {
           <button type="submit" className={button} disabled={!ready || busy}>
             {t("create")}
           </button>
-          <span className="text-xs text-slate-500">{t("createHint")}</span>
+          <span className="text-xs text-muted">{t("createHint")}</span>
         </div>
       </form>
 
@@ -176,18 +176,18 @@ export function KbAdmin() {
           {t("listTitle")}
         </h2>
         {kbs === null ? (
-          <p className="text-sm text-slate-500">{t("loading")}</p>
+          <p className="text-sm text-muted">{t("loading")}</p>
         ) : kbs.length === 0 ? (
-          <p className="text-sm text-slate-500">{t("empty")}</p>
+          <p className="text-sm text-muted">{t("empty")}</p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {kbs.map((kb) => (
               <li key={kb.slug} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3" data-kb={kb.slug}>
                 <div className="min-w-56 flex-1">
-                  <Link href={`/admin/kbs/${encodeURIComponent(kb.slug)}`} className="font-medium text-emerald-800 hover:underline">
+                  <Link href={`/admin/kbs/${encodeURIComponent(kb.slug)}`} className="font-medium text-primary hover:underline">
                     <bdi dir="auto">{labelIn(kb.name, locale)}</bdi>
                   </Link>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-0.5 text-xs text-muted">
                     {t("counts", { documents: format.number(kb.documents), indexed: format.number(kb.indexed) })}
                     {" · "}
                     {t("createdBy", {
@@ -196,7 +196,7 @@ export function KbAdmin() {
                     })}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                <div className="flex items-center gap-1.5 text-xs text-muted">
                   <span>{t("role")}</span>
                   <Chip name="role">{kb.role}</Chip>
                 </div>
@@ -206,8 +206,8 @@ export function KbAdmin() {
                   </Link>
                   {confirming === kb.slug ? (
                     <>
-                      <span className="text-xs text-red-800">{t("confirmDelete")}</span>
-                      <button type="button" className={`${button} bg-red-700 hover:bg-red-800`} disabled={busy}
+                      <span className="text-xs text-error">{t("confirmDelete")}</span>
+                      <button type="button" className={danger} disabled={busy}
                         onClick={() => void onDelete(kb)}>
                         {t("delete")}
                       </button>
