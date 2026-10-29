@@ -1,11 +1,17 @@
-"""Checks on a stored report page for the eval harness (reports PR, I8, ADR-0376, ADR-0385). Generic over
-output forms: a page is the stored HTML of the version a turn wrote, read back through the gateway as its
-owner. Standard library only."""
+"""Checks on a stored report page for the eval harness (reports PR, I8, ADR-0376, ADR-0385; option C,
+ADR-0406 to ADR-0409). A page is the stored HTML of the version a turn wrote, read back through the gateway as
+its owner; it carries the checked report spec it was rendered from (`<script type="application/json"
+class="kit-spec" id="report-spec">`), which the checks read with the page. Standard library only: the spec is
+checked against config/artifacts/report-spec.schema.json by the small validator below, which covers the
+keywords that schema uses."""
 
 import json
 import re
 from html.parser import HTMLParser
+from pathlib import Path
 
+SCHEMA = json.loads((Path(__file__).resolve().parent.parent / "config" / "artifacts" / "report-spec.schema.json")
+                    .read_text(encoding="utf-8"))
 # Any reference that leaves the page: a scheme-relative or absolute URL in an attribute or a CSS url().
 EXTERNAL = re.compile(
     r"""(?:\b(?:src|href|action|data|poster|srcset)\s*=\s*["']?\s*(?:https?:)?//)|(?:url\(\s*["']?\s*(?:https?:)?//)|@import""",
@@ -13,15 +19,13 @@ EXTERNAL = re.compile(
 )
 FIGURE = re.compile(r"[0-9٠-٩]{1,3}(?:[,٬\u202f\u00a0][0-9٠-٩]{3})+(?:[.٫][0-9٠-٩]+)?|[0-9٠-٩]+(?:[.٫][0-9٠-٩]+)?")
 _INDIC = str.maketrans({**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, "٫": ".", "٬": ",", "\u202f": ",", "\u00a0": ","})
-# A figure in its source label's marker (owner decision A, ADR-0388): (kind, label, figure).
-_MARKED = re.compile(
-    r'<span class="kit-figure" data-kit="figure" data-kit-source="([a-z]+)" data-kit-label="([^"]*)" title="[^"]*">(.*?)</span>',
-    re.S,
-)
-_SVG_MARKED = re.compile(r'([0-9٠-٩][0-9٠-٩.,٫٬]*)<tspan class="kit-figure-svg" data-kit-source="([a-z]+)">[^<]*</tspan>')
 _SOURCES = re.compile(r'<section class="kit-sources" data-kit="sources"[^>]*>.*?</section>', re.S)
 _MODEL_INFO = re.compile(r'<footer class="kit-model-info" data-kit="model-info"[^>]*>.*?</footer>', re.S)
-_DATA = re.compile(r'<script type="application/json" id="report-data">(.*?)</script>', re.S)
+_SPEC = re.compile(r'<script type="application/json" class="kit-spec" id="report-spec">(.*?)</script>', re.S)
+_DATA = re.compile(r'<script type="application/json" class="kit-(?:chart-data|spec)" id="[^"]*">(.*?)</script>', re.S)
+_GENERAL = re.compile(r'<p class="kit-general-note" data-kit="general">')
+_ARABIC = re.compile(r"[\u0600-\u06ff\u0750-\u077f\ufb50-\ufdff\ufe70-\ufeff]")
+_ELEMENTS = ("kpi_row", "chart", "table")
 
 
 def figures_in(text: str) -> list[str]:
@@ -87,8 +91,8 @@ class _Structure(HTMLParser):
 
 
 def parses(page: str) -> bool:
-    """A complete document: doctype, one html with head and body, every element closed in order, and a
-    report-data block, when there is one, that is JSON."""
+    """A complete document: doctype, one html with head and body, every element closed in order, and every
+    JSON block (each chart's data, the spec) JSON."""
     if not re.match(r"(?is)\s*<!doctype html>\s*<html\b[^>]*>\s*<head>.*</head>\s*<body>.*</body>\s*</html>\s*$", page):
         return False
     structure = _Structure()
@@ -110,149 +114,147 @@ def direction(page: str, locale: str) -> bool:
 
 
 def kit_only(page: str, download: str | None) -> bool:
-    """No reference outside the page, in the stored page and in the download; no script but the data block
+    """No reference outside the page, in the stored page and in the download; no script but its JSON blocks
     and, in the download, the kit's own inlined ones."""
     if EXTERNAL.search(page) or (download is not None and EXTERNAL.search(download)):
         return False
     scripts = re.findall(r"<script\b[^>]*>", page)
-    return all(tag == '<script type="application/json" id="report-data">' for tag in scripts)
+    return all(re.fullmatch(r'<script type="application/json" class="kit-(?:chart-data|spec)" id="[^"]+">', t) for t in scripts)
+
+
+def spec_of(page: str) -> dict | None:
+    match = _SPEC.search(page)
+    if not match:
+        return None
+    try:
+        spec = json.loads(match.group(1))
+    except ValueError:
+        return None
+    return spec if isinstance(spec, dict) else None
+
+
+def _valid(value, schema: dict, defs: dict) -> bool:
+    if "$ref" in schema:
+        return _valid(value, defs[schema["$ref"].rsplit("/", 1)[-1]], defs)
+    for key in ("anyOf", "oneOf"):
+        if key in schema:
+            matched = sum(1 for option in schema[key] if _valid(value, option, defs))
+            if (key == "anyOf" and not matched) or (key == "oneOf" and matched != 1):
+                return False
+    if "const" in schema and value != schema["const"]:
+        return False
+    if "enum" in schema and value not in schema["enum"]:
+        return False
+    kind = schema.get("type")
+    checks = {"string": lambda v: isinstance(v, str), "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+              "number": lambda v: isinstance(v, int | float) and not isinstance(v, bool), "null": lambda v: v is None,
+              "array": lambda v: isinstance(v, list), "object": lambda v: isinstance(v, dict), "boolean": lambda v: isinstance(v, bool)}
+    if kind and not checks[kind](value):
+        return False
+    if isinstance(value, str):
+        if len(value) > schema.get("maxLength", len(value)) or ("pattern" in schema and not re.search(schema["pattern"], value)):
+            return False
+    if isinstance(value, list):
+        if not schema.get("minItems", 0) <= len(value) <= schema.get("maxItems", len(value)):
+            return False
+        if "items" in schema and not all(_valid(item, schema["items"], defs) for item in value):
+            return False
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        if any(key not in value for key in schema.get("required", [])):
+            return False
+        if schema.get("additionalProperties") is False and any(key not in properties for key in value):
+            return False
+        if not all(_valid(value[key], sub, defs) for key, sub in properties.items() if key in value):
+            return False
+    return True
+
+
+def spec_valid(page: str) -> bool:
+    """The stored spec matches config/artifacts/report-spec.schema.json."""
+    spec = spec_of(page)
+    return spec is not None and _valid(spec, SCHEMA, SCHEMA.get("$defs", {}))
+
+
+def _elements(spec: dict | None) -> list[dict]:
+    return [s for s in (spec or {}).get("sections") or [] if s.get("kind") in _ELEMENTS]
+
+
+def _values(section: dict) -> list:
+    if section["kind"] == "kpi_row":
+        return [v for i in section.get("items") or [] for v in (i.get("value"), i.get("delta"))]
+    if section["kind"] == "chart":
+        return [v for s in section.get("series") or [] for v in s.get("data") or []]
+    return [c for row in section.get("rows") or [] for c in row[1:]]
+
+
+def _sources_text(page: str) -> str:
+    match = _SOURCES.search(page)
+    return re.sub(r"<[^>]+>", " ", match.group(0)) if match else ""
 
 
 def sources_section(page: str) -> bool:
-    return bool(_SOURCES.search(page))
+    """A sourced report: «المصادر» lists each element the spec keeps under a document (ADR-0408)."""
+    text = _sources_text(page)
+    elements = _elements(spec_of(page))
+    return bool(text and elements) and all((s.get("title") or "") in text for s in elements if s.get("title"))
 
 
-def _body_text(page: str) -> str:
-    """The page's visible body text, outside the sources section, the development model strip, scripts and
-    styles."""
-    body = _MODEL_INFO.sub("", _SOURCES.sub("", page))
-    body = re.sub(r"(?is)<head>.*?</head>", "", body)
-    structure = _Structure()
-    structure.feed(body)
-    return "\n".join(structure.texts)
+def no_general(page: str) -> bool:
+    """With knowledge bases or files: no element cites "general" and the page has no general-knowledge line."""
+    elements = _elements(spec_of(page))
+    return bool(elements) and not _GENERAL.search(page) and all("general" not in s.get("sources", []) for s in elements)
 
 
-def _marks(page: str) -> list[tuple[str, str]]:
-    """(kind, canonical figure) of every labelled figure, text and SVG."""
-    found = [(kind, canonical(figure)) for kind, _, figure in _MARKED.findall(page)]
-    return found + [(kind, canonical(figure)) for figure, kind in _SVG_MARKED.findall(page)]
-
-
-def _unmarked(page: str) -> str:
-    return _SVG_MARKED.sub("", _MARKED.sub("", page))
-
-
-def _charts(block: str):
-    for chart in (json.loads(block).get("charts") or {}).values():
-        yield chart
-
-
-def figures_labelled(page: str, message: str) -> bool:
-    """A general-knowledge page (owner decision A; one kind of source per turn, ADR-0398): every figure the
-    body shows carries exactly one label, and on a turn with no knowledge base, file or findings that label
-    is general knowledge, the request's own figures included; every chart point carries its source the
-    same way. `message` is kept for the caller; nothing in it exempts a figure."""
-    marks = _marks(page)
-    stray = figures_in(_body_text(_unmarked(page)))
-    if stray or any(kind != "general" for kind, _ in marks):
-        return False
-    if '<span class="kit-figure"' in _MARKED.sub("", page):  # a marker inside a marker, or one malformed
-        return False
-    for block in _DATA.findall(page):
-        try:
-            charts = list(_charts(block))
-        except ValueError:
-            return False
-        for chart in charts:
-            for dataset in chart.get("datasets") or []:
-                sources = dataset.get("sources") or []
-                general = set(dataset.get("general") or [])
-                for index, value in enumerate(dataset.get("data") or []):
-                    if not isinstance(value, int | float):
-                        continue
-                    if index >= len(sources) or not sources[index] or index not in general:
-                        return False
-    return bool(marks)
+def general_only(page: str) -> bool:
+    """Without findings: the general-knowledge line, no sources section, every element cites "general" only."""
+    elements = _elements(spec_of(page))
+    return (bool(_GENERAL.search(page)) and not _SOURCES.search(page)
+            and all(s.get("sources") == ["general"] for s in elements))
 
 
 def figures_sourced(page: str, expected: list) -> bool:
-    """Each expected figure (or one of its alternatives) is shown with the label of the knowledge base or
-    file that holds it (ADR-0388), in the text or as a chart point."""
-    sourced = {figure for kind, figure in _marks(page) if kind in ("kb", "file")}
-    for block in _DATA.findall(page):
-        try:
-            for chart in _charts(block):
-                for dataset in chart.get("datasets") or []:
-                    general = set(dataset.get("general") or [])
-                    sourced |= {canonical(repr(float(v)).removesuffix(".0")) for i, v in enumerate(dataset.get("data") or [])
-                                if isinstance(v, int | float) and i not in general}
-        except ValueError:
-            return False
+    """Each expected figure (or one of its alternatives) is a value the platform kept in a sourced element, so
+    one of that element's cited passages holds it with its label (ADR-0407), and the element is listed in the
+    sources."""
+    text = _sources_text(page)
+    kept: set[str] = set()
+    for section in _elements(spec_of(page)):
+        if "general" in section.get("sources", []) or (section.get("title") and section["title"] not in text):
+            continue
+        for value in _values(section):
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                kept.add(canonical(repr(float(value)).removesuffix(".0")))
+            elif isinstance(value, str):
+                kept.update(canonical(f) for f in figures_in(value))
     for item in expected or []:
         options = [item] if isinstance(item, str) else list(item)
-        if not any(canonical(o) in sourced for o in options):
+        if not any(canonical(o) in kept for o in options):
             return False
     return bool(expected)
 
 
-_ARABIC = re.compile(r"[\u0600-\u06ff\u0750-\u077f\ufb50-\ufdff\ufe70-\ufeff]")
-_NAMING = {"title", "h1", "h2", "h3", "h4", "th", "caption", "legend", "summary"}
-_NAMING_CLASSES = ("kit-kpi-label", "kit-hero-label", "kit-eyebrow", "kit-card-subtitle", "kit-subtitle")
-
-
-class _Naming(HTMLParser):
-    """The text of the page's title, headings, table headers and labelled components, by element."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.open: list[bool] = []
-        self.found: list[tuple[str, str]] = []
-        self._tag: list[str] = []
-
-    def handle_starttag(self, tag, attrs):
-        classes = (dict(attrs).get("class") or "").split()
-        naming = tag in _NAMING or any(c in _NAMING_CLASSES for c in classes)
-        if tag not in _Structure.VOID:
-            self.open.append(naming)
-            self._tag.append(tag if tag in _NAMING else "label")
-
-    def handle_endtag(self, tag):
-        if tag not in _Structure.VOID and self.open:
-            self.open.pop()
-            self._tag.pop()
-
-    def handle_data(self, data):
-        if data.strip() and any(self.open):
-            kind = next(t for t, o in zip(reversed(self._tag), reversed(self.open)) if o)
-            self.found.append((kind, data.strip()))
-
-
 def naming_texts(page: str) -> list[tuple[str, str]]:
-    """(kind, text) of what names and labels the page's content, the platform's sources section and model
-    strip left out: title, headings, table headers, KPI labels, and report-data's chart titles and labels."""
-    body = _MODEL_INFO.sub("", _SOURCES.sub("", page))
-    parser = _Naming()
-    parser.feed(body)
-    found = list(parser.found)
-    for block in _DATA.findall(page):
-        try:
-            for chart in _charts(block):
-                found += [("chart", t) for t in [chart.get("title") or "", *(chart.get("labels") or [])] if isinstance(t, str) and t.strip()]
-                found += [("chart", d.get("label") or "") for d in chart.get("datasets") or [] if (d.get("label") or "").strip()]
-        except ValueError:
-            continue
-    return found
+    """(kind, text) of what names and labels the report: its title, section titles, KPI labels, chart
+    categories and series, table columns and row labels, from its spec."""
+    spec = spec_of(page) or {}
+    found = [("title", spec.get("title") or "")]
+    for s in spec.get("sections") or []:
+        found.append(("heading", s.get("title") or ""))
+        found += [("label", i.get("label") or "") for i in s.get("items") or []]
+        found += [("label", str(x)) for x in s.get("labels") or []]
+        found += [("label", x.get("name") or "") for x in s.get("series") or []]
+        found += [("label", str(x)) for x in s.get("columns") or []]
+        found += [("label", str(row[0])) for row in s.get("rows") or [] if row and isinstance(row[0], str)]
+    return [(k, t) for k, t in found if t.strip()]
 
 
 def request_language(page: str, locale: str) -> bool:
-    """Owner decision 4 on PR #17 (ADR-0396): a report's title, headings and labels are in the request's
-    language whatever its sources' language. English: none of them holds an Arabic letter. Arabic: the
-    title and the main heading are Arabic (an English term inside them is allowed)."""
+    """Owner decision 4 on PR #17 (ADR-0396): a report's title and labels are in the request's language
+    whatever its sources' language. English: none holds an Arabic letter. Arabic: the title is Arabic."""
     texts = naming_texts(page)
     if not texts:
         return False
     if locale == "en":
         return not any(_ARABIC.search(text) for _, text in texts)
-    main = [" ".join(text for kind, text in texts if kind == wanted) for wanted in ("title", "h1")]
-    main = [text for text in main if text]
-    return bool(main) and all(_ARABIC.search(text) for text in main)
+    return all(_ARABIC.search(text) for kind, text in texts if kind == "title")

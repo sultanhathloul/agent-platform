@@ -1,5 +1,7 @@
-"""The reports suite's page checks (reports PR, I8, ADR-0385): each catches what it gates."""
+"""The reports suite's page checks (reports PR, I8, ADR-0385; option C, ADR-0406 to ADR-0409): each catches
+what it gates."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -9,64 +11,75 @@ sys.path.insert(0, str(EVALS))
 import pages  # noqa: E402
 
 FRAME = '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>t</title></head><body>{body}</body></html>'
-SOURCES = '<section class="kit-sources" data-kit="sources" lang="ar" dir="rtl"><h2>المصادر</h2><p>ملاحظة 2031</p></section>'
+CHART = {"kind": "chart", "type": "line", "title": "معدل البطالة", "labels": ["الربع الأول 2026", "الربع الثاني 2026"],
+         "series": [{"name": "سعودي", "data": [6.4, 6.5]}], "sources": ["P1"]}
 
 
-def page(body: str, locale: str = "ar") -> str:
-    out = FRAME.format(body=body + SOURCES)
+def page(spec: dict | None = None, *, sources: str = "", general: bool = False, body: str = "", locale: str = "ar") -> str:
+    spec = spec if spec is not None else {"title": "سوق العمل", "language": locale, "sections": [CHART]}
+    note = '<p class="kit-general-note" data-kit="general">من المعرفة العامة</p>' if general else ""
+    block = ('<script type="application/json" class="kit-spec" id="report-spec">'
+             + json.dumps(spec, ensure_ascii=False).replace("<", "\\u003c") + "</script>")
+    out = FRAME.format(body=f'<main class="kit-page">{note}{body}{sources}{block}</main>')
     return out.replace('lang="ar" dir="rtl"', 'lang="en" dir="ltr"', 1) if locale == "en" else out
 
 
-def test_parses_needs_a_whole_document_closed_in_order_and_json_data():
-    assert pages.parses(page("<main><p>نص</p></main>"))
-    assert not pages.parses(page("<main><p>نص</main></p>"))
+SOURCES = ('<section class="kit-sources" data-kit="sources" lang="ar" dir="rtl"><h2>المصادر</h2><ol><li>'
+           '<div class="kit-source-doc">نشرة سوق العمل</div><ul><li>رسم: معدل البطالة — ص 1</li></ul></li></ol></section>')
+
+
+def test_parses_needs_a_whole_document_closed_in_order_and_json_blocks():
+    assert pages.parses(page(sources=SOURCES))
+    assert not pages.parses(page(body="<p>نص</main></p>"))
     assert not pages.parses("<p>no frame</p>")
-    assert not pages.parses(page('<script type="application/json" id="report-data">{bad</script>'))
+    broken = page().replace('id="report-spec">{', 'id="report-spec">{bad')
+    assert not pages.parses(broken)
 
 
 def test_direction_follows_the_locale():
-    assert pages.direction(page("<p>x</p>"), "ar") and not pages.direction(page("<p>x</p>"), "en")
-    assert pages.direction(page("<p>x</p>", "en"), "en")
+    assert pages.direction(page(), "ar") and not pages.direction(page(), "en")
+    assert pages.direction(page(locale="en"), "en")
 
 
-def test_kit_only_refuses_any_outside_reference_in_the_page_or_the_download():
-    clean = page('<a href="#s">x</a><script type="application/json" id="report-data">{}</script>')
+def test_kit_only_refuses_any_outside_reference_and_any_script_but_the_json_blocks():
+    clean = page(body='<a href="#s">x</a><script type="application/json" class="kit-chart-data" id="c1">{}</script>')
     assert pages.kit_only(clean, "<style>body{}</style><script>var a=1</script>")
-    assert not pages.kit_only(page('<img src="https://x.example.com/a.png">'), "")
-    assert not pages.kit_only(page('<p style="background:url(//x.example.com/a)">x</p>'), "")
+    assert not pages.kit_only(page(body='<img src="https://x.example.com/a.png">'), "")
     assert not pages.kit_only(clean, '<link href="https://cdn.example.com/k.css">')
-    assert not pages.kit_only(page("<script>alert(1)</script>"), "")
+    assert not pages.kit_only(page(body="<script>alert(1)</script>"), "")
 
 
-def mark(figure: str, kind: str = "general", label: str = "من المعرفة العامة") -> str:
-    return (f'<span class="kit-figure" data-kit="figure" data-kit-source="{kind}" data-kit-label="{label}" '
-            f'title="{label}">{figure}</span>')
+def test_spec_valid_reads_the_stored_spec_against_the_committed_schema():
+    assert pages.spec_valid(page())
+    assert not pages.spec_valid(page({"title": "t", "language": "ar", "sections": []}))
+    assert not pages.spec_valid(page({"title": "t", "language": "ar", "sections": [{**CHART, "sources": ["الهيئة"]}]}))
+    assert not pages.spec_valid(page({"title": "t", "language": "ar", "sections": [{**CHART, "colour": "red"}]}))
+    assert not pages.spec_valid(FRAME.format(body="<p>no spec</p>"))
 
 
-def test_figures_labelled_needs_every_figure_labelled_and_all_of_them_general_knowledge():
-    # ADR-0398: a turn with no knowledge base, file or findings labels every figure general knowledge,
-    # the request's own included.
-    page_ok = page(f'<p>النمو {mark("3.1")} في {mark("2031")}</p>')
-    assert pages.figures_labelled(page_ok, "لوحة عن 2031")
-    assert not pages.figures_labelled(page(f'<p>النمو {mark("3.1")} في 2031</p>'), "لوحة عن 2031")  # 2031 unlabelled
-    assert not pages.figures_labelled(page(f'<p>{mark("3.1")} {mark("2031", "message", "من: طلبك")}</p>'), "2031")
-    assert not pages.figures_labelled(page(f'<p>{mark("16", "kb", "من: إحصاءات")}</p>'), "")  # a source on a general turn
-    data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
-            '[{"label":"x","data":[3.1,4],"sources":["من المعرفة العامة","%s"],"general":[0%s]}]}}}</script>')
-    assert pages.figures_labelled(page(mark("1") + data % ("من المعرفة العامة", ",1")), "")
-    assert not pages.figures_labelled(page(mark("1") + data % ("من: طلبك", "")), "4")  # 4 not general
-    assert not pages.figures_labelled(page(mark("1") + (data % ("x", ",1")).replace('"x"]', "null]")), "")  # no label
+def test_no_general_with_findings_and_general_only_without():
+    assert pages.no_general(page(sources=SOURCES))
+    assert not pages.no_general(page({"title": "t", "language": "ar", "sections": [{**CHART, "sources": ["general"]}]}))
+    assert not pages.no_general(page(sources=SOURCES, general=True))
+    general = page({"title": "t", "language": "ar", "sections": [{**CHART, "sources": ["general"]}]}, general=True)
+    assert pages.general_only(general)
+    assert not pages.general_only(general.replace("</main>", SOURCES + "</main>"))
+    assert not pages.general_only(page(general=True))  # an element citing a passage
 
 
-def test_figures_sourced_needs_each_expected_figure_with_its_kb_or_file_label():
-    kb = page(f'<div class="kit-kpi-value">{mark("3.6", "kb", "من: اقتصاد الواحة")}</div>'
-              f'<p>{mark("٢٫٢", "file", "من: الموازنة.pdf")} و {mark("5.8")}</p>')
-    assert pages.figures_sourced(kb, ["3.6", "2.2"])
-    assert not pages.figures_sourced(kb, ["5.8"])  # shown, but as general knowledge
-    assert pages.figures_sourced(kb, [["9", "3.6"]])
-    data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
-            '[{"label":"x","data":[812,455],"sources":["من: الواحة","من المعرفة العامة"],"general":[1]}]}}}</script>')
-    assert pages.figures_sourced(page(data), ["812"]) and not pages.figures_sourced(page(data), ["455"])
+def test_the_sources_section_lists_each_element_under_a_document():
+    assert pages.sources_section(page(sources=SOURCES))
+    assert not pages.sources_section(page())
+    other = {"title": "t", "language": "ar", "sections": [CHART, {**CHART, "title": "معدل المشاركة"}]}
+    assert not pages.sources_section(page(other, sources=SOURCES))
+
+
+def test_figures_sourced_needs_each_expected_figure_kept_in_a_listed_sourced_element():
+    assert pages.figures_sourced(page(sources=SOURCES), ["6.5", ["6.4", "6.40"]])
+    assert not pages.figures_sourced(page(sources=SOURCES), ["47.1"])
+    assert not pages.figures_sourced(page(), ["6.5"])  # the element is not in the sources
+    gap = {"title": "t", "language": "ar", "sections": [{**CHART, "series": [{"name": "سعودي", "data": [6.4, None]}]}]}
+    assert not pages.figures_sourced(page(gap, sources=SOURCES), ["6.5"])
 
 
 def test_page_fields_read_the_version_and_the_download_from_the_gateways_envelope():
@@ -86,31 +99,13 @@ def test_page_fields_read_the_version_and_the_download_from_the_gateways_envelop
     assert run_evals.page_fields(http, "http://gw", "token", {"state_digest": {"output": "text"}})["page"] is None
 
 
-def test_names_with_digits_are_not_figures_for_the_check_either():
-    # make-eval-20261028T025931Z, general-ar-picker: chart labels "Q1".."Q4" are names (ADR-0381).
-    named = page(f'<p>الربع Q1 و Q2 و COVID-19 و 5G، و {mark("40")}</p>')
-    assert pages.figures_labelled(named, "")
-
-
-def test_the_development_model_strip_is_not_the_pages_figures():
-    # Owner decision C (ADR-0391): its token counts and seconds are platform metadata, not report figures.
-    strip = ('<footer class="kit-model-info" data-kit="model-info" lang="ar" dir="rtl"><p>معلومات النموذج</p>'
-             "<table><tbody><tr><td>heavy</td><td>38.2 ث</td><td>12,345 / 4,321</td></tr></tbody></table></footer>")
-    assert pages.figures_labelled(page(f'<p>{mark("40")}</p>' + strip), "")
-
-
-def test_request_language_reads_the_title_headings_and_labels_not_the_platforms_sections():
+def test_request_language_reads_the_specs_title_and_labels():
     # Owner decision 4 on PR #17 (ADR-0396); make-eval-20261029T094813Z kb-en-exports and file-en-budget.
-    english = page('<h1>Oasis exports 2030</h1><div class="kit-kpi-label">Dates</div><p>From the KB.</p>', "en")
-    english = english.replace("<title>t</title>", "<title>Oasis exports</title>")
-    assert pages.request_language(english, "en")  # the Arabic sources section is the platform's
-    arabic_title = english.replace("<title>Oasis exports</title>", "<title>تقرير صادرات الواحة</title>")
-    assert not pages.request_language(arabic_title, "en")
-    arabic_label = english.replace(">Dates<", ">التمور<")
-    assert not pages.request_language(arabic_label, "en")
-    data = ('<script type="application/json" id="report-data">{"charts":{"g":{"title":"الصادرات","labels":[],'
-            '"datasets":[]}}}</script>')
-    assert not pages.request_language(english.replace("</main>", "").replace("<p>From the KB.</p>", data), "en")
-    ar = page('<h1>لوحة <bdi>GDP</bdi> الواحة</h1>').replace("<title>t</title>", "<title>لوحة الواحة</title>")
-    assert pages.request_language(ar, "ar")
-    assert not pages.request_language(ar.replace("<title>لوحة الواحة</title>", "<title>Oasis board</title>"), "ar")
+    english = {"title": "Oasis exports", "language": "en", "sections": [{**CHART, "title": "Dates", "labels": ["2030"],
+                                                                         "series": [{"name": "Exports", "data": [1]}]}]}
+    assert pages.request_language(page(english, sources=SOURCES, locale="en"), "en")  # the sources are the platform's
+    assert not pages.request_language(page({**english, "title": "تقرير صادرات الواحة"}, locale="en"), "en")
+    arabic_series = {**english, "sections": [{**english["sections"][0], "series": [{"name": "الصادرات", "data": [1]}]}]}
+    assert not pages.request_language(page(arabic_series, locale="en"), "en")
+    assert pages.request_language(page(), "ar")
+    assert not pages.request_language(page({"title": "Oasis board", "language": "ar", "sections": [CHART]}), "ar")

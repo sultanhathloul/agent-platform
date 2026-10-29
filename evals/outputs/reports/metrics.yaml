@@ -11,29 +11,35 @@ metrics:
     sourced: [{scorer: field_equals, field: form, expected: expect.form}]
     edit:    [{scorer: field_equals, field: form, expected: expect.form}]
     text:    [{scorer: field_equals, field: form, expected: expect.form}]
-  html_parses:            # one complete document, every element closed, report-data JSON
+  html_parses:            # one complete document, every element closed, every JSON block parses
     general: [{scorer: page, check: parses}]
     sourced: [{scorer: page, check: parses}]
     edit:    [{scorer: page, check: parses}]
+  spec_valid:             # the stored spec matches config/artifacts/report-spec.schema.json (option C, ADR-0406)
+    general: [{scorer: page, check: spec_valid}]
+    sourced: [{scorer: page, check: spec_valid}]
+    edit:    [{scorer: page, check: spec_valid}]
   direction:              # dir="rtl" lang="ar" for Arabic, dir="ltr" lang="en" for English
     general: [{scorer: page, check: direction}]
     sourced: [{scorer: page, check: direction}]
     edit:    [{scorer: page, check: direction}]
-  request_language:       # title, headings and labels in the request's language, whatever the sources' (ADR-0396)
+  request_language:       # title and labels in the request's language, whatever the sources' (ADR-0396)
     general: [{scorer: page, check: request_language}]
     sourced: [{scorer: page, check: request_language}]
     edit:    [{scorer: page, check: request_language}]
-  kit_only:               # no external URL in the page or its download; no script but the data block
+  kit_only:               # no external URL in the page or its download; no script but its JSON blocks
     general: [{scorer: page, check: kit_only}]
     sourced: [{scorer: page, check: kit_only}]
     edit:    [{scorer: page, check: kit_only}]
-  sourced_figures:        # each expected figure shown with its KB's or file's label (ADR-0388)
+  sourced_figures:        # each expected figure kept as a value of a sourced element, so found with its label in a cited passage (ADR-0407)
     sourced: [{scorer: page, check: figures_sourced, expected: expect.figures}]
     edit:    [{scorer: page, check: figures_sourced, expected: expect.figures}]
-  figures_labelled:       # a general-knowledge page: every figure labelled once, all «من المعرفة العامة» (A, ADR-0398)
-    general: [{scorer: page, check: figures_labelled}]
-  sources_section:        # the «المصادر» / Sources section the platform appends
-    general: [{scorer: page, check: sources}]
+  no_general:             # with knowledge bases or files: no element cites "general", no general-knowledge line (ADR-0398)
+    sourced: [{scorer: page, check: no_general}]
+    edit:    [{scorer: page, check: no_general}]
+  general_only:           # without them: the general-knowledge line, no sources section, every element "general" (ADR-0408)
+    general: [{scorer: page, check: general_only}]
+  sources_section:        # «المصادر» lists each element under its document (ADR-0408)
     sourced: [{scorer: page, check: sources}]
     edit:    [{scorer: page, check: sources}]
   size_cap:               # the stored page within config/artifacts/report.yaml max_bytes

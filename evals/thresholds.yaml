@@ -46,12 +46,14 @@ kb:
 # (the judge alias's rating of the design) is reported, not gated.
 reports:
   form_chosen: 0.90        # a page when one is asked for (picker or router), text otherwise
-  html_parses: 1.00        # one complete document, every element closed, report-data JSON
+  html_parses: 1.00        # one complete document, every element closed, every JSON block parses
+  spec_valid: 1.00         # the stored spec matches the schema (option C, ADR-0406)
   direction: 1.00          # dir="rtl" for Arabic, dir="ltr" for English
-  request_language: 1.00   # title, headings and labels in the request's language (owner decision 4 on PR #17, ADR-0396)
-  kit_only: 1.00           # no external URL in the page or its download; no script but the data block
-  sourced_figures: 0.80    # each expected figure shown with its KB's or file's label (ADR-0388)
-  figures_labelled: 1.00   # a general-knowledge page: every figure labelled once, general knowledge where no source holds it
-  sources_section: 1.00    # the sources section the platform appends
+  request_language: 1.00   # title and labels in the request's language (owner decision 4 on PR #17, ADR-0396)
+  kit_only: 1.00           # no external URL in the page or its download; no script but its JSON blocks
+  sourced_figures: 0.80    # each expected figure kept in a sourced element, found with its label in a cited passage (ADR-0407)
+  no_general: 1.00         # with knowledge bases or files, no "general" anywhere (ADR-0398)
+  general_only: 1.00       # without them, general knowledge only, said once at the top (ADR-0408)
+  sources_section: 1.00    # each element listed under its document (ADR-0408)
   size_cap: 1.00           # within config/artifacts/report.yaml max_bytes
   version: 1.00            # a follow-up made the next version of the same report (D4)

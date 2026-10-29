@@ -89,7 +89,7 @@ suite; the harness names no form). A case may name `output` (the composer's outp
 checks read a page, the turn's report version is read back through the gateway as its owner: turn
 fields `form` (the done event's state_digest.output), `artifact`, `page` (the stored HTML) and
 `download` (the download). Scorers: `page` with `check` parses | direction | kit_only | sources | size
-| request_language | figures_labelled | figures_sourced | version, and `page_judge` (the judge alias rates the page's
+| request_language | spec_valid | no_general | general_only | figures_sourced | version, and `page_judge` (the judge alias rates the page's
 design from a rubric file beside the suite; reported).
 """
 
@@ -933,8 +933,12 @@ def page_check(check: dict, case: dict, turn: dict) -> bool:
         return 0 < len(page.encode("utf-8")) <= limit
     if kind == "request_language":
         return pages.request_language(page, case["locale"])
-    if kind == "figures_labelled":
-        return pages.figures_labelled(page, case["message"])
+    if kind == "spec_valid":
+        return pages.spec_valid(page)
+    if kind == "no_general":
+        return pages.no_general(page)
+    if kind == "general_only":
+        return pages.general_only(page)
     if kind == "figures_sourced":
         return pages.figures_sourced(page, case_value(case, check["expected"]))
     if kind == "version":
