@@ -1,7 +1,7 @@
 {
   "kb": "stats-gov",
   "source": "https://www.stats.gov.sa/ar/ (الإحصاءات → الإحصاءات الاجتماعية)",
-  "fetched_at": "2026-10-29T09:12:30+00:00",
+  "fetched_at": "2026-10-29T10:28:30+00:00",
   "categories": [
     {
       "name": "إحصاءات سوق العمل",
@@ -12,10 +12,65 @@
         "إحصاءات العمل التطوعي (123992)"
       ],
       "year": 2026,
+      "series": [
+        {
+          "series": "احصاءات سوق العمل",
+          "edition": "إحصاءات سوق العمل للربع الثاني 2026",
+          "year": 2026,
+          "listing": "إحصاءات سوق العمل",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "الاحصاءات السجلية لسوق العمل",
+          "edition": "الإحصاءات السجليَّة لسوق العمل للربع الثاني لعام 2026",
+          "year": 2026,
+          "listing": "إحصاءات سوق العمل السجلية",
+          "files": [
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات العمل التطوعي",
+          "edition": "إحصاءات العمل التطوعي لعام 2025",
+          "year": 2025,
+          "listing": "إحصاءات العمل التطوعي",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "يوم المتطوعين العالمي",
+          "edition": "يوم المتطوعين العالمي",
+          "year": 2019,
+          "listing": "إحصاءات العمل التطوعي",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "مسح العمل التطوعي",
+          "edition": "مسح العمل التطوعي لعام 2018",
+          "year": 2018,
+          "listing": "إحصاءات العمل التطوعي",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        }
+      ],
       "files": [
         "Labor Market Statistics- Q2 2026-AR (1).pdf",
         "Labor Market Statistics Q2 2026 AR (2).xlsx",
-        "Register-based Labour Market Statistics- Q2 2026 AR.xlsx"
+        "Register-based Labour Market Statistics- Q2 2026 AR.xlsx",
+        "Volunteer Work Statistics 2025 AR.pdf",
+        "Volunteer Work Statistics 2025 AR.xlsx",
+        "ywm_lmttwyn_llmy2.pdf",
+        "voluntary_work_survey_2018_ar_0.pdf",
+        "voluntary_work_survey_2018.xlsx"
       ],
       "failures": [],
       "note": ""
@@ -34,13 +89,160 @@
         "إحصاءات المنشآت والقوى العاملة الصحية (2968800)"
       ],
       "year": 2026,
+      "series": [
+        {
+          "series": "احصاءات الصحة والسلامة في العمل",
+          "edition": "إحصاءات الصحة والسلامة في العمل 2025",
+          "year": 2025,
+          "listing": "إحصاءات الصحة والسلامة في العمل",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات الحالة الصحية",
+          "edition": "إحصاءات الحالة الصحية 2025",
+          "year": 2025,
+          "listing": "إحصاءات الحالة الصحية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات الرعاية الصحية",
+          "edition": "إحصاءات الرعاية الصحية 2025",
+          "year": 2025,
+          "listing": "إحصاءات الرعاية الصحية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات المحددات الصحية",
+          "edition": "إحصاءات المحددات الصحية لعام 2024",
+          "year": 2024,
+          "listing": "إحصاءات المحددات الصحية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات صحة المراة والرعاية الانجابية",
+          "edition": "إحصاءات صحة المرأة والرعاية الإنجابية 2025",
+          "year": 2025,
+          "listing": "إحصاءات صحة المرأة والرعاية الإنجابية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات تنمية الطفولة المبكرة ورفاهية الطفل",
+          "edition": "إحصاءات تنمية الطفولة المبكرة ورفاهية الطفل 2026",
+          "year": 2026,
+          "listing": "إحصاءات تنمية الطفولة المبكرة ورفاهية الطفل",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات النشاط البدني",
+          "edition": "إحصاءات النشاط البدني لعام 2026",
+          "year": 2026,
+          "listing": "إحصاءات الرياضة و النشاط البدني",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "مسح ممارسة الاسر للرياضة",
+          "edition": "مسح ممارسة الأسر للرياضة لعام 2021",
+          "year": 2021,
+          "listing": "إحصاءات الرياضة و النشاط البدني",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "اعداد الاتحادات والنوادي والفرق الرياضية للاعوام من الى",
+          "edition": "أعداد الاتحادات والنوادي والفرق الرياضية للأعوام من 2014 إلى 2018م",
+          "year": 2018,
+          "listing": "إحصاءات الرياضة و النشاط البدني",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "مسح ممارسة الرياضة للاسر",
+          "edition": "نشرة مسح ممارسة الرياضة للأسر لعام 2018",
+          "year": 2018,
+          "listing": "إحصاءات الرياضة و النشاط البدني",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "مسح ممارسة الرياضة للاسرة من",
+          "edition": "نشرة مسح ممارسة الرياضة للأسرة من عام 2017",
+          "year": 2017,
+          "listing": "إحصاءات الرياضة و النشاط البدني",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات المنشات والقوى العاملة الصحية",
+          "edition": "إحصاءات المنشآت والقوى العاملة الصحية لعام 2024",
+          "year": 2024,
+          "listing": "إحصاءات المنشآت والقوى العاملة الصحية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        }
+      ],
       "files": [
+        "Health and Safety at Workplace Statistics 2025 AR (2).pdf",
+        "Safety Statistics 2025 AR (1).xlsx",
+        "Health Status Statistics 2025 AR.pdf",
+        "Health Status 2025 AR.xlsx",
+        "Healthcare Statistics 2025 AR.pdf",
+        "Health Care 2025 AR (1).xlsx",
+        "Health Determinants Statistics Publication 2024 AR.pdf",
+        "Health Determinants Statistics Publication 2024 AR.xlsx",
+        "Women Health and Reproductive Care Statistics 2025 AR.pdf",
+        "Women Health 2025 AR v3.xlsx",
         "ECD AR.pdf",
         "ECD AR (1).xlsx",
         "Physical Activity Statistics 2026 AR (1).pdf",
-        "PA 2026 AR (2).xlsx"
+        "PA 2026 AR (2).xlsx",
+        "Household Sports Practice Survey 2021  - AR_1.pdf",
+        "Household Sports Practice Survey 2021  - AR_0.xlsx",
+        "Number of sports federations_ clubs_ and sports teams 2018 AR.pdf",
+        "Number of sports federations_ clubs_ and sports teams 2018 AR.xlsx",
+        "household_sport_practice_survey_2018_ar.pdf",
+        "household_sport_practice_survey_2018_ar.xlsx",
+        "bulletin_of_household_sports_practice_survey_2017_ar.xlsx",
+        "Healthcare Establishments and Workforce Statistics Publication 2024 AR (1).pdf",
+        "Healthcare Establishments and workforce Statistics 2024 AR (1).xlsx"
       ],
-      "failures": [],
+      "failures": [
+        {
+          "title": "نشرة مسح ممارسة الرياضة للأسرة من عام 2017",
+          "url": "https://www.stats.gov.sa/documents/20117/2435259/bulletin_of_household_sports_practice_survey_2017_ar.pdf_fixed_2467329/12155de2-3dca-9b86-a201-9489d21eb406?t=1734107533020",
+          "reason": "over 20 MiB, the KB upload limit"
+        }
+      ],
       "note": ""
     },
     {
@@ -55,11 +257,115 @@
         "إحصاءات الأسرة السعودية (3153652)"
       ],
       "year": 2025,
+      "series": [
+        {
+          "series": "احصاءات المراة السعودية",
+          "edition": "إحصاءات المراة السعودية 2024",
+          "year": 2024,
+          "listing": "إحصاءات المرأة",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "المراة السعودية",
+          "edition": "تقرير المرأة السعودية 2022م",
+          "year": 2022,
+          "listing": "إحصاءات المرأة",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات النوع الاجتماعي",
+          "edition": "تقرير إحصاءات النوع الاجتماعي 2023",
+          "year": 2023,
+          "listing": "إحصاءات النوع الاجتماعي",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات النوع الاجتماعي للسكان السعوديين م",
+          "edition": "نشرة إحصاءات النوع الاجتماعي للسكان السعوديين لعام 2018 م",
+          "year": 2018,
+          "listing": "إحصاءات النوع الاجتماعي",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات الاعاقة",
+          "edition": "إحصاءات الإعاقة لعام 2025",
+          "year": 2025,
+          "listing": "إحصاءات الإعاقة",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات الاشخاض ذوي الاعاقة",
+          "edition": "تـقريـر إحصاءات الأشخاض ذوي الإعاقة 2023",
+          "year": 2023,
+          "listing": "إحصاءات الإعاقة",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات كبار السن",
+          "edition": "إحصاءات كبار السن 2025",
+          "year": 2025,
+          "listing": "إحصاءات كبار السن",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "المسنين في المملكة م",
+          "edition": "المسنين في المملكة لعام 2019 م",
+          "year": 2019,
+          "listing": "إحصاءات كبار السن",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات الشباب السعودي",
+          "edition": "إحصاءات الشباب السعودي 2023",
+          "year": 2023,
+          "listing": "إحصاءات الشباب",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات الاسرة السعودية",
+          "edition": "إحصاءات الأسرة السعودية 2024",
+          "year": 2024,
+          "listing": "إحصاءات الأسرة السعودية",
+          "files": [
+            "pdf"
+          ]
+        }
+      ],
       "files": [
+        "Saudi Women Statistics 2024_AR.pdf",
+        "Saudi_Women_s_Report_2022_AR_1.pdf",
+        "Gender Statistics Report 2023 AR.pdf",
+        "nshr_hst_lnw_ljtmy_llskn_lswdyyn_2018.pdf",
+        "jdwl_lnw_ljtmy_rby_-_njlyzy.xlsx",
         "Disability Statistics Publication_ 2025 -AR.pdf",
         "Disability Statistics Publication_ 2025.xlsx",
+        "Persons with Disability Statistics Report 2023 AR (1).pdf",
         "Elderly Statistics Publication 2025 AR.pdf",
-        "Elderly Statistics Tables2025_ar.xlsx"
+        "Elderly Statistics Tables2025_ar.xlsx",
+        "repport_compressed_1_0.pdf",
+        "Saudi Youth Statistics  ar.pdf",
+        "Saudi Family Statistics AR.pdf"
       ],
       "failures": [],
       "note": ""
@@ -72,7 +378,31 @@
         "إحصاءات المساكن (3175009)"
       ],
       "year": 2025,
+      "series": [
+        {
+          "series": "احصاءات التقديرات السكانية",
+          "edition": "إحصاءات التقديرات السكانية 2024",
+          "year": 2024,
+          "listing": "إحصاءات التقديرات السكانية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات المساكن",
+          "edition": "إحصاءات المساكن لعام 2025",
+          "year": 2025,
+          "listing": "إحصاءات المساكن",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        }
+      ],
       "files": [
+        "Population Estimates Publication 2024 AR.pdf",
+        "Population Estimates Publication 2024.xlsx",
         "Housing Statistics Publication 2025-AR.pdf",
         "Housing Statistics Bulletin 2025.xlsx"
       ],
@@ -87,10 +417,51 @@
         "مؤشر الأمان (2377692)"
       ],
       "year": 2025,
+      "series": [
+        {
+          "series": "الثقافة والترفيه",
+          "edition": "تقرير الثقافة والترفيه 2025",
+          "year": 2025,
+          "listing": "إحصاءات الثقافة والترفية",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات الثقافة والترفيه الاسري",
+          "edition": "إحصاءات الثقافة والترفيه الأسري 2025",
+          "year": 2025,
+          "listing": "إحصاءات الثقافة والترفية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات الثقافة والترفيه البيانات السجلية",
+          "edition": "إحصاءات الثقافة والترفيه - البيانات السجليَّة 2024",
+          "year": 2024,
+          "listing": "إحصاءات الثقافة والترفية",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "مؤشر الامان",
+          "edition": "نشرة مؤشر الأمان 2025",
+          "year": 2025,
+          "listing": "مؤشر الأمان",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        }
+      ],
       "files": [
         "GASTAT_Culture and Entertainment Statistics 2025 AR.pdf",
         "Household Culture and Entertainment Statistics 2025 AR.pdf",
         "Household Culture and Entertainment Statistics 2025 -AR-EN.xlsx",
+        "GASTAT_ v12_تقرير الثقافة والترفيه 2024.pdf",
         "Safety Index Publication 2025-AR.pdf",
         "Statistically tables for safety indicators 2025-AR.xlsx"
       ],
@@ -105,9 +476,45 @@
         "إحصاءات مؤشر ثقة المستهلك (10132653)"
       ],
       "year": 2026,
+      "series": [
+        {
+          "series": "احصاءات الدخل والانفاق الاستهلاكي للاسرة",
+          "edition": "نشرة إحصاءات الدخل والإنفاق الاستهلاكي للأسرة لعام 2023",
+          "year": 2023,
+          "listing": "إحصاءات الدخل والإنفاق الاستهلاكي للأسرة",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "مؤشر ثقة المستهلك",
+          "edition": "مؤشر ثقة المستهلك للربع الثاني 2026",
+          "year": 2026,
+          "listing": "إحصاءات مؤشر ثقة المستهلك",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "مؤشر ثقة المستهلك",
+          "edition": "مؤشر ثقة المستهلك لعام 2025",
+          "year": 2025,
+          "listing": "إحصاءات مؤشر ثقة المستهلك",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        }
+      ],
       "files": [
+        "Household Income and Consumption Expenditure Survey23 AR.pdf",
+        "Publication tables of Household Income and Consumption Expenditure Survey 2023_2.xlsx",
         "Consumer Confidence Index  Q2 of 2026-AR (1).pdf",
-        "CCI.2026_Q2 (2).xlsx"
+        "CCI.2026_Q2 (2).xlsx",
+        "Consumer Confidence index_cci_2025_AR.pdf",
+        "CCI 2025 (1).xlsx"
       ],
       "failures": [],
       "note": ""
@@ -119,6 +526,7 @@
         "إحصاءات الرياضة (123932)"
       ],
       "year": null,
+      "series": [],
       "files": [],
       "failures": [],
       "note": "listed with no sub-category; read from its own listing; no publication listed"
@@ -130,6 +538,7 @@
         "إحصاءات المساكن (124107)"
       ],
       "year": null,
+      "series": [],
       "files": [],
       "failures": [],
       "note": "not in the social tab's list; read from its own listing; no publication listed"
@@ -142,6 +551,28 @@
         "إحصاءات المهارات والتعلم للبالغين (3030916)"
       ],
       "year": 2025,
+      "series": [
+        {
+          "series": "احصاءات التعليم والتدريب",
+          "edition": "إحصاءات التعليم والتدريب 2025",
+          "year": 2025,
+          "listing": "إحصاءات التعليم والتدريب",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "احصاءات المهارات والتعلم للبالغين",
+          "edition": "إحصاءات المهارات والتعلم للبالغين 2025",
+          "year": 2025,
+          "listing": "إحصاءات المهارات والتعلم للبالغين",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        }
+      ],
       "files": [
         "Education and Training Statistics 2025 AR (3).pdf",
         "Education and Training Statistics 2025 AR (1).xlsx",
@@ -158,10 +589,120 @@
         "إحصاءات الخدمات الاجتماعية (127321)"
       ],
       "year": 2022,
-      "files": [
-        "Saudi_Women_s_Report_2022_AR_1.pdf"
+      "series": [
+        {
+          "series": "المراة السعودية",
+          "edition": "تقرير المرأة السعودية 2022م",
+          "year": 2022,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "الشباب السعودي بالارقام خاص بمناسبة اليوم العالمي للشباب",
+          "edition": "الشباب السعودي بالأرقام تقرير خاص بمناسبة اليوم العالمي للشباب 2020م",
+          "year": 2020,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "احصاءات الزواج والطلاق",
+          "edition": "إحصاءات الزواج والطلاق لعام 2019",
+          "year": 2019,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "المساكن لمنتصف",
+          "edition": "نشرة المساكن لمنتصف عام 2019",
+          "year": 2019,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "الشباب السعودي في ارقام خاص بمناسبة اليوم العالمي للشباب",
+          "edition": "( الشباب السعودي في ارقام ) تقرير خاص بمناسبة اليوم العالمي للشباب ٢٠١٩",
+          "year": 2019,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf"
+          ]
+        },
+        {
+          "series": "نتائج مسح صحة الاسرة",
+          "edition": "تقرير نتائج مسح صحة الأسرة 2018",
+          "year": 2018,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "مسح التوظف والاجور من",
+          "edition": "مسح التوظف والأجور من عام 2017",
+          "year": 2017,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "نتائج مسح المساكن",
+          "edition": "نتائج مسح المساكن لعام 2017",
+          "year": 2017,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf",
+            "xlsx"
+          ]
+        },
+        {
+          "series": "النتائج التفصيلية للتعداد العام للسكان والمساكن",
+          "edition": "النتائج التفصيلية للتعداد العام للسكان والمساكن",
+          "year": null,
+          "listing": "إحصاءات الخدمات الاجتماعية",
+          "files": [
+            "pdf"
+          ]
+        }
       ],
-      "failures": [],
+      "files": [
+        "Saudi_Women_s_Report_2022_AR_1.pdf",
+        "saudi_youth_in_numbers_report_2020ar_0_0.pdf",
+        "marriage_and_divorce_statistics_2019_ar_0.pdf",
+        "marriage_and_divorce_statistics_2019_ar.xlsx",
+        "nshr_hst_lmskn_lmntsf_m_2019.pdf",
+        "Housing Statistics 2019.xlsx",
+        "lshbb_lswdy_fy_rqm_2019m_nhyy_0.pdf",
+        "household_health_survey_2018.pdf",
+        "household_health_survey_2018.xlsx",
+        "employment_and_wages_survey_2017_ar.pdf",
+        "employment_and_wages_survey_2017_ar.xlsx",
+        "housing_survey2017_ar_0.pdf"
+      ],
+      "failures": [
+        {
+          "title": "نتائج مسح المساكن لعام 2017",
+          "url": "https://www.stats.gov.sa/documents/20117/2435273/housing_survey2017_ar_0.xls/5dc3ebbf-f4ac-d541-6970-0fcd35855ef3?t=1789465791726",
+          "reason": "not a xlsx file (its first bytes b'\\xd0\\xcf\\x11\\xe0'); KBs ingest no .xls"
+        },
+        {
+          "title": "النتائج التفصيلية للتعداد العام للسكان والمساكن",
+          "url": "https://www.stats.gov.sa/documents/20117/2435265/ar-Atlas_Detailed2004_0_0.pdf_fixed_2496483/8ddff083-c77e-a021-5976-6afaf381a9c9?t=1735127210800",
+          "reason": "over 20 MiB, the KB upload limit"
+        }
+      ],
       "note": "not in the social tab's list; read from its own listing"
     }
   ],
@@ -169,7 +710,7 @@
     {
       "file": "Labor Market Statistics- Q2 2026-AR (1).pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Labor+Market+Statistics-+Q2+2026-AR+%281%29.pdf/99100b82-9598-0830-a181-6e0ceb11c6fa?t=1790752626791",
-      "retrieved_at": "2026-10-29T09:11:16+00:00",
+      "retrieved_at": "2026-10-29T10:24:55+00:00",
       "bytes": 233967,
       "sha256": "50075d9bd57b17cf02955f6c80638e92309377ede5c64a90485a1ea75c711982",
       "category": "إحصاءات سوق العمل",
@@ -180,7 +721,7 @@
     {
       "file": "Labor Market Statistics Q2 2026 AR (2).xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Labor+Market+Statistics+Q2+2026+AR+%282%29.xlsx/5c6df9fc-d491-598a-6fd3-acc335267279?t=1790766243679",
-      "retrieved_at": "2026-10-29T09:11:17+00:00",
+      "retrieved_at": "2026-10-29T10:24:56+00:00",
       "bytes": 419121,
       "sha256": "c16dd4d748665d178682539393269ea894c040a33bde76f55f845ed97564e91a",
       "category": "إحصاءات سوق العمل",
@@ -191,7 +732,7 @@
     {
       "file": "Register-based Labour Market Statistics- Q2 2026 AR.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Register-based+Labour+Market+Statistics-+Q2+2026+AR.xlsx/904ca727-c1ac-a4e0-f496-91d023e3be26?t=1790745525616",
-      "retrieved_at": "2026-10-29T09:11:18+00:00",
+      "retrieved_at": "2026-10-29T10:24:58+00:00",
       "bytes": 651993,
       "sha256": "0c1b3e773778b54862b65848485e7e74829319ef1d326a150df64a0c5e9bbd98",
       "category": "إحصاءات سوق العمل",
@@ -200,9 +741,174 @@
       "title": "الإحصاءات السجليَّة لسوق العمل للربع الثاني لعام 2026"
     },
     {
+      "file": "Volunteer Work Statistics 2025 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Volunteer_Work_Statistics_2025_AR.pdf_fixed_12393970/17956dcc-e954-df32-5616-c2b7b4f8f3d3?t=1773213766208",
+      "retrieved_at": "2026-10-29T10:24:59+00:00",
+      "bytes": 187751,
+      "sha256": "a7f53d33dc3fcb5c7e97c2486c845404e34da140cce6eb44d7d8392ec49a78f4",
+      "category": "إحصاءات سوق العمل",
+      "subcategory": "إحصاءات العمل التطوعي",
+      "year": 2025,
+      "title": "إحصاءات العمل التطوعي لعام 2025"
+    },
+    {
+      "file": "Volunteer Work Statistics 2025 AR.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Volunteer_Work_Statistics_2025_AR.xlsx_fixed_12393981/53d4b554-d596-0907-6528-e98075ec1a87?t=1773213803722",
+      "retrieved_at": "2026-10-29T10:25:00+00:00",
+      "bytes": 203919,
+      "sha256": "7d0db4ff49888109cac37602626caaa1097eed9cc818c3deaf4e7964ca5cdd8e",
+      "category": "إحصاءات سوق العمل",
+      "subcategory": "إحصاءات العمل التطوعي",
+      "year": 2025,
+      "title": "إحصاءات العمل التطوعي لعام 2025 (جداول Excel)"
+    },
+    {
+      "file": "ywm_lmttwyn_llmy2.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/ywm_lmttwyn_llmy2.pdf_fixed_2466163/0a5b9116-5d22-4c86-dd6c-e1fd0cf53bc6?t=1734052955046",
+      "retrieved_at": "2026-10-29T10:25:06+00:00",
+      "bytes": 8257031,
+      "sha256": "38264481ac29285ab34b2565ca5a029842ab5a1eafc0bd20f5c1c9dd5fddfd15",
+      "category": "إحصاءات سوق العمل",
+      "subcategory": "إحصاءات العمل التطوعي",
+      "year": 2019,
+      "title": "يوم المتطوعين العالمي"
+    },
+    {
+      "file": "voluntary_work_survey_2018_ar_0.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/voluntary_work_survey_2018_ar_0.pdf_fixed_2466169/d9dabf56-878a-7be0-a8da-3a33a4f840ed?t=1734053093307",
+      "retrieved_at": "2026-10-29T10:25:10+00:00",
+      "bytes": 1968069,
+      "sha256": "a68bc4b1dd148cd0eab8127ff8db285c662855561625793ac18fadee21c62add",
+      "category": "إحصاءات سوق العمل",
+      "subcategory": "إحصاءات العمل التطوعي",
+      "year": 2018,
+      "title": "مسح العمل التطوعي لعام 2018"
+    },
+    {
+      "file": "voluntary_work_survey_2018.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/voluntary_work_survey_2018.xlsx_fixed_9794771/7a564fb2-a37b-7cbb-b81b-bafbc7728d68?t=1765092261360",
+      "retrieved_at": "2026-10-29T10:25:11+00:00",
+      "bytes": 180113,
+      "sha256": "9c8248c3945bd5228412e025ee78b667a99beb19e8a824a5243b7c1cb74d8717",
+      "category": "إحصاءات سوق العمل",
+      "subcategory": "إحصاءات العمل التطوعي",
+      "year": 2018,
+      "title": "مسح العمل التطوعي لعام 2018 (جداول Excel)"
+    },
+    {
+      "file": "Health and Safety at Workplace Statistics 2025 AR (2).pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Health+and+Safety+at+Workplace+Statistics+2025+AR+%282%29.pdf/4cdaa138-92de-276b-ab53-7803b3fea07e?t=1784116511548",
+      "retrieved_at": "2026-10-29T10:25:24+00:00",
+      "bytes": 152387,
+      "sha256": "ebc1c539f02584b3c9bc8544db92e50bb3ef4a1fd7b393d14d79a17f6854fa48",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الصحة والسلامة في العمل",
+      "year": 2025,
+      "title": "إحصاءات الصحة والسلامة في العمل 2025"
+    },
+    {
+      "file": "Safety Statistics 2025 AR (1).xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Safety+Statistics+2025+AR+%281%29.xlsx/7a0c7273-a5df-9d09-9f30-e0a60c1074e2?t=1784115365565",
+      "retrieved_at": "2026-10-29T10:25:25+00:00",
+      "bytes": 103202,
+      "sha256": "47fa7b30c6dcfae26420e2658db1833137f3bf7b429bd46382541246687240e3",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الصحة والسلامة في العمل",
+      "year": 2025,
+      "title": "إحصاءات الصحة والسلامة في العمل 2025 (جداول Excel)"
+    },
+    {
+      "file": "Health Status Statistics 2025 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Health_Status_Statistics_2025_AR.pdf_fixed_9762998/e5cf0399-1a47-595e-e748-22dafaa9f9fa?t=1764153164557",
+      "retrieved_at": "2026-10-29T10:25:26+00:00",
+      "bytes": 190963,
+      "sha256": "4c4542ef9bc21a418e4f9045406db1427653b5d377852ad4f9e3307f6ed99889",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الحالة الصحية",
+      "year": 2025,
+      "title": "إحصاءات الحالة الصحية 2025"
+    },
+    {
+      "file": "Health Status 2025 AR.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435267/Health_Status_2025_AR.xlsx_fixed_9763009/77b90b0f-7dfc-2e5d-90e3-66cb21c62ac3?t=1764153184272",
+      "retrieved_at": "2026-10-29T10:25:27+00:00",
+      "bytes": 84351,
+      "sha256": "1cfd140692a5184dcedd7b78122fe5affe9e4754eb06fc40581156739441c612",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الحالة الصحية",
+      "year": 2025,
+      "title": "إحصاءات الحالة الصحية 2025 (جداول Excel)"
+    },
+    {
+      "file": "Healthcare Statistics 2025 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Healthcare_Statistics_2025_AR.pdf_fixed_9794238/8627b178-565a-f2f5-b4e3-19d5ec197d3b?t=1765085861604",
+      "retrieved_at": "2026-10-29T10:25:28+00:00",
+      "bytes": 176087,
+      "sha256": "1ba7fbd8a61b1c59b318c25e34ddfd4772e9743247cc7476ad068d0c343d59fe",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرعاية الصحية",
+      "year": 2025,
+      "title": "إحصاءات الرعاية الصحية 2025"
+    },
+    {
+      "file": "Health Care 2025 AR (1).xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Health_Care_2025_AR_%281%29.xlsx_fixed_9794249/830b9ddd-3c7d-6875-9d9e-c0e87ae77231?t=1765085874694",
+      "retrieved_at": "2026-10-29T10:25:30+00:00",
+      "bytes": 160694,
+      "sha256": "2e5a046cc15620038906b9e588a81b24cb47baa15d4f5d9acd7c4161fdc99079",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرعاية الصحية",
+      "year": 2025,
+      "title": "إحصاءات الرعاية الصحية 2025 (جداول Excel)"
+    },
+    {
+      "file": "Health Determinants Statistics Publication 2024 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Health_Determinants_Statistics_Publication_2024_AR.pdf_fixed_2466313/e5f18332-a904-78cc-5b84-16f27722d5f7?t=1734054150484",
+      "retrieved_at": "2026-10-29T10:25:31+00:00",
+      "bytes": 179642,
+      "sha256": "f29693788759e2d54d1e409adc97655ae0b81e4e760ef5e13cacadc2c81bde54",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات المحددات الصحية",
+      "year": 2024,
+      "title": "إحصاءات المحددات الصحية لعام 2024"
+    },
+    {
+      "file": "Health Determinants Statistics Publication 2024 AR.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Health_Determinants_Statistics_Publication_2024_AR.xlsx_fixed_2466319/eee88de8-b0eb-e633-2c7e-fa53410d31fc?t=1734054161680",
+      "retrieved_at": "2026-10-29T10:25:32+00:00",
+      "bytes": 172480,
+      "sha256": "5dca26ea64b112e4a93d42e0c883115c45c42220b9a25da77c19b1b6e5cbe098",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات المحددات الصحية",
+      "year": 2024,
+      "title": "إحصاءات المحددات الصحية لعام 2024 (جداول Excel)"
+    },
+    {
+      "file": "Women Health and Reproductive Care Statistics 2025 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Women_Health_and_Reproductive_Care_Statistics_2025_AR.pdf_fixed_9794682/7b98eb41-880d-1999-69b2-f5a57cd9f0a5?t=1765091709028",
+      "retrieved_at": "2026-10-29T10:25:33+00:00",
+      "bytes": 166367,
+      "sha256": "4c08d546f9e469af9c0c88771de3816455985a0450530adedc7c5492d865f202",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات صحة المرأة والرعاية الإنجابية",
+      "year": 2025,
+      "title": "إحصاءات صحة المرأة والرعاية الإنجابية 2025"
+    },
+    {
+      "file": "Women Health 2025 AR v3.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Women_Health_2025_AR_v3.xlsx_fixed_13192253/fbcb7a93-4a0e-4a2a-fb59-d9f6d1507f64?t=1775393620082",
+      "retrieved_at": "2026-10-29T10:25:34+00:00",
+      "bytes": 137615,
+      "sha256": "6a0c35133a8f30ca3866c48a04c1b624d20c23e6be221c46c4d1618f0296a0c1",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات صحة المرأة والرعاية الإنجابية",
+      "year": 2025,
+      "title": "إحصاءات صحة المرأة والرعاية الإنجابية 2025 (جداول Excel)"
+    },
+    {
       "file": "ECD AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/ECD+AR.pdf/75cb7c00-ae3f-1cd8-5278-34e2b8c4c014?t=1793019901266",
-      "retrieved_at": "2026-10-29T09:11:32+00:00",
+      "retrieved_at": "2026-10-29T10:25:35+00:00",
       "bytes": 264326,
       "sha256": "337caed61a2108a8cfaf4c210791e7371fe65e9390ba0b2d884bee155d34a2e1",
       "category": "إحصاءات الصحة",
@@ -213,7 +919,7 @@
     {
       "file": "ECD AR (1).xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/ECD+AR+%281%29.xlsx/280ca6c5-8707-0cae-20d8-7d9d7f14ab15?t=1793019930823",
-      "retrieved_at": "2026-10-29T09:11:33+00:00",
+      "retrieved_at": "2026-10-29T10:25:36+00:00",
       "bytes": 149501,
       "sha256": "ac6543359aca3e78417d583e9e46c32a756dcf9e67e8a9eb1198e7ee627072fe",
       "category": "إحصاءات الصحة",
@@ -224,7 +930,7 @@
     {
       "file": "Physical Activity Statistics 2026 AR (1).pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Physical+Activity+Statistics+2026+AR+%281%29.pdf/88f012d7-93f8-caee-80aa-2f8b6ef2e03f?t=1792602641115",
-      "retrieved_at": "2026-10-29T09:11:34+00:00",
+      "retrieved_at": "2026-10-29T10:25:37+00:00",
       "bytes": 125112,
       "sha256": "57734c8dbfe7c16df04d80569cb860194e896ba90251e6a51eb6c92af24bc2aa",
       "category": "إحصاءات الصحة",
@@ -235,7 +941,7 @@
     {
       "file": "PA 2026 AR (2).xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/PA+2026+AR+%282%29.xlsx/26760394-8fba-7be8-edcd-2d082a663741?t=1792602662318",
-      "retrieved_at": "2026-10-29T09:11:35+00:00",
+      "retrieved_at": "2026-10-29T10:25:39+00:00",
       "bytes": 64681,
       "sha256": "8e0f4b6dec4af6fc2d0b1ecc486eb417e99e5b737b3240488f2eb7f3a761f6d9",
       "category": "إحصاءات الصحة",
@@ -244,9 +950,163 @@
       "title": "إحصاءات النشاط البدني لعام 2026 (جداول Excel)"
     },
     {
+      "file": "Household Sports Practice Survey 2021  - AR_1.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Household_Sports_Practice_Survey_2021__-_AR_1.pdf_fixed_2467215/ebcdd468-dc29-e975-582b-18d0fc9089f5?t=1734107068492",
+      "retrieved_at": "2026-10-29T10:25:40+00:00",
+      "bytes": 286852,
+      "sha256": "5f7aa8c9b160df8da3ff65061daff18df9624bf199fd7fe1cef48cde806c4bd3",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2021,
+      "title": "مسح ممارسة الأسر للرياضة لعام 2021"
+    },
+    {
+      "file": "Household Sports Practice Survey 2021  - AR_0.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Household_Sports_Practice_Survey_2021__-_AR_0.xlsx_fixed_2467221/a6d072a9-91ad-191b-1f27-52e6255ec668?t=1734107076255",
+      "retrieved_at": "2026-10-29T10:25:41+00:00",
+      "bytes": 58294,
+      "sha256": "c393fba73bf014e9695050374c215ad1b87f38942aeff87e77eb88e2af127557",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2021,
+      "title": "مسح ممارسة الأسر للرياضة لعام 2021 (جداول Excel)"
+    },
+    {
+      "file": "Number of sports federations_ clubs_ and sports teams 2018 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Number_of_sports_federations%2C_clubs%2C_and_sports_teams_2018_AR.pdf_fixed_2467305/fafbdf74-1695-362f-254d-163cbc8eecda?t=1734107443244",
+      "retrieved_at": "2026-10-29T10:25:42+00:00",
+      "bytes": 264448,
+      "sha256": "602d01d7d275cd3af7f5a3553cb33e5c63bb4b2dbfaa17c32cf6e67a32023534",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2018,
+      "title": "أعداد الاتحادات والنوادي والفرق الرياضية للأعوام من 2014 إلى 2018م"
+    },
+    {
+      "file": "Number of sports federations_ clubs_ and sports teams 2018 AR.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Number_of_sports_federations%2C_clubs%2C_and_sports_teams_2018_AR.xlsx_fixed_2467311/f22e835f-b425-2ff6-ddaf-942e33b4ee66?t=1734107454175",
+      "retrieved_at": "2026-10-29T10:25:43+00:00",
+      "bytes": 24124,
+      "sha256": "3341e843a683d2e7b262039049ccbfb7fedad99794bbc449b89360755890584e",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2018,
+      "title": "أعداد الاتحادات والنوادي والفرق الرياضية للأعوام من 2014 إلى 2018م (جداول Excel)"
+    },
+    {
+      "file": "household_sport_practice_survey_2018_ar.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/household_sport_practice_survey_2018_ar.pdf_fixed_2467281/82052872-7595-7bdf-68b9-97b63aedec54?t=1734107266644",
+      "retrieved_at": "2026-10-29T10:25:48+00:00",
+      "bytes": 6156576,
+      "sha256": "c3f5b534c1481716810c21c04ce8714ce707a1b8570dfb618d7ec8402aa2072c",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2018,
+      "title": "نشرة مسح ممارسة الرياضة للأسر لعام 2018"
+    },
+    {
+      "file": "household_sport_practice_survey_2018_ar.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/household_sport_practice_survey_2018_ar.xlsx_fixed_2467287/ed4c1410-5e34-7e1f-213e-409f1319be84?t=1734107294338",
+      "retrieved_at": "2026-10-29T10:25:52+00:00",
+      "bytes": 6322907,
+      "sha256": "e966d93bf0f2a1a40d5c8e262141727e408943ff8c9dafcfae4e613ee21543c2",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2018,
+      "title": "نشرة مسح ممارسة الرياضة للأسر لعام 2018 (جداول Excel)"
+    },
+    {
+      "file": "bulletin_of_household_sports_practice_survey_2017_ar.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/bulletin_of_household_sports_practice_survey_2017_ar.xlsx_fixed_2467335/f5e41b4d-2ecf-1d2e-0d80-5c83fad50b58?t=1734107578552",
+      "retrieved_at": "2026-10-29T10:26:13+00:00",
+      "bytes": 4435215,
+      "sha256": "1d606e58adfa1d7144c733f89fcb4b452810a97570db98944f680b126ab9c78c",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات الرياضة و النشاط البدني",
+      "year": 2017,
+      "title": "نشرة مسح ممارسة الرياضة للأسرة من عام 2017 (جداول Excel)"
+    },
+    {
+      "file": "Healthcare Establishments and Workforce Statistics Publication 2024 AR (1).pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Healthcare_Establishments_and_Workforce_Statistics_Publication_2024_AR_%281%29.pdf_fixed_5163769/42d6e980-7308-7fe2-9bcc-4af9014f114f?t=1761133698227",
+      "retrieved_at": "2026-10-29T10:26:14+00:00",
+      "bytes": 320748,
+      "sha256": "d07d51c9155a8d85f27a75ccd401ccec2884c6e8abe4985b18e5739ed7111199",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات المنشآت والقوى العاملة الصحية",
+      "year": 2024,
+      "title": "إحصاءات المنشآت والقوى العاملة الصحية لعام 2024"
+    },
+    {
+      "file": "Healthcare Establishments and workforce Statistics 2024 AR (1).xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Healthcare_Establishments_and_workforce_Statistics_2024_AR_%281%29.xlsx_fixed_4215352/93037e40-917f-1d06-0c01-c2f6d23e118a?t=1760941232759",
+      "retrieved_at": "2026-10-29T10:26:15+00:00",
+      "bytes": 194283,
+      "sha256": "090c0cf25a1f5a284dc2e343e38a633d094aa43f4e2f7f786921fe1482164e1b",
+      "category": "إحصاءات الصحة",
+      "subcategory": "إحصاءات المنشآت والقوى العاملة الصحية",
+      "year": 2024,
+      "title": "إحصاءات المنشآت والقوى العاملة الصحية لعام 2024 (جداول Excel)"
+    },
+    {
+      "file": "Saudi Women Statistics 2024_AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Saudi_Women_Statistics_2024_AR.pdf_fixed_3653861/32c02cd7-96c8-6f29-b373-2ba85e2ba293?t=1755765463683",
+      "retrieved_at": "2026-10-29T10:26:26+00:00",
+      "bytes": 3264056,
+      "sha256": "7370fa6aa85cfd02afb6a1fa405701d83cfebbed9dfbd25038ab170fe500fed8",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات المرأة",
+      "year": 2024,
+      "title": "إحصاءات المراة السعودية 2024"
+    },
+    {
+      "file": "Saudi_Women_s_Report_2022_AR_1.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Saudi_Women%27s_Report_2022_AR_1.pdf_fixed_2466409/fb7ced14-4e61-261e-c180-f632dc8ba6d6?t=1734055281330",
+      "retrieved_at": "2026-10-29T10:26:28+00:00",
+      "bytes": 2080752,
+      "sha256": "deb3ad69e7e2c904adbf4813f1f883aedf78397da2f86ddfcf173e25b85e0900",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات المرأة",
+      "year": 2022,
+      "title": "تقرير المرأة السعودية 2022م"
+    },
+    {
+      "file": "Gender Statistics Report 2023 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Gender+Statistics+Report+2023+AR.pdf/0457a927-b6af-c29e-6d4e-3e4fcc1eef23?t=1787226483827",
+      "retrieved_at": "2026-10-29T10:26:32+00:00",
+      "bytes": 5352914,
+      "sha256": "c27a00426f6be898c100fed61ead88ada3992bab6b68be3d1607bc3cb210f9e5",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات النوع الاجتماعي",
+      "year": 2023,
+      "title": "تقرير إحصاءات النوع الاجتماعي 2023"
+    },
+    {
+      "file": "nshr_hst_lnw_ljtmy_llskn_lswdyyn_2018.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/nshr_hst_lnw_ljtmy_llskn_lswdyyn_2018.pdf_fixed_2466457/a1ee0c97-13d3-88f8-736e-5b7ab40aa883?t=1734055859828",
+      "retrieved_at": "2026-10-29T10:26:34+00:00",
+      "bytes": 2020514,
+      "sha256": "1f6c0dd8d8a89cb44974cbec081a2b3a750244bac61dc1c78f6b8a8456b237f7",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات النوع الاجتماعي",
+      "year": 2018,
+      "title": "نشرة إحصاءات النوع الاجتماعي للسكان السعوديين لعام 2018 م"
+    },
+    {
+      "file": "jdwl_lnw_ljtmy_rby_-_njlyzy.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/jdwl_lnw_ljtmy_rby_-_njlyzy.xlsx_fixed_2466463/810aca7b-94f9-b94b-d41c-fe959d6124cf?t=1734055868608",
+      "retrieved_at": "2026-10-29T10:26:35+00:00",
+      "bytes": 208098,
+      "sha256": "ef37ed912237ec9bd7be25eafb5721a348fb440e014e958d340c588a3a9d2634",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات النوع الاجتماعي",
+      "year": 2018,
+      "title": "نشرة إحصاءات النوع الاجتماعي للسكان السعوديين لعام 2018 م (جداول Excel)"
+    },
+    {
       "file": "Disability Statistics Publication_ 2025 -AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Disability+Statistics+Publication%2C+2025+-AR.pdf/2237a6bc-693a-d7cc-ba9a-20b094ca982d?t=1782813365206",
-      "retrieved_at": "2026-10-29T09:11:46+00:00",
+      "retrieved_at": "2026-10-29T10:26:36+00:00",
       "bytes": 174055,
       "sha256": "65a4e9d364f8ec8124b135cb2f2d5ca421c15bae9d74004fe1773176acaa863e",
       "category": "إحصاءات النوع الاجتماعي والتنوع",
@@ -257,7 +1117,7 @@
     {
       "file": "Disability Statistics Publication_ 2025.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Disability+Statistics+Publication%2C+2025.xlsx/3762a3c3-7106-f413-bae9-17d8b63cda3f?t=1782813528873",
-      "retrieved_at": "2026-10-29T09:11:47+00:00",
+      "retrieved_at": "2026-10-29T10:26:38+00:00",
       "bytes": 199257,
       "sha256": "0a517da922ba05ca6e05d1400e2d17a2beac3c1304c7cc6e9762a0e31e2445d9",
       "category": "إحصاءات النوع الاجتماعي والتنوع",
@@ -266,9 +1126,20 @@
       "title": "إحصاءات الإعاقة لعام 2025 (جداول Excel)"
     },
     {
+      "file": "Persons with Disability Statistics Report 2023 AR (1).pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Persons_with_Disability_Statistics_Report_2023_AR_%281%29.pdf_fixed_9782247/b548976b-f8da-81e5-2c93-9434ae9549ea?t=1764662273452",
+      "retrieved_at": "2026-10-29T10:26:39+00:00",
+      "bytes": 1555001,
+      "sha256": "3a0c721a46be5047a0720682cf4b5d11c9b3c505fdf7751618dafcc08aee34c7",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات الإعاقة",
+      "year": 2023,
+      "title": "تـقريـر إحصاءات الأشخاض ذوي الإعاقة 2023"
+    },
+    {
       "file": "Elderly Statistics Publication 2025 AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435259/Elderly_Statistics_Publication_2025_AR.pdf_fixed_9772541/77c94684-99cb-0598-66ea-c68241c8887f?t=1764479458634",
-      "retrieved_at": "2026-10-29T09:11:48+00:00",
+      "retrieved_at": "2026-10-29T10:26:40+00:00",
       "bytes": 148542,
       "sha256": "4c95058d410849f1d8ed16e260ee3fd3099abf3b42f609e51e8930153d26caa5",
       "category": "إحصاءات النوع الاجتماعي والتنوع",
@@ -279,7 +1150,7 @@
     {
       "file": "Elderly Statistics Tables2025_ar.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Elderly_Statistics_Tables2025_ar.xlsx_fixed_9769439/59c86574-7a53-740d-b4c5-d397086ea60e?t=1764325595829",
-      "retrieved_at": "2026-10-29T09:11:50+00:00",
+      "retrieved_at": "2026-10-29T10:26:42+00:00",
       "bytes": 373190,
       "sha256": "9f3e5f95ef95d2b9d58a7b7dfc59fdafcad63bd00978cf15117c174e9dec93b0",
       "category": "إحصاءات النوع الاجتماعي والتنوع",
@@ -288,9 +1159,64 @@
       "title": "إحصاءات كبار السن 2025 (جداول Excel)"
     },
     {
+      "file": "repport_compressed_1_0.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/repport_compressed_1_0.pdf_fixed_2466547/f062e9b1-44b2-20a9-814a-b2b7ab6c05e2?t=1734056415001",
+      "retrieved_at": "2026-10-29T10:26:54+00:00",
+      "bytes": 15991669,
+      "sha256": "c65bfd59b725326c31bfa7e9fea3612f290f4ce82134100d51c930e9138059fe",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات كبار السن",
+      "year": 2019,
+      "title": "المسنين في المملكة لعام 2019 م"
+    },
+    {
+      "file": "Saudi Youth Statistics  ar.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Saudi_Youth_Statistics__ar.pdf_fixed_2696694/52c079fd-87eb-a1a1-d2dd-945566252195?t=1742730562275",
+      "retrieved_at": "2026-10-29T10:26:55+00:00",
+      "bytes": 539659,
+      "sha256": "2a58231d4b7037f89d308a21324aa8b2c73468da0fc26601cfd1c39de7736fa6",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات الشباب",
+      "year": 2023,
+      "title": "إحصاءات الشباب السعودي 2023"
+    },
+    {
+      "file": "Saudi Family Statistics AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Saudi_Family_Statistics_AR.pdf_fixed_3153666/0965acfa-7f13-aad5-562d-3590604483c3?t=1748260747651",
+      "retrieved_at": "2026-10-29T10:26:57+00:00",
+      "bytes": 2909878,
+      "sha256": "5da8f9bc4c309b3d51b5a46f49c4d4cb8472e756499bd3ad4aa13b357cf3cbb0",
+      "category": "إحصاءات النوع الاجتماعي والتنوع",
+      "subcategory": "إحصاءات الأسرة السعودية",
+      "year": 2024,
+      "title": "إحصاءات الأسرة السعودية 2024"
+    },
+    {
+      "file": "Population Estimates Publication 2024 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Population_Estimates_Publication_2024_AR.pdf_fixed_3226295/9e3ba5a0-8b61-b8b0-1477-be8cc5798b6e?t=1750142144327",
+      "retrieved_at": "2026-10-29T10:27:01+00:00",
+      "bytes": 187945,
+      "sha256": "8c167682bef8bd2b1131e1b12c53d891a19157f86cd8a43db8a7862ce891570a",
+      "category": "إحصاءات حيوية وسكانية",
+      "subcategory": "إحصاءات التقديرات السكانية",
+      "year": 2024,
+      "title": "إحصاءات التقديرات السكانية 2024"
+    },
+    {
+      "file": "Population Estimates Publication 2024.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/Population_Estimates_Publication_2024.xlsx_fixed_2514637/08d1c287-efe6-f7ee-5d43-564c25bfd1ec?t=1738828650016",
+      "retrieved_at": "2026-10-29T10:27:02+00:00",
+      "bytes": 15626,
+      "sha256": "4dc73233b7aa5ec64eb68c92a765245b13b58ec25c27a84128da8a86f7276212",
+      "category": "إحصاءات حيوية وسكانية",
+      "subcategory": "إحصاءات التقديرات السكانية",
+      "year": 2024,
+      "title": "إحصاءات التقديرات السكانية 2024 (جداول Excel)"
+    },
+    {
       "file": "Housing Statistics Publication 2025-AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Housing_Statistics_Publication_2025-AR.pdf_fixed_14560608/df4a739f-82a6-6831-a82f-fe2a95182336?t=1779377794522",
-      "retrieved_at": "2026-10-29T09:11:54+00:00",
+      "retrieved_at": "2026-10-29T10:27:03+00:00",
       "bytes": 139073,
       "sha256": "ea44a62b15d99e5e043ea57f4ae73c81fb5f4019e2e76b21174d75a98b8a2d75",
       "category": "إحصاءات حيوية وسكانية",
@@ -301,7 +1227,7 @@
     {
       "file": "Housing Statistics Bulletin 2025.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435267/Housing_Statistics_Bulletin_2025.xlsx_fixed_14560619/8fdd540e-0a99-25a0-2a16-6442916fb5b8?t=1779377856302",
-      "retrieved_at": "2026-10-29T09:11:55+00:00",
+      "retrieved_at": "2026-10-29T10:27:05+00:00",
       "bytes": 81099,
       "sha256": "8c245a4021f586704fbfc28e2b8feb49ef8a08527cbd535e11470488cde8b892",
       "category": "إحصاءات حيوية وسكانية",
@@ -312,7 +1238,7 @@
     {
       "file": "GASTAT_Culture and Entertainment Statistics 2025 AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/GASTAT_Culture+and+Entertainment+Statistics+2025+AR.pdf/85bab79e-3925-5e7f-d7bc-913e17d56584?t=1791882999270",
-      "retrieved_at": "2026-10-29T09:12:04+00:00",
+      "retrieved_at": "2026-10-29T10:27:14+00:00",
       "bytes": 7766203,
       "sha256": "4fb549306267de71d62966ced331f79aa0bcef24a598003ca56585bc515b1bd3",
       "category": "إحصاءات أساليب الحياة",
@@ -323,7 +1249,7 @@
     {
       "file": "Household Culture and Entertainment Statistics 2025 AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Household_Culture_and_Entertainment_Statistics_2025_AR.pdf_fixed_13496374/37a7a573-1755-2b49-4bf6-739f28964b4e?t=1776073239430",
-      "retrieved_at": "2026-10-29T09:12:05+00:00",
+      "retrieved_at": "2026-10-29T10:27:15+00:00",
       "bytes": 89123,
       "sha256": "4bbfcc29ee7a5808de52b4d838b934af79be8fb4460e775b53b9b732e0e67067",
       "category": "إحصاءات أساليب الحياة",
@@ -334,7 +1260,7 @@
     {
       "file": "Household Culture and Entertainment Statistics 2025 -AR-EN.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Household_Culture_and_Entertainment_Statistics_2025_-AR-EN.xlsx_fixed_13496363/53c7c3df-896b-06af-c946-f46e64e6c1be?t=1776072889232",
-      "retrieved_at": "2026-10-29T09:12:07+00:00",
+      "retrieved_at": "2026-10-29T10:27:16+00:00",
       "bytes": 334848,
       "sha256": "0e9070536fcdcc930258d0be11f4b90599004ec39dfc8ecfb33dea974d13bee2",
       "category": "إحصاءات أساليب الحياة",
@@ -343,9 +1269,20 @@
       "title": "إحصاءات الثقافة والترفيه الأسري 2025 (جداول Excel)"
     },
     {
+      "file": "GASTAT_ v12_تقرير الثقافة والترفيه 2024.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/_GASTAT__v12_%D8%AA%D9%82%D8%B1%D9%8A%D8%B1_%D8%A7%D9%84%D8%AB%D9%82%D8%A7%D9%81%D8%A9_%D9%88%D8%A7%D9%84%D8%AA%D8%B1%D9%81%D9%8A%D9%87_2024.pdf_fixed_10333414/7db0852e-c989-cf2c-70f5-31c872f139fd?t=1767192686720",
+      "retrieved_at": "2026-10-29T10:27:22+00:00",
+      "bytes": 10365754,
+      "sha256": "abb02d7024e555e3146df654186a69a9fc0d5a25148e74020eb04981ccab6bc2",
+      "category": "إحصاءات أساليب الحياة",
+      "subcategory": "إحصاءات الثقافة والترفية",
+      "year": 2024,
+      "title": "إحصاءات الثقافة والترفيه - البيانات السجليَّة 2024"
+    },
+    {
       "file": "Safety Index Publication 2025-AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Safety+Index+Publication+2025-AR.pdf/ea0599ed-a8c7-960f-9ae8-df3f0c78c721?t=1782812112153",
-      "retrieved_at": "2026-10-29T09:12:08+00:00",
+      "retrieved_at": "2026-10-29T10:27:23+00:00",
       "bytes": 214828,
       "sha256": "028ae90aac264567c31543a0b6c258bd09157d3187d6fe0a91012b2dc61cd074",
       "category": "إحصاءات أساليب الحياة",
@@ -356,7 +1293,7 @@
     {
       "file": "Statistically tables for safety indicators 2025-AR.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Statistically+tables+for+safety+indicators+2025-AR.xlsx/c8c80668-b78c-3e76-1d5f-1884a88eee30?t=1782812224024",
-      "retrieved_at": "2026-10-29T09:12:09+00:00",
+      "retrieved_at": "2026-10-29T10:27:24+00:00",
       "bytes": 72388,
       "sha256": "b3908933a3cf87ae67e5d90a8711d4ef1710e955761ca45857a6aa3f967e1a63",
       "category": "إحصاءات أساليب الحياة",
@@ -365,9 +1302,31 @@
       "title": "نشرة مؤشر الأمان 2025 (جداول Excel)"
     },
     {
+      "file": "Household Income and Consumption Expenditure Survey23 AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/0/Household_Income_and_Consumption_Expenditure_Survey23_AR.pdf_fixed_2614138/a37644d1-5bdf-ce2c-8ff1-a6ba7ed73b30?t=1740660427948",
+      "retrieved_at": "2026-10-29T10:27:28+00:00",
+      "bytes": 189130,
+      "sha256": "fb90b4e5c8a3500e4e51420e9493e2dc6de47b0edce33303543a29517847d571",
+      "category": "إحصاءات الأحوال المعيشية",
+      "subcategory": "إحصاءات الدخل والإنفاق الاستهلاكي للأسرة",
+      "year": 2023,
+      "title": "نشرة إحصاءات الدخل والإنفاق الاستهلاكي للأسرة لعام 2023"
+    },
+    {
+      "file": "Publication tables of Household Income and Consumption Expenditure Survey 2023_2.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Publication_tables_of_Household_Income_and_Consumption_Expenditure_Survey_2023_2.xlsx_fixed_2613873/dd4f0abc-b03f-55a6-83bd-3ff5b687d84e?t=1740656858251",
+      "retrieved_at": "2026-10-29T10:27:29+00:00",
+      "bytes": 309785,
+      "sha256": "df850fca853f66c6f9774e1f6472013cc520adc42c676eaaf8fe83b3fd1b3260",
+      "category": "إحصاءات الأحوال المعيشية",
+      "subcategory": "إحصاءات الدخل والإنفاق الاستهلاكي للأسرة",
+      "year": 2023,
+      "title": "نشرة إحصاءات الدخل والإنفاق الاستهلاكي للأسرة لعام 2023 (جداول Excel)"
+    },
+    {
       "file": "Consumer Confidence Index  Q2 of 2026-AR (1).pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Consumer+Confidence+Index++Q2+of+2026-AR+%281%29.pdf/0f4a1657-9557-bca5-bf93-565cc6ae7614?t=1790744570027",
-      "retrieved_at": "2026-10-29T09:12:13+00:00",
+      "retrieved_at": "2026-10-29T10:27:30+00:00",
       "bytes": 153069,
       "sha256": "8e10206e710b1fbc0d1199763757dfc702fc0bcddf2c05dd047d5720022b4bbc",
       "category": "إحصاءات الأحوال المعيشية",
@@ -378,7 +1337,7 @@
     {
       "file": "CCI.2026_Q2 (2).xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/CCI.2026_Q2+%282%29.xlsx/2453399e-77aa-c671-4e00-5328d8c0c1be?t=1790744588849",
-      "retrieved_at": "2026-10-29T09:12:14+00:00",
+      "retrieved_at": "2026-10-29T10:27:32+00:00",
       "bytes": 130719,
       "sha256": "a14195e00c811b33bffd1e5020aa865bf1e2ede2d0f29d526cc10ff2f490861c",
       "category": "إحصاءات الأحوال المعيشية",
@@ -387,9 +1346,31 @@
       "title": "مؤشر ثقة المستهلك للربع الثاني 2026 (جداول Excel)"
     },
     {
+      "file": "Consumer Confidence index_cci_2025_AR.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Consumer_Confidence_index_cci_2025_AR.pdf_fixed_13591799/3701d7f2-373d-753d-79c2-bae8393c3b09?t=1776326600166",
+      "retrieved_at": "2026-10-29T10:27:33+00:00",
+      "bytes": 190094,
+      "sha256": "2eae506f08cf80cfe0f9d852b9fa4ca25907f9e53ae43e6c4f4628941fafb854",
+      "category": "إحصاءات الأحوال المعيشية",
+      "subcategory": "إحصاءات مؤشر ثقة المستهلك",
+      "year": 2025,
+      "title": "مؤشر ثقة المستهلك لعام 2025"
+    },
+    {
+      "file": "CCI 2025 (1).xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/CCI_2025_%281%29.xlsx_fixed_13591810/a226da43-2dee-a91b-b105-66f2fa355dbe?t=1776326627849",
+      "retrieved_at": "2026-10-29T10:27:34+00:00",
+      "bytes": 155952,
+      "sha256": "f5c4c1048fd1337c65cd38b04310605cbd63475c11d6b0691c5819870cb8538f",
+      "category": "إحصاءات الأحوال المعيشية",
+      "subcategory": "إحصاءات مؤشر ثقة المستهلك",
+      "year": 2025,
+      "title": "مؤشر ثقة المستهلك لعام 2025 (جداول Excel)"
+    },
+    {
       "file": "Education and Training Statistics 2025 AR (3).pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Education_and_Training_Statistics_2025_AR_%283%29.pdf_fixed_10557425/0dc32517-1c1d-f299-9afe-9c7340dd55ef?t=1767866598930",
-      "retrieved_at": "2026-10-29T09:12:21+00:00",
+      "retrieved_at": "2026-10-29T10:27:41+00:00",
       "bytes": 203901,
       "sha256": "d2655e974c9cfc94da2c77723de96bcd3a45473c6d0abe64dcd0d9eb54dec9ec",
       "category": "إحصاءات التعليم",
@@ -400,7 +1381,7 @@
     {
       "file": "Education and Training Statistics 2025 AR (1).xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Education_and_Training_Statistics_2025_AR_%281%29.xlsx_fixed_10556647/ee00d2d7-b57e-c42e-85f3-e0f573516b9c?t=1767853582854",
-      "retrieved_at": "2026-10-29T09:12:22+00:00",
+      "retrieved_at": "2026-10-29T10:27:42+00:00",
       "bytes": 88860,
       "sha256": "75947f9e4af1799877f0dd5de86aea82dc7f2bd00c06a18cec53b7811c5d379d",
       "category": "إحصاءات التعليم",
@@ -411,7 +1392,7 @@
     {
       "file": "Adult Skills and Learning Statistics 2025 AR.pdf",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Adult_Skills_and_Learning_Statistics_2025_AR.pdf_fixed_10556795/f6208092-ab16-ebfa-65b9-dc3af17e8c7b?t=1767854906490",
-      "retrieved_at": "2026-10-29T09:12:23+00:00",
+      "retrieved_at": "2026-10-29T10:27:43+00:00",
       "bytes": 175387,
       "sha256": "4342384ba2ff679555b31228a5c529109e804db8e34a5476cf2426eb45b4fe6a",
       "category": "إحصاءات التعليم",
@@ -422,7 +1403,7 @@
     {
       "file": "Adult Skills and Learning Statistics 2025 AR.xlsx",
       "url": "https://www.stats.gov.sa/documents/20117/2435273/Adult_Skills_and_Learning_Statistics_2025_AR.xlsx_fixed_10556806/154b5ee9-94a8-184f-f1b9-5277c395dbc3?t=1767854926007",
-      "retrieved_at": "2026-10-29T09:12:25+00:00",
+      "retrieved_at": "2026-10-29T10:27:44+00:00",
       "bytes": 62203,
       "sha256": "e3222f54fdbca54ba5a78452ebdb1067876a5b1b7e7c287b0a5857794c6141b9",
       "category": "إحصاءات التعليم",
@@ -431,15 +1412,125 @@
       "title": "إحصاءات المهارات والتعلم للبالغين 2025 (جداول Excel)"
     },
     {
-      "file": "Saudi_Women_s_Report_2022_AR_1.pdf",
-      "url": "https://www.stats.gov.sa/documents/20117/2435259/Saudi_Women%27s_Report_2022_AR_1.pdf_fixed_2466409/fb7ced14-4e61-261e-c180-f632dc8ba6d6?t=1734055281330",
-      "retrieved_at": "2026-10-29T09:12:30+00:00",
-      "bytes": 2080752,
-      "sha256": "deb3ad69e7e2c904adbf4813f1f883aedf78397da2f86ddfcf173e25b85e0900",
+      "file": "saudi_youth_in_numbers_report_2020ar_0_0.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/saudi_youth_in_numbers_report_2020ar_0_0.pdf_fixed_2492919/60292238-c914-3996-28a7-a648b16c7533?t=1735073888821",
+      "retrieved_at": "2026-10-29T10:27:51+00:00",
+      "bytes": 5101061,
+      "sha256": "4f3bde3b21beaf15db9c31f8fd548c6affd6571e9ebc6702657b8ed78bdf62a4",
       "category": "إحصاءات الخدمات الاجتماعية",
       "subcategory": "إحصاءات الخدمات الاجتماعية",
-      "year": 2022,
-      "title": "تقرير المرأة السعودية 2022م"
+      "year": 2020,
+      "title": "الشباب السعودي بالأرقام تقرير خاص بمناسبة اليوم العالمي للشباب 2020م"
+    },
+    {
+      "file": "marriage_and_divorce_statistics_2019_ar_0.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/marriage_and_divorce_statistics_2019_ar_0.pdf_fixed_2492877/b2a97fd0-37b2-8493-4479-2b7da29ed8ad?t=1735073504753",
+      "retrieved_at": "2026-10-29T10:27:53+00:00",
+      "bytes": 863990,
+      "sha256": "2926f939ead57582121b091ddbf48b0dd15cc848cf2dc10ec867da43143ab99b",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2019,
+      "title": "إحصاءات الزواج والطلاق لعام 2019"
+    },
+    {
+      "file": "marriage_and_divorce_statistics_2019_ar.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/marriage_and_divorce_statistics_2019_ar.xlsx_fixed_2492883/527196f5-038c-db18-5112-4c80a8a85f9d?t=1735073516569",
+      "retrieved_at": "2026-10-29T10:27:54+00:00",
+      "bytes": 65625,
+      "sha256": "09292e7d6ceeda5b6ebb15ddab6610136a0a1ce5a6349fd57edbf3bb9fa401a1",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2019,
+      "title": "إحصاءات الزواج والطلاق لعام 2019 (جداول Excel)"
+    },
+    {
+      "file": "nshr_hst_lmskn_lmntsf_m_2019.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/nshr_hst_lmskn_lmntsf_m_2019.pdf_fixed_2470233/cd366faa-9140-4e74-2cb1-13d88180b8f3?t=1734131045520",
+      "retrieved_at": "2026-10-29T10:27:55+00:00",
+      "bytes": 2328661,
+      "sha256": "f771dafcb7c52bfa2ff6e6d73523a6704565f6197dc0c6ca4616fbbc7bc8d6f8",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2019,
+      "title": "نشرة المساكن لمنتصف عام 2019"
+    },
+    {
+      "file": "Housing Statistics 2019.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435273/Housing+Statistics+2019.xlsx/2753db15-05f7-ce4d-1232-9c694400382d?t=1789465944510",
+      "retrieved_at": "2026-10-29T10:27:57+00:00",
+      "bytes": 222553,
+      "sha256": "babca026ee379816d3c45685ec0cbf48953ff97e63a4bd28de78457a193c3525",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2019,
+      "title": "نشرة المساكن لمنتصف عام 2019 (جداول Excel)"
+    },
+    {
+      "file": "lshbb_lswdy_fy_rqm_2019m_nhyy_0.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/lshbb_lswdy_fy_rqm_2019m_nhyy_0.pdf_fixed_2492913/ccc38b79-9ffa-1557-bbf4-7bf5e2ef8b37?t=1735073784397",
+      "retrieved_at": "2026-10-29T10:27:59+00:00",
+      "bytes": 2970755,
+      "sha256": "77d3e2903282e35e0abed32450cdcb25bdcddb70ef7e14c30fd7eb424d0dc30c",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2019,
+      "title": "( الشباب السعودي في ارقام ) تقرير خاص بمناسبة اليوم العالمي للشباب ٢٠١٩"
+    },
+    {
+      "file": "household_health_survey_2018.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/household_health_survey_2018.pdf_fixed_2494011/62699bd0-405b-3b54-9235-28bda2384561?t=1735113895463",
+      "retrieved_at": "2026-10-29T10:28:03+00:00",
+      "bytes": 5890831,
+      "sha256": "0b1b0a9e492201a7e7c0e176053677a7f867ad3dd47ce7312b27abcfd44a7cb1",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2018,
+      "title": "تقرير نتائج مسح صحة الأسرة 2018"
+    },
+    {
+      "file": "household_health_survey_2018.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/household_health_survey_2018.xlsx_fixed_2494017/228b357e-2a3f-e9f5-529c-a50541d2123b?t=1735113910734",
+      "retrieved_at": "2026-10-29T10:28:04+00:00",
+      "bytes": 851801,
+      "sha256": "86c31dca4105feb9ed7ddae8751e620e4a5837ffff169ac1efed8cd9f5efb482",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2018,
+      "title": "تقرير نتائج مسح صحة الأسرة 2018 (جداول Excel)"
+    },
+    {
+      "file": "employment_and_wages_survey_2017_ar.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/employment_and_wages_survey_2017_ar.pdf_fixed_2492835/81afc242-cd39-3909-7381-9f399e3d482b?t=1735073371755",
+      "retrieved_at": "2026-10-29T10:28:06+00:00",
+      "bytes": 2189321,
+      "sha256": "a359228717bee6482277e4d27fea26280ef9b5a0dd8e001e929314408e2351b5",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2017,
+      "title": "مسح التوظف والأجور من عام 2017"
+    },
+    {
+      "file": "employment_and_wages_survey_2017_ar.xlsx",
+      "url": "https://www.stats.gov.sa/documents/20117/2435265/employment_and_wages_survey_2017_ar.xlsx_fixed_2492841/037413f0-7e57-f8dc-a18f-4273e9dcab75?t=1735073385697",
+      "retrieved_at": "2026-10-29T10:28:07+00:00",
+      "bytes": 213743,
+      "sha256": "e248afa1a69d55911775ffd673e6a619e47ea1a67db27e5d490bb02c4c3ce5f7",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2017,
+      "title": "مسح التوظف والأجور من عام 2017 (جداول Excel)"
+    },
+    {
+      "file": "housing_survey2017_ar_0.pdf",
+      "url": "https://www.stats.gov.sa/documents/20117/2435259/housing_survey2017_ar_0.pdf_fixed_2470185/314de156-1bf0-31f9-6177-811a6bcd3a72?t=1734130870337",
+      "retrieved_at": "2026-10-29T10:28:09+00:00",
+      "bytes": 1735256,
+      "sha256": "c1e517b2d0469f3ddccf1923154ac1e6ace86668f9d41f37fcb41bcef9fe98b4",
+      "category": "إحصاءات الخدمات الاجتماعية",
+      "subcategory": "إحصاءات الخدمات الاجتماعية",
+      "year": 2017,
+      "title": "نتائج مسح المساكن لعام 2017"
     }
   ]
 }

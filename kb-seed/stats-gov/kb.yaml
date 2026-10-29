@@ -4,8 +4,8 @@
 slug: stats-gov
 name: {ar: "إحصاءات الهيئة العامة للإحصاء", en: "GASTAT statistics"}
 description:
-  ar: "نشرات الإحصاءات الاجتماعية للهيئة العامة للإحصاء: سوق العمل والصحة والنوع الاجتماعي والسكان وأساليب الحياة والأحوال المعيشية والرياضة والمساكن والتعليم والخدمات الاجتماعية، أحدث سنة لكل فئة."
-  en: "GASTAT's social statistics publications: labour market, health, gender, population, lifestyle, living conditions, sport, housing, education and social services, the latest year of each category."
+  ar: "نشرات الإحصاءات الاجتماعية للهيئة العامة للإحصاء: سوق العمل والصحة والنوع الاجتماعي والسكان وأساليب الحياة والأحوال المعيشية والرياضة والمساكن والتعليم والخدمات الاجتماعية، أحدث إصدار من كل سلسلة."
+  en: "GASTAT's social statistics publications: labour market, health, gender, population, lifestyle, living conditions, sport, housing, education and social services, the newest edition of each series."
 role: kb:stats-gov:read
 users: [analyst, evaluator]
 default_publisher: "الهيئة العامة للإحصاء"

@@ -1,6 +1,6 @@
 # What `make kb-fetch` takes from stats.gov.sa (owner decision B4 on the report branch, ADR-0393): the
-# publications (النشرات) of these categories of الإحصاءات → الإحصاءات الاجتماعية, the latest year each
-# category has, and in that year the latest edition of each publication, its PDF and Excel files.
+# publications (النشرات) of these categories of الإحصاءات → الإحصاءات الاجتماعية: the newest edition of every
+# publication series they list (owner decision 3 on PR #17, ADR-0395), its PDF and Excel files.
 # Development only. Read with the site's own pages, as robots.txt allows (/ar/statistics,
 # /ar/statistics-tabs, /documents/); never its /api/ or /o/ paths.
 site: https://www.stats.gov.sa
@@ -13,14 +13,57 @@ listing: /ar/statistics-tabs?tab=436312&category={id}&delta=75&start={page}
 publisher: "الهيئة العامة للإحصاء"
 # The owner's ten categories, as the site names them, with their ids (2026-10-29). A category the tab does not
 # list, or lists with no sub-category, is read from its own listing.
+# `subcategories`: as the social tab listed them on 2026-10-29, used only when the tab page does not answer
+# (a category with none listed reads its own listing; one with no `subcategories` key is not in the tab).
 categories:
-  - {name: "إحصاءات سوق العمل", id: "123704"}
-  - {name: "إحصاءات الصحة", id: "123758"}
-  - {name: "إحصاءات النوع الاجتماعي والتنوع", id: "123610"}
-  - {name: "إحصاءات حيوية وسكانية", id: "124141"}
-  - {name: "إحصاءات أساليب الحياة", id: "119030"}
-  - {name: "إحصاءات الأحوال المعيشية", id: "127325"}
-  - {name: "إحصاءات الرياضة", id: "123932"}
+  - name: "إحصاءات سوق العمل"
+    id: "123704"
+    subcategories:
+      - {id: "417515", name: "إحصاءات سوق العمل"}
+      - {id: "124074", name: "إحصاءات سوق العمل السجلية"}
+      - {id: "123992", name: "إحصاءات العمل التطوعي"}
+  - name: "إحصاءات الصحة"
+    id: "123758"
+    subcategories:
+      - {id: "123762", name: "إحصاءات الصحة والسلامة في العمل"}
+      - {id: "417594", name: "إحصاءات الحالة الصحية"}
+      - {id: "123812", name: "إحصاءات الرعاية الصحية"}
+      - {id: "123842", name: "إحصاءات المحددات الصحية"}
+      - {id: "123902", name: "إحصاءات صحة المرأة والرعاية الإنجابية"}
+      - {id: "123872", name: "إحصاءات تنمية الطفولة المبكرة ورفاهية الطفل"}
+      - {id: "1278616", name: "إحصاءات الرياضة و النشاط البدني"}
+      - {id: "2968800", name: "إحصاءات المنشآت والقوى العاملة الصحية"}
+  - name: "إحصاءات النوع الاجتماعي والتنوع"
+    id: "123610"
+    subcategories:
+      - {id: "123644", name: "إحصاءات المرأة"}
+      - {id: "123614", name: "إحصاءات النوع الاجتماعي"}
+      - {id: "123728", name: "إحصاءات الإعاقة"}
+      - {id: "123674", name: "إحصاءات كبار السن"}
+      - {id: "2696599", name: "إحصاءات الشباب"}
+      - {id: "3153652", name: "إحصاءات الأسرة السعودية"}
+  - name: "إحصاءات حيوية وسكانية"
+    id: "124141"
+    subcategories:
+      - {id: "2366987", name: "إحصاءات التقديرات السكانية"}
+      - {id: "3175009", name: "إحصاءات المساكن"}
+  - name: "إحصاءات أساليب الحياة"
+    id: "119030"
+    subcategories:
+      - {id: "127333", name: "إحصاءات الثقافة والترفية"}
+      - {id: "2377692", name: "مؤشر الأمان"}
+  - name: "إحصاءات الأحوال المعيشية"
+    id: "127325"
+    subcategories:
+      - {id: "127329", name: "إحصاءات الدخل والإنفاق الاستهلاكي للأسرة"}
+      - {id: "10132653", name: "إحصاءات مؤشر ثقة المستهلك"}
+  - name: "إحصاءات الرياضة"
+    id: "123932"
+    subcategories: []
   - {name: "إحصاءات المساكن", id: "124107"}
-  - {name: "إحصاءات التعليم", id: "124262"}
+  - name: "إحصاءات التعليم"
+    id: "124262"
+    subcategories:
+      - {id: "514986", name: "إحصاءات التعليم والتدريب"}
+      - {id: "3030916", name: "إحصاءات المهارات والتعلم للبالغين"}
   - {name: "إحصاءات الخدمات الاجتماعية", id: "127321"}

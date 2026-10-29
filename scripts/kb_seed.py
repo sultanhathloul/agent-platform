@@ -145,7 +145,11 @@ def plan(kb: SeedKb, held: list[dict]) -> Plan:
     legacy = {d["metadata"]["title"]: d for d in held if not d.get("sha256")}
     out = Plan()
     matched: set[str] = set()
+    seen: set[str] = set()
     for doc in ordered(kb.documents):
+        if doc.sha256 in seen:
+            continue  # the same file twice in the folder: one document
+        seen.add(doc.sha256)
         found = by_sha.get(doc.sha256) or legacy.get(doc.title)
         if found is None:
             out.upload.append(doc)

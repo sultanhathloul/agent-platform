@@ -4,9 +4,9 @@
 # ///
 """`make kb-fetch` (owner decision B4 on the report branch, ADR-0393): fetches the KB stats-gov's documents from
 stats.gov.sa into kb-seed/stats-gov/, in development only, as kb-seed/stats-gov/fetch.yaml says: for each
-of the owner's ten social-statistics categories, the most recent year its publications listing holds, and
-in that year the latest edition of each publication (the listing is newest first; editions of one
-publication share a title once its year and quarter words are taken out), its PDF and Excel files.
+of the owner's ten social-statistics categories, the newest edition of every publication series it lists
+(owner decision 3 on PR #17, ADR-0395; editions of one series share a title once its year, quarter and
+edition words are taken out, a quarterly series apart from an annual one), its PDF and Excel files.
 
 Each file is written with its sidecar (title, publisher, publication date, source URL, category) and
 recorded in manifest.json (URL, retrieval time, SHA-256, size); the manifest also holds, per category, the
@@ -24,6 +24,7 @@ Refused unless PLATFORM_PROFILE is development, and under the airgap profile. Ev
 import hashlib
 import html
 import json
+import random
 import re
 import sys
 import time
@@ -41,12 +42,15 @@ FOLDER = REPO / "kb-seed" / "stats-gov"
 MAX_BYTES = 20 * 1024 * 1024
 TIMEOUT_S = 60.0
 PAUSE_S = 1.0
+ATTEMPTS = 3
+BACKOFF_S = 5.0
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/130.0 Safari/537.36 agent-platform-kb-fetch/1.0 (development)",
     "Accept-Language": "ar",
 }
 KINDS = {"pdf": ".pdf", "xlsx": ".xlsx"}
+MAGIC = {"pdf": b"%PDF", "xlsx": b"PK\x03\x04"}
 _INDIC = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 
@@ -64,7 +68,8 @@ class CategoryReport:
     name: str
     id: str
     listings: list[str] = field(default_factory=list)
-    year: int | None = None
+    year: int | None = None  # the newest year among the series taken
+    series: list[dict] = field(default_factory=list)  # each series and the edition taken
     files: list[str] = field(default_factory=list)
     failures: list[dict] = field(default_factory=list)
     note: str = ""
@@ -120,24 +125,32 @@ _EDITION = re.compile(r"\b(?:للربع|الربع|الأول|الاول|الث�
 def series(title: str) -> str:
     """A publication's editions share this key: the title without its year, quarter and edition words,
     its alef forms and spacing made one."""
-    text = _EDITION.sub(" ", _YEAR.sub(" ", title))
+    text = re.sub("[\u064b-\u0652\u0640]", "", title)  # harakat and tatweel: «السجليَّة» is «السجلية»
+    text = _EDITION.sub(" ", _YEAR.sub(" ", text))
     text = re.sub("[إأآ]", "ا", re.sub(r"[()\-–:،,.]", " ", text))
     return re.sub(r"\s+", " ", text).strip()
 
 
-def select(items: list[Item]) -> tuple[int | None, list[Item]]:
-    """The category's latest year, and in it the first (latest) item of each publication."""
-    years = [i.year for i in items if i.year]
-    if not years:
-        return None, []
-    latest = max(years)
-    chosen, seen = [], set()
-    for item in items:  # newest first, listing by listing
-        key = (item.listing, series(item.title))
-        if item.year == latest and key not in seen:
-            seen.add(key)
-            chosen.append(item)
-    return latest, chosen
+_QUARTER = re.compile(r"الربع|للربع")
+
+
+def series_key(item: Item) -> tuple[str, str, bool]:
+    """One publication series: its listing, its title without year and edition words, and whether it is
+    a quarterly edition (an annual index and its quarterly editions share a title otherwise)."""
+    return item.listing, series(item.title), bool(_QUARTER.search(item.title))
+
+
+def select(items: list[Item]) -> list[Item]:
+    """The newest edition of every publication series (owner decision 3 on PR #17, ADR-0395): the item of
+    the highest year in each series, the first in the listing's newest-first order among equals; an item
+    with no year stands for its series only when the series has no dated edition."""
+    chosen: dict[tuple, Item] = {}
+    for item in items:
+        key = series_key(item)
+        held = chosen.get(key)
+        if held is None or (item.year or 0) > (held.year or 0):
+            chosen[key] = item
+    return list(chosen.values())
 
 
 def file_name(url: str, disposition: str | None) -> str:
@@ -155,15 +168,36 @@ def file_name(url: str, disposition: str | None) -> str:
     return f"{stem[:120]}.{ext.lower()}" if dot else stem[:120]
 
 
+def retried(call):
+    """A timeout, a connection error or a 5xx is tried again, at most ATTEMPTS times in all, with
+    exponential backoff and jitter (CLAUDE.md rule 12g); anything else at once."""
+    for attempt in range(ATTEMPTS):
+        time.sleep(PAUSE_S if attempt == 0 else BACKOFF_S * 2 ** (attempt - 1) * random.uniform(0.5, 1.5))
+        try:
+            return call()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500 or attempt == ATTEMPTS - 1:
+                raise
+        except (httpx.TimeoutException, httpx.TransportError):
+            if attempt == ATTEMPTS - 1:
+                raise
+    raise AssertionError("unreachable")
+
+
 def get(http: httpx.Client, url: str) -> httpx.Response:
-    time.sleep(PAUSE_S)
-    response = http.get(url, headers=HEADERS, follow_redirects=True)
-    response.raise_for_status()
-    return response
+    def once() -> httpx.Response:
+        response = http.get(url, headers=HEADERS, follow_redirects=True)
+        response.raise_for_status()
+        return response
+
+    return retried(once)
 
 
 def download(http: httpx.Client, url: str) -> tuple[bytes, httpx.Headers]:
-    time.sleep(PAUSE_S)
+    return retried(lambda: _download(http, url))
+
+
+def _download(http: httpx.Client, url: str) -> tuple[bytes, httpx.Headers]:
     with http.stream("GET", url, headers=HEADERS, follow_redirects=True) as response:
         response.raise_for_status()
         data = bytearray()
@@ -189,17 +223,27 @@ def main() -> int:
     reports: list[CategoryReport] = []
     documents: list[dict] = []
     taken: set[str] = set()
+    kept: dict[str, str] = {}  # sha256 → file name, so a file listed in two categories is written once
     with httpx.Client(timeout=TIMEOUT_S) as http:
-        accordion = social_listings(get(http, site + spec["social_tab"]).text, spec["social_tab_id"])
+        try:
+            accordion = social_listings(get(http, site + spec["social_tab"]).text, spec["social_tab_id"])
+            tab_note = ""
+        except httpx.HTTPError as exc:
+            # The tab page could not be read: the sub-categories fetch.yaml recorded stand in, said so.
+            accordion = {c["id"]: [(s["id"], s["name"]) for s in c.get("subcategories") or []]
+                         for c in spec["categories"] if c.get("subcategories") is not None}
+            tab_note = f"the social tab did not answer ({type(exc).__name__}); its sub-categories from fetch.yaml"
+            print(f"kb-fetch: {tab_note}")
         for category in spec["categories"]:
             report = CategoryReport(category["name"], category["id"])
+            report.note = tab_note
             reports.append(report)
             subs = accordion.get(category["id"]) or []
             listings = [(sid, name) for sid, name in subs] or [(category["id"], category["name"])]
             if category["id"] not in accordion:
-                report.note = "not in the social tab's list; read from its own listing"
+                report.note = "; ".join(filter(None, [report.note, "not in the social tab's list; read from its own listing"]))
             elif not subs:
-                report.note = "listed with no sub-category; read from its own listing"
+                report.note = "; ".join(filter(None, [report.note, "listed with no sub-category; read from its own listing"]))
             items: list[Item] = []
             for listing_id, listing_name in listings:
                 report.listings.append(f"{listing_name} ({listing_id})")
@@ -215,7 +259,10 @@ def main() -> int:
                     if not found or total is None or len([i for i in items if i.listing == listing_name]) >= total:
                         break
                     page += 1
-            report.year, chosen = select(items)
+            chosen = select(items)
+            report.year = max((i.year for i in chosen if i.year), default=None)
+            report.series = [{"series": series(i.title), "edition": i.title, "year": i.year, "listing": i.listing,
+                              "files": [kind for _, kind in i.files]} for i in chosen]
             if not chosen:
                 report.note = (report.note + "; " if report.note else "") + "no publication listed"
             for item in chosen:
@@ -231,6 +278,17 @@ def main() -> int:
                     except (httpx.HTTPError, ValueError) as exc:
                         detail = f"HTTP {exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError) else str(exc)
                         report.failures.append({"title": item.title, "url": absolute, "reason": detail[:200]})
+                        continue
+                    if not data.startswith(MAGIC[kind]):
+                        # The link's icon says one kind, the bytes another (an old .xls behind an Excel icon).
+                        report.failures.append({"title": item.title, "url": absolute,
+                                                "reason": f"not a {kind} file (its first bytes {data[:4]!r}); KBs ingest no .xls"})
+                        continue
+                    digest = hashlib.sha256(data).hexdigest()
+                    if digest in kept:
+                        # The same file under a second category (a report listed twice): kept once.
+                        report.files.append(kept[digest])
+                        print(f"  same  {category['name']}: {item.title} is {kept[digest]}, already fetched")
                         continue
                     name = file_name(absolute, headers.get("content-disposition"))
                     if not name.lower().endswith(KINDS[kind]):
@@ -250,7 +308,7 @@ def main() -> int:
                                "published_on_from": "the file's Last-Modified date (the listing shows none)"}
                     (FOLDER / (name + ".meta.yaml")).write_text(
                         yaml.safe_dump(sidecar, allow_unicode=True, sort_keys=False), encoding="utf-8")
-                    digest = hashlib.sha256(data).hexdigest()
+                    kept[digest] = name
                     documents.append({"file": name, "url": absolute, "retrieved_at": datetime.now(UTC).isoformat(timespec="seconds"),
                                       "bytes": len(data), "sha256": digest, "category": category["name"],
                                       "subcategory": item.listing, "year": item.year, "title": title})
@@ -261,7 +319,7 @@ def main() -> int:
         if old.get("file") and old["file"] not in taken:
             for stale in (FOLDER / old["file"], FOLDER / (old["file"] + ".meta.yaml")):
                 stale.unlink(missing_ok=True)
-            print(f"  gone  {old['file']}: no longer the latest edition; make kb-seed reports it, the index keeps it")
+            print(f"  gone  {old['file']}: no longer selected (a newer edition, or refused); make kb-seed reports it, the index keeps it")
     manifest = {
         "kb": "stats-gov",
         "source": site + "/ar/ (الإحصاءات → الإحصاءات الاجتماعية)",
@@ -272,8 +330,10 @@ def main() -> int:
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("\nkb-fetch: per category")
     for r in reports:
-        print(f"- {r.name}: year {r.year or '-'}, {len(r.files)} file(s), {len(r.failures)} failure(s)"
+        print(f"- {r.name}: {len(r.series)} series, {len(r.files)} file(s), {len(r.failures)} failure(s)"
               + (f" — {r.note}" if r.note else ""))
+        for taken in r.series:
+            print(f"    {taken['edition']} ({taken['year'] or '-'}; {', '.join(taken['files']) or 'no file'})")
         for failure in r.failures:
             print(f"    failed: {failure.get('title', failure.get('listing'))}: {failure['reason']}")
     return 0

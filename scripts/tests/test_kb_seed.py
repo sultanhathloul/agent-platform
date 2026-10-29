@@ -145,6 +145,13 @@ def test_a_document_registered_before_hashes_is_matched_by_its_title(tmp_path):
     assert totals["held"] == 1 and totals["uploaded"] == 1 and fake.uploads[0]["metadata"]["supersedes"] == "old"
 
 
+def test_the_same_file_twice_in_a_folder_is_one_document(tmp_path):
+    folder, fake = _folder(tmp_path), FakeGateway()
+    (folder / "copy.pdf").write_bytes((folder / "a-2025.pdf").read_bytes())
+    totals, _ = _run(fake, folder)
+    assert totals["uploaded"] == 2 and len(fake.docs["fixture-stats"]) == 2
+
+
 def test_a_sidecar_naming_a_file_not_in_the_folder_is_refused(tmp_path):
     folder = _folder(tmp_path)
     (folder / "a-2026.pdf.meta.yaml").write_text(yaml.safe_dump(
