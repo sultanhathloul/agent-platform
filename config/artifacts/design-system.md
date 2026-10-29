@@ -1,11 +1,12 @@
 ---
 id: artifacts.design_system
-version: 2.0.0
+version: 2.1.0
 changelog:
   - "1.0.0: first version (reports PR, I2, ADR-0370): the kit's layout, cards, KPI tiles, tables, charts through report-data, typography, dark and light, RTL with logical properties, <bdi> for English terms"
   - "1.1.0: the platform labels every figure with its source (owner decision A, ADR-0388); the page size guidance"
   - "1.2.0: one kind of source per turn: with findings, only their figures and «غير متوفر» / \"Not available\" where they hold none; without, general knowledge only (owner decision on PR #17, ADR-0398)"
   - "2.0.0: the report spec replaces HTML (option C, owner decision A on PR #17, ADR-0406): its sections, their fields and their sources; the platform renders the page and its sources (ADR-0408)"
+  - "2.1.0: no chart of 100% total columns or of a total row or column against its own parts (owner decision 4 on PR #17, ADR-0412)"
 ---
 # The report spec (v1)
 
@@ -29,6 +30,7 @@ You answer with ONE JSON object, the report spec, and nothing else: no HTML, no 
 ## Composition
 - Open with a `kpi_row` of the key figures, then charts where a trend, a comparison or a share needs one, a table where details matter, and short `text` or one `callout`. Prefer fewer, meaningful sections.
 - One chart per question: a trend is a line or area, a comparison a bar, a share of a whole (summing to 100) a pie or doughnut, parts of totals a stacked_bar.
+- Never plot a column whose values are 100% totals (a share table's «الإجمالي» column), nor a table's total row or column beside its own parts: plot the parts, and give the total as a KPI if it matters.
 - Name every label as the source names it (its row or column title), in the language of the request.
 - A page has at most 8 charts and 6 tables; a table has at most 100 rows.
 

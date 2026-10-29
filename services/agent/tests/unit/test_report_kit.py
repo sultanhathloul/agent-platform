@@ -24,7 +24,7 @@ def test_the_kit_loads_every_file_report_yaml_names():
     assert [name for name, _ in kit.scripts] == ["vendor/echarts.min.js", "kit.js"]
     assert len(kit.fonts) == 8 and all(data[:4] == b"wOF2" for data in kit.fonts.values())
     assert "data:font/woff2;base64," in kit.inline_stylesheet()
-    assert artifacts.design.ref == "artifacts.design_system@2.0.0"
+    assert artifacts.design.ref == "artifacts.design_system@2.1.0"
 
 
 def test_the_kits_own_code_names_no_url_outside_itself():
