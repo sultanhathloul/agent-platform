@@ -5,14 +5,16 @@ import { resolveErrorMessage } from "@/lib/errors";
 import { isLocale, DEFAULT_LOCALE } from "@/lib/locale";
 import { safeHref } from "@/lib/return-path";
 import type { ArtifactRef, Citation } from "@/lib/api/types";
-import type { AssistantMessage, Chip } from "@/lib/stream";
+import { shownChips, type ShownChip } from "@/lib/chips";
+import type { AssistantMessage } from "@/lib/stream";
+import { useIsAdmin } from "./MeProvider";
 import { MessageMarkdown } from "./MessageMarkdown";
 import { ReportCard } from "./ReportPanel";
 
 const chipClass =
   "inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted ring-1 ring-line";
 
-function ChipView({ chip }: { chip: Chip }) {
+function ChipView({ chip }: { chip: ShownChip }) {
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
@@ -54,6 +56,7 @@ function ChipView({ chip }: { chip: Chip }) {
             </>
           )}
           {t.has(statusKey) ? <span>{t(statusKey)}</span> : <bdi>{chip.status}</bdi>}
+          {chip.count > 1 && <span className="font-medium">{t("chips.count", { count: chip.count })}</span>}
           {chip.latencyMs !== null && <span>{t("chips.latency", { ms: chip.latencyMs })}</span>}
         </li>
       );
@@ -148,12 +151,13 @@ export function AssistantMessageView({
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
+  const chips = shownChips(message.chips, { admin: useIsAdmin() });
 
   return (
     <article className="max-w-[90%] self-start rounded-2xl bg-surface px-4 py-3 shadow-sm ring-1 ring-line">
       <h2 className="mb-1 text-xs font-medium text-muted">{t("chat.assistant")}</h2>
 
-      {(message.chips.length > 0 || message.skill) && (
+      {(chips.length > 0 || message.skill) && (
         <ul className="mb-2 flex flex-wrap gap-1.5">
           {message.skill && (
             // The skill the answer was written with (phase 06): from the `skill` event or the history.
@@ -162,7 +166,7 @@ export function AssistantMessageView({
               <span className="font-medium">{locale === "ar" ? message.skill.label.ar : message.skill.label.en}</span>
             </li>
           )}
-          {message.chips.map((chip) => (
+          {chips.map((chip) => (
             <ChipView key={chip.key} chip={chip} />
           ))}
         </ul>

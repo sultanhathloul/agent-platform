@@ -2,35 +2,17 @@
 
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getMe } from "@/lib/gateway";
 import { useAuth } from "./AuthProvider";
-import { useRuntimeConfig } from "./ConfigProvider";
 import { LocaleToggle } from "./LocaleToggle";
+import { useIsAdmin } from "./MeProvider";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function Header() {
   const t = useTranslations();
   const auth = useAuth();
-  const { gatewayUrl } = useRuntimeConfig();
   const signedIn = auth.status === "authenticated";
-  const { getAccessToken } = auth;
-  // Shows the admin link only; the gateway checks the admin role on every admin call.
-  const [admin, setAdmin] = useState(false);
-
-  useEffect(() => {
-    if (!signedIn) return;
-    let active = true;
-    void (async () => {
-      const token = await getAccessToken();
-      if (!token) return;
-      const me = await getMe({ gatewayUrl, token }).catch(() => null);
-      if (active) setAdmin(Boolean(me?.is_admin));
-    })();
-    return () => {
-      active = false;
-    };
-  }, [signedIn, getAccessToken, gatewayUrl]);
+  // Shows the admin links only; the gateway checks the admin role on every admin call.
+  const admin = useIsAdmin();
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-2.5 shadow-sm">

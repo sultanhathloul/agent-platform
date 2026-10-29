@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { AuthProvider } from "@/components/AuthProvider";
 import { ConfigProvider } from "@/components/ConfigProvider";
 import { Header } from "@/components/Header";
+import { MeProvider } from "@/components/MeProvider";
 import { DEFAULT_LOCALE, directionOf, isLocale } from "@/lib/locale";
 import { readRuntimeConfig } from "@/lib/runtime-config";
 import { THEME_SCRIPT } from "@/lib/theme";
@@ -46,8 +47,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ConfigProvider config={readRuntimeConfig()}>
             <AuthProvider>
-              <Header />
-              <main className="min-h-0 flex-1">{children}</main>
+              <MeProvider>
+                <Header />
+                <main className="min-h-0 flex-1">{children}</main>
+              </MeProvider>
             </AuthProvider>
           </ConfigProvider>
         </NextIntlClientProvider>

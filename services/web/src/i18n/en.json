@@ -94,7 +94,8 @@
     "guard": "Guardrail",
     "tool": "Tool",
     "latency": "{ms} ms",
-    "skill": "Skill"
+    "skill": "Skill",
+    "count": "× {count}"
   },
   "guardActions": {
     "allow": "Allowed",

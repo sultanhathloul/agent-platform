@@ -94,7 +94,8 @@
     "guard": "ضابط الحماية",
     "tool": "أداة",
     "latency": "{ms} ملّي ثانية",
-    "skill": "المهارة"
+    "skill": "المهارة",
+    "count": "× {count}"
   },
   "guardActions": {
     "allow": "سماح",
