@@ -106,7 +106,7 @@ def column_labels(header_rows: list[list[str]]) -> list[str]:
 
 
 # Bumped when the text a sheet gives changes, so the seed re-indexes what an older version cut (ADR-0410).
-VERSION = "3"
+VERSION = "4"
 _NUMBER = re.compile(r"^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?$|^-?\d+(?:[.,]\d+)?%?$")
 
 
@@ -157,8 +157,15 @@ class XlsxExtractor:
                         rows.append(cells)
                 if not rows:
                     continue
-                lines = [" | ".join(cells) for cells in rows]
                 start = first_data_row(rows)
+                if start:
+                    # A preamble row whose filled cells all say the same is a title merged over part of the
+                    # table: written once, not once per column (ADR-0413).
+                    for index in range(start):
+                        filled = [c for c in rows[index][1:] if c]
+                        if len(filled) >= 2 and len(set(filled)) == 1:
+                            rows[index] = [rows[index][0], filled[0]]
+                lines = [" | ".join(cells) for cells in rows]
                 if start:
                     # The sheet's name and the table's preamble (titles and every header row) open each chunk.
                     preamble = [line for line in lines[:start] if line.strip(" |")]

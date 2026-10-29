@@ -158,3 +158,23 @@ def test_number_formats_as_a_spreadsheet_shows_them():
     assert displayed(12.5, '0.0" %"') == "12.5 %" and displayed(3.0, "General") == "3"
     assert displayed(83.60299013456789, "General") == "83.60299013" and displayed(46000, "dd/mm/yyyy") == "46000"
 
+
+def test_a_title_merged_over_part_of_the_table_is_written_once(docs_config):
+    """Sheet 2-3 of the Q2 2026 workbook: its title is merged over fewer columns than the table holds; it is
+    a title, written once, not once per column (ADR-0413, extractor version 4)."""
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "2-3"
+    sheet["B1"] = "معدل البطالة حسب الجنسية والجنس والمستوى التعليمي"
+    sheet.merge_cells("B1:D1")
+    sheet["A2"], sheet["B2"], sheet["C2"], sheet["D2"], sheet["E2"] = "التعليم", "الذكور", "الاناث", "الإجمالي", "ملاحظة"
+    sheet.append(["ثانوي", 3.1, 9.4, 4.2, "تقديري"])
+    buffer = io.BytesIO()
+    book.save(buffer)
+    [segment] = extract("xlsx", buffer.getvalue(), docs_config).segments
+    assert segment.repeat.split("\n")[1] == " | معدل البطالة حسب الجنسية والجنس والمستوى التعليمي"
+
