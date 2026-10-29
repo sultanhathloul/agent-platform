@@ -11,8 +11,8 @@ EXTERNAL = re.compile(
     r"""(?:\b(?:src|href|action|data|poster|srcset)\s*=\s*["']?\s*(?:https?:)?//)|(?:url\(\s*["']?\s*(?:https?:)?//)|@import""",
     re.I,
 )
-FIGURE = re.compile(r"[0-9٠-٩]{1,3}(?:[,٬][0-9٠-٩]{3})+(?:[.٫][0-9٠-٩]+)?|[0-9٠-٩]+(?:[.٫][0-9٠-٩]+)?")
-_INDIC = str.maketrans({**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, "٫": ".", "٬": ","})
+FIGURE = re.compile(r"[0-9٠-٩]{1,3}(?:[,٬\u202f\u00a0][0-9٠-٩]{3})+(?:[.٫][0-9٠-٩]+)?|[0-9٠-٩]+(?:[.٫][0-9٠-٩]+)?")
+_INDIC = str.maketrans({**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, "٫": ".", "٬": ",", "\u202f": ",", "\u00a0": ","})
 # A figure in its source label's marker (owner decision A, ADR-0388): (kind, label, figure).
 _MARKED = re.compile(
     r'<span class="kit-figure" data-kit="figure" data-kit-source="([a-z]+)" data-kit-label="([^"]*)" title="[^"]*">(.*?)</span>',
@@ -195,3 +195,66 @@ def figures_sourced(page: str, expected: list) -> bool:
         if not any(canonical(o) in sourced for o in options):
             return False
     return bool(expected)
+
+
+_ARABIC = re.compile(r"[\u0600-\u06ff\u0750-\u077f\ufb50-\ufdff\ufe70-\ufeff]")
+_NAMING = {"title", "h1", "h2", "h3", "h4", "th", "caption", "legend", "summary"}
+_NAMING_CLASSES = ("kit-kpi-label", "kit-hero-label", "kit-eyebrow", "kit-card-subtitle", "kit-subtitle")
+
+
+class _Naming(HTMLParser):
+    """The text of the page's title, headings, table headers and labelled components, by element."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.open: list[bool] = []
+        self.found: list[tuple[str, str]] = []
+        self._tag: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        classes = (dict(attrs).get("class") or "").split()
+        naming = tag in _NAMING or any(c in _NAMING_CLASSES for c in classes)
+        if tag not in _Structure.VOID:
+            self.open.append(naming)
+            self._tag.append(tag if tag in _NAMING else "label")
+
+    def handle_endtag(self, tag):
+        if tag not in _Structure.VOID and self.open:
+            self.open.pop()
+            self._tag.pop()
+
+    def handle_data(self, data):
+        if data.strip() and any(self.open):
+            kind = next(t for t, o in zip(reversed(self._tag), reversed(self.open)) if o)
+            self.found.append((kind, data.strip()))
+
+
+def naming_texts(page: str) -> list[tuple[str, str]]:
+    """(kind, text) of what names and labels the page's content, the platform's sources section and model
+    strip left out: title, headings, table headers, KPI labels, and report-data's chart titles and labels."""
+    body = _MODEL_INFO.sub("", _SOURCES.sub("", page))
+    parser = _Naming()
+    parser.feed(body)
+    found = list(parser.found)
+    for block in _DATA.findall(page):
+        try:
+            for chart in _charts(block):
+                found += [("chart", t) for t in [chart.get("title") or "", *(chart.get("labels") or [])] if isinstance(t, str) and t.strip()]
+                found += [("chart", d.get("label") or "") for d in chart.get("datasets") or [] if (d.get("label") or "").strip()]
+        except ValueError:
+            continue
+    return found
+
+
+def request_language(page: str, locale: str) -> bool:
+    """Owner decision 4 on PR #17 (ADR-0396): a report's title, headings and labels are in the request's
+    language whatever its sources' language. English: none of them holds an Arabic letter. Arabic: the
+    title and the main heading are Arabic (an English term inside them is allowed)."""
+    texts = naming_texts(page)
+    if not texts:
+        return False
+    if locale == "en":
+        return not any(_ARABIC.search(text) for _, text in texts)
+    main = [" ".join(text for kind, text in texts if kind == wanted) for wanted in ("title", "h1")]
+    main = [text for text in main if text]
+    return bool(main) and all(_ARABIC.search(text) for text in main)

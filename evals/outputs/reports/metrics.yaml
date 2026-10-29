@@ -19,6 +19,10 @@ metrics:
     general: [{scorer: page, check: direction}]
     sourced: [{scorer: page, check: direction}]
     edit:    [{scorer: page, check: direction}]
+  request_language:       # title, headings and labels in the request's language, whatever the sources' (ADR-0396)
+    general: [{scorer: page, check: request_language}]
+    sourced: [{scorer: page, check: request_language}]
+    edit:    [{scorer: page, check: request_language}]
   kit_only:               # no external URL in the page or its download; no script but the data block
     general: [{scorer: page, check: kit_only}]
     sourced: [{scorer: page, check: kit_only}]

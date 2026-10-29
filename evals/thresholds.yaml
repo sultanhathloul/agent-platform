@@ -48,6 +48,7 @@ reports:
   form_chosen: 0.90        # a page when one is asked for (picker or router), text otherwise
   html_parses: 1.00        # one complete document, every element closed, report-data JSON
   direction: 1.00          # dir="rtl" for Arabic, dir="ltr" for English
+  request_language: 1.00   # title, headings and labels in the request's language (owner decision 4 on PR #17, ADR-0396)
   kit_only: 1.00           # no external URL in the page or its download; no script but the data block
   sourced_figures: 0.80    # each expected figure shown with its KB's or file's label (ADR-0388)
   figures_labelled: 1.00   # a general-knowledge page: every figure labelled once, general knowledge where no source holds it

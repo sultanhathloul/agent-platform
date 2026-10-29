@@ -95,3 +95,20 @@ def test_the_development_model_strip_is_not_the_pages_figures():
     strip = ('<footer class="kit-model-info" data-kit="model-info" lang="ar" dir="rtl"><p>معلومات النموذج</p>'
              "<table><tbody><tr><td>heavy</td><td>38.2 ث</td><td>12,345 / 4,321</td></tr></tbody></table></footer>")
     assert pages.figures_labelled(page(f'<p>{mark("40")}</p>' + strip), "")
+
+
+def test_request_language_reads_the_title_headings_and_labels_not_the_platforms_sections():
+    # Owner decision 4 on PR #17 (ADR-0396); make-eval-20261029T094813Z kb-en-exports and file-en-budget.
+    english = page('<h1>Oasis exports 2030</h1><div class="kit-kpi-label">Dates</div><p>From the KB.</p>', "en")
+    english = english.replace("<title>t</title>", "<title>Oasis exports</title>")
+    assert pages.request_language(english, "en")  # the Arabic sources section is the platform's
+    arabic_title = english.replace("<title>Oasis exports</title>", "<title>تقرير صادرات الواحة</title>")
+    assert not pages.request_language(arabic_title, "en")
+    arabic_label = english.replace(">Dates<", ">التمور<")
+    assert not pages.request_language(arabic_label, "en")
+    data = ('<script type="application/json" id="report-data">{"charts":{"g":{"title":"الصادرات","labels":[],'
+            '"datasets":[]}}}</script>')
+    assert not pages.request_language(english.replace("</main>", "").replace("<p>From the KB.</p>", data), "en")
+    ar = page('<h1>لوحة <bdi>GDP</bdi> الواحة</h1>').replace("<title>t</title>", "<title>لوحة الواحة</title>")
+    assert pages.request_language(ar, "ar")
+    assert not pages.request_language(ar.replace("<title>لوحة الواحة</title>", "<title>Oasis board</title>"), "ar")

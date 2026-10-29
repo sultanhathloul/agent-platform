@@ -3537,3 +3537,20 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - A file listed under two categories is written once (the same SHA-256), and the seed step uploads a file once even if a folder holds it twice. A link whose bytes are not its icon's kind (an old .xls behind an Excel icon) is a failure, not a file. Page requests and downloads are tried at most 3 times on a timeout, a connection error or a 5xx, with exponential backoff and jitter; if the social tab's page does not answer, the sub-categories recorded in fetch.yaml on 2026-10-29 stand in, said so in the report.
 - Consequences: kb-seed/stats-gov/ grows from 25 to 75 files (about 105 MiB in git), most of them older series; two files over the 20 MiB upload limit and one .xls are reported, not fetched (PROGRESS: "download by hand").
 
+### ADR-0396: A report's title, headings and labels follow the language of the request (owner decision 4 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: make-eval-20261029T094813Z: two English requests (kb-en-exports, file-en-budget) got Arabic titles over Arabic sources. With the writer on heavy (ADR-0394), a development run (make-eval-20261029T103028Z) gave whole Arabic pages to all three English requests, the general one included; the model also wrote «من المعرفة العامة» as a header label of its own.
+- Decision: The owner's rule: a report's title, headings and labels follow the language of the request whatever the sources' language, and the cases that failed it are gated. The details:
+  - report.system 1.4.0 names each part (<title> and <h1>, headings, KPI labels, table headers, chart titles, axis labels and series names), asks for source titles to be translated and never copied, makes a revision follow the language of this request, and ends, after the evidence, with one line naming the page's language and forbidding a source label written by the model. The template is the request's locale's, as the page frame's lang and dir are.
+  - The reports suite gains `request_language` (threshold 1.00) on every page case, kb-en-exports and file-en-budget among them: for English, no Arabic letter in the title, headings, table headers, KPI and hero labels, eyebrow, subtitles, or report-data's chart titles, labels and series names; for Arabic, the title and the main heading are Arabic (an English term inside them is allowed). The platform's sources section and model strip are not read.
+- Consequences: The development run after the change (make-eval-20261029T103733Z) gave English pages to the three English requests. A request written in one language under the other locale's interface still gets the locale's template.
+
+### ADR-0397: A no-break space between digit groups is a thousands separator (refines ADR-0381)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: assumed
+- Decision: The figure rule accepts U+202F (narrow no-break space) and U+00A0 (no-break space) between groups of three digits, as it accepts the comma and the Arabic separator; a plain space never joins two figures. The eval check reads figures the same way.
+- Consequences: The heavy model wrote «3 872» with U+202F (make-eval-20261029T103028Z), which the rule read as 3 and 872, two figures and two labels; it is one figure with one label now (ADR-0388's "exactly one label").
+
