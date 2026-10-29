@@ -40,3 +40,46 @@ def test_the_page_names_no_source_this_turn_did_not_cite():
     assert named_sources("لوحة سوق العمل من إحصاءات الهيئة العامة للإحصاء", known, [STATS]) == []
     # A name too short to tell from a word is not read as a source.
     assert named_sources("IMF data", known, []) == []
+
+
+# ------------------------------------------------------------------ an edit only on the report's subject (ADR-0412)
+
+
+def _router_prompts():
+    from app.models.prompts import PromptLibrary
+    from app.settings import _default_config_dir
+
+    return PromptLibrary.load(_default_config_dir() / "prompts")
+
+
+def test_the_router_reads_the_current_reports_title_and_section_titles():
+    prompts = _router_prompts()
+    request = prompts.render(
+        "router.request", "ar", files=[], skills=[], message="أضف رسم دائري لتوزيع العاملين حسب الجنس",
+        report_candidate=True, current_report="نادي الهلال السعودي",
+        current_sections=["البطولات", "توزيع البطولات حسب المسابقة"],
+    ).text
+    assert 'current="نادي الهلال السعودي"' in request and "- توزيع البطولات حسب المسابقة" in request
+    system = prompts.render(
+        "router.system", "ar", capabilities=[], report_candidate=True, current_report="نادي الهلال السعودي",
+    ).text
+    assert "في موضوع التقرير الحالي" in system and "في موضوع آخر ولو قالت «أضف»" in system
+
+
+async def test_the_section_titles_come_from_the_latest_versions_stored_spec():
+    from types import SimpleNamespace
+
+    from app.graph.nodes.route import _current_sections
+
+    spec = {"sections": [{"kind": "kpi_row", "items": []}, {"kind": "chart", "title": "البطولات"},
+                         {"kind": "table", "title": "المراكز"}]}
+
+    class Reports:
+        async def latest_in(self, tenant, user, conversation):
+            return SimpleNamespace(spec=spec)
+
+    ctx = SimpleNamespace(services=SimpleNamespace(reports=Reports()),
+                          principal=SimpleNamespace(tenant_id="t", user_id="u"))
+    assert await _current_sections({"conversation_id": "c"}, ctx) == ("البطولات", "المراكز")
+    ctx.services.reports = None
+    assert await _current_sections({"conversation_id": "c"}, ctx) == ()

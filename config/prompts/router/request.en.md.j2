@@ -1,6 +1,6 @@
 ---
 id: router.request
-version: 1.4.0
+version: 1.5.0
 role: router
 locale: en
 changelog:
@@ -9,6 +9,7 @@ changelog:
   - "1.2.0: the candidate skills, their descriptions and when to use them, when the message holds a skill keyword (phase 06, ADR-0299)"
   - "1.3.0: a candidate skill is listed with its description only; in the open Agent Skills format the description says when to use it (ADR-0317)"
   - "1.4.0: on a report candidate, the conversation's current report title, escaped (reports PR, ADR-0378)"
+  - "1.5.0: the current report's section titles inside report_option, its subject beside its title (owner decision 2 on PR #17, ADR-0412)"
 ---
 <conversation_files>
 {% for name in files %}
@@ -23,7 +24,11 @@ changelog:
 </candidate_skills>
 {% endif %}
 {% if report_candidate is defined and report_candidate %}
-<report_option current="{{ (current_report if current_report is defined and current_report else '') | e }}"/>
+<report_option current="{{ (current_report if current_report is defined and current_report else '') | e }}">
+{% for title in (current_sections if current_sections is defined else []) %}
+- {{ title | e }}
+{% endfor %}
+</report_option>
 {% endif %}
 <user_message>
 {{ message }}

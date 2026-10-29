@@ -37,6 +37,22 @@ MAX_CAPABILITIES = 3
 log = logging.getLogger(__name__)
 
 
+
+async def _current_sections(state: AgentState, ctx: TurnContext) -> tuple[str, ...]:
+    """The conversation's latest report's section titles, from its stored spec: its subject, which the router
+    compares the request with to tell an edit from a new report (owner decision 2 on PR #17, ADR-0412)."""
+    reports = ctx.services.reports
+    if reports is None:
+        return ()
+    principal = ctx.principal
+    try:
+        latest = await reports.latest_in(principal.tenant_id, principal.user_id, state["conversation_id"])
+    except Exception:  # the store unreachable: the title alone, as before
+        return ()
+    spec = (latest.spec or {}) if latest else {}
+    titles = [s.get("title") for s in spec.get("sections") or [] if isinstance(s, dict) and s.get("title")]
+    return tuple(str(t)[:120] for t in titles[:12])
+
 def select_capabilities(
     candidates: Sequence[LoadedCapability],
     *,
@@ -145,12 +161,13 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     output = {"form": picked, "decided_by": "picker"} if picked in ("text", "report") else {"form": "text", "decided_by": "none"}
     candidate = None
     reports = [a for a in state.get("artifacts") or [] if a.get("kind") == "report"]
+    sections = await _current_sections(state, ctx) if reports and (picked in (None, "report")) else ()
     if picked is None and ctx.profile == "report":
-        candidate = OutputCandidate(current=reports[-1]["title"] if reports else None)
+        candidate = OutputCandidate(current=reports[-1]["title"] if reports else None, sections=sections)
     elif picked == "report" and reports:
         # The picker chose a report and the conversation holds one: the router's call says whether this
         # request edits it or starts a new one (ADR-0400).
-        candidate = OutputCandidate(current=reports[-1]["title"], picked=True)
+        candidate = OutputCandidate(current=reports[-1]["title"], picked=True, sections=sections)
     if pool or skill_candidates or candidate is not None:
         if pool:
             fallback = [

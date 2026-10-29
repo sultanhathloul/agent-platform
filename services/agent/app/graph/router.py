@@ -72,6 +72,8 @@ class OutputCandidate:
 
     current: str | None = None
     picked: bool = False
+    # The current report's section titles, its subject beside its title (owner decision 2 on PR #17, ADR-0412).
+    sections: tuple[str, ...] = ()
 
 
 def parse_decision(
@@ -139,7 +141,7 @@ async def _cache_key(
             normalize(state["user_message"]),
             window,
             [s.manifest.ref for s in skills],
-            None if output is None else ["report", output.current, output.picked],
+            None if output is None else ["report", output.current, output.picked, list(output.sections)],
         ],
         ensure_ascii=False,
     )
@@ -209,6 +211,7 @@ async def choose(
             ],
             "report_candidate": output is not None,
             "current_report": output.current if output else None,
+            "current_sections": list(output.sections) if output else [],
             "report_picked": bool(output and output.picked),
         },
     )
