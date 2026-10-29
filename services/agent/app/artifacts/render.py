@@ -25,10 +25,10 @@ e = html.escape
 def _number(value) -> str:
     if value is None:
         return MISSING
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
     if isinstance(value, int):
         return f"{value:,}"
+    if value.is_integer():
+        return f"{value:,.1f}"  # 3.0 as the source writes it
     return f"{value:,.2f}".rstrip("0").rstrip(".")
 
 

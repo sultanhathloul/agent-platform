@@ -251,7 +251,8 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         # did not use (ADR-0398); a failure is written again once with the failure named, then ends the turn.
         for attempt in (1, 2):
             renderer = PageRenderer(locale, text_config, sourced=sourced)
-            verifier = Verifier(passages, sourced=sourced, kinds=kinds, untitled=text_config.untitled_element.of(locale))
+            verifier = Verifier(passages, sourced=sourced, kinds=kinds, untitled=text_config.untitled_element.of(locale),
+                                change=text_config.change.of(locale))
             stream = SpecStream(ctx, state, config, renderer, verifier, report_id=report_id, version=version,
                                 buffered=buffered)
             try:

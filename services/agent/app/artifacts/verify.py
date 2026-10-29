@@ -103,11 +103,13 @@ class Verified:
 
 
 class Verifier:
-    def __init__(self, passages: Sequence[Passage], *, sourced: bool, kinds: dict[str, str], untitled: str):
+    def __init__(self, passages: Sequence[Passage], *, sourced: bool, kinds: dict[str, str], untitled: str,
+                 change: str = "Δ"):
         self.passages = {p.pid: p for p in passages}
         self.sourced = sourced
         self.kinds = kinds  # the sources section's word per element kind
         self.untitled = untitled
+        self.change = change  # how a KPI's delta is named among the unavailable values
         self.result = Verified(spec=None, sourced=sourced)  # type: ignore[arg-type]
         self._docs: dict[str, Document] = {}
 
@@ -150,7 +152,7 @@ class Verifier:
                 groups = [[item.label, section.title or ""]]
                 if item.value is not None and not check(item.value, groups, item.label):
                     item.value = None
-                if item.delta is not None and not check(item.delta, groups, item.label):
+                if item.delta is not None and not check(item.delta, groups, f"{item.label} ({self.change})"):
                     item.delta = None
         elif isinstance(section, Chart):
             for series in section.series:
@@ -177,7 +179,8 @@ class Verifier:
         self.result.values += total
         self.result.found += found
         self.result.unavailable += total - found
-        if total and not found:
+        # Nothing found, or nothing to find (a chart or KPI row the model left all null): the element leaves.
+        if (total and not found) or (not total and not isinstance(section, Table)):
             self.result.dropped.append(title)
             return None
         if missing:

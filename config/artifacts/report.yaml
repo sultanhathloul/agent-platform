@@ -69,6 +69,7 @@ text:
   untitled_element: {ar: "المؤشرات الرئيسة", en: "Key indicators"}
   sheet: {ar: "ورقة", en: "sheet"}
   unavailable: {ar: "غير متوفر في المصدر: {values}", en: "Not available in the source: {values}"}
+  change: {ar: "التغير", en: "change"}
   chart_gaps: {ar: "قيم غير متوفرة في المصادر: {count}", en: "Values not available in the sources: {count}"}
   page: {ar: "ص", en: "p."}
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}

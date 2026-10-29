@@ -86,6 +86,7 @@ class ReportText(_Strict):
     untitled_element: Localized
     sheet: Localized
     unavailable: Localized
+    change: Localized
     chart_gaps: Localized
     page: Localized
     created: Localized
