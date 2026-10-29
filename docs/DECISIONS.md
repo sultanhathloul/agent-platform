@@ -3668,3 +3668,21 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - In the report check (ADR-0407), words nearly every statistical table's title holds (توزيع، نسبي، جنس، جنسية، سلسلة، زمنية، إحصاءات) are generic: the measure must be told by another word («المشتغلين» against «السكان في سن العمل»).
 - Consequences: The 32 workbooks of stats-gov were re-indexed by the seed on 2026-10-29 (32 of 32 indexed; a second run re-indexed none). Attached workbooks in conversations are cut the new way from now on; files indexed before keep their chunks. Chunks of workbooks are longer by their preamble (truncated at half the chunk budget).
 
+### ADR-0411: A number a PDF draws right to left in pieces is read in its pieces' position order (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's request to investigate and fix); assumed (the details below)
+- Context: The KB text answer gave Saudi unemployment 5.6% where the Q2 2026 bulletin says 6.5, on phase/08-kb's code too. The stored chunk of page 1 read «بلغ معدل البطالة للسعوديين 5.6 % في الربعالثاني من عام 6202 ،بارتفاع مقداره 10. … بمقدار 30.»; poppler's pdftotext reads the same line «%6.5 … 2026 … 0.1 … 0.3». The page draws those numbers one piece per text operation from the right («5» at x 455.9, «.» at 454.2, «6» at 449.3; «6» then «202»; «1» then «0.»), and pypdf joins pieces in stream order. The bulletin has no presentation forms, so app/rag/bidi.py's one signal for visual order (ADR-0173) never applied. The same sentence's 67.2 and 2025, drawn left to right, were right.
+- Decision: The PDF extractor (version 2) collects each page's drawn pieces with their positions (pypdf's text visitor) and, in app/rag/bidi.py, finds runs of consecutive number pieces (digits and the marks inside a number) on one baseline, each touching the one before it on its left (gap within 1.5 times its estimated width, 0.6 em a character at its size), at most 12 characters, with a mark alone at either end left to the text (a sentence's full stop). Each run is put back in position order in pypdf's text, found in stream order. Pieces far apart (a table row's cells drawn right to left) and runs longer than one number (axis labels drawn edge to edge) are left alone, so a row keeps its header's order. The seed re-indexes PDFs indexed by version 1 (ADR-0410).
+- Consequences: On 2026-10-29 the seed re-indexed stats-gov's 43 PDFs (43 indexed; a second run re-indexed none); 110 of their 1,135 chunks changed, in 17 documents (reversed years such as 8201 for 2018, decimals, section numbers such as «7.1.» that pypdf read «1.7.», each checked against pdftotext on samples). intl-economy holds one Markdown file and was not affected. Tests: Arabic PDFs drawn as the bulletin draws (decimals, a percentage, years, a range, a thousands number, a table row, a full stop).
+
+### ADR-0412: An edit only on the latest report's subject; «عرض» is not a report keyword; no chart of totals (owner decisions 2 to 4 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rules); assumed (the details below)
+- Decision:
+  - The router reads the latest report's title and its section titles (from its stored spec, at most 12) inside `report_option` (router.request 1.5.0), and router.system 1.5.0 sets `edit` true only when the message is about that subject (a change to the report, or something added to it on the same subject); a message about another subject is a new report even when it says «أضف» or "add". Tests: the prompts carry the sections and the rule; the sections come from the stored spec; the new-report and edit paths (ADR-0400's tests).
+  - «عرض» is removed from config/artifacts/report.yaml's keywords (2.1.0): «اعرض لي…» or «العرض والطلب» no longer makes a report candidate. «عرض تقديمي» and the composer's picker remain.
+  - report.system 2.1.0 and design-system.md 2.1.0: a chart never plots a column of 100% totals, nor a table's total row or column against its own parts; the total, when it matters, is a KPI.
+- Consequences: The report-candidate profile (300 s, a router call deciding the form) no longer applies to ordinary requests that use «عرض».
+
