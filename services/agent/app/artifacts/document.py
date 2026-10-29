@@ -261,6 +261,11 @@ class Renderer:
         self._row_heads = True
         self._cell = -1
         self._in_cell = False
+        # Owner decision 3 on PR #17 (ADR-0405): per table, in order, [figures in its cells, of them not
+        # available]; the charts whose every point is not available.
+        self.tables: list[list[int]] = []
+        self._open_tables: list[int] = []
+        self.empty_charts: set[str] = set()
 
     def render(self, pieces: Sequence[Piece]) -> str:
         out: list[str] = []
@@ -292,6 +297,13 @@ class Renderer:
 
     def _table(self, piece: Markup) -> None:
         tag = piece.tag
+        if tag == "table":
+            if piece.end:
+                if self._open_tables:
+                    self._open_tables.pop()
+            else:
+                self.tables.append([0, 0])
+                self._open_tables.append(len(self.tables) - 1)
         if tag == "table" and not piece.end:
             self._headers, self._row, self._cell = [], [], -1
         elif tag == "tr":
@@ -316,7 +328,12 @@ class Renderer:
                 self.title += piece.text
             if not self.in_body and not piece.text.strip() and piece.where != "title":
                 return ""
+            total, missing = self.count.total, self.count.unavailable
             out = mark_text(piece.text, piece.where, self.labels, self.count, self._context())
+            if self._in_cell and self._open_tables:
+                table = self.tables[self._open_tables[-1]]
+                table[0] += self.count.total - total
+                table[1] += self.count.unavailable - missing
             if piece.text.strip():
                 if self._in_cell and self._row:
                     self._row[-1] += piece.text.strip()
@@ -330,6 +347,10 @@ class Renderer:
         if isinstance(piece, Data):
             # A copy: marking drops the points no source holds, and the page is rendered twice (stream, store).
             data = mark_data(copy.deepcopy(piece.parsed) if piece.parsed is not None else normalize_data(piece.raw), self.labels, self.count)
+            for chart_id, chart in data["charts"].items():
+                points = [v for d in chart["datasets"] for v in d["data"]]
+                if self.labels.sourced and points and all(v is None for v in points):
+                    self.empty_charts.add(chart_id)
             return render_data(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
         if piece.attrs is not None and not piece.end:
             return start_tag(piece.tag, piece.attrs) if piece.tag else piece.html
@@ -340,6 +361,71 @@ class Renderer:
         head = "" if self.in_body else "</head><body>"
         self.in_body = True
         return head + sources + "</body></html>"
+
+
+def drop_empty(pieces: Sequence[Piece], probe: Renderer) -> list[Piece]:
+    """Owner decision 3 on PR #17 (ADR-0405): a chart whose every point, or a table whose every figure, is
+    «غير متوفر» leaves the page, with the kit card around it when there is one; a chart or table with some
+    gaps stays. `probe` rendered the same pieces once and found them. The chart's entry leaves report-data."""
+    empty_tables = {i for i, (total, missing) in enumerate(probe.tables) if total and total == missing}
+    if not empty_tables and not probe.empty_charts:
+        return list(pieces)
+    # Each start tag's end and parent, by index.
+    ends: dict[int, int] = {}
+    parent: dict[int, int | None] = {}
+    stack: list[int] = []
+    for i, piece in enumerate(pieces):
+        if not isinstance(piece, Markup) or not piece.tag or piece.void:
+            continue
+        if not piece.end:
+            parent[i] = stack[-1] if stack else None
+            stack.append(i)
+        elif any(pieces[j].tag == piece.tag for j in stack):  # type: ignore[union-attr]
+            while stack:
+                j = stack.pop()
+                ends[j] = i
+                if pieces[j].tag == piece.tag:  # type: ignore[union-attr]
+                    break
+    for j in stack:
+        ends[j] = len(pieces) - 1
+
+    def card(i: int) -> int:
+        """The nearest enclosing kit card that holds nothing else of the kind, else the element itself."""
+        at = parent.get(i)
+        while at is not None:
+            classes = dict(pieces[at].attrs).get("class", "")  # type: ignore[union-attr]
+            if "kit-card" in classes.split():
+                inside = range(at + 1, ends.get(at, at))
+                others = [k for k in inside if k != i and isinstance(pieces[k], Markup) and not pieces[k].end
+                          and (pieces[k].tag == "table" or dict(pieces[k].attrs).get("data-chart"))]  # type: ignore[union-attr]
+                return at if not any(not (i < k <= ends.get(i, i)) for k in others) else i
+            at = parent.get(at)
+        return i
+
+    cut: list[tuple[int, int]] = []
+    table = -1
+    for i, piece in enumerate(pieces):
+        if not isinstance(piece, Markup) or piece.end or not piece.tag:
+            continue
+        if piece.tag == "table":
+            table += 1
+            if table in empty_tables:
+                start = card(i)
+                cut.append((start, ends.get(start, start)))
+        elif dict(piece.attrs).get("data-chart") in probe.empty_charts:
+            start = card(i)
+            cut.append((start, ends.get(start, start)))
+    dropped = {k for start, end in cut for k in range(start, end + 1)}
+    kept: list[Piece] = []
+    for k, piece in enumerate(pieces):
+        if k in dropped:
+            continue
+        if isinstance(piece, Data) and probe.empty_charts:
+            parsed = copy.deepcopy(piece.parsed if piece.parsed is not None else normalize_data(piece.raw))
+            parsed["charts"] = {c: v for c, v in parsed["charts"].items() if c not in probe.empty_charts}
+            piece = Data(piece.raw, parsed)
+        kept.append(piece)
+    return kept
 
 
 def sources_section(citations: Sequence[dict], locale: str, text: ReportText, *, general: bool) -> str:

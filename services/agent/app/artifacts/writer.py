@@ -28,7 +28,7 @@ from langgraph.runtime import Runtime
 from opentelemetry import trace
 
 from app.artifacts.config import ReportText
-from app.artifacts.document import ModelCall, Renderer, editable, model_strip, sources_section
+from app.artifacts.document import ModelCall, Renderer, drop_empty, editable, model_strip, sources_section
 from app.artifacts.figures import FigureLabels, Label, source_texts
 from app.artifacts.store import ReportUnavailable
 from app.artifacts.stream import ReportStream, visible_text
@@ -297,8 +297,15 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             request = request.model_copy(update={"prompt_vars": vars_})
             prepared = await prepare(request)
         shown = citations
+        # ADR-0405: a chart or table with nothing available leaves the page; the stored page is rendered
+        # from what stays (the streamed preview showed it whole; the panel then loads the stored version).
+        probe = Renderer(locale, labels)
+        probe.render(pieces)
+        kept = drop_empty(pieces, probe)
+        span.set_attribute("report.dropped.charts", len(probe.empty_charts))
+        span.set_attribute("report.dropped.tables", sum(1 for t, m in probe.tables if t and t == m))
         renderer = Renderer(locale, labels)
-        body = renderer.render(pieces)
+        body = renderer.render(kept)
         end = sources_section(shown, locale, config.text, general=renderer.count.general > 0)
         if art.show_model_info:
             end += model_strip(model_calls(ctx, result, locale, config.text), locale, config.text.model_info)

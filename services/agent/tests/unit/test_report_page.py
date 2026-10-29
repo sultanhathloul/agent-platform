@@ -11,6 +11,7 @@ from app.artifacts.config import load_artifacts
 from app.artifacts.document import (
     KIT_MARKER,
     Renderer,
+    drop_empty,
     editable,
     normalize_data,
     served,
@@ -395,3 +396,61 @@ def test_the_table_of_the_item_6_run_matches_by_series_and_chart_title_across_wo
     )
     data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))["charts"]["u"]["datasets"]
     assert [d["data"] for d in data] == [[3.2, 3.1], [6.8, 6.4]] and all("unavailable" not in d for d in data)
+
+
+def test_a_workbooks_precise_figure_matches_the_page_rounded_to_one_or_two_decimals():
+    """ADR-0404: Table 3-1 of the Q2 2026 workbook states 83.60299013 and 16.39700987; a page writes 83.6."""
+    assert {"83.6", "16.4", "66.37", "66.4"} <= figures(["83.60299013 | 16.39700987 | 66.366373"])
+    assert "3.7" not in figures(["3.65"])  # two decimals or fewer: no rounding
+    labels = FigureLabels(GENERAL, sourced=True, unavailable=UNAVAILABLE)
+    labels.add(["التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس الذكور الاناث 83.60299013 16.39700987"], KB, passage=True)
+    page, _ = build(
+        '<html><body><script type="application/json" id="report-data">{"charts":{"g":{"type":"doughnut",'
+        '"title":"توزيع المشتغلين حسب الجنس","labels":["الذكور","الإناث"],"datasets":[{"label":"الإجمالي",'
+        '"data":[83.6,16.4]}]}}}</script></body></html>',
+        labels=labels,
+    )
+    data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))["charts"]["g"]["datasets"][0]
+    assert data["data"] == [83.6, 16.4] and data["sources"] == [KB.text, KB.text]
+
+
+def _kept(source: str, labels: FigureLabels) -> str:
+    sanitizer = Sanitizer()
+    sanitizer.feed_model(source)
+    pieces = sanitizer.drain() + sanitizer.finish()
+    probe = Renderer("ar", labels)
+    probe.render(pieces)
+    renderer = Renderer("ar", labels)
+    return renderer.render(drop_empty(pieces, probe))
+
+
+def test_a_chart_or_table_with_nothing_available_leaves_the_page_and_one_with_gaps_stays():
+    """Owner decision 3 on PR #17 (ADR-0405), with the kit card around the one that leaves."""
+    labels = FigureLabels(GENERAL, sourced=True, unavailable=UNAVAILABLE)
+    labels.add(["معدل البطالة 3.0 و 6.5"], KB, passage=True)
+    page = _kept(
+        '<html><body>'
+        '<div class="kit-card"><h3>البطالة</h3><div class="kit-chart" data-chart="u"></div></div>'
+        '<div class="kit-card"><h3>المهن</h3><div class="kit-chart" data-chart="o"></div></div>'
+        '<div class="kit-card"><table><tr><th>المؤشر</th><th>البطالة</th></tr><tr><td>الإجمالي</td><td>3.0</td></tr>'
+        '<tr><td>السعوديون</td><td>9.9</td></tr></table></div>'
+        '<div class="kit-card" id="gone"><table><tr><th>المهنة</th><th>النسبة</th></tr><tr><td>المديرون</td><td>4.7</td></tr></table></div>'
+        '<script type="application/json" id="report-data">{"charts":{'
+        '"u":{"type":"line","title":"معدل البطالة","labels":["أ","ب"],"datasets":[{"label":"الإجمالي","data":[3.0,1.1]}]},'
+        '"o":{"type":"bar","title":"المهن","labels":["المديرون"],"datasets":[{"label":"النسبة","data":[18.7]}]}}}</script>'
+        "</body></html>",
+        labels,
+    )
+    assert 'data-chart="u"' in page and 'data-chart="o"' not in page and "<h3>المهن</h3>" not in page
+    data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))["charts"]
+    assert set(data) == {"u"} and data["u"]["datasets"][0]["data"] == [3.0, None]  # gaps stay, shown
+    assert "9.9" not in page and ">غير متوفر</span>" in page  # the table with a gap stays
+    assert 'id="gone"' not in page and "4.7" not in page and "المديرون" not in page
+
+
+def test_nothing_leaves_a_general_knowledge_page():
+    labels = FigureLabels(GENERAL, sourced=False)
+    page = _kept('<html><body><div class="kit-chart" data-chart="o"></div><script type="application/json" id="report-data">'
+                 '{"charts":{"o":{"labels":["a"],"datasets":[{"label":"x","data":[null]}]}}}</script></body></html>', labels)
+    assert 'data-chart="o"' in page
+
