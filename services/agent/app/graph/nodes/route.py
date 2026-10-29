@@ -179,7 +179,8 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
             # the capabilities already chosen (its capability answer is not used).
             choice, others = [services.registry.get(slug) for slug in slugs], []
         decision = await choose(
-            ctx, dict(state), choice, others, services.router, skills=skill_candidates, output=candidate
+            ctx, dict(state), choice, others, services.router, skills=skill_candidates, output=candidate,
+            decided=not pool,
         )
         if candidate is not None and not candidate.picked:
             output = {"form": decision.output or "text", "decided_by": decision.source}

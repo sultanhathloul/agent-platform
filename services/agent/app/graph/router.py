@@ -77,7 +77,8 @@ class OutputCandidate:
 
 
 def parse_decision(
-    text: str, allowed: Sequence[str], skills: Sequence[str] = (), *, output: bool = False, current: bool = False
+    text: str, allowed: Sequence[str], skills: Sequence[str] = (), *, output: bool = False, current: bool = False,
+    decided: bool = False,
 ) -> RouterDecision | None:
     """The model's JSON `{capabilities, skill, complexity, risk}`. Capabilities outside `allowed`
     are ignored; a `skill` outside `skills` (the candidates) is dropped and reported; any other
@@ -96,7 +97,11 @@ def parse_decision(
         if isinstance(slug, str) and slug in allowed and slug not in chosen:
             chosen.append(slug)
     if not chosen:
-        return None
+        if not decided:
+            return None
+        # The rules chose the capabilities and the call was for the skill and the form only (ADR-0417): an
+        # empty capability list does not void the rest of the answer.
+        chosen = list(allowed)
     complexity = raw.get("complexity") if raw.get("complexity") in _LEVELS else None
     risk = raw.get("risk") if raw.get("risk") in _LEVELS else None
     named = raw.get("skill")
@@ -157,6 +162,7 @@ async def choose(
     config: RouterConfig,
     skills: Sequence[LoadedSkill] = (),
     output: OutputCandidate | None = None,
+    decided: bool = False,
 ) -> RouterDecision:
     """The router model's choice among `candidates` and `fallback`, of at most one skill among `skills`,
     and, for a report candidate, of the answer's form; cached for an hour. An unusable answer or a model
@@ -223,7 +229,8 @@ async def choose(
         span.add_event("route.router.unavailable")
         return default
     decision = parse_decision(
-        result.text, allowed, skill_slugs, output=output is not None, current=bool(output and output.current)
+        result.text, allowed, skill_slugs, output=output is not None, current=bool(output and output.current),
+        decided=decided,
     )
     if decision is None:
         span.add_event("route.router.unusable_answer")

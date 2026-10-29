@@ -83,3 +83,13 @@ async def test_the_section_titles_come_from_the_latest_versions_stored_spec():
     assert await _current_sections({"conversation_id": "c"}, ctx) == ("البطولات", "المراكز")
     ctx.services.reports = None
     assert await _current_sections({"conversation_id": "c"}, ctx) == ()
+
+
+def test_with_capabilities_already_chosen_an_empty_list_keeps_the_form_and_the_edit():
+    """ADR-0417: with stats-gov toggled the rules chose kb; the router, asked for the form, answered
+    "capabilities": [] and the turn fell back to a text answer."""
+    text = '```json\n{"capabilities": [], "skill": null, "output": "report", "edit": false}\n```'
+    assert parse_decision(text, ["kb"], output=True, current=True) is None
+    decision = parse_decision(text, ["kb"], output=True, current=True, decided=True)
+    assert decision.output == "report" and decision.edit is False and decision.capabilities == ["kb"]
+
