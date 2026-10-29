@@ -92,6 +92,8 @@ retrieval:
   text_top_k: 30
   rrf_k: 60
   top_k: 8
+  # On a report turn, which builds every figure from the passages (ADR-0401); docs_search allows 20.
+  report_top_k: 20
   # Knowledge bases (phase 08, D3): when a chunk of an older version of a source and one of its
   # latest version are both found, this many older chunks stay, right after the latest version's
   # best chunk, so the answer may note the change; the rest are dropped (app/rag/versions.py).

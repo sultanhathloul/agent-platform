@@ -98,6 +98,8 @@ class Retrieval(_Strict):
     # Not in config/docs.yaml: the reranker is configured per environment through .env (finding 3).
     rerank: Rerank = Rerank()
     top_k: int = Field(gt=0)
+    # Passages a capability fetches on a report turn (ADR-0401); the search tools allow 20.
+    report_top_k: int = Field(default=20, gt=0, le=20)
     stopwords: dict[str, list[str]] = {}
     # Knowledge bases (phase 08, D3, ADR-0335): how many chunks of an older version of a source stay
     # beside its latest version when both are found, so the answer may note the change.

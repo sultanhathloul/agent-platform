@@ -361,6 +361,10 @@ class CapabilityInput(_Strict):
     cap_state: dict[str, Any]  # a copy of this capability's own namespace
     attachments: list[dict[str, Any]] = []
     locale: str
+    # The answer's form (reports PR, ADR-0401): "report" lets a retrieving capability read deeper; on an
+    # edit, `report_title` is the report being changed, so its search keeps the report's subject.
+    output: Literal["text", "report"] = "text"
+    report_title: str | None = None
 
 
 class CapabilityOutput(_Strict):

@@ -66,6 +66,10 @@ nodes:
     system_prompt: report.system
     needs: [system, report_kit, state_digest, summary, window, memory, findings, report_current, user_message]
     forms: {findings: full}
+    # A report draws its tables and charts from the passages alone (ADR-0398), so it reads deeper than a
+    # text answer: the capabilities fetch `report_top_k` passages on a report turn (ADR-0401).
+    blocks:
+      retrieval: {max_tokens: 16000, top_k: 20}
   summarizer:
     system_prompt: summarizer.system
     request_prompt: summarizer.request

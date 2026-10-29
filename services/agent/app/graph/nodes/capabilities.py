@@ -373,12 +373,18 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
         with tracer.start_as_current_span(f"capability.{slug}") as span:
             request = _request_for(cap, state, ctx)
             own_state = cap_state.get(manifest.state_namespace) or {}
+            form = state.get("output") or {}
+            # An edit re-runs retrieval on the report's subject and the request (ADR-0401).
+            reports = [a for a in state.get("artifacts") or [] if a.get("kind") == "report"]
+            report_title = reports[-1].get("title") if form.get("edit") and reports else None
             cap_input = CapabilityInput(
                 message=state["user_message"],
                 principal=ctx.principal,
                 cap_state=copy.deepcopy(own_state),
                 attachments=copy.deepcopy(list(state.get("attachments") or [])),
                 locale=state["locale"],
+                output="report" if form.get("form") == "report" else "text",
+                report_title=report_title,
             )
             runtime_context = RuntimeContext(
                 slug=slug,

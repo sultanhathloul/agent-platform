@@ -52,8 +52,12 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     rt = runtime.context
     request = state["input"]
     # The number of passages comes from the capability's own configuration (C3).
-    k = int((rt.config.get("retrieval") or {}).get("top_k", 8))
-    result = await rt.broker.execute("kb_search", {"query": request.message, "k": k})
+    retrieval = rt.config.get("retrieval") or {}
+    # A report builds every figure from the passages, so it reads deeper (ADR-0401).
+    k = int(retrieval.get("report_top_k", 20) if request.output == "report" else retrieval.get("top_k", 8))
+    # An edit searches the report's subject with the request ("add a pie chart" alone finds nothing).
+    query = f"{request.report_title}\n{request.message}" if request.report_title else request.message
+    result = await rt.broker.execute("kb_search", {"query": query[:8000], "k": k})
     unavailable = result.status != "ok"
     sources = [] if unavailable else [_source(hit) for hit in result.sources]
     findings = PROMPTS.render(

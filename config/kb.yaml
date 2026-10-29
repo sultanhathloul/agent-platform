@@ -9,3 +9,4 @@ backend: internal
 
 retrieval:
   top_k: 8                     # passages for the answer, across the selected knowledge bases (I4)
+  report_top_k: 20             # on a report turn, which builds every figure from the passages (ADR-0401); kb_search allows 20
