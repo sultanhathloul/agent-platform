@@ -202,6 +202,28 @@ class Passage:
         return not ((ARABIC.search(text) and ARABIC.search(unit.context)) or (LATIN.search(text) and LATIN.search(unit.context)))
 
 
+_TOTAL_LABEL = re.compile(r"(?:^|\s|\()(?:ال|لل|ل)?(?:اجمالي|مجموع)(?:\s|\)|$)|\btotal\b|\boverall\b", re.I)
+
+
+def is_total(label: str) -> bool:
+    return bool(_TOTAL_LABEL.search(normalize(label)))
+
+
+def _without_totals(chart) -> None:
+    """A total beside its own parts leaves the chart (owner decision on PR #17, ADR-0418): a «الإجمالي» category
+    among the categories it sums, or a total series among the series it sums. A chart that is a total alone
+    keeps it."""
+    totals = [i for i, label in enumerate(chart.labels) if is_total(label)]
+    if totals and len(totals) < len(chart.labels):
+        keep = [i for i in range(len(chart.labels)) if i not in totals]
+        chart.labels = [chart.labels[i] for i in keep]
+        for series in chart.series:
+            series.data = [series.data[i] if i < len(series.data) else None for i in keep]
+    total_series = [s for s in chart.series if is_total(s.name)]
+    if total_series and len(total_series) < len(chart.series):
+        chart.series = [s for s in chart.series if not is_total(s.name)]
+
+
 @dataclass
 class Use:
     """One element's use of one document: where (pages, sheets) and the values it could not find."""
@@ -300,6 +322,10 @@ class Verifier:
                 if item.delta is not None and not check(item.delta, groups, f"{item.label} ({self.change})"):
                     item.delta = None
         elif isinstance(section, Chart):
+            _without_totals(section)
+            if len(section.labels) < 2:
+                self.result.dropped.append(title)
+                return None
             for series in section.series:
                 for i, value in enumerate(series.data):
                     if value is None:

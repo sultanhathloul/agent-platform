@@ -72,7 +72,7 @@ def spec(*sections, language="ar") -> ReportSpec:
 
 
 UNEMPLOYMENT = {"kind": "chart", "type": "line", "title": "معدل البطالة", "labels": ["الربع الثاني 2025", "الربع الأول 2026"],
-                "series": [{"name": "الإجمالي", "data": [3.2, 3.1]}, {"name": "سعوديون", "data": [6.8, 6.4]}], "unit": "%",
+                "series": [{"name": "جميع المقيمين", "data": [3.2, 3.1]}, {"name": "سعوديون", "data": [6.8, 6.4]}], "unit": "%",
                 "sources": ["P1"]}
 GENDER = {"kind": "chart", "type": "doughnut", "title": "توزيع المشتغلين حسب الجنس", "labels": ["الذكور", "الإناث"],
           "series": [{"name": "الإجمالي", "data": [83.6, 16.4]}], "sources": ["P2"]}
@@ -316,11 +316,11 @@ def test_the_period_chooses_the_row():
 def test_a_category_with_nothing_found_leaves_the_chart_and_one_left_drops_it():
     v = verifier(period="الربع الثاني 2026")
     by_nationality = {"kind": "chart", "type": "bar", "title": "معدل البطالة حسب الجنسية",
-                      "labels": ["السعوديين", "غير السعوديين", "الإجمالي"],
+                      "labels": ["السعوديين", "غير السعوديين", "الشباب"],
                       "series": [{"name": "الإجمالي", "data": [6.5, 1.3, 9.9]}], "sources": ["P3"]}
     checked = v.element(spec(by_nationality).sections[0])
     assert checked.labels == ["السعوديين", "غير السعوديين"] and checked.series[0].data == [6.5, 1.3]
-    assert v.result.trimmed == [("معدل البطالة حسب الجنسية", ["الإجمالي"])]
+    assert v.result.trimmed == [("معدل البطالة حسب الجنسية", ["الشباب"])]
     lone = {**by_nationality, "title": "معدل البطالة للسعوديين", "series": [{"name": "الإجمالي", "data": [6.5, 7.7, 9.9]}]}
     assert v.element(spec(lone).sections[0]) is None and "معدل البطالة للسعوديين" in v.result.dropped
 
@@ -353,4 +353,41 @@ def test_a_year_is_never_grouped_like_a_count():
     from app.artifacts.render import _number
 
     assert _number(1957) == "1957" and _number(68000) == "68,000" and _number(3.0) == "3.0"
+
+
+# ------------------------------------------------------------------ a total beside its parts leaves the chart (ADR-0418)
+
+
+def test_a_stacked_bars_total_category_leaves_and_its_parts_stay():
+    v = verifier(period="الربع الثاني 2026")
+    stacked = {"kind": "chart", "type": "stacked_bar", "title": "معدل البطالة حسب الجنسية والجنس",
+               "labels": ["السعوديين", "غير السعوديين", "الإجمالي"],
+               "series": [{"name": "الذكور", "data": [4.8, 1.1, 2.1]}, {"name": "الاناث", "data": [9.6, 3.8, 7.6]}],
+               "sources": ["P3"]}
+    checked = v.element(spec(stacked).sections[0])
+    assert checked.labels == ["السعوديين", "غير السعوديين"]
+    assert [s.data for s in checked.series] == [[4.8, 1.1], [9.6, 3.8]]
+
+
+def test_a_pies_total_slice_leaves_and_a_pie_left_with_one_slice_is_dropped():
+    v = verifier(period="الربع الثاني 2026")
+    pie = {"kind": "chart", "type": "pie", "title": "معدل البطالة للسعوديين حسب الجنس",
+           "labels": ["الذكور", "الاناث", "الإجمالي"], "series": [{"name": "السعوديين", "data": [4.8, 9.6, 6.5]}],
+           "sources": ["P3"]}
+    assert v.element(spec(pie).sections[0]).labels == ["الذكور", "الاناث"]
+    lone = {**pie, "title": "معدل البطالة", "labels": ["الإجمالي", "السعوديين"],
+            "series": [{"name": "المعدل", "data": [3.0, 6.5]}]}
+    assert v.element(spec(lone).sections[0]) is None and "معدل البطالة" in v.result.dropped
+
+
+def test_a_grouped_bars_total_series_leaves_and_a_total_alone_stays():
+    v = verifier(period="الربع الثاني 2026")
+    grouped = {"kind": "chart", "type": "bar", "title": "معدل البطالة حسب الجنس",
+               "labels": ["الذكور", "الاناث"],
+               "series": [{"name": "السعوديين", "data": [4.8, 9.6]}, {"name": "غير السعوديين", "data": [1.1, 3.8]},
+                          {"name": "الإجمالي", "data": [2.1, 7.6]}],
+               "sources": ["P3"]}
+    assert [s.name for s in v.element(spec(grouped).sections[0]).series] == ["السعوديين", "غير السعوديين"]
+    alone = {**grouped, "series": [{"name": "الإجمالي", "data": [2.1, 7.6]}]}
+    assert [s.name for s in v.element(spec(alone).sections[0]).series] == ["الإجمالي"]
 

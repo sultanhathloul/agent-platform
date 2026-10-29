@@ -3738,3 +3738,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Decision: When the rules decided the capabilities (no router pool), an empty or foreign capability list keeps the rules' capabilities and the rest of the answer (skill, output, edit) is used.
 - Consequences: Report requests with KBs toggled reach the report writer; the routing suite's cases are unchanged (they route with a pool).
 
+### ADR-0418: A total beside its own parts is dropped from a chart, in code (owner decision on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decision after the visual check)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: report.system 2.1.0 asks the writer not to chart a total beside its parts (ADR-0412); the model did not always keep it (a stacked bar with a «الإجمالي» category beside «السعوديون» and «غير السعوديين», 2026-10-29).
+- Decision: Before a chart's values are checked (app/artifacts/verify.py), a category whose label is a total («الإجمالي», «إجمالي», «المجموع», «total», «overall», folded) leaves the chart when other categories remain, its points with it; a series named as a total leaves when other series remain. A total-only chart (one category or one series, the total) keeps it, and a KPI or a table is not touched. A chart left with fewer than two categories is dropped and named in the reply (ADR-0416). Tests: a stacked bar, a pie (and one left with one slice), a grouped bar (and a total series alone).
+- Consequences: A chart compares parts only; the total, when it matters, is a KPI. A series that is the total of the others («الإجمالي» beside «السعوديين») leaves even on a line chart of rates.
+
