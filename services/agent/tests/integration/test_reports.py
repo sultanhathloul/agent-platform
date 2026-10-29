@@ -35,6 +35,9 @@ EDITED = PAGE.replace("<h1>لوحة النمو</h1>", "<h1>لوحة النمو �
 )
 ROUTE_REPORT = '{"capabilities": ["general"], "skill": null, "output": "report", "complexity": "low", "risk": "low"}'
 ROUTE_TEXT = '{"capabilities": ["general"], "skill": null, "output": "text", "complexity": "low", "risk": "low"}'
+# With a report in the conversation the router also says whether the request edits it (ADR-0400).
+ROUTE_EDIT = '{"capabilities": ["general"], "skill": null, "output": "report", "edit": true, "complexity": "low", "risk": "low"}'
+ROUTE_NEW = '{"capabilities": ["general"], "skill": null, "output": "report", "edit": false, "complexity": "low", "risk": "low"}'
 
 
 class CapturingGateway(ReplacingGateway):
@@ -80,7 +83,7 @@ def reports(services):
 
 
 async def test_a_picked_report_streams_checked_marked_and_stored_and_a_follow_up_is_version_2(reports):
-    services, gateway = reports({"report_writer": [PAGE, EDITED], "router": ROUTE_REPORT})
+    services, gateway = reports({"report_writer": [PAGE, EDITED], "router": ROUTE_EDIT})
     principal = _principal()
     events, conversation, admission = await _turn(
         services, principal, "اعمل لي لوحة مؤشرات عن نمو الاقتصاد 3.6 في 2031", output="report"
@@ -131,6 +134,34 @@ async def test_a_picked_report_streams_checked_marked_and_stored_and_a_follow_up
     assert "--kit-accent:#0f766e" in page2
     # Nothing is carried from v1 (ADR-0398): v2's turn has no findings, so every figure is general knowledge.
     assert general in page2 and "من: طلبك" not in page2
+
+
+async def test_a_follow_up_on_another_subject_is_a_new_report_that_inherits_nothing(reports):
+    """ADR-0400: the router's call decides edit or new; a new subject is version 1 of a new report, with no
+    current version in its context and nothing of the first report's labels or sources."""
+    services, gateway = reports({"report_writer": [PAGE, PAGE.replace("لوحة النمو", "لوحة الهلال")], "router": ROUTE_NEW})
+    principal = _principal()
+    events, conversation, _ = await _turn(services, principal, "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    first = _of(events, "artifact_done")[0].data
+    events2, _, admission2 = await _turn(services, principal, "سوّ لي لوحة معلومات عن نادي الهلال", conversation=conversation)
+    assert admission2.profile == "report" and events2[-1].type == "done", events2[-1]
+    second = _of(events2, "artifact_done")[0].data
+    assert second.id != first.id and second.version == 1
+    assert "report_current" not in gateway.blocks["report_writer"][1]
+    assert events2[-1].data.state_digest.output == "report"
+    record = await services.reports.version(principal.tenant_id, principal.user_id, second.id, 1)
+    assert record.citations == [] and record.general == record.figures
+
+
+async def test_the_picker_asks_the_router_only_whether_it_is_an_edit(reports):
+    services, gateway = reports({"report_writer": [PAGE, EDITED], "router": ROUTE_EDIT})
+    principal = _principal()
+    events, conversation, _ = await _turn(services, principal, "اعمل لي لوحة مؤشرات عن النمو", output="report")
+    first = _of(events, "artifact_done")[0].data
+    events2, _, _ = await _turn(services, principal, "غيّر الألوان", conversation=conversation, output="report")
+    second = _of(events2, "artifact_done")[0].data
+    assert second.id == first.id and second.version == 2
+    assert "report_current" in gateway.blocks["report_writer"][1]
 
 
 async def test_only_the_owner_reads_a_report_through_the_agent_api(reports):

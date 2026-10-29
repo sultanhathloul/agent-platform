@@ -1,8 +1,9 @@
 """The report writer: the answer node's form on a report turn (reports PR, D1, I1, ADR-0380).
 
 The turn's capabilities ran as on any turn; here the role `report_writer` (heavy tier, 16k output tokens)
-writes one HTML page from the same findings and passages, with the design kit's prompt part and, on a
-follow-up, the latest version of the conversation's report (D4). The page streams through the guards
+writes one HTML page from the same findings and passages, with the design kit's prompt part and, when the
+router judged the request an edit of the conversation's latest report, that report's latest version (D4,
+ADR-0400); any other report request starts a new report at version 1. The page streams through the guards
 (app/artifacts/stream.py) as it is written. A turn draws from one kind of source (ADR-0398): this turn's
 findings when knowledge bases are toggled, files attached or a capability found something, else general
 knowledge only; nothing of an earlier turn's findings, labels or sources is carried over. Then:
@@ -179,7 +180,10 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     span = trace.get_current_span()
     principal = ctx.principal
     latest = await reports.latest_in(principal.tenant_id, principal.user_id, state["conversation_id"])
-    current = latest
+    # An edit of the latest report only when the router judged the request one (ADR-0400); otherwise a new
+    # report, version 1, that inherits nothing.
+    edit = bool((state.get("output") or {}).get("edit"))
+    current = latest if edit else None
     current_html = None
     if current is not None:
         try:

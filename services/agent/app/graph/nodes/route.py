@@ -144,9 +144,13 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     picked = state.get("requested_output")
     output = {"form": picked, "decided_by": "picker"} if picked in ("text", "report") else {"form": "text", "decided_by": "none"}
     candidate = None
+    reports = [a for a in state.get("artifacts") or [] if a.get("kind") == "report"]
     if picked is None and ctx.profile == "report":
-        reports = [a for a in state.get("artifacts") or [] if a.get("kind") == "report"]
         candidate = OutputCandidate(current=reports[-1]["title"] if reports else None)
+    elif picked == "report" and reports:
+        # The picker chose a report and the conversation holds one: the router's call says whether this
+        # request edits it or starts a new one (ADR-0400).
+        candidate = OutputCandidate(current=reports[-1]["title"], picked=True)
     if pool or skill_candidates or candidate is not None:
         if pool:
             fallback = [
@@ -160,8 +164,11 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         decision = await choose(
             ctx, dict(state), choice, others, services.router, skills=skill_candidates, output=candidate
         )
-        if candidate is not None:
+        if candidate is not None and not candidate.picked:
             output = {"form": decision.output or "text", "decided_by": decision.source}
+        if candidate is not None and candidate.current:
+            output["edit"] = bool(decision.edit)
+            output["edit_decided_by"] = decision.source
         if pool:
             slugs = decision.capabilities[:MAX_CAPABILITIES]
             reasons = [f"{slug}:{decision.source}" for slug in slugs]
@@ -189,6 +196,13 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         span.set_attribute("route.skill.decided_by", skill_source or "")
     span.set_attribute("route.output", output["form"])
     span.set_attribute("route.output.decided_by", output["decided_by"])
+    if "edit" in output:
+        span.set_attribute("route.output.edit", output["edit"])
+        span.set_attribute("route.output.edit_decided_by", output["edit_decided_by"])
+        log.info(
+            "route report turn=%s form=%s edit=%s decided_by=%s current=%r",
+            ctx.turn_id, output["form"], output["edit"], output["edit_decided_by"], candidate.current if candidate else None,
+        )
     return {
         "intent": {"capabilities": slugs, "decided_by": reasons, "complexity": complexity, "risk": risk},
         "skill": _skill_state(skill),
