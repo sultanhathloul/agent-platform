@@ -138,6 +138,8 @@ def _document_view(record: KbDocumentRecord, superseded_by: str | None = None) -
         indexed_at=record.indexed_at,
         uploaded_by_username=record.uploaded_by_username,
         uploaded_by_name=record.uploaded_by_name,
+        sha256=record.sha256,
+        metadata_missing=record.metadata_missing,
     )
 
 
@@ -258,6 +260,8 @@ async def register_document(slug: Slug, body: KbDocumentRegistration, call: Admi
                 object_key=body.object_key,
                 metadata=_metadata(body.metadata),
                 actor=call.actor,
+                sha256=body.sha256,
+                metadata_missing=body.metadata_missing,
             )
     except UnsupportedType:
         return call.error("file_type_unsupported", 415)

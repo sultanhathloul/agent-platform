@@ -108,6 +108,10 @@ class KbDocumentRecord(BaseModel):
     updated_at: datetime
     indexed_at: datetime | None = None
     purged_at: datetime | None = None
+    # The file's SHA-256 as the gateway stored it, and whether its source metadata was missing at upload
+    # (ADR-0392); None for a document registered before migration 0018.
+    sha256: str | None = None
+    metadata_missing: bool = False
 
     @property
     def owner(self) -> Owner:
@@ -142,7 +146,7 @@ _DOC_COLUMNS = (
     "id::text AS id, kb_slug, tenant_id, name, mime, kind, size, object_key, collection, backend, status, "
     "reason, pages, chunks, warnings, attempts, title, publisher, source_url, published_on, "
     "supersedes::text AS supersedes, uploaded_by, uploaded_by_username, uploaded_by_name, created_at, "
-    "updated_at, indexed_at, purged_at"
+    "updated_at, indexed_at, purged_at, sha256, metadata_missing"
 )
 
 
@@ -303,6 +307,8 @@ class KbStore:
         metadata: SourceMetadata,
         backend: str,
         actor: Actor,
+        sha256: str | None = None,
+        metadata_missing: bool = False,
     ) -> KbDocumentRecord:
         """A pending document of a live KB, with its D3 metadata; raises InvalidSupersedes."""
         async with self._db.connection() as conn, conn.transaction():
@@ -311,7 +317,8 @@ class KbStore:
             cursor = await conn.execute(
                 "INSERT INTO agent.kb_documents (kb_slug, tenant_id, name, mime, kind, size, object_key, collection, "
                 "backend, title, publisher, source_url, published_on, supersedes, uploaded_by, uploaded_by_username, "
-                "uploaded_by_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "uploaded_by_name, sha256, metadata_missing) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 f"RETURNING {_DOC_COLUMNS}",
                 (
                     kb.slug,
@@ -331,6 +338,8 @@ class KbStore:
                     actor.user_id,
                     actor.username,
                     actor.name,
+                    sha256,
+                    metadata_missing,
                 ),
             )
             return _doc(await cursor.fetchone())
@@ -346,7 +355,8 @@ class KbStore:
             await self._check_supersedes(conn, slug, document_id, metadata.supersedes)
             cursor = await conn.execute(
                 "UPDATE agent.kb_documents SET title = %s, publisher = %s, source_url = %s, published_on = %s, "
-                f"supersedes = %s, updated_at = now() WHERE id = %s RETURNING {_DOC_COLUMNS}",
+                # An administrator's correction is the metadata: the flag of a seeded file clears (ADR-0392).
+                f"supersedes = %s, metadata_missing = false, updated_at = now() WHERE id = %s RETURNING {_DOC_COLUMNS}",
                 (
                     metadata.title,
                     metadata.publisher,

@@ -760,6 +760,12 @@ class KbDocumentRegistration(BaseModel):
     size: int = Field(ge=0)
     object_key: str = Field(min_length=1, max_length=512)
     metadata: KbSourceMetadata
+    sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$", description="The file's SHA-256, computed by the gateway as it stored it."
+    )
+    metadata_missing: bool = Field(
+        default=False, description="The uploader had no source metadata for it (a seeded file without a sidecar)."
+    )
 
 
 class KbDocumentView(BaseModel):
@@ -779,6 +785,10 @@ class KbDocumentView(BaseModel):
     indexed_at: datetime | None = None
     uploaded_by_username: str | None = None
     uploaded_by_name: str | None = None
+    sha256: str | None = Field(default=None, description="The file's SHA-256 (ADR-0392); none before it was recorded.")
+    metadata_missing: bool = Field(
+        default=False, description="Uploaded without its source metadata; cleared when an administrator corrects it."
+    )
 
 
 class KbDocumentList(BaseModel):

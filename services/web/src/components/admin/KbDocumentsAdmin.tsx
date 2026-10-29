@@ -90,6 +90,18 @@ export function MetadataFields({
  * status badge, its earlier and later versions, and a form to correct its metadata. Pending documents
  * are read again every 2 s. Arabic first, Western digits (ADR-0288), no code or JSON to type.
  */
+/** A seeded file uploaded without its sidecar (ADR-0392): the badge, or the line saying what to correct. */
+export function MetadataMissing({ hint = false }: { hint?: boolean }) {
+  const t = useTranslations("kbs");
+  return hint ? (
+    <p className="mt-1 text-xs text-amber-800">{t("metadataMissingHint")}</p>
+  ) : (
+    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800 ring-1 ring-amber-200" data-metadata-missing>
+      {t("metadataMissing")}
+    </span>
+  );
+}
+
 export function KbDocumentsAdmin({ slug }: { slug: string }) {
   const t = useTranslations("kbs");
   const tr = useTranslations();
@@ -284,7 +296,9 @@ export function KbDocumentsAdmin({ slug }: { slug: string }) {
                       {tr(`attachments.status.${d.status}`)}
                     </span>
                     {later && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{t("superseded")}</span>}
+                    {d.metadata_missing && <MetadataMissing />}
                   </div>
+                  {d.metadata_missing && <MetadataMissing hint />}
                   <p className="mt-1 text-xs text-slate-600">
                     <bdi dir="auto">{d.metadata.publisher}</bdi>
                     {" · "}

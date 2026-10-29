@@ -1149,7 +1149,7 @@ curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/capabilities" > "$TMP/caps
 check "the analyst's composer lists moe among its KBs, and the kb capability" jq -e \
   '([.data.knowledge_bases[].slug] | index("moe")) != null and ([.data.capabilities[].slug] | index("kb")) != null' "$TMP/caps-analyst.json"
 check "the analyst's composer never lists a KB it holds no role for" jq -e \
-  '[.data.knowledge_bases[].slug] - ["moe", "intl-economy"] == []' "$TMP/caps-analyst.json"
+  '[.data.knowledge_bases[].slug] - ["moe", "intl-economy", "stats-gov"] == []' "$TMP/caps-analyst.json"
 KB_CONV=$(uuidgen | tr 'A-Z' 'a-z')
 kb_chat "$ANALYST" "$KB_CONV" "كم مدة إجازة الأمومة في نظام العمل في الواحة؟" "$TMP/kb-turn.jsonl" moe
 cp "$TMP/kb-turn.jsonl" build/smoke/kb-turn.jsonl   # kept for diagnosis
@@ -1160,6 +1160,19 @@ check "it cites the document with its KB, KB name, publisher, date and page (I4)
      and .publisher == "وزارة الموارد البشرية في الواحة" and .published_on == "2030-11-01" and (.pages | length > 0))] | length == 1' \
   "$TMP/kb-turn.jsonl"
 printf '        kb answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/kb-turn.jsonl" | head -c 200 | tr '\n' ' ')"
+
+step "seeded KBs: make up left both kb-seed/ KBs ready to the analyst with no manual step (ADR-0392)"
+for slug in intl-economy stats-gov; do
+  folder="kb-seed/$slug"
+  files=$(find "$folder" -maxdepth 1 -type f ! -name kb.yaml ! -name manifest.json ! -name fetch.yaml ! -name README.md ! -name '*.meta.yaml' | wc -l | tr -d ' ')
+  curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/$slug/documents" > "$TMP/seed-$slug.json" || fail "the admin's list of $slug"
+  check "$slug: each of its $files committed files is in the KB, indexed, with its SHA-256" jq -e --argjson n "$files" \
+    '[.data.documents[] | select(.status == "indexed" and (.sha256 | test("^[0-9a-f]{64}$")))] | length >= $n' "$TMP/seed-$slug.json"
+  check "the analyst's composer lists $slug" jq -e --arg s "$slug" '([.data.knowledge_bases[].slug] | index($s)) != null' "$TMP/caps-analyst.json"
+done
+uv run -q scripts/kb_seed.py --wait-s 0 > "$TMP/kb-seed-again.txt" 2>&1 || fail "make kb-seed on a seeded stack"
+tail -1 "$TMP/kb-seed-again.txt" | sed 's/^kb-seed: //' | jq -e 'length >= 2 and all(.[]; .uploaded == 0 and .removed == 0 and .failed_uploads == 0)' >/dev/null \
+  && ok "make kb-seed again uploads nothing: every file is already in its KB (idempotent)" || fail "a second kb-seed uploaded: $(tail -1 "$TMP/kb-seed-again.txt")"
 
 step "phase 08: the viewer, without kb:moe:read, cannot list, toggle, retrieve from or see moe (I7)"
 curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/capabilities" > "$TMP/caps-viewer.json" || fail "the viewer's capabilities"

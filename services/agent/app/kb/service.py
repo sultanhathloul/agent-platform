@@ -192,6 +192,8 @@ class KbService:
         object_key: str,
         metadata: SourceMetadata,
         actor: Actor,
+        sha256: str | None = None,
+        metadata_missing: bool = False,
     ) -> KbDocumentRecord:
         """Raises UnsupportedType, TooManyUploads or InvalidSupersedes; hands the stored file to the
         backend, which indexes it in the background (I2). Answers within `register_response_s`."""
@@ -212,6 +214,8 @@ class KbService:
                 metadata=metadata,
                 backend=getattr(self.backend, "name", "internal"),
                 actor=actor,
+                sha256=sha256,
+                metadata_missing=metadata_missing,
             )
         except BaseException:
             if slot is not None:

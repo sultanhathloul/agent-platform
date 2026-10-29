@@ -816,6 +816,8 @@
     "documentsTitle": "الوثائق",
     "noDocuments": "لا توجد وثائق في هذه القاعدة بعد.",
     "superseded": "إصدار أقدم",
+    "metadataMissing": "بيانات المصدر ناقصة",
+    "metadataMissingHint": "أُضيفت من مجلد kb-seed دون ملف بياناتها: العنوان اسم الملف، والجهة الناشرة والتاريخ مؤقتان. صحّحها من «تعديل بيانات المصدر».",
     "pages": "{pages} صفحة",
     "sourceLink": "المصدر",
     "supersedesLine": "تحل محل: {title}",

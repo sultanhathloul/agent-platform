@@ -280,9 +280,22 @@ class KbProxyTest extends GatewayTestSupport {
         assertThat(sent.path("metadata").path("publisher").asText()).isEqualTo("صندوق النقد الدولي");
         assertThat(sent.path("metadata").path("published_on").asText()).isEqualTo("2026-07-15");
         assertThat(objects().objects).containsKey(sent.path("object_key").asText());
+        // ADR-0392: the stored file's SHA-256, computed by the gateway, and no metadata flag unless asked.
+        assertThat(sent.path("sha256").asText()).isEqualTo(java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(pdf())));
+        assertThat(sent.path("metadata_missing").asBoolean()).isFalse();
         AuditEvent event = auditLog().events().getLast();
         assertThat(event.action()).isEqualTo("kb.document.upload");
         assertThat(event.detail()).containsEntry("document_id", "6f1c0a2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b");
+    }
+
+    @Test
+    void aSeededFileWithoutItsMetadataIsRegisteredFlagged() throws Exception {
+        AGENT.enqueue(json(201, DOCUMENT_VIEW));
+        mvc.perform(upload(admin(), "تقرير.pdf", "2026-07-15").param("metadata_missing", "true"))
+                .andExpect(status().isCreated());
+        JsonNode sent = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.path("metadata_missing").asBoolean()).isTrue();
     }
 
     @Test

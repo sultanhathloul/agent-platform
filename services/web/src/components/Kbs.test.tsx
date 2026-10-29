@@ -13,7 +13,7 @@ import {
 import { renderIn } from "@/test/render";
 import { CitationList } from "./AssistantMessageView";
 import { KbToggles } from "./KbToggles";
-import { MetadataFields } from "./admin/KbDocumentsAdmin";
+import { MetadataFields, MetadataMissing } from "./admin/KbDocumentsAdmin";
 
 // Test-only slugs: no web file names a knowledge base.
 const KBS: KbToggle[] = [
@@ -144,5 +144,13 @@ describe("the admin's source metadata (D3, I5)", () => {
     expect(ar).toContain("t-a — p — 2031-01-01");
     const en = text(renderIn("en", <MetadataFields draft={EMPTY_METADATA} onChange={() => {}} problems={["title"]} choices={[]} />));
     expect(en).toContain("Publication date");
+  });
+});
+
+describe("a seeded document without its sidecar (ADR-0392)", () => {
+  it("is flagged on its admin page in Arabic and English", () => {
+    expect(text(renderIn("ar", <MetadataMissing />))).toBe("بيانات المصدر ناقصة");
+    expect(text(renderIn("ar", <MetadataMissing hint />))).toContain("تعديل بيانات المصدر");
+    expect(text(renderIn("en", <MetadataMissing />))).toBe("Metadata missing");
   });
 });

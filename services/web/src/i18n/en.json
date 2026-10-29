@@ -816,6 +816,8 @@
     "documentsTitle": "Documents",
     "noDocuments": "This knowledge base has no documents yet.",
     "superseded": "Older version",
+    "metadataMissing": "Metadata missing",
+    "metadataMissingHint": "Added from the kb-seed folder without its sidecar: the title is the file name, and the publisher and date are placeholders. Correct them with “Edit source details”.",
     "pages": "{pages} pages",
     "sourceLink": "Source",
     "supersedesLine": "Supersedes: {title}",

@@ -1067,10 +1067,14 @@ export interface components {
             /** @enum {string} */
             kind: "pdf" | "docx" | "xlsx" | "txt" | "md";
             metadata: components["schemas"]["SourceMetadata"];
+            /** @description Uploaded without its source metadata; cleared when an administrator corrects it */
+            metadata_missing?: boolean;
             name: string;
             /** Format: int32 */
             pages?: number;
             reason?: string;
+            /** @description The file's SHA-256, computed by the gateway as it stored it (ADR-0392) */
+            sha256?: string;
             /** Format: int64 */
             size: number;
             /** @enum {string} */
@@ -1897,6 +1901,8 @@ export interface operations {
                 published_on: string;
                 source_url?: string;
                 supersedes?: string;
+                /** @description The uploader has no source metadata for it: the admin page flags it (ADR-0392) */
+                metadata_missing?: boolean;
             };
             header?: never;
             path: {

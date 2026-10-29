@@ -321,6 +321,15 @@
           "schema" : {
             "type" : "string"
           }
+        }, {
+          "description" : "The uploader has no source metadata for it: the admin page flags it (ADR-0392)",
+          "in" : "query",
+          "name" : "metadata_missing",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
         } ],
         "requestBody" : {
           "content" : {
@@ -3868,6 +3877,10 @@
           "metadata" : {
             "$ref" : "#/components/schemas/SourceMetadata"
           },
+          "metadata_missing" : {
+            "type" : "boolean",
+            "description" : "Uploaded without its source metadata; cleared when an administrator corrects it"
+          },
           "name" : {
             "type" : "string"
           },
@@ -3877,6 +3890,10 @@
           },
           "reason" : {
             "type" : "string"
+          },
+          "sha256" : {
+            "type" : "string",
+            "description" : "The file's SHA-256, computed by the gateway as it stored it (ADR-0392)"
           },
           "size" : {
             "type" : "integer",
