@@ -379,3 +379,19 @@ def test_the_strip_lists_the_writers_call_then_each_call_that_produced_findings(
         ("كتابة التقرير", "heavy", 40.0), ("نتائج: الاتجاهات والمسارات", "fast", 1.5)
     ]
     assert calls[0].provider_and_model == ("openrouter", "m-heavy")
+
+
+def test_the_table_of_the_item_6_run_matches_by_series_and_chart_title_across_word_forms():
+    """Table 1 of the Q2 2026 labour bulletin: «سعودي» rows, a chart of «سعوديون» and the total series under a
+    chart titled «معدل البطالة» (the item 6 run marked these «غير متوفر», ADR-0399)."""
+    labels = FigureLabels(GENERAL, sourced=True, unavailable=UNAVAILABLE)
+    labels.add(["المؤشرات الربع الثاني 2025 الربع الاول 2026 معدل البطالة 2.0 8.7 3.2 2.2 7.2 3.1 "
+                "سعودي 4.3 11.3 6.8 4.9 9.0 6.4"], KB, passage=True)
+    page, _ = build(
+        '<html><body><script type="application/json" id="report-data">{"charts":{"u":{"type":"line",'
+        '"title":"معدل البطالة (%)","labels":["الربع الثاني 2025","الربع الأول 2026"],"datasets":['
+        '{"label":"الإجمالي","data":[3.2,3.1]},{"label":"سعوديون","data":[6.8,6.4]}]}}}</script></body></html>',
+        labels=labels,
+    )
+    data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))["charts"]["u"]["datasets"]
+    assert [d["data"] for d in data] == [[3.2, 3.1], [6.8, 6.4]] and all("unavailable" not in d for d in data)

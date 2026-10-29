@@ -158,7 +158,7 @@ def _replaced(text: str, labels: FigureLabels, count: FigureCount, context: Sequ
 def mark_data(data: dict, labels: FigureLabels, count: FigureCount) -> dict:
     """Gives each point, and each axis label that holds a figure, its source label (ADR-0388): the kit
     shows them in the chart's tooltips and in a note under it, and draws general-knowledge points dashed.
-    A point is matched with its category and its series as its row and column labels (ADR-0399); on a
+    A point is matched with its category, its series and the chart's title as its labels (ADR-0399); on a
     sourced turn a point no source holds is dropped (null) and its label reads «غير متوفر» (ADR-0398)."""
     for chart in data["charts"].values():
         series = [d["label"] for d in chart["datasets"]]
@@ -177,7 +177,7 @@ def mark_data(data: dict, labels: FigureLabels, count: FigureCount) -> dict:
                     sources.append(None)
                     continue
                 category = chart["labels"][i] if i < len(chart["labels"]) else ""
-                label = _label(canonical_number(value), labels, count, [category, dataset["label"]])
+                label = _label(canonical_number(value), labels, count, [category, dataset["label"], chart["title"]])
                 sources.append(label.text)
                 if label.kind == "general":
                     general.append(i)

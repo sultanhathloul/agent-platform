@@ -18,8 +18,9 @@ knowledge. Nothing comes from an earlier turn. Number words on the source side a
 first (phase 08, ADR-0359). Rounding, unit changes (1.2 million for 1,200,000) and arithmetic are not
 matched: the safe side of D2.
 
-A label matches a passage when one of its words (light-stemmed, generic words such as «عدد» or "total"
-left out) is a word of the passage. A label with no letter in the passage's script (an English page over
+A label matches a passage when one of its words is a word of the passage: words are light-stemmed and
+their number and nisba endings folded («سعوديون», «للسعوديين» and «سعودي» are one word), and generic words
+such as «عدد» or "total" are left out. A label with no letter in the passage's script (an English page over
 an Arabic passage, ADR-0396) cannot be matched word for word: the figure alone decides there (ADR-0399).
 
 Linear in the text: one regular-expression pass per text, set lookups."""
@@ -108,12 +109,24 @@ _GENERIC = frozenset(
     w
     for text in (
         "من في على الى عن مع حسب بين خلال هذا هذه التي الذي ذلك عدد نسبه اجمالي مجموع معدل قيمه متوسط"
-        " المملكه السعوديه العربيه سنه عام الربع الاول الثاني الثالث الرابع شهر مليون الف",
+        " المملكه سنه عام الربع الاول الثاني الثالث الرابع شهر مليون الف",
         "the and for with from per total number rate share value average year quarter month saudi arabia"
         " kingdom million thousand percent",
     )
     for w in search_terms(text)
 )
+# Plural and nisba endings, folded so a label's word meets the passage's other form (ADR-0399).
+_PLURAL = ("ون", "ين", "ات")
+_NISBA = ("يه", "ه", "ي")
+
+
+def _key(word: str) -> str:
+    for endings in (_PLURAL, _NISBA):
+        for ending in endings:
+            if word.endswith(ending) and len(word) - len(ending) >= 3:
+                word = word[: -len(ending)]
+                break
+    return word
 _ARABIC = re.compile(r"[\u0600-\u06ff]")
 _LATIN = re.compile(r"[A-Za-z]")
 
@@ -123,7 +136,9 @@ def words(texts: Iterable[str]) -> set[str]:
     found: set[str] = set()
     for text in texts:
         if text:
-            found.update(w for w in search_terms(text) if len(w) >= 3 and not w.isdigit() and w not in _GENERIC)
+            found.update(
+                _key(w) for w in search_terms(text) if len(w) >= 3 and not w.isdigit() and w not in _GENERIC
+            )
     return found
 
 
