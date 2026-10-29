@@ -60,6 +60,11 @@ def report_needs(state: AgentState, ctx: TurnContext) -> list[str]:
     return [block for block in BLOCK_NAMES if block in wanted]
 
 
+def _capability_name(ctx: TurnContext, slug: str, locale: str) -> str:
+    name = ctx.services.registry.get(slug).manifest.name
+    return name.en if locale == "en" else name.ar
+
+
 def figure_labels(
     state: AgentState, ctx: TurnContext, sources: list[dict], previous: dict, text: ReportText
 ) -> FigureLabels:
@@ -82,7 +87,7 @@ def figure_labels(
         labels.add([ctx.evidence.get(source.get("ref") or "", ""), *source_texts(source)], label)
     for output in state.get("capability_outputs") or []:
         if output.get("findings"):
-            name = ctx.services.registry.get(output["capability"]).manifest.name.of(locale)
+            name = _capability_name(ctx, output["capability"], locale)
             labels.add([output["findings"]], Label("capability", text.source_label.of(locale).format(name=name)))
     labels.add([state.get("user_message") or ""], Label("message", text.message_label.of(locale)))
     labels.keep(previous)
@@ -106,7 +111,7 @@ def model_calls(ctx: TurnContext, written: ModelResult, locale: str, text: Repor
 
     calls = [call(info.wrote.of(locale), written)]
     for slug, result in ctx.finding_calls:
-        name = ctx.services.registry.get(slug).manifest.name.of(locale)
+        name = _capability_name(ctx, slug, locale)
         calls.append(call(info.findings.of(locale).format(name=name), result))
     return calls
 

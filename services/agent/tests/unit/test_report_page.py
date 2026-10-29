@@ -311,7 +311,9 @@ def test_the_strip_lists_the_writers_call_then_each_call_that_produced_findings(
         return ModelResult(text="", tier=alias, served_model=f"openrouter/m-{alias}", tokens_in=10, tokens_out=2,
                            usage_reported=True, alias=alias, duration_s=seconds)
 
-    manifest = SimpleNamespace(name=SimpleNamespace(of=lambda locale: "الاتجاهات والمسارات"))
+    from app.capabilities.contract import Localized
+
+    manifest = SimpleNamespace(name=Localized(ar="الاتجاهات والمسارات", en="Directions and routes"))
     ctx = SimpleNamespace(
         finding_calls=[("directions", result("fast", 1.5))],
         services=SimpleNamespace(registry=SimpleNamespace(get=lambda slug: SimpleNamespace(manifest=manifest))),

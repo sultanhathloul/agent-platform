@@ -366,3 +366,46 @@ async def test_kb_metadata_dates_are_iso_and_kept(services, api):
     await _create(api, slug)
     view = await _document(services, api, slug, LABOR, title="نظام", published_on="2029-12-31", ingest=False)
     assert date.fromisoformat(view["metadata"]["published_on"]) == date(2029, 12, 31)
+
+
+async def test_a_report_over_a_kb_labels_its_figures_with_the_kbs_name(services, api):
+    # Owner decision A (ADR-0388, ADR-0389), over a capability that returns findings: a figure the KB holds
+    # reads «من: <KB name>», one the model adds reads «من المعرفة العامة».
+    trade = _slug()
+    await _create(api, trade, name_ar="التجارة")
+    await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
+    page = ('<!doctype html><html><head><title>لوحة التمور</title></head><body><main class="kit-page">'
+            '<div class="kit-kpi-value">812</div><p>ونمت 7.5 بالمئة.</p></main></body></html>')
+    swapped, _ = replacing(services, {"report_writer": page})
+    request = TurnRequest(conversation_id=str(uuid.uuid4()), principal=_reader(f"kb:{trade}:read"),
+                          message="اعمل لوحة مؤشرات عن صادرات التمور", locale="ar", selected_kbs=[trade], output="report")
+    events = [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, "req-kb-report")]
+    assert events[-1]["type"] == "done", events[-1]
+    html = "".join(e["data"]["text"] for e in events if e["type"] == "artifact_delta")
+    assert 'data-kit-source="kb" data-kit-label="من: التجارة" title="من: التجارة">812</span>' in html
+    assert 'data-kit-source="general" data-kit-label="من المعرفة العامة" title="من المعرفة العامة">7.5</span>' in html
+
+
+async def test_a_registration_keeps_the_files_hash_and_a_missing_metadata_flag_until_corrected(services, api):
+    # Owner decision B (ADR-0392): the seed step's idempotence and the admin page's flag.
+    slug = _slug()
+    await _create(api, slug)
+    digest = "ab" * 32
+    response = await api.post(
+        f"/v1/admin/kbs/{slug}/documents",
+        json={"name": "يدوي.pdf", "mime": "application/pdf", "size": 3, "object_key": f"kb/{slug}/{uuid.uuid4()}",
+              "metadata": {"title": "يدوي.pdf", "publisher": "جهة", "published_on": "2026-10-29"},
+              "sha256": digest, "metadata_missing": True},
+        headers=_admin(),
+    )
+    assert response.status_code == 201, response.text
+    view = response.json()
+    assert view["sha256"] == digest and view["metadata_missing"] is True
+    listed = (await api.get(f"/v1/admin/kbs/{slug}/documents", headers=_admin())).json()["documents"]
+    assert [(d["sha256"], d["metadata_missing"]) for d in listed] == [(digest, True)]
+    corrected = await api.put(
+        f"/v1/admin/kbs/{slug}/documents/{view['id']}/metadata",
+        json={"title": "تقرير يدوي", "publisher": "الهيئة", "published_on": "2026-10-01"}, headers=_admin(),
+    )
+    assert corrected.status_code == 200 and corrected.json()["metadata_missing"] is False
+    assert corrected.json()["sha256"] == digest
