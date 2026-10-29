@@ -127,7 +127,7 @@ class AdminSettingsProxyTest extends GatewayTestSupport {
                 .containsEntry("version", 5L)
                 .containsEntry("change", "save")
                 .containsEntry("actor_username", "analyst")
-                .containsEntry("actor_name", "سارة المحللة");
+                .containsEntry("actor_name", "سلطان الهذلول");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> changes = (List<Map<String, Object>>) event.detail().get("changes");
         assertThat(changes).hasSize(1);

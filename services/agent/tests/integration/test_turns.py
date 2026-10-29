@@ -14,7 +14,7 @@ USER = {
     "user_id": "u-1",
     "tenant_id": "default",
     "permissions": ["cap:general"],
-    "display_name": "سارة",
+    "display_name": "سلطان",
     "locale": "ar",
 }
 

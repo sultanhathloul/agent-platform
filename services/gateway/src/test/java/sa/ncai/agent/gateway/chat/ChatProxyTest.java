@@ -90,7 +90,7 @@ class ChatProxyTest extends GatewayTestSupport {
         // roles never reach the agent; this caller holds no role with a tier cap (ADR-0046)
         assertThat(principal.has("roles")).isFalse();
         assertThat(principal.has("max_tier")).isFalse();
-        assertThat(principal.path("display_name").asText()).isEqualTo("سارة المحللة");
+        assertThat(principal.path("display_name").asText()).isEqualTo("سلطان الهذلول");
         assertThat(principal.path("locale").asText()).isEqualTo("ar");
 
         AuditEvent event = singleAudit();
