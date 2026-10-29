@@ -362,8 +362,6 @@ def _record_failure(span: Any, slug: str, reason: str) -> None:
     log.warning("capability %s failed: %s", slug, reason)
 
 
-@traced("run_capabilities")
-
 @dataclass(frozen=True)
 class _ReportRetrieval:
     """What a report turn's retrieving capabilities read (ADR-0401 to ADR-0403)."""
@@ -402,6 +400,7 @@ async def _report_retrieval(state: AgentState, ctx: TurnContext) -> _ReportRetri
     )
 
 
+@traced("run_capabilities")
 async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
     services = ctx.services
