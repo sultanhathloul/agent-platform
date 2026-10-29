@@ -97,7 +97,10 @@ _GENERIC = frozenset(
     w
     for text in (
         "من في على الى عن مع حسب بين خلال هذا هذه التي الذي ذلك عدد نسبه اجمالي مجموع معدل قيمه متوسط"
-        " المملكه سنه عام الربع الاول الثاني الثالث الرابع شهر مليون الف",
+        " المملكه سنه عام الربع الاول الثاني الثالث الرابع شهر مليون الف"
+        # Words nearly every statistical table's title holds («التوزيع النسبي … حسب الجنسية والجنس - سلسلة
+        # زمنية»): they never tell one measure from another (item 6 run 7, ADR-0410).
+        " توزيع نسبي جنس جنسيه سلسله زمنيه احصاءات",
         "the and for with from per total number rate share value average year quarter month saudi arabia"
         " kingdom million thousand percent",
     )
