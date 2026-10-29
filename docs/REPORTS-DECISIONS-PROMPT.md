@@ -17,3 +17,12 @@ C. Development model info on reports: a small footer strip at the end of every r
 D. Script check on reports: report_b276fb00 v2 contained Chinese characters inside Arabic text («أندريه في拉斯»). Apply the same allowed-script validation used for text answers to the report's visible text and report-data; on failure, regenerate once with the failure named in the prompt, then fail with the existing validation message. Test with a report containing CJK in Arabic.
 
 Then make test, make smoke, and the reports eval suite (rule 13: report prompts and checks changed); record per CLAUDE.md rule 11. Push. Do not touch docs/HANDOFF.md.
+
+# Owner decisions on PR #17 (2026-10-29, second message), verbatim
+
+Owner decisions, on PR #17 in their own commits (ADRs):
+1. A capability floor only raises a tier, never lowers it: the tier for any call is max(the role's default tier, the floors of the capabilities it runs for). Fix the resolver (core change approved) and README §19.3 if its wording says otherwise. Tests: report_writer over a kb turn resolves to heavy; a role whose default is below a floor is still raised to the floor; the tier event's reason names both. Remove the BACKLOG line for this finding.
+2. «من: طلبك» / "From: your request" is accepted.
+3. kb-fetch takes the latest edition of each publication series, not the latest year of the whole category: every series in the ten categories keeps its own newest edition (for example health status 2025 beside the 2026 series). Re-run make kb-fetch, commit the added documents with sidecars, and report per category the series and the edition taken.
+4. A report's title, headings and labels follow the language of the request (English request → English title), whatever the sources' language. Add the two eval cases that failed this as gated.
+Then from a clean stack: make test, make smoke, and the reports and routing eval suites (rule 13: routing and report prompts changed); record per CLAUDE.md rule 11. Push. Do not touch docs/HANDOFF.md.

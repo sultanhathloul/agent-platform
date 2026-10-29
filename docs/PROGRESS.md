@@ -2383,6 +2383,18 @@ Pages for the owner's visual check (http://localhost:3000)
 2. The strip at the page's end (development), and in the downloaded file.
 3. /admin/kbs/stats-gov (admin): 25 documents, indexed; drop a file into kb-seed/stats-gov/ without a sidecar, run `make kb-seed`, and see «بيانات المصدر ناقصة» on it until its metadata is saved.
 
+### Owner decisions 1 to 4 on PR #17 (2026-10-29, same branch)
+
+- The message is kept verbatim at the end of `docs/REPORTS-DECISIONS-PROMPT.md`. Baseline: the results above (agent 1210, gateway 214, gateway-db 5, web 213, evals harness 39, timeout budget 39, scripts/tests 26; smoke 258/258; reports 12/12).
+- Done when: make test and make smoke green, the reports and routing suites run, from a clean stack, recorded per rule 11; pushed.
+
+Checklist
+- [x] 1. Tier = max(role default, capability floors); README §19.3; tests; BACKLOG line removed (ADR-0394).
+- [x] 2. «من: طلبك» / "From: your request" accepted (ADR-0389's status).
+- [ ] 3. kb-fetch: the newest edition of every publication series in the ten categories; re-run; per-category report of series and editions.
+- [ ] 4. A report's title, headings and labels in the request's language; the two failing cases gated.
+- [ ] 5. From a clean stack: make test, make smoke, make eval s=reports and s=routing; rule 11; push.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
