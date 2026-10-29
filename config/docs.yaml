@@ -92,8 +92,11 @@ retrieval:
   text_top_k: 30
   rrf_k: 60
   top_k: 8
-  # On a report turn, which builds every figure from the passages (ADR-0401); docs_search allows 20.
-  report_top_k: 20
+  # On a report turn (ADR-0401, ADR-0403): the general search, each planned chart or table, and the cap on
+  # the turn's passages with an edit's re-fetched ones (ADR-0402); docs_search allows 20 per call.
+  report_top_k: 12
+  report_section_k: 4
+  report_max_passages: 40
   # Knowledge bases (phase 08, D3): when a chunk of an older version of a source and one of its
   # latest version are both found, this many older chunks stay, right after the latest version's
   # best chunk, so the answer may note the change; the rest are dropped (app/rag/versions.py).

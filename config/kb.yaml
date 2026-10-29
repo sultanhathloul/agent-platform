@@ -9,4 +9,9 @@ backend: internal
 
 retrieval:
   top_k: 8                     # passages for the answer, across the selected knowledge bases (I4)
-  report_top_k: 20             # on a report turn, which builds every figure from the passages (ADR-0401); kb_search allows 20
+  # A report turn builds every figure from the passages (ADR-0401, ADR-0403): the general search takes
+  # report_top_k, each planned chart or table report_section_k, and the turn keeps at most
+  # report_max_passages with the passages an edit re-fetches (ADR-0402). kb_search allows 20 per call.
+  report_top_k: 12
+  report_section_k: 4
+  report_max_passages: 40

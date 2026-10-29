@@ -15,8 +15,10 @@ metadata (titles, publishers, dates); a capability's findings (same rule as a pa
 message. Anything else is not in the findings and reads «غير متوفر» / "Not available" in place of the
 number. On an unsourced turn no matching is done: every figure is the model's own, labelled general
 knowledge. Nothing comes from an earlier turn. Number words on the source side are folded to digits
-first (phase 08, ADR-0359). Rounding, unit changes (1.2 million for 1,200,000) and arithmetic are not
-matched: the safe side of D2.
+first (phase 08, ADR-0359). A source figure stated with more than two decimals (a statistical
+workbook's cell, 83.60299013) also matches its value rounded half up to one or two decimals (83.6, 83.60),
+as a page writes it (ADR-0404); no other rounding, no unit changes (1.2 million for 1,200,000) and no
+arithmetic are matched: the safe side of D2.
 
 A label matches a passage when one of its words is a word of the passage: words are light-stemmed and
 their number and nisba endings folded («سعوديون», «للسعوديين» and «سعودي» are one word), and generic words
@@ -28,6 +30,7 @@ Linear in the text: one regular-expression pass per text, set lookups."""
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.text.arabic import fold_number_words, search_terms
 
@@ -78,13 +81,25 @@ def spans(text: str) -> list[tuple[int, int, str]]:
     return [(m.start(), m.end(), canonical(m.group(0))) for m in FIGURE.finditer(text) if not _glued(text, m.start(), m.end())]
 
 
+def rounded(figure: str) -> list[str]:
+    """A canonical figure with more than two decimals, rounded half up to one and two decimals (ADR-0404)."""
+    whole, _, fraction = figure.partition(".")
+    if len(fraction) <= 2:
+        return []
+    value = Decimal(figure)
+    return [canonical(str(value.quantize(Decimal(step), rounding=ROUND_HALF_UP))) for step in ("0.1", "0.01")]
+
+
 def figures(texts: Iterable[str]) -> set[str]:
-    """The canonical figures of source texts, number words folded to digits first."""
+    """The canonical figures of source texts, number words folded to digits first, with a precise figure's
+    one- and two-decimal roundings."""
     found: set[str] = set()
     for text in texts:
         if text:
             folded = fold_number_words(text)
-            found.update(c for _, _, c in spans(folded))
+            for _, _, c in spans(folded):
+                found.add(c)
+                found.update(rounded(c))
             # A date written 2031-07-20 or 20/7/2031 gives its parts, as figures a page may state.
             for date in _DATE.findall(folded.translate(_INDIC)):
                 found.update(canonical(part) for part in re.findall(r"\d+", date))
