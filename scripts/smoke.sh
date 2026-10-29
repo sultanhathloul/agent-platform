@@ -1255,7 +1255,10 @@ tr -d '\r' < "$TMP/report-view.headers" | grep -qi '^x-frame-options:' && fail "
 tr -d '\r' < "$TMP/report-view.headers" | grep -qi '^x-content-type-options: nosniff' && ok "the view is nosniff" || fail "the view is not nosniff"
 grep -q '<html lang="ar" dir="rtl">' "$TMP/report-view.html" && ok "the Arabic page is dir=rtl" || fail "the Arabic page is not dir=rtl"
 grep -q "<link rel=\"stylesheet\" href=\"$GW/report-kit/v1/kit.css\">" "$TMP/report-view.html" && ok "the view links the kit from the gateway's kit path" || fail "the view does not link the kit"
-grep -q 'data-kit="sources"' "$TMP/report-view.html" && ok "the page ends with its sources section" || fail "the page has no sources section"
+# A report with no KB, file or findings opens with the general-knowledge line and has no sources section (ADR-0408).
+grep -q 'data-kit="general"' "$TMP/report-view.html" && ! grep -q 'data-kit="sources"' "$TMP/report-view.html" \
+  && ok "the general-knowledge page opens with its general line and has no sources section (ADR-0408)" \
+  || fail "the general-knowledge page lacks its general line or has a sources section"
 code=$(curl -s -D "$TMP/kit.headers" -o /dev/null -w '%{http_code}' "$GW/report-kit/v1/kit.css")
 [[ $code == 200 ]] && tr -d '\r' < "$TMP/kit.headers" | grep -qi '^access-control-allow-origin: \*' \
   && ok "the kit is served by the platform (kit.css 200, readable from the sandboxed page's opaque origin)" || fail "kit.css returned $code"
