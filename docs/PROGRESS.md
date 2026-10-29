@@ -2547,6 +2547,113 @@ Re-run (analyst; conversation 5affa699-349b-4d6d-b73a-e4eb5a0b44ee, then 9674254
 - Al Hilal with nothing toggled: report 89c8a1d7 v1 «نادي الهلال السعودي», the general-knowledge line, no sources, every element "general"; KPI rows of four and two; the founding year was written «1,957» (fixed after, years unformatted).
 - Browser check of report 7f3e3c85 v2's view, dark then light: legend marks on the right of their labels with clear gaps, no overlap; categories from the right («السعوديون» first), value axis on the right; KPIs in a balanced row of two. Seen: the stacked bar still holds a «الإجمالي» category beside its parts, against report.system 2.1.0's rule (the model did not keep it).
 
+### Owner decision on PR #17: totals leave charts (ADR-0418), then the final before-merge runs (2026-10-29)
+
+- Owner decision: a total («الإجمالي» / total) beside its own parts leaves a chart, as a category or a series; a total alone stays; a chart left with fewer than two categories is dropped and named in the reply. 36dd0fa (ADR-0418), with tests for a stacked bar, a pie and a grouped bar.
+- Then the final before-merge runs (owner decision: all report changes are complete), from a fresh stack, nothing started by hand. Rule 13: prompts, routing and retrieval changed, so make eval runs three times with all suites.
+- Fixes found by these runs, each its own commit:
+  - 4451311: a general report counted no values (`figures` 0); five tests still assumed the rules before ADR-0416 and ADR-0418.
+  - 4957b7e: the gateway admin test's percent-encoded display name, missed by the analyst's rename in 0365ac4.
+  - 894872e (ADR-0419): a figure a passage writes in words («واحد وعشرون يوما») was never found in prose, so reports/kb-gulf-leave ended as nothing found.
+  - 4887b71: the smoke check for a general report still asked for a sources section (ADR-0408).
+- `docs/HANDOFF.md` untouched.
+
+Fresh stack
+- make clean 15:33:36Z–15:33:50Z rc 0; make models rc 0.
+- make up 15:33:50Z–15:39:14Z: **rc 2**. The seed upload of «Persons with Disability Statistics Report 2023 AR (1).pdf» (1,555,001 bytes) failed with `[Errno 54] Connection reset by peer`, just after the gateway turned healthy.
+  - Retried once, 15:39:36Z–15:39:51Z, rc 0: 1 uploaded and indexed.
+  - kb_documents: intl-economy md 1 indexed; stats-gov pdf 43 indexed (extractor 2) and xlsx 32 indexed (extractor 4).
+- After the ADR-0419 fix, make up 18:48:50Z–18:49:14Z rc 0 rebuilt the agent at 894872e; the volumes and seed were unchanged.
+
+make test (passed / failed / skipped)
+1. 15:39:56Z–15:51:33Z at 36dd0fa: **failed**, agent 1235 / 7 / 0. make stopped after the agent layer.
+   - The failures:
+     - test_reports: the general report's `figures` was 0 (a code bug), the strip-after-sources assertion, and the `kit-kpis` class.
+     - test_report_kit: `"Chart("` matched `readChart(`.
+     - test_report_spec: two gap tests whose one-series chart now loses its empty category and is dropped (ADR-0416).
+     - test_turn_limits::test_a_tenant_at_its_share_leaves_another_tenant_unaffected: the other tenant's turn took 3.29 s against 0.08 s alone. The log shows `remaining connection slots are reserved for roles with the SUPERUSER attribute` (the Postgres connection limit seen before on this branch).
+   - The log's "rc=0" was misread: `$?` was taken after `$(date)`, and the make line shows `Error 1`.
+2. 15:55:01Z–16:08:04Z at 4451311: **failed**. Agent 1242 / 0 / 0 (turn_limits passed); gateway 213 / 1 / 0: AdminPolicyProxyTest.anAdminListsPoliciesWithTheCallerForwarded expected the old percent-encoded display name. make stopped there.
+3. 16:08:41Z–16:22:59Z at 4957b7e, rc 0:
+
+   | Layer | Passed / failed / skipped |
+   |---|---|
+   | agent | 1242 / 0 / 0 |
+   | gateway | 214 / 0 / 0 |
+   | gateway-db | 5 / 0 / 0 |
+   | web | 221 / 0 / 0 (19 files) |
+   | evals harness | 40 / 0 / 0 |
+   | timeout budget | 39 / 0 / 0 (self-test 39 / 0 / 0) |
+   | scripts/tests | 32 / 0 / 0 |
+
+4. After ADR-0419, 18:49:14Z–19:03:06Z at 894872e, rc 0: agent **1243** / 0 / 0 (the new test), and every other layer as in run 3.
+   - Against the previous recorded run (c5a7e6c): agent +45, gateway +1, web +10, evals harness +4, scripts/tests +15. No layer is lower.
+
+make eval, all suites (every run: 0 provider retries, no provider refusal or timeout before a tool call)
+- Runs 1–3 at 4957b7e. **reports FAIL in all three** on one case, reports/kb-gulf-leave.
+  - The case ended with the nothing-found reply («لا تحوي المصادر المختارة (أنظمة العمل في الواحة) بيانات عن هذا الموضوع…»).
+  - Cause: the labour law writes its figures in words, and prose units were cut from digits only (ADR-0419).
+  - Before ADR-0416, the same page had kept its text, so the case passed this morning (make-eval-20261029T103733Z).
+  - Fixed in 894872e; runs 4–6 are the retry.
+  1. make-eval-20261029T162319Z, 16:23:19Z–17:12:57Z, rc 2:
+     - guardrails 142/142; rag 51/53; rag@mcp 52/53; routing 112/113 (1 lost, validation_failed); directions 26/27; general 28/28; kb 29/31; internal-comms 11/11; official_memo 8/8.
+     - **reports 11/12 FAIL**: form_chosen 0.92, every page metric 0.90 (10) or 0.83 (6), the one case.
+  2. make-eval-20261029T171258Z, 17:12:57Z–18:00:17Z, rc 2:
+     - **reports 11/12 FAIL** (the same case).
+     - **directions 25/27 FAIL**: unknown_or_ambiguous_handled 0.86 (7) < 0.90. ambiguous-msa-university was answered «يرجى تحديد مدينة الانطلاق ومدينة الوصول.» without the candidates (the known case of the previous record).
+     - routing 112/113 (2 lost, validation_failed); kb 28/31 (cross_kb_attribution 0.92); the rest PASS.
+  3. make-eval-20261029T180017Z, 18:00:17Z–18:46:23Z, rc 2:
+     - **reports 11/12 FAIL** (the same case).
+     - kb 31/31; routing 112/113 (skill-none-letter-directions routed to directions and general); the rest PASS.
+- Runs 4–6 at 894872e (reports 12/12 in each):
+  4. make-eval-20261029T190307Z, 19:03:06Z–19:53:59Z, rc 2:
+     - **rag@mcp 50/53 FAIL**: abstention 0.83 (6) < 0.90. leave-housing abstained («لم أجد معلومات حول بدل السكن…») but showed a source line.
+     - Other rag@mcp metrics: citation page accuracy 0.91, faithfulness 0.98, answer correctness 0.89.
+     - guardrails 142/142; rag 51/53; routing 113/113; directions 26/27; general 28/28; kb 29/31; internal-comms 11/11; official_memo 8/8; reports 12/12 PASS.
+  5. make-eval-20261029T195359Z, 19:53:59Z–20:42:49Z, rc 2:
+     - **directions 26/27 FAIL**: unknown_or_ambiguous_handled 0.86, the same ambiguous-msa-university answer.
+     - rag 53/53; rag@mcp 51/53; routing 113/113; kb 29/31; reports 12/12; the rest PASS.
+  6. make-eval-20261029T204249Z, 20:42:49Z–21:29:59Z, rc 0, **every suite PASS**:
+     - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53).
+     - rag 50/53: hit@8 1.00, citation page accuracy 0.91, faithfulness 0.99, answer correctness 0.87, abstention 1.00.
+     - rag@mcp 52/53: 1.00, 0.97, 0.99, 0.88, 1.00.
+     - routing 113/113 (keyword_free 0/9 and skill_keyword_free 0/5 reported).
+     - directions 26/27: places_resolved 0.94, distance_duration_correct 1.00, unknown_or_ambiguous_handled 1.00, injection_no_effect 1.00.
+     - general 28/28.
+     - kb 29/31: hit_at_8 1.00, citation_accuracy 0.87, latest_version 1.00, cross_kb_attribution 1.00, abstention 1.00; facts_kept 1.00 reported.
+     - internal-comms 11/11.
+     - official_memo 8/8 (no_invented_fields 0.60 and facts_kept 0.80 reported).
+     - reports 12/12: every gated metric 1.00; visual_quality 0.80 reported.
+- What failed in runs 4–6 was in suites this PR does not change: directions (manifest, prompts, dataset and server unchanged) and rag@mcp's abstention (the docs capability). Both are model answers; neither is a provider refusal or a timeout. The owner decides whether runs 4–6 meet the before-merge gate.
+- Misses that recur and stay below threshold: the rag twenty-past-truncation citation pages, and kb latest-inflation-ar and latest-growth-gulf citation_accuracy (both known; the citation-by-claim item in BACKLOG).
+
+make smoke and make smoke-airgap
+1. At 894872e:
+   - make smoke 21:29:59Z–21:34:53Z: **failed** at «the page has no sources section» (246 checks passed before it). The smoke check for a general-knowledge report predates ADR-0408. Evidence: build/smoke/report-turn.jsonl.
+   - make smoke-airgap 21:34:53Z–21:42:55Z: **failed** at the same check (252 passed before it).
+2. Retried once after 4887b71 (the check now asks for the general line and no sources section):
+   - make smoke 21:43:50Z–21:48:39Z: **256/256**, rc 0 (baseline 253).
+   - make smoke-airgap 21:48:39Z–21:55:57Z: **264/264**, rc 0 (baseline 259).
+
+Pages for the owner's visual check (http://localhost:3000, analyst/analyst; each in light and dark with the header's theme toggle, then the report page's own toggle)
+1. The platform's identity: the login, the chat, and /admin as an administrator, in light and dark (logo, palm green and gold, IBM Plex Sans Arabic). The Keycloak login page is not themed (backlog).
+2. A sourced dashboard: toggle «إحصاءات الهيئة العامة للإحصاء», pick «تقرير تفاعلي» and ask «اعمل لوحة مؤشرات عن سوق العمل في المملكة». Check:
+   - KPI rows balanced;
+   - no chart holds a «الإجمالي» category or series beside its parts (ADR-0418);
+   - legend and axes read right to left with no overlap;
+   - the «المصادر» section lists each document with its elements, and «—» where a value was not found;
+   - the reply names what was left out.
+3. An edit on the same subject: «أضف رسمًا دائريًا لتوزيع المشتغلين حسب الجنس» gives version 2, or a reply that says what it could not add.
+4. Nothing found: with stats-gov toggled, «سوّ لي لوحة عن نادي الهلال» ends with a plain reply and no panel.
+5. General knowledge: untoggle every KB and ask the same; the page opens with the general-knowledge line and has no sources section; a founding year reads «1957».
+6. A KB fact written in words: as evaluator, toggle «أنظمة العمل في الواحة» and ask «سوّ لي لوحة معلومات عن إجازات العامل في الواحة»; 21 and 30 days are shown and sourced (ADR-0419).
+7. The chips under an answer: one per tool with its count, one per tier; the guard chips only for an administrator.
+
+Files for human review
+- config/artifacts/report.yaml (v2.2.0 texts), config/artifacts/design-system.md (2.1.0), config/artifacts/kit/ (kit.css, kit.js), config/prompts/report/*, config/prompts/router/* (1.5.0).
+- services/web/src/app/globals.css (the identity tokens), services/web/public/brand and public/fonts.
+- scripts/smoke.sh (the report checks).
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
