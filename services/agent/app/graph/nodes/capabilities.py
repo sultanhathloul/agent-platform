@@ -185,7 +185,9 @@ def _model_caller(
         # gets a package that fits it and passes the gateway's tier check.
         prepared = await _prepare(cap, request, ctx, role=role, step=step)
         emit(runtime, "tier", calls.tier_event(prepared.decision))
-        return await calls.call_model(ctx, prepared)
+        result = await calls.call_model(ctx, prepared)
+        ctx.finding_calls.append((cap.slug, result))
+        return result
 
     return call_model
 

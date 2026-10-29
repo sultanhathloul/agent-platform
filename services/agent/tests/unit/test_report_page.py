@@ -270,3 +270,54 @@ def test_the_script_check_reads_the_text_the_attributes_and_report_data():
     assert failure == {"issues": ["disallowed_script", "mixed_script_token"], "tokens": ["في拉斯", "增长"]}
     assert script_failure("لوحة النمو في <bdi>Riyadh</bdi> 2031", arabic) is None
     assert script_failure("في拉斯", None) is None  # a locale without a policy (English) is not checked
+
+
+# ------------------------------------------------------------------ the model strip (owner decision C, ADR-0391)
+
+
+def test_the_profile_chooses_whether_reports_show_the_model_strip():
+    assert load_artifacts(CONFIG, "development").show_model_info is True
+    assert load_artifacts(CONFIG, "production").show_model_info is False
+    assert load_artifacts(CONFIG).show_model_info is False  # production unless the deployment says otherwise
+
+
+def test_the_model_strip_names_each_call_and_is_removed_when_not_shown():
+    from app.artifacts.document import ModelCall, model_strip, without_model_info
+
+    calls = [
+        ModelCall("كتابة التقرير", "openrouter/google/gemma-4-26b-a4b-it", "heavy", 38.24, 12345, 4321),
+        ModelCall("نتائج: الاتجاهات", None, "fast", 1.0, 900, 40),
+    ]
+    strip = model_strip(calls, "ar", TEXT.model_info)
+    assert strip.startswith('<footer class="kit-model-info" data-kit="model-info" lang="ar" dir="rtl">')
+    for cell in ("google/gemma-4-26b-a4b-it", "openrouter", "heavy", "38.2 ث", "12,345 / 4,321", "غير معروف", "fast"):
+        assert f"<bdi>{cell}</bdi>" in strip, cell
+    page, _ = build("<html><body><p>القيمة 5</p></body></html>")
+    shown = page.replace("</body></html>", strip + "</body></html>")
+    assert without_model_info(shown) == page and "kit-model-info" not in editable(shown)
+    # The download carries it as the stored page does; the model cannot forge one.
+    assert "kit-model-info" in served(shown, ARTIFACTS.kit, form="download")
+    forged, _ = build('<html><body><footer class="kit-model-info" data-kit="model-info"><p>x</p></footer></body></html>')
+    assert 'class="kit-model-info"' not in forged
+
+
+def test_the_strip_lists_the_writers_call_then_each_call_that_produced_findings():
+    from types import SimpleNamespace
+
+    from app.artifacts.writer import model_calls
+    from app.models.gateway import ModelResult
+
+    def result(alias: str, seconds: float) -> ModelResult:
+        return ModelResult(text="", tier=alias, served_model=f"openrouter/m-{alias}", tokens_in=10, tokens_out=2,
+                           usage_reported=True, alias=alias, duration_s=seconds)
+
+    manifest = SimpleNamespace(name=SimpleNamespace(of=lambda locale: "الاتجاهات والمسارات"))
+    ctx = SimpleNamespace(
+        finding_calls=[("directions", result("fast", 1.5))],
+        services=SimpleNamespace(registry=SimpleNamespace(get=lambda slug: SimpleNamespace(manifest=manifest))),
+    )
+    calls = model_calls(ctx, result("heavy", 40.0), "ar", TEXT)
+    assert [(c.label, c.alias, c.duration_s) for c in calls] == [
+        ("كتابة التقرير", "heavy", 40.0), ("نتائج: الاتجاهات والمسارات", "fast", 1.5)
+    ]
+    assert calls[0].provider_and_model == ("openrouter", "m-heavy")

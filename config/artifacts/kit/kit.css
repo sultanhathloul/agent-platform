@@ -235,6 +235,12 @@ svg { max-inline-size: 100%; }
 .kit-sources h2 { font-size: 1.1rem; }
 .kit-sources ol { color: var(--kit-ink-2); }
 .kit-sources .kit-sources-note { color: var(--kit-muted); }
+/* The model strip of a development report (owner decision C, ADR-0391): small, last, out of the way. */
+.kit-model-info { margin-block: 24px 0; padding-block: 10px; border-block-start: 1px dashed var(--kit-grid); font-size: 0.72rem; color: var(--kit-muted); }
+.kit-model-info p { margin: 0 0 6px; font-weight: 600; }
+.kit-model-info table { border-collapse: collapse; inline-size: 100%; }
+.kit-model-info th, .kit-model-info td { padding: 2px 8px; text-align: start; border-block-end: 1px solid var(--kit-grid); font-weight: 400; white-space: nowrap; }
+.kit-model-info th { font-weight: 600; }
 .kit-theme-toggle {
   position: fixed; inset-block-start: 12px; inset-inline-end: 12px; z-index: 10; font: inherit; font-size: 0.8rem;
   border: 1px solid var(--kit-border); background: var(--kit-surface); color: var(--kit-ink-2); border-radius: 999px;

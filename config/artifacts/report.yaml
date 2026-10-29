@@ -31,6 +31,14 @@ storage:
   bucket: artifacts
   store_s: 10
 
+# Owner decision C (ADR-0391): a strip at the end of every report names the model calls behind it (the
+# call that wrote it and any call that produced its findings: model id, provider, tier alias, generation
+# time, input and output tokens), for development. Chosen by the deployment's profile (PLATFORM_PROFILE,
+# production unless set); never shown when false, in the view, the code view or the download.
+show_model_info:
+  development: true
+  production: false
+
 # The design kit (I2): served by the gateway at `path` (same origin as the report page), read from
 # config/artifacts/kit/; never from the internet. `version` is part of the path, so a cached asset never
 # outlives a kit change.
@@ -62,3 +70,16 @@ text:
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
   updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}
   untitled: {ar: "تقرير", en: "Report"}
+  # The model strip (ADR-0391).
+  model_info:
+    heading: {ar: "معلومات النموذج (بيئة التطوير)", en: "Model information (development)"}
+    wrote: {ar: "كتابة التقرير", en: "Wrote the report"}
+    findings: {ar: "نتائج: {name}", en: "Findings: {name}"}
+    call: {ar: "الاستدعاء", en: "Call"}
+    model: {ar: "النموذج", en: "Model"}
+    provider: {ar: "المزوّد", en: "Provider"}
+    tier: {ar: "الفئة", en: "Tier"}
+    time: {ar: "زمن التوليد", en: "Generation time"}
+    tokens: {ar: "الرموز (إدخال / إخراج)", en: "Tokens (in / out)"}
+    seconds: {ar: "{value} ث", en: "{value} s"}
+    unknown: {ar: "غير معروف", en: "unknown"}

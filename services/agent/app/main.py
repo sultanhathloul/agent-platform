@@ -148,7 +148,7 @@ def build_services(
                 raise ManifestError(f"{cap.path}: context.needs has 'system' but {exc}") from exc
 
     counter = default_counter()
-    artifacts = load_artifacts(settings.config_dir)
+    artifacts = load_artifacts(settings.config_dir, settings.platform_profile)
     kit_tokens = counter.count(
         prompts.render("context.report_kit", "ar", id=artifacts.design.id, version=artifacts.design.version,
                        text=artifacts.design.text).text

@@ -17,6 +17,7 @@ raises DeadlineExceeded, which the owner of that deadline reports.
 
 import asyncio
 import random
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -101,6 +102,10 @@ class ModelResult(BaseModel):
     tokens_in: int
     tokens_out: int
     usage_reported: bool
+    # The tier's LiteLLM alias and the call's time from send to its last byte, retries included: what a
+    # development report's model strip shows (owner decision C, ADR-0391).
+    alias: str = ""
+    duration_s: float = 0.0
 
 
 class ModelGateway:
@@ -163,6 +168,7 @@ class ModelGateway:
             )
             ceiling = effective.timeouts(self._config.timeouts).roles[decision.role]
             retries = 0
+            started = time.monotonic()
             try:
                 with deadline.within(ceiling) as budget:
                     span.set_attribute("model.deadline_s", round(budget.remaining, 3))
@@ -226,6 +232,8 @@ class ModelGateway:
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 usage_reported=usage is not None,
+                alias=tier.alias,
+                duration_s=round(time.monotonic() - started, 3),
             )
 
     async def _stream(

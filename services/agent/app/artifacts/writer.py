@@ -23,7 +23,7 @@ from langgraph.runtime import Runtime
 from opentelemetry import trace
 
 from app.artifacts.config import ReportText
-from app.artifacts.document import Renderer, editable, sources_section
+from app.artifacts.document import ModelCall, Renderer, editable, model_strip, sources_section
 from app.artifacts.figures import FigureLabels, Label, source_texts
 from app.artifacts.store import ReportUnavailable
 from app.artifacts.stream import ReportStream, visible_text
@@ -36,6 +36,7 @@ from app.graph.evidence import load_evidence
 from app.graph.guarding import guard_context
 from app.graph.nodes import emit
 from app.graph.state import AgentState
+from app.models.gateway import ModelResult
 from app.memory.types import MemoryScope
 from app.platform_settings import effective
 from app.rag.citations import attribute
@@ -94,6 +95,20 @@ def script_failure(text: str, scripts: ScriptPolicy | None) -> dict | None:
     issues and up to five offending words, which the retry's prompt names."""
     issues = script_issues(text, scripts) if scripts else []
     return {"issues": issues, "tokens": script_tokens(text, scripts)[:5]} if issues and scripts else None
+
+
+def model_calls(ctx: TurnContext, written: ModelResult, locale: str, text: ReportText) -> list[ModelCall]:
+    """The call that wrote the page, then each call that produced findings (ADR-0391)."""
+    info = text.model_info
+
+    def call(label: str, result: ModelResult) -> ModelCall:
+        return ModelCall(label, result.served_model, result.alias, result.duration_s, result.tokens_in, result.tokens_out)
+
+    calls = [call(info.wrote.of(locale), written)]
+    for slug, result in ctx.finding_calls:
+        name = ctx.services.registry.get(slug).manifest.name.of(locale)
+        calls.append(call(info.findings.of(locale).format(name=name), result))
+    return calls
 
 
 def _merged(current: list[dict], new: list[dict]) -> list[dict]:
@@ -194,7 +209,10 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         shown = _merged(current.citations, citations) if current else citations
         renderer = Renderer(locale, labels)
         body = renderer.render(pieces)
-        page = body + renderer.end(sources_section(shown, locale, config.text, general=renderer.count.general > 0))
+        end = sources_section(shown, locale, config.text, general=renderer.count.general > 0)
+        if art.show_model_info:
+            end += model_strip(model_calls(ctx, result, locale, config.text), locale, config.text.model_info)
+        page = body + renderer.end(end)
         size = len(page.encode("utf-8"))
         count = renderer.count
         span.set_attribute("report.bytes", size)

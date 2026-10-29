@@ -13,7 +13,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from app.artifacts.config import Kit, ReportText
+from app.artifacts.config import Kit, ModelInfoText, ReportText
 from app.artifacts.figures import FigureLabels, Label, canonical_number, spans
 from app.artifacts.html import (
     Data,
@@ -276,6 +276,57 @@ def sources_section(citations: Sequence[dict], locale: str, text: ReportText, *,
     )
 
 
+@dataclass(frozen=True)
+class ModelCall:
+    """One model call behind a report, as its model strip shows it (owner decision C, ADR-0391)."""
+
+    label: str  # what it did: wrote the report, or produced a capability's findings
+    served_model: str | None  # LiteLLM's name for the deployment, "<provider>/<model id>"
+    alias: str
+    duration_s: float
+    tokens_in: int
+    tokens_out: int
+
+    @property
+    def provider_and_model(self) -> tuple[str | None, str | None]:
+        if not self.served_model:
+            return None, None
+        provider, _, model = self.served_model.partition("/")
+        return (provider, model) if model else (None, provider)
+
+
+def model_strip(calls: Sequence[ModelCall], locale: str, text: ModelInfoText) -> str:
+    """The strip at the end of a development report: one row per call, platform-written, never labelled."""
+    lang, dir_ = direction(locale)
+    unknown = text.unknown.of(locale)
+    head = "".join(f"<th>{html.escape(t.of(locale))}</th>" for t in (text.call, text.model, text.provider, text.tier, text.time, text.tokens))
+    rows = []
+    for call in calls:
+        provider, model = call.provider_and_model
+        cells = (
+            call.label,
+            model or unknown,
+            provider or unknown,
+            call.alias or unknown,
+            text.seconds.of(locale).format(value=f"{call.duration_s:.1f}"),
+            f"{call.tokens_in:,} / {call.tokens_out:,}",
+        )
+        rows.append("<tr>" + "".join(f"<td><bdi>{html.escape(c)}</bdi></td>" for c in cells) + "</tr>")
+    return (
+        f'<footer class="kit-model-info" data-kit="model-info" lang="{lang}" dir="{dir_}">'
+        f"<p>{html.escape(text.heading.of(locale))}</p>"
+        f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></footer>"
+    )
+
+
+_MODEL_INFO = re.compile(r'<footer class="kit-model-info" data-kit="model-info"[^>]*>.*?</footer>', re.S)
+
+
+def without_model_info(page: str) -> str:
+    """A stored page with its model strip removed: how it leaves when the setting is false (ADR-0391)."""
+    return _MODEL_INFO.sub("", page)
+
+
 def served(page: str, kit: Kit, *, form: str, kit_base: str = "") -> str:
     """The stored page as it leaves: `view` links the kit from `kit_base` (the kit path on the page's own
     origin); `download` inlines it, with a CSP of its own, so the file opens offline and loads nothing."""
@@ -302,4 +353,4 @@ _SVG_MARK = re.compile(r'<tspan class="kit-figure-svg"[^>]*>.*?</tspan>', re.S)
 def editable(page: str) -> str:
     """A stored version as a follow-up's model reads it (D4): without the platform's marks and sources
     section, which the platform adds again to the new version."""
-    return _SVG_MARK.sub("", _MARK.sub(r"\1", _SOURCES.sub("", page)))
+    return _SVG_MARK.sub("", _MARK.sub(r"\1", _SOURCES.sub("", without_model_info(page))))

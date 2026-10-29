@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 
 from app.api.routes import _authorized, _caller, _error
 from app.api.schemas import CONVERSATION_ID_PATTERN, ErrorEnvelope, ReportList, ReportVersionView, ReportView
-from app.artifacts.document import served
+from app.artifacts.document import served, without_model_info
 from app.artifacts.store import ReportUnavailable
 from app.memory.types import MemoryScope
 
@@ -81,7 +81,9 @@ async def _version(request: Request, request_id: str, caller: MemoryScope, repor
         page = await services.reports.page(record, services.artifacts.report.storage.store_s)
     except ReportUnavailable:
         return None, _error(request, request_id, "report_unavailable", 503)
-    return (record, page.decode("utf-8")), None
+    text = page.decode("utf-8")
+    # Owner decision C (ADR-0391): the model strip never leaves when the deployment's setting is false.
+    return (record, text if services.artifacts.show_model_info else without_model_info(text)), None
 
 
 @router.get("/reports/{report_id}/versions/{version}", response_model=ReportVersionView, responses=_ERRORS)

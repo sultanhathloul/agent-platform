@@ -51,6 +51,27 @@ class KitConfig(_Strict):
     fonts: list[str] = Field(min_length=1)
 
 
+class ModelInfoText(_Strict):
+    heading: Localized
+    wrote: Localized
+    findings: Localized
+    call: Localized
+    model: Localized
+    provider: Localized
+    tier: Localized
+    time: Localized
+    tokens: Localized
+    seconds: Localized
+    unknown: Localized
+
+
+class ShowModelInfo(_Strict):
+    """Owner decision C (ADR-0391): whether a report shows its model strip, per deployment profile."""
+
+    development: bool
+    production: bool
+
+
 class ReportText(_Strict):
     sources_heading: Localized
     no_sources: Localized
@@ -62,6 +83,7 @@ class ReportText(_Strict):
     created: Localized
     updated: Localized
     untitled: Localized
+    model_info: ModelInfoText
 
 
 class ReportConfig(_Strict):
@@ -72,6 +94,7 @@ class ReportConfig(_Strict):
     current_max_tokens: int = Field(gt=0)
     stream: StreamConfig
     storage: StorageConfig
+    show_model_info: ShowModelInfo
     kit: KitConfig
     text: ReportText
 
@@ -119,6 +142,8 @@ class Artifacts:
     report: ReportConfig
     design: DesignSystem
     kit: Kit
+    # report.yaml's show_model_info for this deployment's profile (ADR-0391).
+    show_model_info: bool = False
 
 
 def _design(path: Path) -> DesignSystem:
@@ -147,7 +172,11 @@ def _kit(root: Path, config: KitConfig) -> Kit:
     return Kit(config=config, stylesheet=stylesheet, scripts=scripts, fonts=fonts)
 
 
-def load_artifacts(config_dir: Path) -> Artifacts:
+def load_artifacts(config_dir: Path, profile: str = "production") -> Artifacts:
+    """`profile`: the deployment's (Settings.platform_profile); anything but development is production."""
     folder = config_dir / "artifacts"
     report = ReportConfig.model_validate(yaml.safe_load((folder / "report.yaml").read_text(encoding="utf-8")))
-    return Artifacts(report=report, design=_design(folder / "design-system.md"), kit=_kit(folder / "kit", report.kit))
+    show = report.show_model_info.development if profile == "development" else report.show_model_info.production
+    return Artifacts(
+        report=report, design=_design(folder / "design-system.md"), kit=_kit(folder / "kit", report.kit), show_model_info=show
+    )

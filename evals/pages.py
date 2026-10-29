@@ -20,6 +20,7 @@ _MARKED = re.compile(
 )
 _SVG_MARKED = re.compile(r'([0-9٠-٩][0-9٠-٩.,٫٬]*)<tspan class="kit-figure-svg" data-kit-source="([a-z]+)">[^<]*</tspan>')
 _SOURCES = re.compile(r'<section class="kit-sources" data-kit="sources"[^>]*>.*?</section>', re.S)
+_MODEL_INFO = re.compile(r'<footer class="kit-model-info" data-kit="model-info"[^>]*>.*?</footer>', re.S)
 _DATA = re.compile(r'<script type="application/json" id="report-data">(.*?)</script>', re.S)
 
 
@@ -122,8 +123,9 @@ def sources_section(page: str) -> bool:
 
 
 def _body_text(page: str) -> str:
-    """The page's visible body text, outside the sources section, scripts and styles."""
-    body = _SOURCES.sub("", page)
+    """The page's visible body text, outside the sources section, the development model strip, scripts and
+    styles."""
+    body = _MODEL_INFO.sub("", _SOURCES.sub("", page))
     body = re.sub(r"(?is)<head>.*?</head>", "", body)
     structure = _Structure()
     structure.feed(body)

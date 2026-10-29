@@ -60,6 +60,9 @@ x-agent-env: &agent-env
   MINIO_ENDPOINT: minio:9000
   MINIO_ARTIFACTS_ACCESS_KEY: ${MINIO_ARTIFACTS_ACCESS_KEY:?run scripts/init_env.sh --add-missing}
   MINIO_ARTIFACTS_SECRET_KEY: ${MINIO_ARTIFACTS_SECRET_KEY:?run scripts/init_env.sh --add-missing}
+  # The deployment's profile (owner decision C on the report branch, ADR-0391): development shows a report's
+  # model strip (config/artifacts/report.yaml show_model_info). Production when unset.
+  PLATFORM_PROFILE: ${PLATFORM_PROFILE:-production}
 
 services:
   # ------------------------------------------------------------------ data

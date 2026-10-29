@@ -228,3 +228,34 @@ async def test_a_page_that_fails_its_scripts_twice_ends_the_turn_with_the_valida
     assert events[-1].type == "error" and events[-1].data.code == "validation_failed"
     assert not _of(events, "artifact_done") and len(gateway.systems["report_writer"]) == 2
     assert not await services.reports.has_report(principal.tenant_id, principal.user_id, conversation)
+
+
+@pytest.mark.parametrize("show", [True, False])
+async def test_the_model_strip_follows_the_setting_in_the_page_the_version_and_the_download(reports, show):
+    # Owner decision C (ADR-0391): shown with the writer's call when the setting is true, never when false.
+    from app.main import create_app
+
+    services, _ = reports({"report_writer": PAGE})
+    services = dataclasses.replace(services, artifacts=dataclasses.replace(services.artifacts, show_model_info=show))
+    owner = _principal()
+    events, _, _ = await _turn(services, owner, "تقرير تفاعلي عن النمو", output="report")
+    report_id = _of(events, "artifact_done")[0].data.id
+    record = await services.reports.version(owner.tenant_id, owner.user_id, report_id, 1)
+    stored = (await services.reports.page(record, 10)).decode()
+    assert ('data-kit="model-info"' in stored) is show
+    if show:
+        strip = re.search(r'<footer class="kit-model-info".*?</footer>', stored, re.S).group(0)
+        tier = _of(events, "tier")[-1].data.tier  # the writer's tier, as the test stack resolves it
+        assert "كتابة التقرير" in strip and f"<bdi>{tier}</bdi>" in strip and " ث</bdi>" in strip
+        assert strip in stored[stored.index('data-kit="sources"'):]  # last, after the sources section
+    # A page stored while it was shown never leaves once the setting is false.
+    for setting in (show, False):
+        app = create_app(start_background=False, services=dataclasses.replace(
+            services, artifacts=dataclasses.replace(services.artifacts, show_model_info=setting)))
+        mine = {"X-Internal-Token": services.settings.agent_internal_token, "X-User-Id": owner.user_id,
+                "X-Tenant-Id": owner.tenant_id}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as http:
+            download = (await http.get(f"/v1/reports/{report_id}/versions/1/page?form=download", headers=mine)).text
+            version = (await http.get(f"/v1/reports/{report_id}/versions/1", headers=mine)).json()["html"]
+        assert ('data-kit="model-info"' in download) is (show and setting)
+        assert ('data-kit="model-info"' in version) is (show and setting)

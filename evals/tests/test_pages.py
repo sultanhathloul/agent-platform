@@ -88,3 +88,10 @@ def test_names_with_digits_are_not_figures_for_the_check_either():
     # make-eval-20261028T025931Z, general-ar-picker: chart labels "Q1".."Q4" are names (ADR-0381).
     named = page(f'<p>الربع Q1 و Q2 و COVID-19 و 5G، و {mark("40")}</p>')
     assert pages.figures_labelled(named, "")
+
+
+def test_the_development_model_strip_is_not_the_pages_figures():
+    # Owner decision C (ADR-0391): its token counts and seconds are platform metadata, not report figures.
+    strip = ('<footer class="kit-model-info" data-kit="model-info" lang="ar" dir="rtl"><p>معلومات النموذج</p>'
+             "<table><tbody><tr><td>heavy</td><td>38.2 ث</td><td>12,345 / 4,321</td></tr></tbody></table></footer>")
+    assert pages.figures_labelled(page(f'<p>{mark("40")}</p>' + strip), "")
