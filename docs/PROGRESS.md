@@ -2395,6 +2395,9 @@ Checklist
 - [x] 4. A report's title, headings and labels in the request's language; the two failing cases gated.
 - [ ] 5. From a clean stack: make test, make smoke, make eval s=reports and s=routing; rule 11; push.
 
+- Clean-stack run at 0365ac4: make clean, make models and make up from 10:41:28Z, then the verification run in the background: **interrupted** at 11:48:15Z by a power cut (every container exited 255 at that instant); the stack and the run stopped, no result recorded, the volumes kept.
+- Owner decision (2026-10-29, after the power cut): no tests, smoke or eval now; make test, make smoke and the eval suites run once at the end, after the owner confirms all changes are complete. Item 5 waits for that. Meanwhile the stack is brought up (make up, with the kb seed) on the surviving volumes for the owner to try.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
