@@ -2431,6 +2431,24 @@ Item 6 runs (analyst, one new conversation each; stats-gov toggled on turns 1 an
   - Turn 3: route edit=False (cache); new report 09749b2f v1 «لوحة معلومات نادي الهلال – موسم 2025–26», 23,887 bytes, sourced=False; 58 text figures and every chart point «من المعرفة العامة» (goals by competition 52, 8, 6, 2; possession 62, 58, 55, 53), no KB or file label, sources section: no source.
 - Open, for the owner: an edit with the KB still toggled re-runs retrieval, but a search by the report's title and the request need not return the passages behind the figures the page already shows. A fix would re-fetch the passages the version being edited cited (through the backend, under this turn's KB scope) beside the new search; that carries an earlier turn's citations into the turn, which ADR-0398 item 1 excludes, so it waits for the owner.
 
+### Owner decisions 1 to 3 on PR #17, second message (2026-10-29, same branch)
+
+- 1. An edit with the KB still toggled re-fetches the passages its version cited (ADR-0402) — 6790ce2, 8d8838b.
+- 2. Per-section retrieval: a section plan, one search per planned chart or table (ADR-0403) — 8d8838b. Stats-gov holds employed persons by sex for Q2 2026: table 3-1 of «إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)», Q2 2026 row: Saudi 66.37 / 33.63, non-Saudi 91.46 / 8.54, total 83.60 / 16.40 (cells at full precision; ADR-0404 matches their rounding).
+- 3. A chart or table all «غير متوفر» leaves the page (ADR-0405) — 1cd0a45.
+- No tests, smoke or eval (owner decision).
+
+Runs (analyst, a new conversation each, the same three requests)
+- Run 3 at 1cd0a45, conversation 981079d6-5825-429d-8edf-99cb192da8bf: **failed**, all three turns `turn_failed`: `TypeError: _ReportRetrieval() got an unexpected keyword argument 'form'` (the helper had been inserted between `@traced("run_capabilities")` and its function). The plan had run (8 sections). Fixed in the next commit (fix(agent)…).
+- Run 4 at that fix, conversation 10244d97-ef59-4a07-99ee-39459f04e1ad:
+  - Turn 1: new report 7ad80bb9 v1, 34 text figures all «من: إحصاءات الهيئة العامة للإحصاء», 0 «غير متوفر», 0 general; sources: the Q2 2026 workbook and bulletin; plan 8 sections. Charts: unemploymentTrend total 3.2, 3.1, 3.0, Saudi 6.8, 6.4, 6.5 (correct: Table 1 of the bulletin); jobSearchMethods 76.8, 53.5, 47.1, 35.5, 27.3, 29.0, 48.9; occupationMix 4.7, 18.7, 11.9, 5.3, 18.1, 0.9, 6.8; outsideLaborForce 67.7, 20.6, 9.1, 2.6, 0.1 — every point KB-labelled. **Wrong**: 18.7, 4.7, 67.7, 20.6 are in no Q2 2026 document (67.7 in no document at all as written; 18.7 and 4.7 only in health and elderly tables), and 47.1, 35.5, 27.3 are not in the bulletin's job-search passage. They were labelled by coincidental matches: «سعودي» folded to «سعود» (ADR-0399's ending folding, and «السعودية» no longer generic) is a word of nearly every passage, and ADR-0404's rounding widens the numbers each precise passage offers. Version stored 10 passages.
+  - Turn 2: route edit=True (model); v2 of 7ad80bb9, 12 passages; every v1 chart kept with the same values and labels (the re-fetch worked); the new genderMix doughnut 84.3 / 15.7, both KB-labelled. **Wrong**: table 3-1 gives 83.6 / 16.4; 84.3 is the male labour-force participation rate of the bulletin's Table 1 (a passage that also holds «ذكور»), and 15.7 is in no Q2 2026 document. Table 3-1's Q2 2026 row is in a continuation chunk of the workbook that repeats neither the table's title nor its header, so no label rule can tie 83.6 to «ذكور».
+  - Turn 3: route edit=False (model), sourced=False: **failed** `validation_failed: report: no_document`: the writer replied with the chat line on both attempts.
+- Open, for the owner (no code changed after run 4):
+  1. A passage figure should count only with its label near it in the passage (the row label within a short window before the figure), not anywhere in the chunk; with it, the coincidental labels above go to «غير متوفر».
+  2. For table 3-1 to be found and matched, the workbook chunker should repeat each table's title and header row in its continuation chunks, and stats-gov be re-indexed (an ingestion change and a re-index of 75 documents).
+  3. The general-knowledge writer imitates the conversation's report lines; the window could show a report turn's reply as the report it produced (title) rather than the chat line, or the writer could omit the window on a new report.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

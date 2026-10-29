@@ -476,6 +476,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-29 (report branch, owner decision on PR #17, ADR-0398 to ADR-0401).** A report draws from exactly one kind of source per turn, never mixed. With knowledge bases toggled or files attached, every figure, table, chart and statement of fact comes only from that turn's findings; a figure they do not hold reads «غير متوفر» / "Not available" in its place, and a figure counts as sourced only when its number and its row or column label are in the same passage. With nothing toggled and no files, the page is general knowledge only and every figure reads «من المعرفة العامة»; no KB or file label appears. Nothing of an earlier turn's findings, labels or sources is carried into a report, its figure check or its sources section, which lists this turn's citations only; a page that names a source this turn did not cite is written again once, then the turn fails. A follow-up edits the conversation's latest report only when the router's call judges that it asks to change that report; a request on another subject starts a new report at version 1. A report turn fetches 20 passages instead of 8, and an edit searches with the report's title and the request.
 
+> **Amendment 2026-10-29 (report branch, owner decisions 1 to 3 on PR #17, ADR-0402 to ADR-0405).** A report over knowledge bases or files first plans its sections, charts and tables (one fast-tier call) and searches once per planned chart or table beside the general search, keeping at most 40 passages. A version stores the passages behind its citations by reference; an edit with the knowledge base still toggled fetches them again from the knowledge base under its own turn's permissions. A workbook's precise figure matches the page's rounding to one or two decimals. A chart or table whose values are all «غير متوفر» is left out of the page; one with some gaps stays, gaps shown.
+
 ---
 
 ## 14. Docker Compose (v1 services)
@@ -953,6 +955,10 @@ Rules:
 | `config/context.yaml` | `nodes.report.blocks.retrieval` (16,000 tokens, top 20) | The report writer's passages (ADR-0401) |
 | `config/artifacts/kit/kit.css` | `.kit-figure[data-kit-source="unavailable"]` | The «غير متوفر» mark |
 | `evals/outputs/reports/metrics.yaml` | `figures_labelled` | On a general-knowledge page every figure reads general knowledge, the request's included |
+| `config/kb.yaml`, `config/docs.yaml` | `retrieval.report_top_k` (12), `report_section_k` (4), `report_max_passages` (40) | A report turn's general search, each planned section's, and the cap (ADR-0403; supersedes 20 of ADR-0401) |
+| `config/context.yaml` | `nodes.report_plan`; `nodes.report.blocks.retrieval` (24,000 tokens, top 40) | The section plan's call and the writer's passages (ADR-0403) |
+| `config/prompts/report/` | `report.plan`, `report.plan_request` 1.0.0; `report.system` 1.7.0 | The section plan; charts and tables with no evidence left out (ADR-0403, ADR-0405) |
+| `services/agent/app/db/migrations/0019_report_passages.sql` | `report_versions.passages` | The passages an edit fetches again (ADR-0402) |
 
 ## 21. Getting started on a new machine
 

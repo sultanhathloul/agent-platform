@@ -3587,8 +3587,39 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0401: A report turn reads deeper, and an edit re-runs retrieval on the report's subject (owner decision on PR #17)
 - Date: 2026-10-29
 - Phase: reports PR (owner decisions on PR #17)
-- Status: assumed (items 2 and 3 of the owner's previous message, stated in one line in this message; the details are mine)
+- Status: assumed (items 2 and 3 of the owner's previous message, stated in one line in this message; the details are mine) — Superseded in part by ADR-0402 and ADR-0403 on 2026-10-29
 - Context: A report builds every figure from the passages alone (ADR-0398), and 8 passages rarely fill a dashboard. An edit such as «أضف رسم دائري لتوزيع العاملين حسب الجنس» searched with its own words only.
 - Decision: `CapabilityInput` gains `output` ("text" or "report", from the route node) and `report_title` (the current report's title on an edit), both optional, so no capability has to change (a core contract change the owner's request implies). kb and docs fetch `retrieval.report_top_k` passages (20, the search tools' limit; config/kb.yaml and config/docs.yaml) on a report turn instead of `top_k` (8), and on an edit search twice: the report's title at `report_top_k` (the subject, so the passages behind the figures the page already shows come back), then the request at `top_k`, the hits merged without repeats. The first run (item 6) searched once with the title and the request joined; the request's words pulled other passages and the edit lost Table 1. The report node's retrieval block takes 20 chunks within 16,000 tokens (config/context.yaml `nodes.report.blocks.retrieval`). Every report turn with KBs toggled or files runs its capabilities, so an edit's figures come from that turn's retrieval.
 - Consequences: A report turn's search returns up to 20 passages and its prompt is larger (up to 16k tokens of passages on the heavy tier). An edit without the KB toggled has no retrieval and is a general-knowledge turn (ADR-0398).
+
+### ADR-0402: An edit with the knowledge base still toggled fetches again the passages its current version cited (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The second item 6 run's edit searched by the report's title and the request; neither returned Table 1 of the Q2 2026 bulletin, so the edit lost the figures v1 had. The owner: re-fetching, from the KB now and under this turn's permissions, the passages the current version cited is a fresh retrieval from the same source, not an earlier turn's findings, so it is consistent with ADR-0398.
+- Decision: A version stores the passages behind its citations by reference (migration 0019, `report_versions.passages`: each source's backend, collection, ref and metadata, never text; this turn's fetched sources whose document the page cites, at most 40). On an edit of a report turn with knowledge bases toggled or files, the capabilities node reads them from the latest version and passes them to the capabilities (`CapabilityInput.report_sources`); kb and docs return those of their own kind first, beside their searches, within `report_max_passages`. The core fetches their text as for any source: from the backend and collection that hold it, under this turn's scope (ADR-0202), so a passage of a knowledge base no longer toggled, deleted or no longer readable gets no text. The writer keeps as the page's sources only those whose text was fetched this turn; an edit with nothing toggled reads no passages (ADR-0398).
+- Consequences: An edit keeps its figures' sources as long as the KB is toggled and still holds the passages. A version written before migration 0019 stores no passages; its edit has the searches only.
+
+### ADR-0403: A sourced report plans its sections and searches once per planned chart or table (owner decision 2 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The item 6 runs searched once (twice on an edit); a dashboard needs a table per chart, and the passages the general search returns rarely cover them all.
+- Decision: Before the capabilities run, a report turn with knowledge bases toggled or indexed files makes one planning call (`report.plan` and `report.plan_request` 1.0.0, role `extractor`, fast tier, node `report_plan` in config/context.yaml; the request, and on an edit the current version's title, headings and chart titles, as data in the user role). Its JSON lists up to 8 sections, each with a search query worded as a statistical table's title. kb and docs then search the message at `report_top_k` (12), on an edit the report's title, and each planned query at `report_section_k` (4), merged without repeats after an edit's cited passages, keeping at most `report_max_passages` (40) (config/kb.yaml, config/docs.yaml). The report writer's retrieval block takes 40 chunks within 24,000 tokens. A planning failure leaves the general search (and an edit's) alone; the plan is logged (`report plan turn=… sections=… queries=…`) and its count set on the span. This supersedes ADR-0401's numbers (20 passages, one search).
+- Consequences: A sourced report turn costs one fast-tier call and up to 10 searches more; its writer's prompt can reach 24,000 tokens of passages. A report on general knowledge plans nothing.
+
+### ADR-0404: A workbook's precise figure matches the page's rounding to one or two decimals (refines ADR-0381 and ADR-0399)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: assumed
+- Context: The owner asked whether stats-gov holds employed persons by gender for Q2 2026. It does: table 3-1 of «إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)», «التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس (%) - سلسلة زمنية», row Q2 2026: Saudi 66.366373 male, 33.633627 female; non-Saudi 91.46388445, 8.536115554; total 83.60299013, 16.39700987. The workbook's cells are stored at full precision, and ADR-0381 matched no rounding, so a page's 83.6 could never be sourced from it.
+- Decision: A source figure with more than two decimals also matches its value rounded half up to one and two decimals; a source figure with two decimals or fewer is matched as written. No other rounding is matched.
+- Consequences: The gender doughnuts can be sourced from table 3-1. A page figure that rounds a different precise number to the same one or two decimals would match it too: the row or column label rule (ADR-0399) still applies to passages.
+
+### ADR-0405: A chart or table whose values are all «غير متوفر» leaves the page; one with gaps stays (owner decision 3 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Decision: On a sourced turn the writer renders the checked page once to find each chart whose every point is null after the figure check (the model's own nulls included) and each table whose cells hold figures and none available, removes that element with the kit card around it (`kit-card`) when the card holds no other chart or table, removes the chart's entry from report-data, and renders the stored page from what stays. A chart or table with some figures available stays, its gaps shown as «غير متوفر» (null points, text marks). report.system 1.7.0 asks the model to leave out a chart or table its evidence holds no figure for. A general-knowledge page loses nothing.
+- Consequences: The page streamed live still shows the removed parts until the panel loads the stored version; the stored page, the download and the next version's context do not. KPI tiles with «غير متوفر» stay.
 
