@@ -7,6 +7,7 @@ what the platform appends at the end (the sources section). The kit is never sto
 `KIT_MARKER` stands where it goes, and `served` puts the kit's links there for the sandboxed view
 or inlines the whole kit for a download that opens offline (I6)."""
 
+import copy
 import html
 import json
 import re
@@ -116,10 +117,12 @@ def set_data_string(data: dict, path: tuple, value: str) -> None:
 @dataclass
 class FigureCount:
     total: int = 0
-    # Labelled general knowledge: matched to no source (D2, ADR-0388).
+    # Labelled general knowledge: the figures of an unsourced turn (D2, ADR-0388, ADR-0398).
     general: int = 0
     general_figures: list[str] = field(default_factory=list)
-    # The figures the page shows that a source holds, with their labels: a follow-up keeps them (D4).
+    # Not in a sourced turn's findings: shown as «غير متوفر» / "Not available" (ADR-0398).
+    unavailable: int = 0
+    # The figures the page shows that this turn's sources hold, with their labels (stored with the version).
     sourced: dict[str, Label] = field(default_factory=dict)
 
     def add(self, figure: str, label: Label) -> None:
@@ -127,40 +130,65 @@ class FigureCount:
         if label.kind == "general":
             self.general += 1
             self.general_figures.append(figure)
+        elif label.kind == "unavailable":
+            self.unavailable += 1
         else:
             self.sourced.setdefault(figure, label)
 
 
-def _label(figure: str, labels: FigureLabels, count: FigureCount) -> Label:
-    label = labels.of(figure)
+def _label(figure: str, labels: FigureLabels, count: FigureCount, context: Sequence[str] = ()) -> Label:
+    label = labels.of(figure, context)
     count.add(figure, label)
     return label
 
 
+def _replaced(text: str, labels: FigureLabels, count: FigureCount, context: Sequence[str]) -> tuple[str, list[str]]:
+    """An axis label with each figure no source holds replaced by «غير متوفر», and the labels it got."""
+    out, at, found = [], 0, []
+    for start, end, figure in spans(text):
+        label = _label(figure, labels, count, context)
+        found.append(label.text)
+        out.append(text[at:start])
+        out.append(label.text if label.kind == "unavailable" else text[start:end])
+        at = end
+    out.append(text[at:])
+    return "".join(out), found
+
+
 def mark_data(data: dict, labels: FigureLabels, count: FigureCount) -> dict:
     """Gives each point, and each axis label that holds a figure, its source label (ADR-0388): the kit
-    shows them in the chart's tooltips and in a note under it, and draws general-knowledge points dashed."""
+    shows them in the chart's tooltips and in a note under it, and draws general-knowledge points dashed.
+    A point is matched with its category and its series as its row and column labels (ADR-0399); on a
+    sourced turn a point no source holds is dropped (null) and its label reads «غير متوفر» (ADR-0398)."""
     for chart in data["charts"].values():
+        series = [d["label"] for d in chart["datasets"]]
         label_sources: list[str | None] = []
-        for text in chart["labels"]:
-            found = [_label(c, labels, count) for _, _, c in spans(text)]
-            label_sources.append(" · ".join(dict.fromkeys(f.text for f in found)) or None)
+        for i, text in enumerate(chart["labels"]):
+            chart["labels"][i], found = _replaced(text, labels, count, [chart["title"], *series])
+            label_sources.append(" · ".join(dict.fromkeys(found)) or None)
         if any(label_sources):
             chart["label_sources"] = label_sources
         for dataset in chart["datasets"]:
             sources: list[str | None] = []
             general: list[int] = []
+            missing: list[int] = []
             for i, value in enumerate(dataset["data"]):
                 if value is None:
                     sources.append(None)
                     continue
-                label = _label(canonical_number(value), labels, count)
+                category = chart["labels"][i] if i < len(chart["labels"]) else ""
+                label = _label(canonical_number(value), labels, count, [category, dataset["label"]])
                 sources.append(label.text)
                 if label.kind == "general":
                     general.append(i)
+                elif label.kind == "unavailable":
+                    dataset["data"][i] = None
+                    missing.append(i)
             dataset["sources"] = sources
             if general:
                 dataset["general"] = general
+            if missing:
+                dataset["unavailable"] = missing
     return data
 
 
@@ -173,15 +201,35 @@ def figure_mark(raw: str, label: Label) -> str:
     )
 
 
-def mark_text(text: str, where: str, labels: FigureLabels, count: FigureCount) -> str:
+def unavailable_mark(label: Label) -> str:
+    """A figure the turn's findings do not hold: «غير متوفر» in its place, no label after it (ADR-0398)."""
+    text = html.escape(label.text)
+    return f'<span class="kit-figure" data-kit="figure" data-kit-source="unavailable" title="{text}">{text}</span>'
+
+
+_PERCENT = "%٪"
+
+
+def mark_text(text: str, where: str, labels: FigureLabels, count: FigureCount, context: Sequence[str] = ()) -> str:
     """The text, escaped, with each figure in its source label's marker (ADR-0388). Inside an SVG
-    drawing, where no span can wrap it, the figure is followed by its label's words."""
+    drawing, where no span can wrap it, the figure is followed by its label's words. `context` is the
+    figure's row and column labels; the text itself is always part of it (ADR-0399)."""
     if where == "title":
         return render_text(text)
+    context = [text, *context]
     out, at = [], 0
     for start, end, figure in spans(text):
-        label = _label(figure, labels, count)
+        if start < at:
+            continue
+        label = _label(figure, labels, count, context)
         out.append(render_text(text[at:start]))
+        if label.kind == "unavailable":
+            # The number and its percent sign give way to «غير متوفر».
+            if end < len(text) and text[end] in _PERCENT:
+                end += 1
+            out.append(html.escape(label.text) if where == "svg" else unavailable_mark(label))
+            at = end
+            continue
         raw = render_text(text[start:end])
         if where == "svg":
             mark = f'<tspan class="kit-figure-svg" data-kit-source="{label.kind}"> ({html.escape(label.text)})</tspan>'
@@ -205,6 +253,14 @@ class Renderer:
         self.in_body = False
         self.title: str = ""
         self._in_title = False
+        # The row and column labels of a figure (ADR-0399): the text before it, and inside a table the
+        # row's first cell and the column's header.
+        self._before = ""
+        self._headers: list[str] = []
+        self._row: list[str] = []
+        self._row_heads = True
+        self._cell = -1
+        self._in_cell = False
 
     def render(self, pieces: Sequence[Piece]) -> str:
         out: list[str] = []
@@ -227,17 +283,53 @@ class Renderer:
             return piece.where == "title" or not piece.text.strip()
         return False
 
+    def _context(self) -> list[str]:
+        if self._in_cell:
+            column = self._headers[self._cell] if 0 <= self._cell < len(self._headers) else ""
+            row = self._row[0] if self._cell > 0 and self._row else ""
+            return [column, row]
+        return [self._before]
+
+    def _table(self, piece: Markup) -> None:
+        tag = piece.tag
+        if tag == "table" and not piece.end:
+            self._headers, self._row, self._cell = [], [], -1
+        elif tag == "tr":
+            if piece.end:
+                if self._row_heads and self._row:
+                    self._headers = list(self._row)
+                self._in_cell = False
+            else:
+                self._row, self._row_heads, self._cell = [], True, -1
+        elif tag in ("td", "th"):
+            if piece.end:
+                self._in_cell = False
+            else:
+                self._cell += 1
+                self._in_cell = True
+                self._row.append("")
+                self._row_heads = self._row_heads and tag == "th"
+
     def _piece(self, piece: Piece) -> str:
         if isinstance(piece, Text):
             if piece.where == "title":
                 self.title += piece.text
             if not self.in_body and not piece.text.strip() and piece.where != "title":
                 return ""
-            return mark_text(piece.text, piece.where, self.labels, self.count)
+            out = mark_text(piece.text, piece.where, self.labels, self.count, self._context())
+            if piece.text.strip():
+                if self._in_cell and self._row:
+                    self._row[-1] += piece.text.strip()
+                if any(c.isalpha() for c in piece.text):
+                    self._before = piece.text.strip()  # a label has words; a unit or a lone figure is not one
+            return out
+        if isinstance(piece, Markup) and piece.tag:
+            self._table(piece)
         if isinstance(piece, Style):
             return render_style(piece.css)
         if isinstance(piece, Data):
-            data = mark_data(piece.parsed if piece.parsed is not None else normalize_data(piece.raw), self.labels, self.count)
+            # A copy: marking drops the points no source holds, and the page is rendered twice (stream, store).
+            data = mark_data(copy.deepcopy(piece.parsed) if piece.parsed is not None else normalize_data(piece.raw), self.labels, self.count)
             return render_data(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
         if piece.attrs is not None and not piece.end:
             return start_tag(piece.tag, piece.attrs) if piece.tag else piece.html

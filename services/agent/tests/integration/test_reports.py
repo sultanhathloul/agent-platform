@@ -104,17 +104,18 @@ async def test_a_picked_report_streams_checked_marked_and_stored_and_a_follow_up
     assert record.size == len(page.encode()) == done[0].data.size
     assert "cdn.example.com" not in page and "0501234567" not in page
     assert page.startswith('<!doctype html><html lang="ar" dir="rtl">')
-    # The labels (ADR-0388): 3.6 and 2031 are in the message; 3.1 and 2030 are the model's own.
+    # The labels (ADR-0398): no KB, no file, no findings: matching is skipped and every figure, 3.6 and
+    # 2031 of the message included, is general knowledge.
     general = 'data-kit-source="general" data-kit-label="من المعرفة العامة" title="من المعرفة العامة">3.1</span>'
     assert general in page
-    assert 'data-kit-source="message" data-kit-label="من: طلبك" title="من: طلبك">3.6</span>' in page
-    assert "غير موثق" not in page
+    assert 'data-kit-source="general" data-kit-label="من المعرفة العامة" title="من المعرفة العامة">3.6</span>' in page
+    assert "غير موثق" not in page and "من: طلبك" not in page
     data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))
-    assert data["charts"]["g"]["datasets"][0]["general"] == [0]
-    assert data["charts"]["g"]["datasets"][0]["sources"] == ["من المعرفة العامة", "من: طلبك"]
-    assert data["charts"]["g"]["label_sources"] == ["من المعرفة العامة", "من: طلبك"]
+    assert data["charts"]["g"]["datasets"][0]["general"] == [0, 1]
+    assert data["charts"]["g"]["datasets"][0]["sources"] == ["من المعرفة العامة", "من المعرفة العامة"]
+    assert data["charts"]["g"]["label_sources"] == ["من المعرفة العامة", "من المعرفة العامة"]
     assert '<section class="kit-sources" data-kit="sources"' in page and "<h2>المصادر</h2>" in page
-    assert record.figures >= 6 and record.general == 3
+    assert record.figures >= 6 and record.general == record.figures
 
     # D4: a follow-up with no picker and no keyword is a candidate because the conversation holds a report.
     events2, _, admission2 = await _turn(services, principal, "غيّر الألوان إلى الأخضر", conversation=conversation)
@@ -128,9 +129,8 @@ async def test_a_picked_report_streams_checked_marked_and_stored_and_a_follow_up
     page2 = (await services.reports.page(await services.reports.version(
         principal.tenant_id, principal.user_id, done2.id, 2), 10)).decode()
     assert "--kit-accent:#0f766e" in page2
-    # 3.1 stays general knowledge in v2; 3.6 keeps the label v1 gave it, though v2's message has no figure.
-    assert general in page2
-    assert 'data-kit-source="message" data-kit-label="من: طلبك" title="من: طلبك">3.6</span>' in page2
+    # Nothing is carried from v1 (ADR-0398): v2's turn has no findings, so every figure is general knowledge.
+    assert general in page2 and "من: طلبك" not in page2
 
 
 async def test_only_the_owner_reads_a_report_through_the_agent_api(reports):

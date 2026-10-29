@@ -1,9 +1,10 @@
 ---
 id: artifacts.design_system
-version: 1.1.0
+version: 1.2.0
 changelog:
   - "1.0.0: first version (reports PR, I2, ADR-0370): the kit's layout, cards, KPI tiles, tables, charts through report-data, typography, dark and light, RTL with logical properties, <bdi> for English terms"
   - "1.1.0: the platform labels every figure with its source (owner decision A, ADR-0388); the page size guidance"
+  - "1.2.0: one kind of source per turn: with findings, only their figures and «غير متوفر» / \"Not available\" where they hold none; without, general knowledge only (owner decision on PR #17, ADR-0398)"
 ---
 # The report design kit (v1)
 
@@ -60,5 +61,5 @@ Every chart is an empty `<div class="kit-chart" data-chart="ID"></div>` (`kit-ch
 - Use logical properties in any `style` you write (`margin-inline-start`, `padding-block`, `inset-inline-end`, `inline-size`), never left/right, so the page mirrors between Arabic and English.
 
 ## Figures and sources
-- Use only the figures in the findings, the passages and the user's message when the turn has them; a figure you add from general knowledge is allowed.
+- When the turn has findings or passages, use only their figures (and the user's message): never add one from general knowledge; where they hold none, write «غير متوفر» / "Not available". When it has none, every figure is general knowledge, and the page names no source.
 - The platform labels every figure with its source after you write it: «من: <knowledge base or file>» / "From: …" for a figure a source holds, «من المعرفة العامة» / "General knowledge" for any other. Leave room for a short label after each figure, and never write a label, a source mark or a sources section yourself.

@@ -79,6 +79,7 @@ class ReportText(_Strict):
     general_label: Localized
     source_label: Localized
     message_label: Localized
+    unavailable_label: Localized
     page: Localized
     created: Localized
     updated: Localized

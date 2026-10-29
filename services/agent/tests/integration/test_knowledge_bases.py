@@ -370,7 +370,8 @@ async def test_kb_metadata_dates_are_iso_and_kept(services, api):
 
 async def test_a_report_over_a_kb_labels_its_figures_with_the_kbs_name(services, api):
     # Owner decision A (ADR-0388, ADR-0389), over a capability that returns findings: a figure the KB holds
-    # reads «من: <KB name>», one the model adds reads «من المعرفة العامة».
+    # reads «من: <KB name>»; one the findings do not hold reads «غير متوفر» in its place, never general
+    # knowledge on a KB turn (ADR-0398). The passage holds 812 with «التمور», the page's label for it (ADR-0399).
     trade = _slug()
     await _create(api, trade, name_ar="التجارة")
     await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
@@ -383,7 +384,8 @@ async def test_a_report_over_a_kb_labels_its_figures_with_the_kbs_name(services,
     assert events[-1]["type"] == "done", events[-1]
     html = "".join(e["data"]["text"] for e in events if e["type"] == "artifact_delta")
     assert 'data-kit-source="kb" data-kit-label="من: التجارة" title="من: التجارة">812</span>' in html
-    assert 'data-kit-source="general" data-kit-label="من المعرفة العامة" title="من المعرفة العامة">7.5</span>' in html
+    assert 'data-kit-source="unavailable" title="غير متوفر">غير متوفر</span>' in html
+    assert "7.5" not in html and "من المعرفة العامة" not in html.split('data-kit="sources"')[0]
 
 
 async def test_a_registration_keeps_the_files_hash_and_a_missing_metadata_flag_until_corrected(services, api):

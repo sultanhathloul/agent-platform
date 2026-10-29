@@ -43,17 +43,19 @@ def mark(figure: str, kind: str = "general", label: str = "من المعرفة �
             f'title="{label}">{figure}</span>')
 
 
-def test_figures_labelled_needs_every_figure_labelled_and_the_models_own_as_general_knowledge():
-    page_ok = page(f'<p>النمو {mark("3.1")} في {mark("2031", "message", "من: طلبك")}</p>')
+def test_figures_labelled_needs_every_figure_labelled_and_all_of_them_general_knowledge():
+    # ADR-0398: a turn with no knowledge base, file or findings labels every figure general knowledge,
+    # the request's own included.
+    page_ok = page(f'<p>النمو {mark("3.1")} في {mark("2031")}</p>')
     assert pages.figures_labelled(page_ok, "لوحة عن 2031")
     assert not pages.figures_labelled(page(f'<p>النمو {mark("3.1")} في 2031</p>'), "لوحة عن 2031")  # 2031 unlabelled
-    assert not pages.figures_labelled(page_ok, "لوحة عامة")  # 2031 labelled as the request's, which never held it
-    assert not pages.figures_labelled(page(f'<p>{mark("2031", "message", "من: طلبك")}</p>'), "2031")  # no general one
+    assert not pages.figures_labelled(page(f'<p>{mark("3.1")} {mark("2031", "message", "من: طلبك")}</p>'), "2031")
+    assert not pages.figures_labelled(page(f'<p>{mark("16", "kb", "من: إحصاءات")}</p>'), "")  # a source on a general turn
     data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
-            '[{"label":"x","data":[3.1,4],"sources":["من المعرفة العامة","%s"],"general":[0]}]}}}</script>')
-    assert not pages.figures_labelled(page(mark("1") + data % "من المعرفة العامة"), "")  # 4 not general, not given
-    assert pages.figures_labelled(page(mark("1") + data % "من: طلبك"), "4")
-    assert not pages.figures_labelled(page(mark("1") + data.replace('"%s"', "null")), "4")  # a point with no label
+            '[{"label":"x","data":[3.1,4],"sources":["من المعرفة العامة","%s"],"general":[0%s]}]}}}</script>')
+    assert pages.figures_labelled(page(mark("1") + data % ("من المعرفة العامة", ",1")), "")
+    assert not pages.figures_labelled(page(mark("1") + data % ("من: طلبك", "")), "4")  # 4 not general
+    assert not pages.figures_labelled(page(mark("1") + (data % ("x", ",1")).replace('"x"]', "null]")), "")  # no label
 
 
 def test_figures_sourced_needs_each_expected_figure_with_its_kb_or_file_label():

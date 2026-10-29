@@ -29,9 +29,16 @@ KB = Label("kb", "من: اقتصاد الواحة")
 
 
 def labels_for(allowed: set[str] | None, locale: str = "ar", label: Label = KB) -> FigureLabels:
-    """Labels where every figure of `allowed` comes from one source and any other is general knowledge."""
-    labels = FigureLabels(Label("general", TEXT.general_label.of(locale)))
-    labels.keep({figure: label.stored() for figure in allowed or ()})
+    """`None`: an unsourced turn, every figure general knowledge. A set: a sourced turn whose one source
+    holds the figures of `allowed` (as metadata does, no row or column label needed), any other figure
+    not available (ADR-0398)."""
+    labels = FigureLabels(
+        Label("general", TEXT.general_label.of(locale)),
+        sourced=allowed is not None,
+        unavailable=Label("unavailable", TEXT.unavailable_label.of(locale)),
+    )
+    if allowed:
+        labels.add([" ".join(sorted(allowed))], label)
     return labels
 
 
@@ -94,7 +101,6 @@ def test_the_platforms_marks_cannot_be_forged_by_the_model():
     page, _ = build(
         '<html><body><span class="kit-figure" data-kit="figure" data-kit-source="kb" data-kit-label="من: البنك">١٠</span>'
         '<section class="kit-sources kit-card" data-kit="sources"><h2>المصادر</h2></section></body></html>',
-        allowed=set(),
     )
     assert 'class="kit-card"' in page and 'data-kit="sources" lang' in page  # only the platform's own section
     assert "من: البنك" not in page and 'data-kit-source="kb"' not in page
@@ -161,35 +167,66 @@ def mark(raw: str, label: Label) -> str:
 GENERAL = Label("general", "من المعرفة العامة")
 
 
-def test_every_figure_carries_exactly_one_label_its_source_or_general_knowledge():
+UNAVAILABLE = Label("unavailable", "غير متوفر")
+
+
+def test_on_a_sourced_turn_every_figure_is_its_sources_or_not_available():
     page, renderer = build(
         '<html><body><div class="kit-kpi-value">3.6<span class="kit-kpi-unit">%</span></div>'
-        "<p>بلغ النمو ٣٫٦ وكان 3.1 قبل عام، والصادرات 1,250 مليون.</p>"
+        "<p>بلغ النمو ٣٫٦ وكان 3.1% قبل عام، والصادرات 1,250 مليون.</p>"
         '<svg viewBox="0 0 9 9"><text x="1">42</text></svg></body></html>',
         allowed={"3.6", "1250"},
     )
-    assert renderer.count.total == 5 and renderer.count.general == 2
+    assert renderer.count.total == 5 and renderer.count.general == 0 and renderer.count.unavailable == 2
     assert mark("3.6", KB) in page and mark("٣٫٦", KB) in page and mark("1,250", KB) in page
-    assert mark("3.1", GENERAL) in page
-    assert '42<tspan class="kit-figure-svg" data-kit-source="general"> (من المعرفة العامة)</tspan>' in page
-    assert page.count('class="kit-figure"') == 4  # one label each, none doubled
-    assert set(renderer.count.sourced) == {"3.6", "1250"} and "غير موثق" not in page
+    # ADR-0398: no general knowledge on a sourced turn; the number and its percent sign give way.
+    assert '<span class="kit-figure" data-kit="figure" data-kit-source="unavailable" title="غير متوفر">غير متوفر</span> قبل' in page
+    assert "3.1" not in page and "42" not in page and ">غير متوفر</text>" in page
+    assert set(renderer.count.sourced) == {"3.6", "1250"} and "من المعرفة العامة" not in page.split("kit-sources")[0]
+
+
+def test_on_an_unsourced_turn_every_figure_is_general_knowledge_and_nothing_is_matched():
+    labels = FigureLabels(Label("general", "General knowledge"), sourced=False)
+    labels.add(["inflation 2.2 in July"], Label("kb", "From: Oasis economy"))  # ignored: no findings this turn
+    labels.add(["you asked about 12"], Label("message", "From: your request"))
+    page, renderer = build("<html><body><p>2.2 and 12 and 99</p></body></html>", "en", labels=labels)
+    assert renderer.count.total == 3 and renderer.count.general == 3 and not renderer.count.sourced
+    assert "From:" not in page
 
 
 def test_the_label_names_the_kb_the_file_the_capability_or_the_request():
-    labels = FigureLabels(Label("general", "General knowledge"))
+    labels = FigureLabels(Label("general", "General knowledge"), sourced=True, unavailable=Label("unavailable", "Not available"))
     labels.add(["inflation 2.2 in July"], Label("kb", "From: Oasis economy"))
     labels.add(["the attached file says 2.2 and 7.5"], Label("file", "From: budget.pdf"))
     labels.add(["you asked about 12"], Label("message", "From: your request"))
     assert labels.of("2.2").text == "From: Oasis economy"  # the first source that holds it
     assert labels.of("7.5").text == "From: budget.pdf" and labels.of("12").kind == "message"
-    assert labels.of("99").text == "General knowledge"
-    page, _ = build("<html><body><p>2.2 and 7.5 and 99</p></body></html>", "en", labels=labels)
-    assert mark("2.2", Label("kb", "From: Oasis economy")) in page and mark("99", Label("general", "General knowledge")) in page
+    assert labels.of("99").kind == "unavailable"
+    page, _ = build("<html><body><p>2.2 and 7.5</p></body></html>", "en", labels=labels)
+    assert mark("2.2", Label("kb", "From: Oasis economy")) in page
+
+
+def test_a_passage_figure_counts_only_with_its_row_or_column_label_in_the_same_passage():
+    """ADR-0399: the number and its label in the same chunk; a coincidental match elsewhere is not one."""
+    labels = FigureLabels(GENERAL, sourced=True, unavailable=UNAVAILABLE)
+    labels.add(["معدل البطالة للسعوديين 7.1 في الربع الثاني"], KB, passage=True)
+    labels.add(["عدد المشتركين في التأمينات 16 ألفًا"], KB, passage=True)
+    assert labels.of("7.1", ["معدل البطالة"]) == KB
+    assert labels.of("16", ["عدد أهداف الهلال"]) == UNAVAILABLE  # the number, but not its label
+    assert labels.of("16", []) == UNAVAILABLE
+    # A label translated from the passage's language (ADR-0396) cannot match word for word.
+    assert labels.of("7.1", ["Unemployment rate"]) == KB
+    page, _ = build(
+        "<html><body><table><thead><tr><th>المؤشر</th><th>البطالة</th></tr></thead>"
+        "<tbody><tr><td>الربع الثاني</td><td>7.1</td></tr><tr><td>الأهداف</td><td>16</td></tr></tbody></table>"
+        '<div class="kit-kpi-label">البطالة</div><div class="kit-kpi-value">7.1</div></body></html>',
+        labels=labels,
+    )
+    assert page.count(mark("7.1", KB)) == 2 and ">غير متوفر</span>" in page and ">16<" not in page
 
 
 def test_a_figure_split_between_stream_chunks_is_checked_whole():
-    page, renderer = build("<html><body><p>القيمة 1,234,567 ريال</p></body></html>", allowed=set(), chunk=3)
+    page, renderer = build("<html><body><p>القيمة 1,234,567 ريال</p></body></html>", chunk=3)
     assert mark("1,234,567", GENERAL) in page
     assert renderer.count.general_figures == ["1234567"]
 
@@ -200,10 +237,24 @@ def test_chart_points_and_labels_carry_their_sources_by_the_same_rule():
         '"labels":["2030","2031"],"datasets":[{"label":"x","data":[3.1,3.6]}]}}}</script></body></html>',
         allowed={"2031", "3.6"},
     )
-    assert renderer.count.general_figures == ["2030", "3.1"]
+    assert renderer.count.unavailable == 2 and renderer.count.general == 0
     data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))["charts"]["g"]
-    assert data["label_sources"] == ["من المعرفة العامة", KB.text]
-    assert data["datasets"][0]["sources"] == ["من المعرفة العامة", KB.text] and data["datasets"][0]["general"] == [0]
+    assert data["labels"] == ["غير متوفر", "2031"] and data["label_sources"] == ["غير متوفر", KB.text]
+    # ADR-0398: a point the findings do not hold is dropped, never drawn as general knowledge.
+    assert data["datasets"][0]["data"] == [None, 3.6] and data["datasets"][0]["unavailable"] == [0]
+    assert data["datasets"][0]["sources"] == ["غير متوفر", KB.text] and "general" not in data["datasets"][0]
+
+
+def test_a_chart_point_is_matched_with_its_category_and_its_series():
+    labels = FigureLabels(GENERAL, sourced=True, unavailable=UNAVAILABLE)
+    labels.add(["المشتغلون الذكور 9.2 مليون والإناث 4.1 مليون"], KB, passage=True)
+    page, _ = build(
+        '<html><body><script type="application/json" id="report-data">{"charts":{"g":{"type":"pie",'
+        '"labels":["الذكور","الإناث","الهلال"],"datasets":[{"label":"العاملون","data":[9.2,4.1,4.1]}]}}}</script></body></html>',
+        labels=labels,
+    )
+    data = json.loads(re.search(r'id="report-data">(.*?)</script>', page).group(1))["charts"]["g"]["datasets"][0]
+    assert data["data"] == [9.2, 4.1, None] and data["sources"] == [KB.text, KB.text, "غير متوفر"]
 
 
 def test_the_model_cannot_write_the_platforms_chart_labels():
@@ -249,7 +300,7 @@ def test_an_inlined_kit_script_cannot_close_its_element():
 
 
 def test_the_stored_page_parses_and_editable_strips_the_platforms_marks():
-    page, _ = build("<html><body><p>القيمة 5</p></body></html>", allowed=set())
+    page, _ = build("<html><body><p>القيمة 5</p></body></html>")
     HTMLParser().feed(page)  # the stdlib parser accepts it
     clean = editable(page)
     assert "kit-figure" not in clean and "kit-sources" not in clean and "القيمة 5" in clean

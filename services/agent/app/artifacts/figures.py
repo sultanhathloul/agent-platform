@@ -1,24 +1,34 @@
-"""The figure check of a report (reports PR, D2, I3, ADR-0381; source labels, ADR-0388).
+"""The figure check of a report (reports PR, D2, I3, ADR-0381; source labels, ADR-0388; one kind of source
+per turn, ADR-0398 and ADR-0399).
 
 A figure is a run of digits (Western or Arabic-Indic) with its thousands separators and one decimal
 part, not glued to a letter before it ("Q1", "H2", "COVID-19" are names, not figures). Its canonical
 form drops the separators, leading zeros and trailing decimal zeros, so «1,250», «١٬٢٥٠» and 1250.0
-are one figure. Every figure the page shows carries exactly one label, the first source that holds the
-same canonical figure (ADR-0388): a passage fetched for the answer or its source's metadata (titles,
-publishers, dates), labelled with its knowledge base's name or its file's title; a capability's
-findings, labelled with the capability's name; the user's message; on a follow-up, the label the
-previous version gave it. Number words on the source side are folded to digits first (phase 08,
-ADR-0359). Anything else is the model's own and is labelled general knowledge. Rounding, unit changes
-(1.2 million for 1,200,000) and arithmetic are not matched: such a figure reads general knowledge,
-the safe side of D2.
+are one figure. Every figure the page shows carries exactly one label.
 
-Linear in the text: one regular-expression pass, set lookups."""
+A turn draws from one kind of source (ADR-0398). On a sourced turn (knowledge bases toggled, files
+attached, or a capability's findings) a figure is labelled with the first of this turn's sources that
+holds it: a fetched passage only when the same passage also holds the figure's row or column label
+(the words the page writes beside it: a table's row and column headers, a chart's category and series
+names, the text around it), labelled with its knowledge base's name or its file's title; a source's
+metadata (titles, publishers, dates); a capability's findings (same rule as a passage); the user's
+message. Anything else is not in the findings and reads «غير متوفر» / "Not available" in place of the
+number. On an unsourced turn no matching is done: every figure is the model's own, labelled general
+knowledge. Nothing comes from an earlier turn. Number words on the source side are folded to digits
+first (phase 08, ADR-0359). Rounding, unit changes (1.2 million for 1,200,000) and arithmetic are not
+matched: the safe side of D2.
+
+A label matches a passage when one of its words (light-stemmed, generic words such as «عدد» or "total"
+left out) is a word of the passage. A label with no letter in the passage's script (an English page over
+an Arabic passage, ADR-0396) cannot be matched word for word: the figure alone decides there (ADR-0399).
+
+Linear in the text: one regular-expression pass per text, set lookups."""
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from app.text.arabic import fold_number_words
+from app.text.arabic import fold_number_words, search_terms
 
 _INDIC = str.maketrans(
     {**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, **{a: str(i) for i, a in enumerate("۰۱۲۳۴۵۶۷۸۹")}}
@@ -89,8 +99,32 @@ def source_texts(source: dict) -> list[str]:
     return [str(p) for p in parts if p]
 
 
-# A label's kinds: where its figure was found. `general` is the model's own knowledge (D2).
-KINDS = ("kb", "file", "source", "capability", "message", "general")
+# A label's kinds: where its figure was found. `general` is the model's own knowledge (D2); `unavailable`
+# is a figure a sourced turn's findings do not hold (ADR-0398).
+KINDS = ("kb", "file", "source", "capability", "message", "general", "unavailable")
+
+# Words a label shares with almost any statistical passage; they never make a match on their own.
+_GENERIC = frozenset(
+    w
+    for text in (
+        "من في على الى عن مع حسب بين خلال هذا هذه التي الذي ذلك عدد نسبه اجمالي مجموع معدل قيمه متوسط"
+        " المملكه السعوديه العربيه سنه عام الربع الاول الثاني الثالث الرابع شهر مليون الف",
+        "the and for with from per total number rate share value average year quarter month saudi arabia"
+        " kingdom million thousand percent",
+    )
+    for w in search_terms(text)
+)
+_ARABIC = re.compile(r"[\u0600-\u06ff]")
+_LATIN = re.compile(r"[A-Za-z]")
+
+
+def words(texts: Iterable[str]) -> set[str]:
+    """The light-stemmed words of some texts, three letters or more, digits and generic words left out."""
+    found: set[str] = set()
+    for text in texts:
+        if text:
+            found.update(w for w in search_terms(text) if len(w) >= 3 and not w.isdigit() and w not in _GENERIC)
+    return found
 
 
 @dataclass(frozen=True)
@@ -102,22 +136,56 @@ class Label:
         return {"kind": self.kind, "text": self.text}
 
 
+@dataclass(frozen=True)
+class _Entry:
+    label: Label
+    words: frozenset[str]
+    arabic: bool
+    latin: bool
+    needs_context: bool
+
+
 class FigureLabels:
-    """Each canonical figure's one label: the first source added that holds it, else general knowledge."""
+    """Each figure's one label from this turn's sources, first added first (ADR-0398, ADR-0399).
 
-    def __init__(self, general: Label):
+    `general` is the label of every figure on an unsourced turn, where `sourced` is false and nothing is
+    matched; on a sourced turn a figure no source holds gets `unavailable`."""
+
+    def __init__(self, general: Label, *, sourced: bool = False, unavailable: Label | None = None):
         self.general = general
-        self._of: dict[str, Label] = {}
+        self.sourced = sourced
+        self.unavailable = unavailable or general
+        self._entries: list[_Entry] = []
+        self._at: dict[str, list[int]] = {}
 
-    def add(self, texts: Iterable[str], label: Label) -> None:
+    def add(self, texts: Iterable[str], label: Label, *, passage: bool = False) -> None:
+        """A source's texts. `passage`: a figure counts only with its row or column label in the same
+        texts (a fetched chunk, a capability's findings); else the figure alone (metadata, the message)."""
+        if not self.sourced:
+            return
+        texts = [t for t in texts if t]
+        joined = "\n".join(texts)
+        entry = _Entry(label, frozenset(words(texts)), bool(_ARABIC.search(joined)), bool(_LATIN.search(joined)), passage)
+        self._entries.append(entry)
         for figure in figures(texts):
-            self._of.setdefault(figure, label)
+            self._at.setdefault(figure, []).append(len(self._entries) - 1)
 
-    def keep(self, stored: Mapping[str, Mapping[str, str]]) -> None:
-        """A previous version's labels (D4): a figure it labelled keeps that label."""
-        for figure, label in stored.items():
-            if isinstance(label, Mapping) and label.get("kind") in KINDS and label.get("text"):
-                self._of.setdefault(figure, Label(str(label["kind"]), str(label["text"])))
+    def of(self, figure: str, context: Sequence[str] = ()) -> Label:
+        if not self.sourced:
+            return self.general
+        wanted: set[str] | None = None
+        for index in self._at.get(figure, ()):
+            entry = self._entries[index]
+            if not entry.needs_context:
+                return entry.label
+            if wanted is None:
+                wanted = words(context)
+            if wanted & entry.words or (wanted and not _same_script(context, entry)):
+                return entry.label
+        return self.unavailable
 
-    def of(self, figure: str) -> Label:
-        return self._of.get(figure, self.general)
+
+def _same_script(context: Sequence[str], entry: _Entry) -> bool:
+    """Whether the label is written in a script the passage has: else it was translated (ADR-0396)."""
+    text = " ".join(context)
+    return bool(_ARABIC.search(text)) and entry.arabic or bool(_LATIN.search(text)) and entry.latin

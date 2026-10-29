@@ -2,7 +2,7 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 1.1.0
+version: 1.2.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
@@ -66,6 +66,8 @@ text:
   general_label: {ar: "من المعرفة العامة", en: "General knowledge"}
   source_label: {ar: "من: {name}", en: "From: {name}"}
   message_label: {ar: "من: طلبك", en: "From: your request"}
+  # A figure a sourced turn's findings do not hold, shown in its place (ADR-0398).
+  unavailable_label: {ar: "غير متوفر", en: "Not available"}
   page: {ar: "ص", en: "p."}
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
   updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}

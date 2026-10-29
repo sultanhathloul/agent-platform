@@ -3,14 +3,18 @@
 The turn's capabilities ran as on any turn; here the role `report_writer` (heavy tier, 16k output tokens)
 writes one HTML page from the same findings and passages, with the design kit's prompt part and, on a
 follow-up, the latest version of the conversation's report (D4). The page streams through the guards
-(app/artifacts/stream.py) as it is written. Then:
+(app/artifacts/stream.py) as it is written. A turn draws from one kind of source (ADR-0398): this turn's
+findings when knowledge bases are toggled, files attached or a capability found something, else general
+knowledge only; nothing of an earlier turn's findings, labels or sources is carried over. Then:
 
 1. citations: page attribution (app/rag/citations.py) over the page's visible text, as for a text answer;
-2. figures (D2, I3, ADR-0388): every figure carries one source label: the knowledge base or file whose
-   passage or metadata holds it, the capability whose findings hold it, the user's message, on a follow-up
-   the label the previous version gave it, or else general knowledge;
-3. the sources section from the citations, with a follow-up keeping the previous version's;
-4. the 512 KB cap (I4), then the page is stored as the report's next version (I5) and `artifact_done` sent.
+2. source names: the page names no knowledge base, file or publisher outside this turn's citations; a page
+   that does is written again once with the names given, then the turn fails (ADR-0398);
+3. figures (D2, I3, ADR-0388, ADR-0399): on a sourced turn a figure is labelled with the source whose
+   passage holds it with its row or column label (or whose metadata, or the user's message, holds it), and
+   any other reads «غير متوفر»; on an unsourced turn every figure is labelled general knowledge;
+4. the sources section from this turn's citations only;
+5. the 512 KB cap (I4), then the page is stored as the report's next version (I5) and `artifact_done` sent.
 
 The chat's reply is one line naming the report and its version; the page itself never enters the
 conversation's messages."""
@@ -41,6 +45,7 @@ from app.memory.types import MemoryScope
 from app.platform_settings import effective
 from app.rag.citations import attribute
 from app.resilience import deadline
+from app.text.arabic import normalize
 from app.text.script import ScriptPolicy, script_issues, script_tokens
 
 log = logging.getLogger(__name__)
@@ -65,14 +70,29 @@ def _capability_name(ctx: TurnContext, slug: str, locale: str) -> str:
     return name.en if locale == "en" else name.ar
 
 
-def figure_labels(
-    state: AgentState, ctx: TurnContext, sources: list[dict], previous: dict, text: ReportText
-) -> FigureLabels:
-    """Each figure's source, first match first (ADR-0388): the passages and metadata of the sources in
-    order, the capabilities' findings, the user's message, the previous version's labels."""
+def sourced_turn(state: AgentState, sources: list[dict]) -> bool:
+    """The turn draws from its findings (ADR-0398): knowledge bases toggled, files sent, or a capability that
+    returned sources or findings. Otherwise it is a general-knowledge turn."""
+    outputs = state.get("capability_outputs") or []
+    return bool(
+        state.get("selected_kbs") or state.get("turn_attachment_ids") or sources
+        or any((o.get("findings") or "").strip() for o in outputs)
+    )
+
+
+def figure_labels(state: AgentState, ctx: TurnContext, sources: list[dict], text: ReportText, *, sourced: bool) -> FigureLabels:
+    """Each figure's source from this turn only, first match first (ADR-0388, ADR-0398, ADR-0399): each
+    source's passage (with the figure's row or column label) and metadata in order, the capabilities'
+    findings, the user's message. An unsourced turn matches nothing: every figure is general knowledge."""
     locale = state["locale"]
     lang = "en" if locale == "en" else "ar"
-    labels = FigureLabels(Label("general", text.general_label.of(locale)))
+    labels = FigureLabels(
+        Label("general", text.general_label.of(locale)),
+        sourced=sourced,
+        unavailable=Label("unavailable", text.unavailable_label.of(locale)),
+    )
+    if not sourced:
+        return labels
     for source in sources:
         names = source.get("kb_name") if isinstance(source.get("kb_name"), dict) else None
         if names and names.get(lang):
@@ -84,14 +104,48 @@ def figure_labels(
         if not name:
             continue
         label = Label(kind, text.source_label.of(locale).format(name=name))
-        labels.add([ctx.evidence.get(source.get("ref") or "", ""), *source_texts(source)], label)
+        labels.add([ctx.evidence.get(source.get("ref") or "", "")], label, passage=True)
+        labels.add(source_texts(source), label)
     for output in state.get("capability_outputs") or []:
         if output.get("findings"):
             name = _capability_name(ctx, output["capability"], locale)
-            labels.add([output["findings"]], Label("capability", text.source_label.of(locale).format(name=name)))
+            labels.add(
+                [output["findings"]], Label("capability", text.source_label.of(locale).format(name=name)), passage=True
+            )
     labels.add([state.get("user_message") or ""], Label("message", text.message_label.of(locale)))
-    labels.keep(previous)
     return labels
+
+
+# A name shorter than this, folded, is too likely a common word to be read as a source's name.
+MIN_SOURCE_NAME = 6
+
+
+def _names(item: dict) -> list[str]:
+    kb = item.get("kb_name") if isinstance(item.get("kb_name"), dict) else {}
+    return [n for n in (kb.get("ar"), kb.get("en"), item.get("title"), item.get("publisher")) if isinstance(n, str) and n]
+
+
+def known_sources(state: AgentState, previous: list[dict]) -> list[str]:
+    """The source names a page could claim without this turn having used them (ADR-0398): the conversation's
+    files and what its latest report cited (KB names, titles, publishers). A knowledge base no report cited
+    is not listed: its name may be an ordinary phrase («الاقتصاد الدولي») on a page about the subject."""
+    names = [a.get("name") or "" for a in state.get("attachments") or []]
+    names += [n for c in previous for n in _names(c)]
+    return names
+
+
+def named_sources(text: str, known: list[str], cited: list[dict]) -> list[str]:
+    """The known source names the page's visible text names though this turn did not cite them."""
+    allowed = {normalize(n) for c in cited for n in _names(c)}
+    page = normalize(text)
+    found: list[str] = []
+    for name in known:
+        folded = normalize(name)
+        if len(folded) < MIN_SOURCE_NAME or folded in allowed or any(folded in a for a in allowed):
+            continue
+        if folded in page and name not in found:
+            found.append(name)
+    return found
 
 
 def script_failure(text: str, scripts: ScriptPolicy | None) -> dict | None:
@@ -116,12 +170,6 @@ def model_calls(ctx: TurnContext, written: ModelResult, locale: str, text: Repor
     return calls
 
 
-def _merged(current: list[dict], new: list[dict]) -> list[dict]:
-    """The sources section of a follow-up: the previous version's sources, then this turn's new ones."""
-    seen = {c.get("id") for c in new}
-    return [*new, *(c for c in current if c.get("id") not in seen)]
-
-
 async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
     services = ctx.services
@@ -130,7 +178,8 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     locale = state["locale"]
     span = trace.get_current_span()
     principal = ctx.principal
-    current = await reports.latest_in(principal.tenant_id, principal.user_id, state["conversation_id"])
+    latest = await reports.latest_in(principal.tenant_id, principal.user_id, state["conversation_id"])
+    current = latest
     current_html = None
     if current is not None:
         try:
@@ -138,6 +187,13 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         except ReportUnavailable as exc:
             raise TurnError("report_unavailable", retryable=True, detail=str(exc)) from None
     span.set_attribute("report.edit", current is not None)
+    sources = [s for o in state.get("capability_outputs") or [] for s in o.get("sources", [])]
+    sourced = sourced_turn(state, sources)
+    span.set_attribute("report.sourced", sourced)
+    log.info(
+        "report turn=%s edit=%s sourced=%s latest=%s",
+        ctx.turn_id, current is not None, sourced, latest.report_id if latest else None,
+    )
 
     needs = report_needs(state, ctx)
     retrieved = await load_evidence(state, ctx) if "retrieval" in needs else []
@@ -159,7 +215,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             current_version=current.version if current else None,
             current_html=current_html,
         ),
-        prompt_vars={"has_current": current is not None},
+        prompt_vars={"has_current": current is not None, "sourced": sourced},
         memory_scope=MemoryScope.of(principal),
     )
 
@@ -173,8 +229,8 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
 
     prepared = await prepare(request)
 
-    sources = [s for o in state.get("capability_outputs") or [] for s in o.get("sources", [])]
-    labels = figure_labels(state, ctx, sources, current.figure_labels if current else {}, config.text)
+    labels = figure_labels(state, ctx, sources, config.text, sourced=sourced)
+    known = known_sources(state, latest.citations if latest else [])
     buffered = services.guard.requires_buffering(principal, guard_context(state, ctx))
     span.set_attribute("answer.mode", "buffered" if buffered else "streaming")
     # The report's id is known before the page streams, so the panel follows one id across its versions.
@@ -199,19 +255,28 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             pieces = await stream.close()
             tokens_in += result.tokens_in
             tokens_out += result.tokens_out
-            failure = script_failure(visible_text(pieces), scripts)
+            text = visible_text(pieces)
+            failure = script_failure(text, scripts)
             span.set_attribute(f"report.scripts.attempt{attempt}", "failed" if failure else "passed")
-            if failure is None:
+            citations = attribute(text, sources, ctx.evidence, services.citations, question=state.get("user_message") or "")
+            # ADR-0398: the page names no source this turn did not cite.
+            claimed = named_sources(text, known, citations)
+            span.set_attribute(f"report.sources_named.attempt{attempt}", "failed" if claimed else "passed")
+            if failure is None and not claimed:
                 break
             if attempt == 2:
-                raise TurnError("validation_failed", detail="report: " + ",".join(failure["issues"]))
-            span.set_attribute("report.retry.issues", ",".join(failure["issues"]))
-            vars_ = {**request.prompt_vars, "script_retry": failure}
+                issues = (failure or {}).get("issues", []) + (["uncited_source"] if claimed else [])
+                raise TurnError("validation_failed", detail="report: " + ",".join(issues))
+            vars_ = dict(request.prompt_vars)
+            if failure:
+                span.set_attribute("report.retry.issues", ",".join(failure["issues"]))
+                vars_["script_retry"] = failure
+            if claimed:
+                span.set_attribute("report.retry.sources", len(claimed))
+                vars_["source_retry"] = claimed[:5]
             request = request.model_copy(update={"prompt_vars": vars_})
             prepared = await prepare(request)
-        text = visible_text(pieces)
-        citations = attribute(text, sources, ctx.evidence, services.citations, question=state.get("user_message") or "")
-        shown = _merged(current.citations, citations) if current else citations
+        shown = citations
         renderer = Renderer(locale, labels)
         body = renderer.render(pieces)
         end = sources_section(shown, locale, config.text, general=renderer.count.general > 0)
@@ -223,12 +288,13 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         span.set_attribute("report.bytes", size)
         span.set_attribute("report.figures", count.total)
         span.set_attribute("report.figures.general", count.general)
+        span.set_attribute("report.figures.unavailable", count.unavailable)
         span.set_attribute("report.truncated", stream.truncated)
         if services.settings.observability_capture_content and count.general_figures:
             span.set_attribute("report.figures.general_values", ",".join(count.general_figures[:200]))
         log.info(
-            "report figures turn=%s version=%d figures=%d general=%d",
-            ctx.turn_id, version, count.total, count.general,
+            "report figures turn=%s version=%d figures=%d general=%d unavailable=%d",
+            ctx.turn_id, version, count.total, count.general, count.unavailable,
         )
         if size > config.max_bytes:
             raise TurnError("report_too_large", detail=f"{size} bytes over {config.max_bytes}")

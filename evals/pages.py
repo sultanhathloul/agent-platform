@@ -148,13 +148,13 @@ def _charts(block: str):
 
 
 def figures_labelled(page: str, message: str) -> bool:
-    """A general-knowledge page (owner decision A): every figure the body shows carries exactly one label,
-    those the user's message does not hold read general knowledge, and at least one does; every chart
-    point carries its source the same way."""
-    given = {canonical(m) for m in figures_in(message)}
+    """A general-knowledge page (owner decision A; one kind of source per turn, ADR-0398): every figure the
+    body shows carries exactly one label, and on a turn with no knowledge base, file or findings that label
+    is general knowledge, the request's own figures included; every chart point carries its source the
+    same way. `message` is kept for the caller; nothing in it exempts a figure."""
     marks = _marks(page)
     stray = figures_in(_body_text(_unmarked(page)))
-    if stray or any(kind != "general" and figure not in given for kind, figure in marks):
+    if stray or any(kind != "general" for kind, _ in marks):
         return False
     if '<span class="kit-figure"' in _MARKED.sub("", page):  # a marker inside a marker, or one malformed
         return False
@@ -170,11 +170,9 @@ def figures_labelled(page: str, message: str) -> bool:
                 for index, value in enumerate(dataset.get("data") or []):
                     if not isinstance(value, int | float):
                         continue
-                    if index >= len(sources) or not sources[index]:
+                    if index >= len(sources) or not sources[index] or index not in general:
                         return False
-                    if index not in general and canonical(repr(float(value)).removesuffix(".0")) not in given:
-                        return False
-    return any(kind == "general" for kind, _ in marks)
+    return bool(marks)
 
 
 def figures_sourced(page: str, expected: list) -> bool:

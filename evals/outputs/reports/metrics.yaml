@@ -30,7 +30,7 @@ metrics:
   sourced_figures:        # each expected figure shown with its KB's or file's label (ADR-0388)
     sourced: [{scorer: page, check: figures_sourced, expected: expect.figures}]
     edit:    [{scorer: page, check: figures_sourced, expected: expect.figures}]
-  figures_labelled:       # a general-knowledge page: every figure labelled once, those not in the message «من المعرفة العامة» (A)
+  figures_labelled:       # a general-knowledge page: every figure labelled once, all «من المعرفة العامة» (A, ADR-0398)
     general: [{scorer: page, check: figures_labelled}]
   sources_section:        # the «المصادر» / Sources section the platform appends
     general: [{scorer: page, check: sources}]
