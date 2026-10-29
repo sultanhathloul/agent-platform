@@ -23,7 +23,7 @@ routing_hints:
     - when: keyword
 model:
   min_tier: standard
-  steps: {draft: fast}               # a step override below the floor
+  steps: {draft: fast}               # a step override below the role default: it never lowers it (ADR-0394)
   on_overflow: compress
 context:
   needs: [system, user_message]

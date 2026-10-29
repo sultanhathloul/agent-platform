@@ -3520,3 +3520,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - A file an earlier run fetched that is no longer selected is removed from the folder (the seed step then reports it and the index keeps it); files dropped by hand are never touched. The manifest holds the per-category report.
 - Consequences: On 2026-10-29 the categories الرياضة and المساكن list no publication of their own on the site (sport is under الصحة, housing under حيوية وسكانية, both fetched there); الخدمات الاجتماعية's latest year is 2022. Within سوق العمل, الصحة and الأحوال المعيشية (latest 2026), the sub-categories whose newest year is 2025 or older were left out by the per-category rule.
 
+### ADR-0394: A capability floor only raises a tier, never lowers it (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided
+- Context: A live report over stats-gov ran the report writer on `standard` ("capability floor kb=standard"): the resolver gave a call made on behalf of capabilities the highest of their floors in place of the role's default, so report_writer's heavy (I1, ADR-0369) held only for a turn with no capability.
+- Decision: The tier of any call is max(the role's default tier, the floors of the capabilities it runs for, per-step overrides first), then escalation and the cap as before. The tier event's reason names both, `role default <role>=<tier>; capability floor <slug>=<tier>, …; highest <tier>`. README §19.3 is amended.
+- Consequences: report_writer runs on heavy over kb, docs or directions turns. No other call changes today: `reasoning` is standard and every manifest floor is standard, and extract steps run on `extractor` (fast) under a standard floor, which is raised to standard as before. A per-step override below its role's default no longer lowers the call (the test probe's `draft: fast` under `reasoning` now runs on standard; phase 10's `sql` `fix_error: fast` will need a role whose default is fast). A heavy page streams more slowly (about 140 characters a second in development, ADR-0380).
+

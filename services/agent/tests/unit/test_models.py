@@ -43,25 +43,45 @@ async def test_role_default_without_capabilities(models_config):
     assert "role default" in decision.reason
 
 
-async def test_capability_floor_replaces_provisional_reasoning_tier(models_config):
-    # A synthetic capability whose floor sits below the reasoning default;
-    # `general` itself moved to standard in ADR-0024.
+async def test_a_floor_below_the_role_default_never_lowers_it(models_config):
+    # Owner decision on PR #17 (ADR-0394): the tier is max(role default, floors); a floor only raises it.
     on_fast = CapabilityModelSpec(slug="cap_on_fast", min_tier="fast")
     decision = await TierResolver(models_config, GuardEngine()).resolve(
         "reasoning", step="answer", capabilities=[on_fast], principal=USER
     )
     assert decision.requested == "standard"
-    assert decision.final == "fast"
+    assert decision.final == "standard"
+
+
+async def test_report_writer_over_a_kb_turn_resolves_to_heavy(models_config):
+    # The finding of 2026-10-29: kb's floor (standard) put the report writer below its own heavy.
+    kb = CapabilityModelSpec(slug="kb", min_tier="standard")
+    decision = await TierResolver(models_config, GuardEngine()).resolve(
+        "report_writer", step="report", capabilities=[kb], principal=USER
+    )
+    assert (decision.requested, decision.floor, decision.final, decision.capped) == ("heavy", "heavy", "heavy", False)
+    assert "role default report_writer=heavy" in decision.reason and "capability floor kb=standard" in decision.reason
+
+
+async def test_a_role_whose_default_is_below_a_floor_is_still_raised_to_it(models_config):
+    on_heavy = CapabilityModelSpec(slug="cap_on_heavy", min_tier="heavy")
+    decision = await TierResolver(models_config, GuardEngine()).resolve(
+        "extractor", step="extract", capabilities=[on_heavy], principal=USER
+    )
+    assert (decision.requested, decision.final) == ("fast", "heavy")
+    # The tier event's reason names both: the role's default and each capability's floor.
+    assert "role default extractor=fast" in decision.reason and "capability floor cap_on_heavy=heavy" in decision.reason
 
 
 async def test_highest_floor_and_step_override_win(models_config):
     sql = CapabilityModelSpec(slug="sql", min_tier="standard", steps={"fix_error": "fast"})
-    kb = CapabilityModelSpec(slug="kb", min_tier="standard")
+    kb = CapabilityModelSpec(slug="kb", min_tier="heavy")
     resolver = TierResolver(models_config, GuardEngine())
-    fix_sql = await resolver.resolve("reasoning", step="fix_error", capabilities=[sql], principal=USER)
+    # A step override below the role default no longer lowers it (ADR-0394).
+    fix_sql = await resolver.resolve("extractor", step="fix_error", capabilities=[sql], principal=USER)
     assert fix_sql.final == "fast"
-    fix_both = await resolver.resolve("reasoning", step="fix_error", capabilities=[sql, kb], principal=USER)
-    assert fix_both.final == "standard"
+    fix_both = await resolver.resolve("extractor", step="fix_error", capabilities=[sql, kb], principal=USER)
+    assert fix_both.final == "heavy"
 
 
 def test_repo_models_config_makes_helper_roles_deterministic(models_config):

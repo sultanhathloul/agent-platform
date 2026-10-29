@@ -741,6 +741,8 @@ models.call(role="summarizer", ...)                                          # c
 
 Final tier = max(1–4) bounded by 5. Every decision is written to the trace as `model.tier_decision {requested, floor, escalations[], cap, final}` so cost reports can answer "why did 30 % of calls go to heavy?".
 
+> **Amendment 2026-10-29 (owner decision on PR #17, ADR-0394).** Step 1 is `max(the role's default tier, the floors of the capabilities the call runs for)`: a capability's floor, or its per-step override, only raises a tier, never lowers it. The tier event's reason names both (`role default <role>=<tier>; capability floor <slug>=<tier>; highest <tier>`). A step override below its role's default, such as §19.4's `sql` `fix_error: fast` under the `reasoning` role, has no effect; a step that should run on `fast` calls a role whose default is `fast`.
+
 ### 19.4 Rules of thumb baked into the seed config
 
 - Helper roles never leave `fast`. This alone removes most of the cost of a turn.
