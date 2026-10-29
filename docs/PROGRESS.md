@@ -2521,6 +2521,20 @@ Re-runs (analyst)
   - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس», edit=True, v2: every v1 element kept with the same values; the new doughnut «توزيع المشتغلين حسب الجنس (إجمالي)» was dropped: the writer gave 84.3 / 15.7 citing sheet 5-15 (84.3 is the men's labour-force participation), which the check refused. Sheet 3-1 (83.6 / 16.4) was not among the passages: the plan's query was «التوزيع النسبي للعاملين حسب الجنس» (the request's word), the table's title says «المشتغلين».
 - Open, for the owner: the pie needs sheet 3-1 retrieved for an edit whose words differ from the table's («العاملين» against «المشتغلين»).
 
+### Owner request on PR #17: the platform's visual identity (2026-10-29)
+
+- Commits: 9020fe4 (tokens, fonts), cc5f630 (logo, icons, theme toggle), f708822 (tokens applied in 28 files), 110adc4 (report kit palette); ADR-0415. KB content quality recorded in docs/BACKLOG.md (b7bca2f), no further work on it.
+- Checks done (no tests, smoke or eval, owner decision): the web type-checks and lints; make up green; the served page links favicon.ico, the two PNG icons and the touch icon, carries the theme script and IBM Plex; logo, favicon and font return 200; in the browser the sign-in screen showed the logo and name at the top right, dark from the system, light after the toggle, and still light after a reload (data-theme light, background #FAFAF7); the stored choice was removed after.
+- Not done: Keycloak's own sign-in page keeps Keycloak's theme (needs a Keycloak login theme).
+
+Pages for the owner's visual check (http://localhost:3000), each in light and dark (the header's toggle), Arabic and English (the language switch)
+1. The sign-in screen (signed out): the logo and name at the top right in Arabic, top left in English; the green sign-in button; the browser tab's icon.
+2. /chat/new and a conversation: the sidebar (the current conversation in gold), the user's message (green), the assistant's answer with citations and tool chips, the composer with the KB toggles (a selected one in gold) and the skill and output pickers, a focus ring (Tab key) in gold.
+3. A report: the report card and the side panel (tabs, version switcher, buttons) and the page itself: KPI tiles, charts whose first series is green and second gold, the sources section; the panel's theme follows the page's own toggle.
+4. /settings/memory: the memory switch (gold when on), the saved message.
+5. /admin/policies (list, editor, test panel), /admin/settings (limits, the "current" chips), /admin/kbs and /admin/kbs/stats-gov (the documents' status badges, the delete confirmation's red button).
+6. Reload any page in dark: no flash of light before it paints.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

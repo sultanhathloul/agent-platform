@@ -482,6 +482,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-29 (owner decision 2 on PR #17, completed, ADR-0410).** Every chunk of a workbook sheet opens with the sheet's name, the table's title and number and all of its header rows (everything above the first data row), so a continuation chunk still names its table and columns. KB documents record the extractor version that indexed them; `make kb-seed` re-indexes, once, those an older extractor cut.
 
+> **Amendment 2026-10-29 (owner request on PR #17, ADR-0415).** The platform's identity: the logo (services/web/public/brand) beside «منصة الوكيل» / "Agent Platform" at the header's inline-start corner on every page, the brand favicon and touch icon; the logo's deep palm green and gold as design tokens in one place (services/web/src/app/globals.css), light and dark, with status colours, all at WCAG AA; IBM Plex Sans Arabic self-hosted; light/dark follows the system, and a header toggle chooses and remembers it without a flash. Report pages' palette follows the identity, chart series starting with the brand green and gold.
+
 ---
 
 ## 14. Docker Compose (v1 services)
