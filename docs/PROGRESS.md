@@ -2535,6 +2535,18 @@ Pages for the owner's visual check (http://localhost:3000), each in light and da
 5. /admin/policies (list, editor, test panel), /admin/settings (limits, the "current" chips), /admin/kbs and /admin/kbs/stats-gov (the documents' status badges, the delete confirmation's red button).
 6. Reload any page in dark: no flash of light before it paints.
 
+### Owner visual check on PR #17 (report 4aa403a3): six fixes (2026-10-29)
+
+- Commits: 72b66f9 (charts lose empty categories, item 3), f95633f (never silent; nothing found, items 1 and 2), b456e3f (RTL charts and legend, items 3 and 4), ff31c23 (balanced KPI rows, item 6), d104a87 (chips, item 5), e0a52ea (router fix, ADR-0417), then the year fix; ADR-0416 and ADR-0417.
+- No tests, smoke or eval (owner decision). One slip: the new web chip test file was run once (3 passed) while checking the wiring; nothing else was run.
+
+Re-run (analyst; conversation 5affa699-349b-4d6d-b73a-e4eb5a0b44ee, then 9674254c-a4ba-4189-ba89-8620b19b4066 for the router fix)
+- Dashboard (stats-gov): report 7f3e3c85 v1; reply «أُنشئ التقرير «سوق العمل في المملكة العربية السعودية» (الإصدار 1). لم أجد في المصادر بيانات «توزيع المتعطلين حسب خبرة العمل السابقة (الإجمالي)»، «التوزيع النسبي لقوة العمل السعودية حسب الجنس (2018)»، فتركت ذلك خارج التقرير.» Page: KPIs labour force 67.2 / outside 32.8 (sheet 5-15, in a row of two); a stacked bar of labour force by nationality (48.7 / 51.3 Saudi, 82.2 / 17.8 non-Saudi, 67.2 / 32.8 total; sheet 5-15); the outside-the-labour-force table by nationality and sex (sheet 5-11); and two voluntary-work elements (the 2025 voluntary work workbook, sheets 3-1 and 4-2), off the request's subject (KB content quality, backlog). Values equal to the sheets as displayed.
+- Pie edit: v2, reply «حُدّث التقرير … (الإصدار 2). أضفت ما أمكن. لم أجد في المصادر بيانات «التوزيع النسبي للمشتغلين حسب الجنسية (الإجمالي)»، فتركت ذلك خارج التقرير.» The page is v1's; the pie was not added (its table not retrieved, backlog).
+- Al Hilal with stats-gov toggled: first answered as text («لم أجد في المصادر المتاحة بيانات عن نادي الهلال…») because the router's form decision was voided (ADR-0417); after the fix: «لا تحوي المصادر المختارة (إحصاءات الهيئة العامة للإحصاء) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.» No artifact event, no page.
+- Al Hilal with nothing toggled: report 89c8a1d7 v1 «نادي الهلال السعودي», the general-knowledge line, no sources, every element "general"; KPI rows of four and two; the founding year was written «1,957» (fixed after, years unformatted).
+- Browser check of report 7f3e3c85 v2's view, dark then light: legend marks on the right of their labels with clear gaps, no overlap; categories from the right («السعوديون» first), value axis on the right; KPIs in a balanced row of two. Seen: the stacked bar still holds a «الإجمالي» category beside its parts, against report.system 2.1.0's rule (the model did not keep it).
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

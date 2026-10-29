@@ -3717,3 +3717,24 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - RTL and Western digits (ADR-0288) unchanged.
 - Consequences: The identity changes in one file. Keycloak's own sign-in page, reached from the platform's sign-in screen, keeps Keycloak's theme: styling it needs a Keycloak login theme (a later change). No web test asserted a colour or the header; new tests cover the theme (system default, remembered choice before paint, blocked storage) and the strings.
 
+### ADR-0416: A report is never silent about what it could not do; nothing found ends plainly; charts, chips and KPI rows fixed (owner visual check on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner visual check of report 4aa403a3)
+- Status: decided (the owner's rules); assumed (the details below)
+- Decision:
+  1. Never silent: after the line naming the report, the reply says in one or two plain sentences, in the report's language (its spec's `language`), what it could not do: the elements left out for want of data («لم أجد في المصادر بيانات «…»، فتركت ذلك خارج التقرير.»), the categories a chart lost, and that some values show «—»; an edit's note opens «أضفت ما أمكن.» Texts in config/artifacts/report.yaml 2.2.0 (`partial`, `missing_elements`, `trimmed_categories`, `gaps`).
+  2. Nothing found: a report over toggled KBs or files that keeps no KPI row, chart or table ends with «لا تحوي المصادر المختارة (<names>) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.» (`nothing_found`), no page saved and no retry; on such a turn prose waits for the first element kept, so the panel never opens on an empty report.
+  3. Charts: a category no series has a value for leaves the chart; a chart left with fewer than two categories is dropped and reported as in 1. The chart's box is laid out left to right (ECharts places its SVG text left to right; under dir="rtl" it ran over the legend's marks) and the options mirror the chart in RTL: the category axis inverted, the value axis on the right, every category label shown and wrapped to its share of the width, tooltips right to left.
+  4. The legend: right-aligned in RTL, each colour mark on its item's right, 18 px between items, scrollable when long.
+  5. Chips (web): one chip per tool with its count («× 9») and its worst status, one per tier; a guard chip for allow or log_only only to administrators (the admin flag read once per session, MeProvider).
+  6. KPI rows: the platform picks the columns (up to 4 in a row; 5, 6 and 9 in rows of 3; 7 and 8 in rows of 4; two per row on narrow screens), so a last row does not hold one card alone; a year (1800 to 2100) is written as a year, not «1,957».
+- Consequences: The reply can be two or three sentences longer when something is missing. A KB that holds nothing on a subject no longer costs a retry or shows the validation message.
+
+### ADR-0417: With the capabilities already chosen, an empty capability list in the router's answer is not unusable (fix)
+- Date: 2026-10-29
+- Phase: reports PR (found in the owner visual check's re-run)
+- Status: assumed
+- Context: With stats-gov toggled the rules choose kb, and the router is asked only for the skill and the answer's form (and edit). It answered `"capabilities": [], "output": "report"`, which parse_decision treated as unusable; the turn fell back to `router_default` and a text answer, so the Al Hilal request with stats-gov toggled never reached the report path.
+- Decision: When the rules decided the capabilities (no router pool), an empty or foreign capability list keeps the rules' capabilities and the rest of the answer (skill, output, edit) is used.
+- Consequences: Report requests with KBs toggled reach the report writer; the routing suite's cases are unchanged (they route with a pool).
+
