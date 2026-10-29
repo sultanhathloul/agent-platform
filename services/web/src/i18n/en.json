@@ -10,7 +10,11 @@
     "switchLanguage": "Change language",
     "policies": "Guard policies",
     "settings": "Platform settings",
-    "kbs": "Knowledge bases"
+    "kbs": "Knowledge bases",
+    "logoAlt": "Agent Platform logo",
+    "themeToDark": "Dark mode",
+    "themeToLight": "Light mode",
+    "themeLabel": "Switch theme"
   },
   "locale": {
     "ar": "العربية",
