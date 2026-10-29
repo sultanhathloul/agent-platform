@@ -216,9 +216,9 @@ describe("the report panel's live build (I7)", () => {
 
 describe("the version switcher (D4)", () => {
   const versions: ReportVersionSummary[] = [
-    { version: 1, title: "أ", size: 10, locale: "ar", created_at: "2026-10-27T09:00:00Z", figures: 3, unverified: 1 },
-    { version: 3, title: "أ", size: 10, locale: "ar", created_at: "2026-10-28T11:00:00Z", figures: 3, unverified: 0 },
-    { version: 2, title: "أ", size: 10, locale: "ar", created_at: "2026-10-27T15:00:00Z", figures: 3, unverified: 0 },
+    { version: 1, title: "أ", size: 10, locale: "ar", created_at: "2026-10-27T09:00:00Z", figures: 3, general: 1 },
+    { version: 3, title: "أ", size: 10, locale: "ar", created_at: "2026-10-28T11:00:00Z", figures: 3, general: 0 },
+    { version: 2, title: "أ", size: 10, locale: "ar", created_at: "2026-10-27T15:00:00Z", figures: 3, general: 0 },
   ];
 
   it("lists the versions newest first, with their dates in Western digits", () => {

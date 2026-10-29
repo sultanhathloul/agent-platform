@@ -13,8 +13,12 @@ EXTERNAL = re.compile(
 )
 FIGURE = re.compile(r"[0-9٠-٩]{1,3}(?:[,٬][0-9٠-٩]{3})+(?:[.٫][0-9٠-٩]+)?|[0-9٠-٩]+(?:[.٫][0-9٠-٩]+)?")
 _INDIC = str.maketrans({**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, "٫": ".", "٬": ","})
-_MARKED = re.compile(r'<span class="kit-unverified" data-kit="unverified">(.*?)</span>', re.S)
-_SVG_MARKED = re.compile(r"([0-9٠-٩][0-9٠-٩.,٫٬]*)<tspan class=\"kit-unverified-svg\">")
+# A figure in its source label's marker (owner decision A, ADR-0388): (kind, label, figure).
+_MARKED = re.compile(
+    r'<span class="kit-figure" data-kit="figure" data-kit-source="([a-z]+)" data-kit-label="([^"]*)" title="[^"]*">(.*?)</span>',
+    re.S,
+)
+_SVG_MARKED = re.compile(r'([0-9٠-٩][0-9٠-٩.,٫٬]*)<tspan class="kit-figure-svg" data-kit-source="([a-z]+)">[^<]*</tspan>')
 _SOURCES = re.compile(r'<section class="kit-sources" data-kit="sources"[^>]*>.*?</section>', re.S)
 _DATA = re.compile(r'<script type="application/json" id="report-data">(.*?)</script>', re.S)
 
@@ -126,48 +130,66 @@ def _body_text(page: str) -> str:
     return "\n".join(structure.texts)
 
 
-def figures_marked(page: str, message: str) -> bool:
-    """Every figure the body shows that the user's message does not hold is inside the unverified marker,
-    and at least one is (a general-knowledge report, D2)."""
+def _marks(page: str) -> list[tuple[str, str]]:
+    """(kind, canonical figure) of every labelled figure, text and SVG."""
+    found = [(kind, canonical(figure)) for kind, _, figure in _MARKED.findall(page)]
+    return found + [(kind, canonical(figure)) for figure, kind in _SVG_MARKED.findall(page)]
+
+
+def _unmarked(page: str) -> str:
+    return _SVG_MARKED.sub("", _MARKED.sub("", page))
+
+
+def _charts(block: str):
+    for chart in (json.loads(block).get("charts") or {}).values():
+        yield chart
+
+
+def figures_labelled(page: str, message: str) -> bool:
+    """A general-knowledge page (owner decision A): every figure the body shows carries exactly one label,
+    those the user's message does not hold read general knowledge, and at least one does; every chart
+    point carries its source the same way."""
     given = {canonical(m) for m in figures_in(message)}
-    marked = [canonical(m) for m in _MARKED.findall(page)] + [canonical(m) for m in _SVG_MARKED.findall(page)]
-    unmarked_page = _SVG_MARKED.sub("", _MARKED.sub("", page))
-    shown = [canonical(m) for m in figures_in(_body_text(unmarked_page))]
-    stray = [f for f in shown if f not in given]
-    data_ok = all(_data_flagged(block, given) for block in _DATA.findall(page))
-    return bool(marked) and not stray and data_ok
-
-
-def _data_flagged(block: str, given: set[str]) -> bool:
-    try:
-        data = json.loads(block)
-    except ValueError:
+    marks = _marks(page)
+    stray = figures_in(_body_text(_unmarked(page)))
+    if stray or any(kind != "general" and figure not in given for kind, figure in marks):
         return False
-    for chart in (data.get("charts") or {}).values():
-        for dataset in chart.get("datasets") or []:
-            flagged = set(dataset.get("unverified") or [])
-            for index, value in enumerate(dataset.get("data") or []):
-                if isinstance(value, int | float) and index not in flagged and canonical(repr(float(value)).removesuffix(".0")) not in given:
-                    return False
-    return True
+    if '<span class="kit-figure"' in _MARKED.sub("", page):  # a marker inside a marker, or one malformed
+        return False
+    for block in _DATA.findall(page):
+        try:
+            charts = list(_charts(block))
+        except ValueError:
+            return False
+        for chart in charts:
+            for dataset in chart.get("datasets") or []:
+                sources = dataset.get("sources") or []
+                general = set(dataset.get("general") or [])
+                for index, value in enumerate(dataset.get("data") or []):
+                    if not isinstance(value, int | float):
+                        continue
+                    if index >= len(sources) or not sources[index]:
+                        return False
+                    if index not in general and canonical(repr(float(value)).removesuffix(".0")) not in given:
+                        return False
+    return any(kind == "general" for kind, _ in marks)
 
 
 def figures_sourced(page: str, expected: list) -> bool:
-    """Each expected figure (or one of its alternatives) is shown and never inside the unverified marker:
-    the figure matched its source (KB or file)."""
-    marked = {canonical(m) for m in _MARKED.findall(page)}
-    shown = {canonical(m) for m in figures_in(_body_text(_MARKED.sub("", page)))}
+    """Each expected figure (or one of its alternatives) is shown with the label of the knowledge base or
+    file that holds it (ADR-0388), in the text or as a chart point."""
+    sourced = {figure for kind, figure in _marks(page) if kind in ("kb", "file")}
     for block in _DATA.findall(page):
         try:
-            for chart in (json.loads(block).get("charts") or {}).values():
+            for chart in _charts(block):
                 for dataset in chart.get("datasets") or []:
-                    flagged = set(dataset.get("unverified") or [])
-                    shown |= {canonical(repr(float(v)).removesuffix(".0")) for i, v in enumerate(dataset.get("data") or [])
-                              if isinstance(v, int | float) and i not in flagged}
+                    general = set(dataset.get("general") or [])
+                    sourced |= {canonical(repr(float(v)).removesuffix(".0")) for i, v in enumerate(dataset.get("data") or [])
+                                if isinstance(v, int | float) and i not in general}
         except ValueError:
             return False
     for item in expected or []:
         options = [item] if isinstance(item, str) else list(item)
-        if not any(canonical(o) in shown and canonical(o) not in marked for o in options):
+        if not any(canonical(o) in sourced for o in options):
             return False
     return bool(expected)

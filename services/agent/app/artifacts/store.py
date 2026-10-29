@@ -41,7 +41,7 @@ class VersionInfo(BaseModel):
     locale: str
     created_at: datetime
     figures: int = 0
-    unverified: int = 0
+    general: int = 0
 
 
 class ReportRecord(BaseModel):
@@ -59,7 +59,8 @@ class VersionRecord(VersionInfo):
     conversation_id: str
     object_key: str
     citations: list[dict[str, Any]] = []
-    verified: list[str] = []
+    # Each sourced figure's label, {canonical figure: {kind, text}} (ADR-0388), kept by a follow-up (D4).
+    figure_labels: dict[str, dict[str, str]] = {}
 
 
 class PageStore:
@@ -111,7 +112,7 @@ def object_key(tenant_id: str, conversation_id: str, report_id: str, version: in
 
 _VERSION_COLUMNS = (
     "v.report_id::text AS report_id, r.conversation_id, v.version, v.title, v.object_key, v.size, v.sha256, "
-    "v.locale, v.created_at, v.citations, v.verified, v.figures, v.unverified"
+    "v.locale, v.created_at, v.citations, v.figure_labels, v.figures, v.general"
 )
 
 
@@ -155,9 +156,9 @@ class ReportStore:
         locale: str,
         turn_id: str,
         citations: list[dict],
-        verified: list[str],
+        labels: dict[str, dict[str, str]],
         figures: int,
-        unverified: int,
+        general: int,
         timeout_s: float,
     ) -> VersionRecord:
         """A new report (`new`) or the next version of one: the page first, then its row."""
@@ -184,11 +185,11 @@ class ReportStore:
             await self.pages.put(key, page, timeout_s)
             await conn.execute(
                 "INSERT INTO agent.report_versions (report_id, version, title, object_key, size, sha256, locale, "
-                "turn_id, citations, verified, figures, unverified) "
+                "turn_id, citations, figure_labels, figures, general) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     report_id, version, title, key, len(page), hashlib.sha256(page).hexdigest(), locale,
-                    turn_id, Jsonb(citations), Jsonb(verified), figures, unverified,
+                    turn_id, Jsonb(citations), Jsonb(labels), figures, general,
                 ),
             )
             await conn.execute(
@@ -210,7 +211,7 @@ class ReportStore:
             if row is None:
                 return None
             cursor = await conn.execute(
-                "SELECT version, title, size, sha256, locale, created_at, figures, unverified "
+                "SELECT version, title, size, sha256, locale, created_at, figures, general "
                 "FROM agent.report_versions WHERE report_id = %s ORDER BY version",
                 (report_id,),
             )

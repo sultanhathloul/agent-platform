@@ -24,7 +24,7 @@ def test_the_kit_loads_every_file_report_yaml_names():
     assert [name for name, _ in kit.scripts] == ["vendor/chart.umd.min.js", "kit.js"]
     assert len(kit.fonts) == 8 and all(data[:4] == b"wOF2" for data in kit.fonts.values())
     assert "data:font/woff2;base64," in kit.inline_stylesheet()
-    assert artifacts.design.ref == "artifacts.design_system@1.0.0"
+    assert artifacts.design.ref == "artifacts.design_system@1.1.0"
 
 
 def test_the_kits_own_code_names_no_url_outside_itself():
@@ -33,6 +33,9 @@ def test_the_kits_own_code_names_no_url_outside_itself():
     assert "localStorage" not in own and "fetch(" not in own and "XMLHttpRequest" not in own
 
 
-def test_the_unverified_marker_reads_in_arabic_and_english():
+def test_a_figures_label_is_shown_from_the_platforms_attribute():
+    # Owner decision A (ADR-0388): the label is the platform's text in data-kit-label, shown after the figure.
     css = (KIT / "kit.css").read_text()
-    assert 'content: "غير موثق"' in css and 'content: "Unverified"' in css
+    assert "content: attr(data-kit-label)" in css and "غير موثق" not in css and "Unverified" not in css
+    js = (KIT / "kit.js").read_text()
+    assert "غير موثق" not in js and "Unverified" not in js

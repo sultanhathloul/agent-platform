@@ -9075,10 +9075,10 @@
             "description": "Figures the page shows.",
             "default": 0
           },
-          "unverified": {
+          "general": {
             "type": "integer",
-            "title": "Unverified",
-            "description": "Of them, those marked unverified (D2).",
+            "title": "General",
+            "description": "Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).",
             "default": 0
           }
         },
@@ -9133,9 +9133,9 @@
             "title": "Figures",
             "default": 0
           },
-          "unverified": {
+          "general": {
             "type": "integer",
-            "title": "Unverified",
+            "title": "General",
             "default": 0
           },
           "citations": {

@@ -1,6 +1,6 @@
 /* Sovereign report kit v1 (reports PR, I2, ADR-0370): renders a report's charts from its one
    <script type="application/json" id="report-data"> block with the vendored Chart.js, marks the
-   datasets the platform found unverified (D2), and adds the theme toggle, tabs and sortable tables.
+   source of every value the platform labelled (owner decision A, ADR-0388), and adds the theme toggle, tabs and sortable tables.
    No network, no storage (the page runs sandboxed with an opaque origin, connect-src 'none'), and
    text from the data is only ever set with textContent. */
 (function () {
@@ -10,8 +10,8 @@
   var rtl = (root.getAttribute("dir") || "").toLowerCase() === "rtl";
   var english = /^en\b/i.test(root.getAttribute("lang") || "");
   var TEXT = english
-    ? { unverified: "Unverified", unverifiedNote: "Some values in this chart were matched to no source.", dark: "Dark", light: "Light", missing: "No data for this chart." }
-    : { unverified: "غير موثق", unverifiedNote: "بعض قيم هذا الرسم لم تُطابَق بمصدر.", dark: "داكن", light: "فاتح", missing: "لا بيانات لهذا الرسم." };
+    ? { sources: "Sources of this chart's values:", dark: "Dark", light: "Light", missing: "No data for this chart." }
+    : { sources: "مصادر قيم هذا الرسم:", dark: "داكن", light: "فاتح", missing: "لا بيانات لهذا الرسم." };
   var charts = [];
 
   function css(name) {
@@ -55,10 +55,9 @@
     var surface = css("--kit-surface");
     var labels = Array.isArray(spec.labels) ? spec.labels.map(String) : [];
     var datasets = (Array.isArray(spec.datasets) ? spec.datasets : []).map(function (set, i) {
-      var unverified = Array.isArray(set.unverified) && set.unverified.length > 0;
+      var general = Array.isArray(set.general) && set.general.length > 0;
       var color = series(i);
       var label = String(set.label || "");
-      if (unverified) label += " (" + TEXT.unverified + ")";
       var data = (Array.isArray(set.data) ? set.data : []).map(function (v) { return typeof v === "number" ? v : null; });
       var out = { label: label, data: data, borderWidth: 2 };
       if (round) {
@@ -71,14 +70,14 @@
         out.tension = 0.3;
         out.pointRadius = 3;
         out.pointHoverRadius = 6;
-        if (unverified) out.borderDash = [6, 4];
+        if (general) out.borderDash = [6, 4];
       } else {
         out.backgroundColor = color;
         out.borderColor = color;
         out.borderRadius = 4;
         out.borderSkipped = "start";
         out.maxBarThickness = 44;
-        if (unverified) { out.backgroundColor = color + "66"; out.borderDash = [4, 3]; }
+        if (general) { out.backgroundColor = color + "66"; out.borderDash = [4, 3]; }
       }
       return out;
     });
@@ -92,7 +91,10 @@
       font: { family: css("--kit-font") },
       plugins: {
         legend: { display: datasets.length > 1 || round, position: "bottom", rtl: rtl, textDirection: rtl ? "rtl" : "ltr", labels: { color: ink, usePointStyle: true, boxWidth: 8, font: { family: css("--kit-font") } } },
-        tooltip: { rtl: rtl, textDirection: rtl ? "rtl" : "ltr", callbacks: { label: function (ctx) { var v = ctx.parsed && typeof ctx.parsed === "object" ? (kind === "horizontalBar" ? ctx.parsed.x : ctx.parsed.y) : ctx.parsed; return (ctx.dataset.label ? ctx.dataset.label + ": " : "") + format(v); } } },
+        tooltip: { rtl: rtl, textDirection: rtl ? "rtl" : "ltr", callbacks: {
+          title: function (items) { var it = items[0]; if (!it) return ""; var named = Array.isArray(spec.label_sources) ? spec.label_sources[it.dataIndex] : null; return String(it.label || "") + (named ? " (" + named + ")" : ""); },
+          label: function (ctx) { var v = ctx.parsed && typeof ctx.parsed === "object" ? (kind === "horizontalBar" ? ctx.parsed.x : ctx.parsed.y) : ctx.parsed; var set = (spec.datasets || [])[ctx.datasetIndex] || {}; var from = Array.isArray(set.sources) ? set.sources[ctx.dataIndex] : null; return (ctx.dataset.label ? ctx.dataset.label + ": " : "") + format(v) + (from ? " (" + from + ")" : ""); }
+        } },
         title: { display: false }
       }
     };
@@ -106,18 +108,33 @@
     return { type: type, data: { labels: labels, datasets: datasets }, options: options };
   }
 
-  function note(container, text, badge) {
+  // Under each chart, the sources of its values, one chip each (general knowledge in its marker colour).
+  function note(container, labels) {
     var p = document.createElement("div");
     p.className = "kit-chart-note";
-    if (badge) {
+    p.appendChild(document.createTextNode(TEXT.sources + " "));
+    labels.forEach(function (item) {
       var b = document.createElement("span");
-      b.className = "kit-unverified-badge";
-      b.textContent = TEXT.unverified;
+      b.className = "kit-figure-note";
+      b.setAttribute("data-kit-source", item.general ? "general" : "source");
+      b.textContent = item.text;
       p.appendChild(b);
-      p.appendChild(document.createTextNode(" "));
-    }
-    p.appendChild(document.createTextNode(text));
+    });
     container.parentNode.insertBefore(p, container.nextSibling);
+  }
+
+  function chartSources(spec) {
+    var seen = {}, out = [];
+    (spec.datasets || []).forEach(function (set) {
+      var general = {};
+      (Array.isArray(set.general) ? set.general : []).forEach(function (i) { general[i] = true; });
+      (Array.isArray(set.sources) ? set.sources : []).forEach(function (text, i) {
+        if (typeof text !== "string" || !text || seen[text]) return;
+        seen[text] = true;
+        out.push({ text: text, general: !!general[i] });
+      });
+    });
+    return out;
   }
 
   function renderCharts() {
@@ -141,10 +158,10 @@
       canvas.setAttribute("aria-label", String(spec.title || ""));
       node.appendChild(canvas);
       charts.push(new window.Chart(canvas, config(spec)));
-      var unverified = (spec.datasets || []).some(function (s) { return Array.isArray(s.unverified) && s.unverified.length; }) || (Array.isArray(spec.unverified_labels) && spec.unverified_labels.length);
-      if (unverified && !node.getAttribute("data-kit-noted")) {
+      var labels = chartSources(spec);
+      if (labels.length && !node.getAttribute("data-kit-noted")) {
         node.setAttribute("data-kit-noted", "1");
-        note(node, TEXT.unverifiedNote, true);
+        note(node, labels);
       }
     });
   }
@@ -194,7 +211,7 @@
   }
 
   function cellValue(cell) {
-    var text = (cell.textContent || "").replace(/غير موثق|Unverified/g, "").trim();
+    var text = (cell.textContent || "").trim(); // a figure's label is CSS content, not text
     var number = parseFloat(text.replace(/[,%\s]/g, ""));
     return isNaN(number) ? text : number;
   }

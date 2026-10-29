@@ -108,7 +108,7 @@ async def get_version(
         locale=record.locale,
         created_at=record.created_at,
         figures=record.figures,
-        unverified=record.unverified,
+        general=record.general,
         citations=record.citations,
         html=page,
     )

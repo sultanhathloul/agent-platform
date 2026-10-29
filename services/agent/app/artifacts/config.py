@@ -54,7 +54,10 @@ class KitConfig(_Strict):
 class ReportText(_Strict):
     sources_heading: Localized
     no_sources: Localized
-    unverified_note: Localized
+    general_note: Localized
+    general_label: Localized
+    source_label: Localized
+    message_label: Localized
     page: Localized
     created: Localized
     updated: Localized

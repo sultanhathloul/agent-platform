@@ -38,23 +38,32 @@ def test_kit_only_refuses_any_outside_reference_in_the_page_or_the_download():
     assert not pages.kit_only(page("<script>alert(1)</script>"), "")
 
 
-def test_figures_marked_needs_every_figure_outside_the_message_marked():
-    marked = page('<p>النمو <span class="kit-unverified" data-kit="unverified">3.1</span> في 2031</p>')
-    assert pages.figures_marked(marked, "لوحة عن 2031")
-    assert not pages.figures_marked(marked, "لوحة عامة")  # 2031 is the model's own and unmarked
-    data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
-            '[{"label":"x","data":[3.1,4],"unverified":[0]}]}}}</script>')
-    assert not pages.figures_marked(page('<span class="kit-unverified" data-kit="unverified">1</span>' + data), "")
-    assert pages.figures_marked(page('<span class="kit-unverified" data-kit="unverified">1</span>' + data), "4")
+def mark(figure: str, kind: str = "general", label: str = "من المعرفة العامة") -> str:
+    return (f'<span class="kit-figure" data-kit="figure" data-kit-source="{kind}" data-kit-label="{label}" '
+            f'title="{label}">{figure}</span>')
 
 
-def test_figures_sourced_needs_each_expected_figure_shown_and_unmarked():
-    shown = page('<div class="kit-kpi-value">3.6</div><p>٢٫٢ و <span class="kit-unverified" data-kit="unverified">5.8</span></p>')
-    assert pages.figures_sourced(shown, ["3.6", "2.2"])
-    assert not pages.figures_sourced(shown, ["5.8"])
-    assert pages.figures_sourced(shown, [["9", "3.6"]])
+def test_figures_labelled_needs_every_figure_labelled_and_the_models_own_as_general_knowledge():
+    page_ok = page(f'<p>النمو {mark("3.1")} في {mark("2031", "message", "من: طلبك")}</p>')
+    assert pages.figures_labelled(page_ok, "لوحة عن 2031")
+    assert not pages.figures_labelled(page(f'<p>النمو {mark("3.1")} في 2031</p>'), "لوحة عن 2031")  # 2031 unlabelled
+    assert not pages.figures_labelled(page_ok, "لوحة عامة")  # 2031 labelled as the request's, which never held it
+    assert not pages.figures_labelled(page(f'<p>{mark("2031", "message", "من: طلبك")}</p>'), "2031")  # no general one
     data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
-            '[{"label":"x","data":[812,455],"unverified":[1]}]}}}</script>')
+            '[{"label":"x","data":[3.1,4],"sources":["من المعرفة العامة","%s"],"general":[0]}]}}}</script>')
+    assert not pages.figures_labelled(page(mark("1") + data % "من المعرفة العامة"), "")  # 4 not general, not given
+    assert pages.figures_labelled(page(mark("1") + data % "من: طلبك"), "4")
+    assert not pages.figures_labelled(page(mark("1") + data.replace('"%s"', "null")), "4")  # a point with no label
+
+
+def test_figures_sourced_needs_each_expected_figure_with_its_kb_or_file_label():
+    kb = page(f'<div class="kit-kpi-value">{mark("3.6", "kb", "من: اقتصاد الواحة")}</div>'
+              f'<p>{mark("٢٫٢", "file", "من: الموازنة.pdf")} و {mark("5.8")}</p>')
+    assert pages.figures_sourced(kb, ["3.6", "2.2"])
+    assert not pages.figures_sourced(kb, ["5.8"])  # shown, but as general knowledge
+    assert pages.figures_sourced(kb, [["9", "3.6"]])
+    data = ('<script type="application/json" id="report-data">{"charts":{"g":{"labels":[],"datasets":'
+            '[{"label":"x","data":[812,455],"sources":["من: الواحة","من المعرفة العامة"],"general":[1]}]}}}</script>')
     assert pages.figures_sourced(page(data), ["812"]) and not pages.figures_sourced(page(data), ["455"])
 
 
@@ -77,5 +86,5 @@ def test_page_fields_read_the_version_and_the_download_from_the_gateways_envelop
 
 def test_names_with_digits_are_not_figures_for_the_check_either():
     # make-eval-20261028T025931Z, general-ar-picker: chart labels "Q1".."Q4" are names (ADR-0381).
-    named = page('<p>الربع Q1 و Q2 و COVID-19 و 5G، و <span class="kit-unverified" data-kit="unverified">40</span></p>')
-    assert pages.figures_marked(named, "")
+    named = page(f'<p>الربع Q1 و Q2 و COVID-19 و 5G، و {mark("40")}</p>')
+    assert pages.figures_labelled(named, "")

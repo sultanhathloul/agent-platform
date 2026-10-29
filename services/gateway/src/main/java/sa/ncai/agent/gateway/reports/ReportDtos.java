@@ -19,7 +19,7 @@ public final class ReportDtos {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Figures the page shows.") int figures,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
-                    description = "Of them, those marked unverified (D2).") int unverified) {}
+                    description = "Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).") int general) {}
 
     /** A report and its versions, oldest first; none is ever removed (D4). */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -69,7 +69,7 @@ public final class ReportDtos {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"ar", "en"}) String locale,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int figures,
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int unverified,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int general,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<ReportCitation> citations,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
                     description = "The stored page; the kit stands at its <!--report-kit--> marker.") String html) {}

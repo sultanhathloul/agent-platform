@@ -59,8 +59,10 @@ SVG_ATTRIBUTES = frozenset(
     ["viewbox", "xmlns", "width", "height", "d", "x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r", "rx", "ry", "fx", "fy", "points", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "stroke-miterlimit", "opacity", "fill-opacity", "stroke-opacity", "fill-rule", "clip-rule", "transform", "offset", "stop-color", "stop-opacity", "gradientunits", "gradienttransform", "spreadmethod", "font-size", "font-weight", "font-style", "text-anchor", "dominant-baseline", "alignment-baseline", "letter-spacing", "preserveaspectratio", "clip-path", "marker-start", "marker-mid", "marker-end", "markerwidth", "markerheight", "refx", "refy", "orient", "patternunits", "patterncontentunits", "pathlength", "dx", "dy", "rotate", "textlength", "lengthadjust", "vector-effect", "shape-rendering", "paint-order"]
 )
 PLATFORM_CLASSES = frozenset(
-    {"kit-unverified", "kit-unverified-svg", "kit-unverified-badge", "kit-sources", "kit-sources-note", "kit-theme-toggle"}
+    {"kit-figure", "kit-figure-svg", "kit-figure-note", "kit-sources", "kit-sources-note", "kit-theme-toggle", "kit-model-info"}
 )
+# The attributes of the platform's marks (a figure's label, ADR-0388): never the model's.
+PLATFORM_ATTRIBUTES = frozenset({"data-kit", "data-kit-source", "data-kit-label"})
 # Attribute values a person reads: checked by the guards with the text (I4).
 VISIBLE_ATTRIBUTES = ("title", "alt", "aria-label", "data-label")
 
@@ -91,9 +93,9 @@ def _attribute(tag: str, name: str, value: str, in_svg: bool) -> str | None:
     if name == "style":
         return clean_css(value)
     if name == "class":
-        # The platform's own marks are never the model's: a figure it marks unverified, the sources section.
+        # The platform's own marks are never the model's: a figure's source label, the sources section.
         return " ".join(c for c in value.split() if c not in PLATFORM_CLASSES)
-    if name == "data-kit":
+    if name in PLATFORM_ATTRIBUTES:
         return None
     if name.startswith("aria-") or name.startswith("data-"):
         return value if re.fullmatch(r"[a-z][a-z0-9\-]*", name) else None

@@ -50,8 +50,8 @@
   --kit-warning: #fab219;
   --kit-serious: #ec835a;
   --kit-critical: #d03b3b;
-  --kit-unverified: #9a5b00;
-  --kit-unverified-bg: #fff4dc;
+  --kit-general: #9a5b00;
+  --kit-general-bg: #fff4dc;
   --kit-series-1: #2a78d6; --kit-series-2: #eb6834; --kit-series-3: #1baf7a; --kit-series-4: #eda100;
   --kit-series-5: #e87ba4; --kit-series-6: #008300; --kit-series-7: #6250d6; --kit-series-8: #e34948;
   --kit-radius: 14px;
@@ -68,7 +68,7 @@
     --kit-grid: #2c2c2a; --kit-axis: #383835; --kit-border: rgba(255, 255, 255, 0.10);
     --kit-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
     --kit-up: #0ca30c; --kit-down: #e66767;
-    --kit-unverified: #f5c06a; --kit-unverified-bg: #3a2c12;
+    --kit-general: #f5c06a; --kit-general-bg: #3a2c12;
     --kit-series-1: #3987e5; --kit-series-2: #d95926; --kit-series-3: #199e70; --kit-series-4: #c98500;
     --kit-series-5: #d55181; --kit-series-6: #008300; --kit-series-7: #9085e9; --kit-series-8: #e66767;
   }
@@ -81,7 +81,7 @@
   --kit-grid: #2c2c2a; --kit-axis: #383835; --kit-border: rgba(255, 255, 255, 0.10);
   --kit-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   --kit-up: #0ca30c; --kit-down: #e66767;
-  --kit-unverified: #f5c06a; --kit-unverified-bg: #3a2c12;
+  --kit-general: #f5c06a; --kit-general-bg: #3a2c12;
   --kit-series-1: #3987e5; --kit-series-2: #d95926; --kit-series-3: #199e70; --kit-series-4: #c98500;
   --kit-series-5: #d55181; --kit-series-6: #008300; --kit-series-7: #9085e9; --kit-series-8: #e66767;
 }
@@ -217,17 +217,20 @@ svg { max-inline-size: 100%; }
 .kit-icon { inline-size: 40px; block-size: 40px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--kit-accent) 14%, var(--kit-surface)); color: var(--kit-accent); font-size: 1.2rem; flex: none; }
 
 /* ------------------------------------------------------------------ platform marks (never written by the model) */
-.kit-unverified {
-  background: var(--kit-unverified-bg); color: inherit; border-radius: 4px; padding-inline: 3px;
-  box-shadow: inset 0 -2px 0 var(--kit-unverified); white-space: nowrap;
+/* A figure's source label (owner decision A, ADR-0388): the platform writes it after every figure; general
+   knowledge reads in the warm marker colour, a source in the muted ink. The full label is also the title. */
+.kit-figure { border-radius: 4px; white-space: nowrap; }
+.kit-figure::after {
+  content: attr(data-kit-label); display: inline-block; max-inline-size: 16em; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; margin-inline-start: 4px; padding: 0 5px; border-radius: 4px; font-size: 0.62rem; font-weight: 600;
+  line-height: 1.5; vertical-align: middle; letter-spacing: 0; color: var(--kit-muted); border: 1px solid var(--kit-border);
 }
-.kit-unverified::after {
-  content: "غير موثق"; display: inline-block; margin-inline-start: 4px; padding: 0 5px; border-radius: 4px;
-  font-size: 0.62rem; font-weight: 600; line-height: 1.5; vertical-align: middle; letter-spacing: 0;
-  color: var(--kit-unverified); border: 1px solid var(--kit-unverified);
-}
-:root[lang|="en"] .kit-unverified::after, .kit-unverified:lang(en)::after { content: "Unverified"; }
-.kit-unverified-badge { display: inline-block; margin-inline-start: 6px; padding: 0 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; color: var(--kit-unverified); border: 1px solid var(--kit-unverified); background: var(--kit-unverified-bg); }
+.kit-figure[data-kit-source="general"] { background: var(--kit-general-bg); box-shadow: inset 0 -2px 0 var(--kit-general); padding-inline: 3px; }
+.kit-figure[data-kit-source="general"]::after { color: var(--kit-general); border-color: var(--kit-general); }
+.kit-figure-svg { font-size: 0.75em; fill: var(--kit-muted); }
+.kit-figure-svg[data-kit-source="general"] { fill: var(--kit-general); }
+.kit-figure-note { display: inline-block; margin-inline-end: 6px; padding: 0 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; color: var(--kit-muted); border: 1px solid var(--kit-border); }
+.kit-figure-note[data-kit-source="general"] { color: var(--kit-general); border-color: var(--kit-general); background: var(--kit-general-bg); }
 .kit-sources { margin-block: 40px 0; padding-block-start: 20px; border-block-start: 1px solid var(--kit-grid); font-size: 0.88rem; }
 .kit-sources h2 { font-size: 1.1rem; }
 .kit-sources ol { color: var(--kit-ink-2); }

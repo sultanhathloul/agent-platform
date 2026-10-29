@@ -1,20 +1,22 @@
-"""The figure check of a report (reports PR, D2, I3, ADR-0381).
+"""The figure check of a report (reports PR, D2, I3, ADR-0381; source labels, ADR-0388).
 
 A figure is a run of digits (Western or Arabic-Indic) with its thousands separators and one decimal
 part, not glued to a letter before it ("Q1", "H2", "COVID-19" are names, not figures). Its canonical
 form drops the separators, leading zeros and trailing decimal zeros, so «1,250», «١٬٢٥٠» and 1250.0
-are one figure. A figure is verified when the same canonical figure appears in the turn's sources:
-the capabilities' findings, the passages fetched for the answer, the sources' own metadata (titles,
-publishers, dates), the user's message, and, on a follow-up, the figures the previous version had
-verified. Number words on the source side are folded to digits first (phase 08, ADR-0359). Anything
-else is the model's own and is marked: wrapped in the kit's unverified marker in the text, flagged
-point by point in the report-data block. Rounding, unit changes (1.2 million for 1,200,000) and
-arithmetic are not matched: such a figure is marked, the safe side of D2.
+are one figure. Every figure the page shows carries exactly one label, the first source that holds the
+same canonical figure (ADR-0388): a passage fetched for the answer or its source's metadata (titles,
+publishers, dates), labelled with its knowledge base's name or its file's title; a capability's
+findings, labelled with the capability's name; the user's message; on a follow-up, the label the
+previous version gave it. Number words on the source side are folded to digits first (phase 08,
+ADR-0359). Anything else is the model's own and is labelled general knowledge. Rounding, unit changes
+(1.2 million for 1,200,000) and arithmetic are not matched: such a figure reads general knowledge,
+the safe side of D2.
 
 Linear in the text: one regular-expression pass, set lookups."""
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 
 from app.text.arabic import fold_number_words
 
@@ -82,3 +84,37 @@ def source_texts(source: dict) -> list[str]:
     if isinstance(names, dict):
         parts += [names.get("ar"), names.get("en")]
     return [str(p) for p in parts if p]
+
+
+# A label's kinds: where its figure was found. `general` is the model's own knowledge (D2).
+KINDS = ("kb", "file", "source", "capability", "message", "general")
+
+
+@dataclass(frozen=True)
+class Label:
+    kind: str
+    text: str
+
+    def stored(self) -> dict[str, str]:
+        return {"kind": self.kind, "text": self.text}
+
+
+class FigureLabels:
+    """Each canonical figure's one label: the first source added that holds it, else general knowledge."""
+
+    def __init__(self, general: Label):
+        self.general = general
+        self._of: dict[str, Label] = {}
+
+    def add(self, texts: Iterable[str], label: Label) -> None:
+        for figure in figures(texts):
+            self._of.setdefault(figure, label)
+
+    def keep(self, stored: Mapping[str, Mapping[str, str]]) -> None:
+        """A previous version's labels (D4): a figure it labelled keeps that label."""
+        for figure, label in stored.items():
+            if isinstance(label, Mapping) and label.get("kind") in KINDS and label.get("text"):
+                self._of.setdefault(figure, Label(str(label["kind"]), str(label["text"])))
+
+    def of(self, figure: str) -> Label:
+        return self._of.get(figure, self.general)

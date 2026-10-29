@@ -1390,6 +1390,11 @@ export interface components {
              * @description Figures the page shows.
              */
             figures: number;
+            /**
+             * Format: int32
+             * @description Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).
+             */
+            general: number;
             /** @enum {string} */
             locale: "ar" | "en";
             /**
@@ -1398,11 +1403,6 @@ export interface components {
              */
             size: number;
             title: string;
-            /**
-             * Format: int32
-             * @description Of them, those marked unverified (D2).
-             */
-            unverified: number;
             /** Format: int32 */
             version: number;
         };
@@ -1414,6 +1414,8 @@ export interface components {
             created_at: string;
             /** Format: int32 */
             figures: number;
+            /** Format: int32 */
+            general: number;
             /** @description The stored page; the kit stands at its <!--report-kit--> marker. */
             html: string;
             /** Format: uuid */
@@ -1423,8 +1425,6 @@ export interface components {
             /** Format: int64 */
             size: number;
             title: string;
-            /** Format: int32 */
-            unverified: number;
             /** Format: int32 */
             version: number;
         };

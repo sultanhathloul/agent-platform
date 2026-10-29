@@ -2,7 +2,7 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 1.0.0
+version: 1.1.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
@@ -49,10 +49,15 @@ kit:
 # What the platform writes into the page and the chat: the sources section and the reply's line.
 text:
   sources_heading: {ar: "المصادر", en: "Sources"}
-  no_sources: {ar: "لا مصدر موثق لهذه الأرقام: كل رقم معلَّم «غير موثق» مصدره المعرفة العامة للنموذج.",
-               en: "No verified source for these figures: every figure marked \"Unverified\" comes from the model's general knowledge."}
-  unverified_note: {ar: "الأرقام المعلَّمة «غير موثق» من المعرفة العامة للنموذج ولم تُطابَق بمصدر.",
-                    en: "Figures marked \"Unverified\" come from the model's general knowledge and were matched to no source."}
+  no_sources: {ar: "لا مصدر لهذه الأرقام: كل رقم معلَّم «من المعرفة العامة» مصدره المعرفة العامة للنموذج.",
+               en: "No source for these figures: every figure labelled \"General knowledge\" comes from the model's general knowledge."}
+  general_note: {ar: "الأرقام المعلَّمة «من المعرفة العامة» من المعرفة العامة للنموذج ولم تُطابَق بأي مصدر.",
+                 en: "Figures labelled \"General knowledge\" come from the model's general knowledge and were matched to no source."}
+  # Each figure's one label (owner decision A, ADR-0388): the source that holds it, or general knowledge.
+  # {name} is a knowledge base's name, a file's title, or a capability's name.
+  general_label: {ar: "من المعرفة العامة", en: "General knowledge"}
+  source_label: {ar: "من: {name}", en: "From: {name}"}
+  message_label: {ar: "من: طلبك", en: "From: your request"}
   page: {ar: "ص", en: "p."}
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
   updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}

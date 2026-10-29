@@ -51,8 +51,8 @@ class ReportProxyTest extends GatewayTestSupport {
     private static final String VIEW = """
             {"id":"%s","conversation_id":"%s","title":"%s","latest_version":2,\
             "created_at":"2026-10-28T08:00:00Z","updated_at":"2026-10-28T08:05:00Z","versions":[\
-            {"version":1,"title":"%s","size":2048,"locale":"ar","created_at":"2026-10-28T08:00:00Z","figures":4,"unverified":1},\
-            {"version":2,"title":"%s","size":2100,"locale":"ar","created_at":"2026-10-28T08:05:00Z","figures":5,"unverified":0}]}"""
+            {"version":1,"title":"%s","size":2048,"locale":"ar","created_at":"2026-10-28T08:00:00Z","figures":4,"general":1},\
+            {"version":2,"title":"%s","size":2100,"locale":"ar","created_at":"2026-10-28T08:05:00Z","figures":5,"general":0}]}"""
             .formatted(REPORT, CONVERSATION, TITLE, TITLE, TITLE);
 
     /** The view tickets' clock, moved by the expiry test. */
@@ -118,7 +118,7 @@ class ReportProxyTest extends GatewayTestSupport {
                 .andExpect(jsonPath("$.data.id").value(REPORT))
                 .andExpect(jsonPath("$.data.conversation_id").value(CONVERSATION))
                 .andExpect(jsonPath("$.data.latest_version").value(2))
-                .andExpect(jsonPath("$.data.versions[0].unverified").value(1))
+                .andExpect(jsonPath("$.data.versions[0].general").value(1))
                 .andExpect(jsonPath("$.data.versions[1].figures").value(5));
 
         RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
@@ -161,7 +161,7 @@ class ReportProxyTest extends GatewayTestSupport {
     private static String versionJson() {
         return """
                 {"id":"%s","conversation_id":"%s","version":1,"title":"%s","size":2048,"locale":"ar",\
-                "created_at":"2026-10-28T08:00:00Z","figures":4,"unverified":1,\
+                "created_at":"2026-10-28T08:00:00Z","figures":4,"general":1,\
                 "citations":[{"id":"c1","title":"آفاق الاقتصاد","source":"kb","kb":"imf","document_id":"d1","pages":[3],\
                 "kb_name":{"ar":"صندوق النقد","en":"IMF"},"publisher":"IMF","published_on":"2026-07-01"}],"html":%s}"""
                 .formatted(REPORT, CONVERSATION, TITLE, "\"" + PAGE.replace("\"", "\\\"") + "\"");

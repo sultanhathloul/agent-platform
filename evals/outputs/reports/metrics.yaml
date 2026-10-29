@@ -23,11 +23,11 @@ metrics:
     general: [{scorer: page, check: kit_only}]
     sourced: [{scorer: page, check: kit_only}]
     edit:    [{scorer: page, check: kit_only}]
-  sourced_figures:        # each expected KB or file figure shown and not marked unverified
+  sourced_figures:        # each expected figure shown with its KB's or file's label (ADR-0388)
     sourced: [{scorer: page, check: figures_sourced, expected: expect.figures}]
     edit:    [{scorer: page, check: figures_sourced, expected: expect.figures}]
-  unverified_marked:      # a general-knowledge page: every figure not in the message is marked (D2)
-    general: [{scorer: page, check: figures_marked}]
+  figures_labelled:       # a general-knowledge page: every figure labelled once, those not in the message «من المعرفة العامة» (A)
+    general: [{scorer: page, check: figures_labelled}]
   sources_section:        # the «المصادر» / Sources section the platform appends
     general: [{scorer: page, check: sources}]
     sourced: [{scorer: page, check: sources}]

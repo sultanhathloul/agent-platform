@@ -474,7 +474,7 @@ class ReportVersionInfo(BaseModel):
     locale: Literal["ar", "en"]
     created_at: datetime
     figures: int = Field(default=0, description="Figures the page shows.")
-    unverified: int = Field(default=0, description="Of them, those marked unverified (D2).")
+    general: int = Field(default=0, description="Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).")
 
 
 class ReportView(BaseModel):
@@ -502,7 +502,7 @@ class ReportVersionView(BaseModel):
     locale: Literal["ar", "en"]
     created_at: datetime
     figures: int = 0
-    unverified: int = 0
+    general: int = 0
     citations: list[Citation] = Field(default=[], description="The sources section's citations.")
     html: str = Field(description="The stored page; the kit stands at its <!--report-kit--> marker.")
 

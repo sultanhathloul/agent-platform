@@ -4699,6 +4699,11 @@
             "format" : "int32",
             "description" : "Figures the page shows."
           },
+          "general" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Of them, those labelled general knowledge: matched to no source (D2, ADR-0388)."
+          },
           "locale" : {
             "type" : "string",
             "enum" : [ "ar", "en" ]
@@ -4711,18 +4716,13 @@
           "title" : {
             "type" : "string"
           },
-          "unverified" : {
-            "type" : "integer",
-            "format" : "int32",
-            "description" : "Of them, those marked unverified (D2)."
-          },
           "version" : {
             "type" : "integer",
             "format" : "int32",
             "minimum" : 1
           }
         },
-        "required" : [ "created_at", "figures", "locale", "size", "title", "unverified", "version" ]
+        "required" : [ "created_at", "figures", "general", "locale", "size", "title", "version" ]
       },
       "ReportVersionView" : {
         "properties" : {
@@ -4741,6 +4741,10 @@
             "format" : "date-time"
           },
           "figures" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "general" : {
             "type" : "integer",
             "format" : "int32"
           },
@@ -4763,17 +4767,13 @@
           "title" : {
             "type" : "string"
           },
-          "unverified" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
           "version" : {
             "type" : "integer",
             "format" : "int32",
             "minimum" : 1
           }
         },
-        "required" : [ "citations", "conversation_id", "created_at", "figures", "html", "id", "locale", "size", "title", "unverified", "version" ]
+        "required" : [ "citations", "conversation_id", "created_at", "figures", "general", "html", "id", "locale", "size", "title", "version" ]
       },
       "ReportView" : {
         "properties" : {

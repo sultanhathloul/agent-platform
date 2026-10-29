@@ -23,6 +23,7 @@ from opentelemetry import trace
 
 from app.artifacts.config import ReportConfig
 from app.artifacts.document import Renderer, data_strings, normalize_data, set_data_string
+from app.artifacts.figures import FigureLabels
 from app.artifacts.html import VISIBLE_ATTRIBUTES, Data, Markup, Piece, Sanitizer, Text, start_tag
 from app.errors import TurnError
 from app.graph.deps import TurnContext
@@ -98,7 +99,7 @@ class ReportStream:
         report_id: str,
         version: int,
         default_title: str,
-        allowed: set[str],
+        labels: FigureLabels,
         buffered: bool,
     ):
         self._ctx = ctx
@@ -106,10 +107,9 @@ class ReportStream:
         self._context = guard_context(state, ctx)
         self._output_context = guard_context(state, ctx, actions=SENTENCE_OUTPUT_ACTIONS)
         self._locale = state.get("locale") or "ar"
-        self._label = "Unverified" if self._locale == "en" else "غير موثق"
         self._sanitizer = Sanitizer()
-        self._renderer = Renderer(self._locale, allowed, self._label)
-        self._allowed = allowed
+        self._renderer = Renderer(self._locale, labels)
+        self._labels = labels
         self._buffered = buffered
         self._id = report_id
         self._version = version
@@ -146,7 +146,7 @@ class ReportStream:
                                   detail="report page, no policy matched")]
             )
         if self._buffered:
-            page = Renderer(self._locale, self._allowed, self._label).render(self.pieces)
+            page = Renderer(self._locale, self._labels).render(self.pieces)
             for at in range(0, len(page), BUFFERED_PART_CHARS):
                 self._delta(page[at : at + BUFFERED_PART_CHARS])
         return self.pieces

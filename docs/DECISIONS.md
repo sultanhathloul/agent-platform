@@ -3282,7 +3282,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0365: General-knowledge figures are marked unverified; sourced figures carry their source (owner decision D2)
 - Date: 2026-10-28
 - Phase: reports PR
-- Status: decided
+- Status: decided — Superseded in part by ADR-0388 on 2026-10-29
 - Decision: Figures from the model's general knowledge are allowed but visibly marked «غير موثق» / "Unverified"; figures from knowledge bases or files carry their source. No figure is ever shown unmarked.
 - Consequences: The figure check of ADR-0371 enforces it after generation; the eval suite gates it (ADR-0376).
 
@@ -3399,7 +3399,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0381: What counts as a figure, and what a figure is matched against
 - Date: 2026-10-28
 - Phase: reports PR (details of D2, I3)
-- Status: assumed
+- Status: assumed — Superseded in part by ADR-0389 on 2026-10-29
 - Decision: A figure is a run of Western or Arabic-Indic digits with thousands separators and one decimal part, not glued to a word (a letter or a letter and a hyphen before it, a Latin letter after it: Q1, COVID-19, 5G are names). Its canonical form drops separators and leading and trailing zeros (1,250 = ١٬٢٥٠ = 1250.0). The allowed set is the canonical figures of: the capabilities' findings, the passages fetched for the answer, the sources' titles, publishers, KB names and dates (with a written date's parts), the user's message, and on a follow-up the figures the previous version verified; number words on that side are folded to digits first (ADR-0359). In the page, every figure of the body's text not in the set is wrapped in `<span class="kit-unverified">` (inside an SVG drawing, followed by a `<tspan>` with the marker's words); in report-data, each point and each label holding one is flagged (`unverified`, `unverified_labels`) and the kit marks the dataset and the chart. The document's `<title>` and attribute values are not marked (no element can wrap them). Counts go to the turn's span and log; the unverified values themselves only when content capture is on.
 - Consequences: Rounding, unit changes and computed figures (a sum, a share) are marked unverified even when their inputs are sourced: the safe side of D2. Number words in the page are not figures; the prompt asks for digits.
 
@@ -3453,3 +3453,24 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - The panel is the second item of the conversation's flex row, so it sits on the left in RTL and on the right in English with no left or right in the code; half the width from Tailwind's `md` (768 px), a full overlay below it; not resizable. Switching conversation closes it; a report card reopens it at its version.
   - The live build is an `<iframe sandbox="allow-scripts">` with `srcdoc` redrawn at most every 300 ms; the `<!--report-kit-->` marker is replaced by a meta CSP (the view's directives without frame-ancestors and sandbox, which a meta cannot carry) and the kit's links from the gateway's kit path; until the marker has streamed, they are put right after the doctype, so no part of a partial page runs without the policy. After `artifact_done` the frame loads the gateway's view link (a new one for every load), `referrerPolicy="no-referrer"`; the frame stays mounted behind the Code tab. A build that ends without `artifact_done` is dropped and the panel returns to the version it showed, or closes.
   - Errors show the envelope's message_ar / message_en, else the catalog's. Version dates use the existing page format (ar-SA with Western digits, ADR-0288).
+
+### ADR-0388: Every figure in a report carries its source's label; general knowledge reads «من المعرفة العامة» (owner decision A)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, A)
+- Status: decided
+- Context: ADR-0365 (D2) marked general-knowledge figures «غير موثق» / "Unverified". The owner replaces that wording with the figure's source.
+- Decision: A figure from the model's general knowledge reads «من المعرفة العامة» / "General knowledge"; a figure from a knowledge base reads «من: <KB name>» / "From: <KB name>"; a figure from an attached file reads «من: <file title>». The label stays visible, and every figure keeps exactly one label. This replaces the «غير موثق» / "Unverified" marker everywhere: the kit, the prompts, the figure check, the evals and the messages. The rest of ADR-0365 stands: general-knowledge figures are allowed, and no figure is shown without its mark.
+- Consequences: The details, including the label of a figure that only the user's message holds, are in ADR-0389.
+
+### ADR-0389: How a figure's label is chosen, written and kept (details of ADR-0388)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, A)
+- Status: assumed
+- Decision:
+  - One label per canonical figure (ADR-0381's figure rule is unchanged), the first source in this order that holds it: each source of the turn in the capabilities' order, by its fetched passage and its metadata (a source with a KB name is labelled with the KB's name in the page's language; a document source, `kind: doc`, with its title, which for an attached file is the file's name; any other source with its title); then each capability's findings, labelled with the capability's name; then the user's message, labelled «من: طلبك» / "From: your request" (the owner's three labels name no case for a figure only the request holds, and the rule "every figure keeps exactly one label" needs one); then, on a follow-up, the label the previous version gave the figure; otherwise general knowledge. The label texts are in config/artifacts/report.yaml (`general_label`, `source_label`, `message_label`).
+  - In the text a figure becomes `<span class="kit-figure" data-kit="figure" data-kit-source="<kind>" data-kit-label="<label>" title="<label>">`; the kit shows `data-kit-label` after it as CSS content, so the label is visible, never part of the figure's text (sorting a table and copying a figure are unchanged), and an over-long name is cut with an ellipsis, the whole one in the title. General knowledge keeps the warm marker colours; a source's label is in the muted ink. Inside SVG, the figure is followed by `<tspan class="kit-figure-svg">` with the label's words. In report-data each dataset gets `sources` (one label per point) and `general` (the indices of general-knowledge points, drawn dashed as before), and a chart whose axis labels hold figures gets `label_sources`; the kit adds the label to each tooltip and a row of the chart's distinct sources under it.
+  - The model cannot write a label: the sanitizer strips the platform's classes and the `data-kit`, `data-kit-source` and `data-kit-label` attributes, and normalize_data keeps only the chart keys it knows.
+  - Storage: migration 0017 renames `report_versions.verified` to `figure_labels` (a map of canonical figure to its kind and label, which a follow-up keeps) and `unverified` to `general` (the count labelled general knowledge); a version written before it keeps no labels. The API's `unverified` count becomes `general` (API 2.7.0, which has not left this PR, ADR-0046).
+  - The reports suite's `unverified_marked` becomes `figures_labelled` (every figure labelled once, and those not in the message general knowledge, threshold 1.00); `sourced_figures` now needs the KB's or the file's label on each expected figure. report.system 1.2.0 and design-system.md 1.1.0 describe the labels to the model.
+- Consequences: A page shows one label for every figure, years included, so dense tables carry many labels; the label is small and cut at 16 em. A figure in both a KB passage and the user's message reads as the KB's.
+

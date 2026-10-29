@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from app.artifacts.config import Kit, ReportText
-from app.artifacts.figures import canonical_number, spans
+from app.artifacts.figures import FigureLabels, Label, canonical_number, spans
 from app.artifacts.html import (
     Data,
     Markup,
@@ -116,62 +116,78 @@ def set_data_string(data: dict, path: tuple, value: str) -> None:
 @dataclass
 class FigureCount:
     total: int = 0
-    unverified: int = 0
-    unverified_figures: list[str] = field(default_factory=list)
-    # The figures the page shows that a source holds: a follow-up's check counts them as sourced (D4).
-    verified_figures: set[str] = field(default_factory=set)
+    # Labelled general knowledge: matched to no source (D2, ADR-0388).
+    general: int = 0
+    general_figures: list[str] = field(default_factory=list)
+    # The figures the page shows that a source holds, with their labels: a follow-up keeps them (D4).
+    sourced: dict[str, Label] = field(default_factory=dict)
 
-    def add(self, figure: str, verified: bool) -> None:
+    def add(self, figure: str, label: Label) -> None:
         self.total += 1
-        if verified:
-            self.verified_figures.add(figure)
+        if label.kind == "general":
+            self.general += 1
+            self.general_figures.append(figure)
         else:
-            self.unverified += 1
-            self.unverified_figures.append(figure)
+            self.sourced.setdefault(figure, label)
 
 
-def mark_data(data: dict, allowed: set[str], count: FigureCount) -> dict:
-    """Flags each point and label whose figure is not among `allowed` (D2): the kit marks them."""
+def _label(figure: str, labels: FigureLabels, count: FigureCount) -> Label:
+    label = labels.of(figure)
+    count.add(figure, label)
+    return label
+
+
+def mark_data(data: dict, labels: FigureLabels, count: FigureCount) -> dict:
+    """Gives each point, and each axis label that holds a figure, its source label (ADR-0388): the kit
+    shows them in the chart's tooltips and in a note under it, and draws general-knowledge points dashed."""
     for chart in data["charts"].values():
-        chart.pop("unverified_labels", None)
-        labels = [
-            i for i, label in enumerate(chart["labels"])
-            if any(not _verified(c, allowed, count) for _, _, c in spans(label))
-        ]
-        if labels:
-            chart["unverified_labels"] = labels
+        label_sources: list[str | None] = []
+        for text in chart["labels"]:
+            found = [_label(c, labels, count) for _, _, c in spans(text)]
+            label_sources.append(" · ".join(dict.fromkeys(f.text for f in found)) or None)
+        if any(label_sources):
+            chart["label_sources"] = label_sources
         for dataset in chart["datasets"]:
-            dataset.pop("unverified", None)
-            points = [
-                i for i, value in enumerate(dataset["data"])
-                if value is not None and not _verified(canonical_number(value), allowed, count)
-            ]
-            if points:
-                dataset["unverified"] = points
+            sources: list[str | None] = []
+            general: list[int] = []
+            for i, value in enumerate(dataset["data"]):
+                if value is None:
+                    sources.append(None)
+                    continue
+                label = _label(canonical_number(value), labels, count)
+                sources.append(label.text)
+                if label.kind == "general":
+                    general.append(i)
+            dataset["sources"] = sources
+            if general:
+                dataset["general"] = general
     return data
 
 
-def _verified(figure: str, allowed: set[str], count: FigureCount) -> bool:
-    ok = figure in allowed
-    count.add(figure, ok)
-    return ok
+def figure_mark(raw: str, label: Label) -> str:
+    """A figure in its label's marker: the label reads after it (kit.css), and on hover."""
+    text = html.escape(label.text)
+    return (
+        f'<span class="kit-figure" data-kit="figure" data-kit-source="{label.kind}" '
+        f'data-kit-label="{text}" title="{text}">{raw}</span>'
+    )
 
 
-def mark_text(text: str, where: str, allowed: set[str], count: FigureCount, label: str) -> str:
-    """The text, escaped, with each figure not among `allowed` in the kit's unverified marker. Inside an
-    SVG drawing, where no span can wrap it, the figure is followed by the marker's words."""
+def mark_text(text: str, where: str, labels: FigureLabels, count: FigureCount) -> str:
+    """The text, escaped, with each figure in its source label's marker (ADR-0388). Inside an SVG
+    drawing, where no span can wrap it, the figure is followed by its label's words."""
     if where == "title":
         return render_text(text)
     out, at = [], 0
     for start, end, figure in spans(text):
-        if _verified(figure, allowed, count):
-            continue
+        label = _label(figure, labels, count)
         out.append(render_text(text[at:start]))
         raw = render_text(text[start:end])
         if where == "svg":
-            out.append(f'{raw}<tspan class="kit-unverified-svg"> ({html.escape(label)})</tspan>')
+            mark = f'<tspan class="kit-figure-svg" data-kit-source="{label.kind}"> ({html.escape(label.text)})</tspan>'
+            out.append(raw + mark)
         else:
-            out.append(f'<span class="kit-unverified" data-kit="unverified">{raw}</span>')
+            out.append(figure_mark(raw, label))
         at = end
     out.append(render_text(text[at:]))
     return "".join(out)
@@ -181,10 +197,9 @@ class Renderer:
     """Pieces to HTML, in order, with the platform's frame. Text and data are rendered with the
     figure marks; markup as the sanitizer rebuilt it."""
 
-    def __init__(self, locale: str, allowed: set[str], unverified_label: str):
+    def __init__(self, locale: str, labels: FigureLabels):
         self.locale = locale
-        self.allowed = allowed
-        self.label = unverified_label
+        self.labels = labels
         self.count = FigureCount()
         self.started = False
         self.in_body = False
@@ -218,11 +233,11 @@ class Renderer:
                 self.title += piece.text
             if not self.in_body and not piece.text.strip() and piece.where != "title":
                 return ""
-            return mark_text(piece.text, piece.where, self.allowed, self.count, self.label)
+            return mark_text(piece.text, piece.where, self.labels, self.count)
         if isinstance(piece, Style):
             return render_style(piece.css)
         if isinstance(piece, Data):
-            data = mark_data(piece.parsed if piece.parsed is not None else normalize_data(piece.raw), self.allowed, self.count)
+            data = mark_data(piece.parsed if piece.parsed is not None else normalize_data(piece.raw), self.labels, self.count)
             return render_data(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
         if piece.attrs is not None and not piece.end:
             return start_tag(piece.tag, piece.attrs) if piece.tag else piece.html
@@ -235,7 +250,7 @@ class Renderer:
         return head + sources + "</body></html>"
 
 
-def sources_section(citations: Sequence[dict], locale: str, text: ReportText, *, unverified: bool) -> str:
+def sources_section(citations: Sequence[dict], locale: str, text: ReportText, *, general: bool) -> str:
     """«المصادر» from the turn's citations (I3): KB › title, publisher, date and pages, or a note that the
     figures are the model's own when there is no source. Western digits (ADR-0288)."""
     lang, dir_ = direction(locale)
@@ -253,7 +268,7 @@ def sources_section(citations: Sequence[dict], locale: str, text: ReportText, *,
         items.append("<li>" + " — ".join(parts) + "</li>")
     body = f"<ol>{''.join(items)}</ol>" if items else f'<p class="kit-sources-note">{html.escape(text.no_sources.of(locale))}</p>'
     note = (
-        f'<p class="kit-sources-note">{html.escape(text.unverified_note.of(locale))}</p>' if unverified and items else ""
+        f'<p class="kit-sources-note">{html.escape(text.general_note.of(locale))}</p>' if general and items else ""
     )
     return (
         f'<section class="kit-sources" data-kit="sources" lang="{lang}" dir="{dir_}">'
@@ -280,8 +295,8 @@ def served(page: str, kit: Kit, *, form: str, kit_base: str = "") -> str:
 
 
 _SOURCES = re.compile(r'<section class="kit-sources" data-kit="sources"[^>]*>.*?</section>', re.S)
-_MARK = re.compile(r'<span class="kit-unverified" data-kit="unverified">(.*?)</span>', re.S)
-_SVG_MARK = re.compile(r'<tspan class="kit-unverified-svg">.*?</tspan>', re.S)
+_MARK = re.compile(r'<span class="kit-figure" data-kit="figure"[^>]*>(.*?)</span>', re.S)
+_SVG_MARK = re.compile(r'<tspan class="kit-figure-svg"[^>]*>.*?</tspan>', re.S)
 
 
 def editable(page: str) -> str:

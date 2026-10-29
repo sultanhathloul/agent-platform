@@ -6,8 +6,9 @@ follow-up, the latest version of the conversation's report (D4). The page stream
 (app/artifacts/stream.py) as it is written. Then:
 
 1. citations: page attribution (app/rag/citations.py) over the page's visible text, as for a text answer;
-2. figures (D2, I3): every figure not in the turn's sources (findings, passages, the sources' metadata, the
-   user's message, and on a follow-up the figures the previous version verified) is marked unverified;
+2. figures (D2, I3, ADR-0388): every figure carries one source label: the knowledge base or file whose
+   passage or metadata holds it, the capability whose findings hold it, the user's message, on a follow-up
+   the label the previous version gave it, or else general knowledge;
 3. the sources section from the citations, with a follow-up keeping the previous version's;
 4. the 512 KB cap (I4), then the page is stored as the report's next version (I5) and `artifact_done` sent.
 
@@ -21,8 +22,9 @@ import uuid
 from langgraph.runtime import Runtime
 from opentelemetry import trace
 
+from app.artifacts.config import ReportText
 from app.artifacts.document import Renderer, editable, sources_section
-from app.artifacts.figures import figures, source_texts
+from app.artifacts.figures import FigureLabels, Label, source_texts
 from app.artifacts.store import ReportUnavailable
 from app.artifacts.stream import ReportStream, visible_text
 from app.context.package import BLOCK_NAMES, AssemblyRequest, ReportBlockRequest
@@ -56,12 +58,33 @@ def report_needs(state: AgentState, ctx: TurnContext) -> list[str]:
     return [block for block in BLOCK_NAMES if block in wanted]
 
 
-def _allowed(state: AgentState, ctx: TurnContext, sources: list[dict], previous: list[str]) -> set[str]:
-    texts = [o.get("findings") or "" for o in state.get("capability_outputs") or []]
-    texts += list(ctx.evidence.values())
-    texts += [t for s in sources for t in source_texts(s)]
-    texts.append(state.get("user_message") or "")
-    return figures(texts) | set(previous)
+def figure_labels(
+    state: AgentState, ctx: TurnContext, sources: list[dict], previous: dict, text: ReportText
+) -> FigureLabels:
+    """Each figure's source, first match first (ADR-0388): the passages and metadata of the sources in
+    order, the capabilities' findings, the user's message, the previous version's labels."""
+    locale = state["locale"]
+    lang = "en" if locale == "en" else "ar"
+    labels = FigureLabels(Label("general", text.general_label.of(locale)))
+    for source in sources:
+        names = source.get("kb_name") if isinstance(source.get("kb_name"), dict) else None
+        if names and names.get(lang):
+            kind, name = "kb", names[lang]
+        elif source.get("kind", "doc") == "doc" and source.get("title"):
+            kind, name = "file", source["title"]
+        else:
+            kind, name = "source", source.get("title") or ""
+        if not name:
+            continue
+        label = Label(kind, text.source_label.of(locale).format(name=name))
+        labels.add([ctx.evidence.get(source.get("ref") or "", ""), *source_texts(source)], label)
+    for output in state.get("capability_outputs") or []:
+        if output.get("findings"):
+            name = ctx.services.registry.get(output["capability"]).manifest.name.of(locale)
+            labels.add([output["findings"]], Label("capability", text.source_label.of(locale).format(name=name)))
+    labels.add([state.get("user_message") or ""], Label("message", text.message_label.of(locale)))
+    labels.keep(previous)
+    return labels
 
 
 def _merged(current: list[dict], new: list[dict]) -> list[dict]:
@@ -117,7 +140,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     emit(runtime, "tier", tier_event(prepared.decision))
 
     sources = [s for o in state.get("capability_outputs") or [] for s in o.get("sources", [])]
-    allowed = _allowed(state, ctx, sources, current.verified if current else [])
+    labels = figure_labels(state, ctx, sources, current.figure_labels if current else {}, config.text)
     buffered = services.guard.requires_buffering(principal, guard_context(state, ctx))
     span.set_attribute("answer.mode", "buffered" if buffered else "streaming")
     # The report's id is known before the page streams, so the panel follows one id across its versions.
@@ -126,7 +149,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     title_default = current.title if current else config.text.untitled.of(locale)
     stream = ReportStream(
         ctx, state, config, report_id=report_id, version=version, default_title=title_default,
-        allowed=allowed, buffered=buffered,
+        labels=labels, buffered=buffered,
     )
     with deadline.within(math.inf, margin_s=effective.turn(services.turn).post_answer_reserve_s):
         try:
@@ -138,23 +161,20 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         text = visible_text(pieces)
         citations = attribute(text, sources, ctx.evidence, services.citations, question=state.get("user_message") or "")
         shown = _merged(current.citations, citations) if current else citations
-        label = "Unverified" if locale == "en" else "غير موثق"
-        renderer = Renderer(locale, allowed, label)
+        renderer = Renderer(locale, labels)
         body = renderer.render(pieces)
-        page = body + renderer.end(
-            sources_section(shown, locale, config.text, unverified=renderer.count.unverified > 0)
-        )
+        page = body + renderer.end(sources_section(shown, locale, config.text, general=renderer.count.general > 0))
         size = len(page.encode("utf-8"))
         count = renderer.count
         span.set_attribute("report.bytes", size)
         span.set_attribute("report.figures", count.total)
-        span.set_attribute("report.figures.unverified", count.unverified)
+        span.set_attribute("report.figures.general", count.general)
         span.set_attribute("report.truncated", stream.truncated)
-        if services.settings.observability_capture_content and count.unverified_figures:
-            span.set_attribute("report.figures.unverified_values", ",".join(count.unverified_figures[:200]))
+        if services.settings.observability_capture_content and count.general_figures:
+            span.set_attribute("report.figures.general_values", ",".join(count.general_figures[:200]))
         log.info(
-            "report figures turn=%s version=%d figures=%d unverified=%d",
-            ctx.turn_id, version, count.total, count.unverified,
+            "report figures turn=%s version=%d figures=%d general=%d",
+            ctx.turn_id, version, count.total, count.general,
         )
         if size > config.max_bytes:
             raise TurnError("report_too_large", detail=f"{size} bytes over {config.max_bytes}")
@@ -171,9 +191,9 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
                 locale="en" if locale == "en" else "ar",
                 turn_id=ctx.turn_id,
                 citations=shown,
-                verified=sorted(count.verified_figures),
+                labels={figure: label.stored() for figure, label in sorted(count.sourced.items())},
                 figures=count.total,
-                unverified=count.unverified,
+                general=count.general,
                 timeout_s=config.storage.store_s,
             )
         except ReportUnavailable as exc:
