@@ -2399,6 +2399,38 @@ Checklist
 - Owner decision (2026-10-29, after the power cut): no tests, smoke or eval now; make test, make smoke and the eval suites run once at the end, after the owner confirms all changes are complete. Item 5 waits for that. Meanwhile the stack is brought up (make up, with the kb seed) on the surviving volumes for the owner to try.
 - make up on the surviving volumes (no clean), 2026-10-29 ~11:50Z: rc 0, every service healthy. kb-seed: intl-economy 1 held; stats-gov 59 held, 16 uploaded and 16 indexed. agent.kb_documents: intl-economy 1 indexed (5 chunks), stats-gov 75 indexed (2350 chunks), none pending or failed. The running Keycloak predates 0365ac4 (realm import on first boot only), so analyst's firstName «سلطان» and lastName «الهذلول» were set with kcadm; a password-grant token for analyst carries name «سلطان الهذلول». The realm export is the source of truth for a fresh volume.
 
+### Owner decision on PR #17: one kind of source per report turn (2026-10-29, same branch)
+
+- The message: a report draws from exactly one kind of source per turn, never mixed (KB toggled or files: the turn's findings only, «غير متوفر» / "Not available" for what they lack, no general knowledge; nothing toggled: general knowledge only, every figure «من المعرفة العامة»). Evidence: report c7efd45d v3 (Al Hilal, no KB) was saved as v3 of the labour-market report with its sources and 16 figures labelled «من: إحصاءات الهيئة العامة للإحصاء». It supersedes item 1 of the owner's previous message and D2's mixing. That previous message is not in this repository or session; its items 2 to 4 were implemented from this message's one-line restatement (ADR-0399, ADR-0401, status assumed).
+- No tests, smoke or eval in this session (owner decision of 2026-10-29: they run once at the end). Lint only: ruff adds line-length findings to an already non-clean baseline; nothing else.
+
+Checklist
+- [x] 1. Findings belong to their turn: no previous labels, no merged sources (ADR-0398) — 49e770f.
+- [x] 2. Only this turn's matched figures get a source label; no findings: no matching, all general (ADR-0398) — 49e770f.
+- [x] 3. New report vs edit by the router's call, logged; tests for both (ADR-0400) — 2451956.
+- [x] 4. No source named in the page outside the turn's citations; the sources section is this turn's (ADR-0398) — 49e770f.
+- [x] 5. Previous message's items: 2 deeper report retrieval and 3 an edit re-runs retrieval (ADR-0401, 94dc8d6); 4 a figure is sourced only with its row or column label in the same chunk (ADR-0399, 49e770f).
+- [x] 6. Re-run on the running stack, twice (below). Open: an edit loses figures its passages no longer return (for the owner).
+- Found on the way: report.system 1.5.0's changelog put "Not available" in double quotes inside a double-quoted YAML string; the agent did not start (make up exit 2). Fixed in 633853f; make up then green.
+
+Item 6 runs (analyst, one new conversation each; stats-gov toggled on turns 1 and 2, nothing on turn 3; no picker)
+- Run 1 at 633853f, conversation 504cc178-db93-4759-abc1-48fdf439f00d:
+  - Turn 1 «سوّ لي داشبورد عن سوق العمل في المملكة»: new report d6cc31a9 v1; text figures 23 «من: إحصاءات الهيئة العامة للإحصاء», 1 «غير متوفر», 0 general. Table 1's total and Saudi unemployment series (3.2, 3.1; 6.8, 6.4, 6.5), which the passage holds, read «غير متوفر»: the chart title was not in a point's context and «سعوديون» did not meet «سعودي». Fixed in 39e3ced.
+  - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس»: route edit=True (model); v2 of the same report; 9 sourced, 44 «غير متوفر»: one search with the title and the request joined did not return Table 1. Changed in d399f13 (two searches).
+  - Turn 3 «سوّ لي لوحة معلومات عن نادي الهلال»: route edit=False (model); new report 999b5a8a v1, sourced=False, no citations; but the model replied with the chat line «أُنشئ التقرير «لوحة معلومات نادي الهلال السعودي – موسم 2025–26» (الإصدار 1).» (76 tokens) and an empty page was stored. Fixed in 4805b55 (retry once, then validation_failed).
+- Run 2 at 4805b55, conversation 0bd27f2f-6e2c-4f4c-9683-229e50f75797:
+  - Turn 1: new report 60a0f9fc v1, 20,437 bytes; text figures 23 KB-labelled, 1 «غير متوفر», 0 general; sources: the Q2 2026 bulletin p. 1, its Excel tables, and «مسح العمل التطوعي لعام 2018» p. 6. Charts:
+    - unemploymentTrend (line) Q2 2025, Q1 2026, Q2 2026: total 3.2, 3.1, 3.0; Saudi 6.8, 6.4, 6.5; non-Saudi 1.4, 1.5, 1.3; every point and axis label «من: إحصاءات الهيئة العامة للإحصاء».
+    - participationTrend (line): total 67.1, 67.2, 67.2; Saudi 49.2, 49.0, 48.7; non-Saudi 82.4, 81.9, 82.2; all KB-labelled.
+    - occupationSaudi (horizontalBar, 7 occupations): 6 «غير متوفر», crafts 1.1 KB.
+    - occupationNonSaudi: managers 3.2, technicians 7.6, clerical 1.4, agriculture 1.2 KB; 3 «غير متوفر».
+    - sectorSaudi (doughnut): both «غير متوفر»; sectorNonSaudi: government 18 KB, private «غير متوفر».
+    - searchMethods (8 methods): 76.8, 53.5 and 48.9 KB (the three the passage states); 5 «غير متوفر» (the model's own; the passage holds no such values).
+    - outsideLabor (doughnut, 5 groups): all «غير متوفر».
+  - Turn 2: route edit=True (cache: run 1's identical decision); v2 of 60a0f9fc, 18,743 bytes; 9 KB-labelled, 14 «غير متوفر» text figures; charts: unemploymentTrend total — , — , 3.0 KB, Saudi and non-Saudi all «غير متوفر»; participationTrend total — , 67.2, 67.2 KB, Saudi — , — , 48.7 KB, non-Saudi all «غير متوفر»; occupation and sector charts all null; searchMethods 76.8, 53.5, 48.9 KB; new genderAll and genderSaudi doughnuts (ذكور، إناث) all «غير متوفر». The two searches ran (kb_search ×2, 12:26:59Z) but neither returned Table 1's passage (the writer's input did not hold it), so the edit lost figures v1 had, and the gender split is not in what was retrieved.
+  - Turn 3: route edit=False (cache); new report 09749b2f v1 «لوحة معلومات نادي الهلال – موسم 2025–26», 23,887 bytes, sourced=False; 58 text figures and every chart point «من المعرفة العامة» (goals by competition 52, 8, 6, 2; possession 62, 58, 55, 53), no KB or file label, sources section: no source.
+- Open, for the owner: an edit with the KB still toggled re-runs retrieval, but a search by the report's title and the request need not return the passages behind the figures the page already shows. A fix would re-fetch the passages the version being edited cited (through the backend, under this turn's KB scope) beside the new search; that carries an earlier turn's citations into the turn, which ADR-0398 item 1 excludes, so it waits for the owner.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

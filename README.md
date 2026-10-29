@@ -474,6 +474,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-29 (report branch, owner decisions A, C and D, ADR-0388 to ADR-0391).** Every figure a report shows carries one visible source label: «من: <KB name>» / "From: <KB name>", «من: <file title>», «من: <capability>», «من: طلبك» / "From: your request", or «من المعرفة العامة» / "General knowledge" (replacing «غير موثق»); chart points carry theirs in the tooltip and under the chart. A report's visible text and report-data pass the same allowed-script check as a text answer; a failure is written again once with the failure named, then the turn ends `validation_failed`. In development (`PLATFORM_PROFILE=development`, config/artifacts/report.yaml `show_model_info`) a report ends with a strip naming the model, provider, tier alias, time and tokens of the call that wrote it and of the calls behind its findings; it is never served in production.
 
+> **Amendment 2026-10-29 (report branch, owner decision on PR #17, ADR-0398 to ADR-0401).** A report draws from exactly one kind of source per turn, never mixed. With knowledge bases toggled or files attached, every figure, table, chart and statement of fact comes only from that turn's findings; a figure they do not hold reads «غير متوفر» / "Not available" in its place, and a figure counts as sourced only when its number and its row or column label are in the same passage. With nothing toggled and no files, the page is general knowledge only and every figure reads «من المعرفة العامة»; no KB or file label appears. Nothing of an earlier turn's findings, labels or sources is carried into a report, its figure check or its sources section, which lists this turn's citations only; a page that names a source this turn did not cite is written again once, then the turn fails. A follow-up edits the conversation's latest report only when the router's call judges that it asks to change that report; a request on another subject starts a new report at version 1. A report turn fetches 20 passages instead of 8, and an edit searches with the report's title and the request.
+
 ---
 
 ## 14. Docker Compose (v1 services)
@@ -939,6 +941,18 @@ Rules:
 | `.env` | `PLATFORM_PROFILE` (development or production; production when unset) | The deployment profile (ADR-0391) |
 | `kb-seed/<slug>/` (new) | `kb.yaml` (`slug`, `name`, `description`, `role`, `users`, `default_publisher`), `<file>.meta.yaml`, `manifest.json`; `kb-seed/stats-gov/fetch.yaml` | Seeded KBs and what `make kb-fetch` takes (B, ADR-0392, ADR-0393) |
 | `infra/keycloak/realm-export.json` | `kb:stats-gov:read` for analyst and evaluator | The seeded KB's role |
+
+### 20.11 Configuration changed by the owner's decision on one kind of source per report turn (2026-10-29, ADR-0398 to ADR-0401)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/artifacts/report.yaml` | `version` 1.2.0; `text.unavailable_label` | «غير متوفر» / "Not available" in place of a figure a sourced turn's findings do not hold (ADR-0398) |
+| `config/artifacts/design-system.md`, `config/prompts/report/` | 1.2.0; `report.system` 1.5.0 | One kind of source per turn, no uncited source named, a revision rebuilt from this turn's evidence (ADR-0398) |
+| `config/prompts/router/` | `router.system` 1.4.0 | The router's `edit`: a change to the current report, or a new report (ADR-0400) |
+| `config/kb.yaml`, `config/docs.yaml` | `retrieval.report_top_k` (20) | Passages a capability fetches on a report turn (ADR-0401) |
+| `config/context.yaml` | `nodes.report.blocks.retrieval` (16,000 tokens, top 20) | The report writer's passages (ADR-0401) |
+| `config/artifacts/kit/kit.css` | `.kit-figure[data-kit-source="unavailable"]` | The «غير متوفر» mark |
+| `evals/outputs/reports/metrics.yaml` | `figures_labelled` | On a general-knowledge page every figure reads general knowledge, the request's included |
 
 ## 21. Getting started on a new machine
 
