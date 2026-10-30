@@ -4,6 +4,7 @@ a new file is picked up, a file removed from the folder is reported and never de
 sidecar is uploaded flagged, and an earlier version is uploaded before the one that supersedes it. Also:
 every committed KB folder agrees with the realm export, and its manifest with its files."""
 
+import dataclasses
 import hashlib
 import json
 import sys
@@ -26,6 +27,7 @@ class FakeGateway:
         self.deletes = 0
         self.uploads: list[dict] = []
         self.reindexes: list[str] = []
+        self.deleted: set[str] = set()
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -34,6 +36,9 @@ class FakeGateway:
             return httpx.Response(405)
         if path == "/v1/admin/kbs" and request.method == "POST":
             body = json.loads(request.content)
+            if body["slug"] in self.kbs or body["slug"] in self.deleted:
+                # As the agent: the slug is taken by a live or a deleted KB.
+                return httpx.Response(409, json={"error": {"code": "kb_exists"}})
             self.kbs[body["slug"]] = body
             self.docs[body["slug"]] = []
             return httpx.Response(201, json={"data": body})
@@ -210,3 +215,43 @@ def test_a_document_an_older_extractor_cut_is_reindexed_once(tmp_path):
     again, _ = _run(fake, folder)
     assert again["reindexed"] == 0 and len(fake.reindexes) == 1
 
+
+
+def test_a_seeded_kb_an_admin_deleted_is_reported_skipped_and_never_recreated(tmp_path):
+    """Review round 1 of PR #17, finding 10 (ADR-0423): GET answers 404 and POST 409 for a deleted KB; the
+    seed reports and skips it, creates nothing and uploads nothing."""
+    folder, fake = _folder(tmp_path), FakeGateway()
+    fake.deleted.add("fixture-stats")
+    totals, lines = _run(fake, folder)
+    assert totals["skipped"] == "deleted" and totals["uploaded"] == 0 and totals["failed_uploads"] == 0
+    assert "fixture-stats" not in fake.kbs and fake.uploads == []
+    assert any("(deleted)" in line and "not recreated" in line for line in lines)
+
+
+def test_main_goes_on_past_a_deleted_kb_and_exits_zero(tmp_path, monkeypatch):
+    """The KBs after a deleted one are still seeded, and the run exits 0 (make up stays green)."""
+    first, second = tmp_path / "a", tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+    gone, kept = _folder(first), _folder(second)
+    fake = FakeGateway()
+    fake.deleted.add("fixture-stats")
+    kbs = {gone: kb_seed.load_kb(gone), kept: kb_seed.load_kb(kept)}
+    kbs[kept] = dataclasses.replace(kbs[kept], slug="fixture-kept", role="kb:fixture-kept:read")
+    seeded: list[str] = []
+    real_seed = kb_seed.seed
+
+    def recording(gateway, kb, **kwargs):
+        seeded.append(kb.slug)
+        return real_seed(gateway, kb, **kwargs)
+
+    monkeypatch.setattr(kb_seed, "folders", lambda only: [gone, kept])
+    monkeypatch.setattr(kb_seed, "load_kb", lambda folder: kbs[folder])
+    monkeypatch.setattr(kb_seed, "seed", recording)
+    monkeypatch.setitem(sys.modules, "get_token", type(sys)("get_token"))
+    sys.modules["get_token"].env = lambda: {"GATEWAY_PUBLIC_URL": "http://gw"}
+    sys.modules["get_token"].login = lambda user, password: {"access_token": "t"}
+    real_client = httpx.Client
+    monkeypatch.setattr(kb_seed.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(fake.handle)))
+    assert kb_seed.main(["--wait-s", "0"]) == 0
+    assert seeded == ["fixture-stats", "fixture-kept"] and "fixture-kept" in fake.kbs

@@ -166,7 +166,8 @@ class Gateway:
         self.headers = {"Authorization": f"Bearer {token}"}
 
     def ensure_kb(self, kb: SeedKb) -> str:
-        """created, present, or why not."""
+        """created, present, deleted (an admin deleted it: its slug stays taken and it is never recreated,
+        ADR-0423), or why not."""
         got = self.http.get(f"{self.base}/v1/admin/kbs/{kb.slug}", headers=self.headers)
         if got.status_code == 200:
             return "present"
@@ -174,6 +175,10 @@ class Gateway:
                               json={"slug": kb.slug, "name": kb.name, "description": kb.description})
         if made.status_code == 201:
             return "created"
+        if made.status_code == 409:
+            # The slug is taken by a live KB (made between the two calls) or a deleted one.
+            again = self.http.get(f"{self.base}/v1/admin/kbs/{kb.slug}", headers=self.headers)
+            return "present" if again.status_code == 200 else "deleted"
         raise RuntimeError(f"creating {kb.slug}: {made.status_code} {made.text[:200]}")
 
     def documents(self, slug: str) -> list[dict]:
@@ -210,6 +215,12 @@ class Gateway:
 def seed(gateway: Gateway, kb: SeedKb, *, wait_s: float, out=print) -> dict:
     """One KB; returns its counts for the summary."""
     state = gateway.ensure_kb(kb)
+    if state == "deleted":
+        # An admin deleted this seeded KB (ADR-0423): reported and skipped, never recreated; the others go on.
+        out(f"kb-seed: {kb.slug} (deleted): deleted on /admin/kbs by an administrator; skipped, not recreated "
+            f"(remove kb-seed/{kb.slug}/ to stop seeing this)")
+        return {"slug": kb.slug, "skipped": "deleted", "uploaded": 0, "indexed": 0, "held": 0, "reindexed": 0,
+                "reindexed_ok": 0, "removed": 0, "failed_uploads": 0}
     held = gateway.documents(kb.slug)
     work = plan(kb, held)
     out(f"kb-seed: {kb.slug} ({state}): {len(kb.documents)} file(s), {len(work.held)} already in the KB, "
@@ -288,9 +299,14 @@ def main(argv: list[str] | None = None) -> int:
     with httpx.Client(timeout=TIMEOUT_S) as http:
         gateway = Gateway(http, cfg["GATEWAY_PUBLIC_URL"], token)
         for kb in kbs:
-            totals.append(seed(gateway, kb, wait_s=args.wait_s))
+            try:
+                totals.append(seed(gateway, kb, wait_s=args.wait_s))
+            except (RuntimeError, httpx.HTTPError) as exc:
+                # One KB's failure is reported; the KBs after it are still seeded (ADR-0423).
+                print(f"kb-seed: {kb.slug}: FAIL {exc}")
+                totals.append({"slug": kb.slug, "failed": str(exc)[:200], "failed_uploads": 0})
     print("kb-seed: " + json.dumps(totals, ensure_ascii=False))
-    return 1 if any(t["failed_uploads"] for t in totals) else 0
+    return 1 if any(t["failed_uploads"] or t.get("failed") for t in totals) else 0
 
 
 if __name__ == "__main__":
