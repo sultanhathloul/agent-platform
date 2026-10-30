@@ -2666,19 +2666,64 @@ Files for human review
 - Done when: every item below in its own commit with tests; from a fresh stack make test, make eval (all suites, once), make smoke, make smoke-airgap green, recorded per rule 11; pushed.
 
 Checklist
-- [ ] 7. restore_numbers: only the exact drawn run, on number boundaries; ambiguous order left as extracted; the reviewer's case (15.6 beside a reversed 6.5).
-- [ ] 8. Workbook extractor back to read-only streaming, merged ranges read from the sheet XML; a 120k-row workbook under the sandbox limit, peak heap recorded.
-- [ ] 9. Re-index keeps the document in retrieval on its old chunks until the new ones are indexed, swapped in one step; a failed re-index keeps the old chunks, `reindex_failed`, retryable from the admin page and by the seed; through the per-uploader limiter.
-- [ ] 10. The seed reports and skips a deleted seeded KB and goes on; make up exits 0.
-- [ ] 1. Signs read (− and +); a sign matches the source's sign or its wording (انخفض / ارتفع).
-- [ ] 2. The measure from the row, column or table title, never workbook or sheet title lines.
-- [ ] 3. A time-series category's year matches its source row's year; a prose value carries the nearest year.
-- [ ] 4. Text and callout figures checked like KPIs against the section's cited passages; a failing sentence dropped and named in the reply.
-- [ ] 5. Number words on the page folded before checking.
-- [ ] 6. A table counts as kept only when its names appear in its cited passages; NothingFound counts verified elements only.
-- [ ] PROGRESS claims: the PDF extractor in the changes outside report-only code; the requeue docstring and route description.
-- [ ] BACKLOG: the edition/supersedes duplicate under "KB content quality (future track)".
-- [ ] ADR: one before-merge run. Fresh stack: make test, make eval once, make smoke, make smoke-airgap; rule 11; push.
+- [x] 7. restore_numbers: only the exact drawn run, on number boundaries; ambiguous order left as extracted; the reviewer's case (15.6 beside a reversed 6.5).
+- [x] 8. Workbook extractor back to read-only streaming, merged ranges read from the sheet XML; a 120k-row workbook under the sandbox limit, peak heap recorded.
+- [x] 9. Re-index keeps the document in retrieval on its old chunks until the new ones are indexed, swapped in one step; a failed re-index keeps the old chunks, `reindex_failed`, retryable from the admin page and by the seed; through the per-uploader limiter.
+- [x] 10. The seed reports and skips a deleted seeded KB and goes on; make up exits 0.
+- [x] 1. Signs read (− and +); a sign matches the source's sign or its wording (انخفض / ارتفع).
+- [x] 2. The measure from the row, column or table title, never workbook or sheet title lines.
+- [x] 3. A time-series category's year matches its source row's year; a prose value carries the nearest year.
+- [x] 4. Text and callout figures checked like KPIs against the section's cited passages; a failing sentence dropped and named in the reply.
+- [x] 5. Number words on the page folded before checking.
+- [x] 6. A table counts as kept only when its names appear in its cited passages; NothingFound counts verified elements only.
+- [x] PROGRESS claims: the PDF extractor in the changes outside report-only code; the requeue docstring and route description.
+- [x] BACKLOG: the edition/supersedes duplicate under "KB content quality (future track)".
+- [ ] (make test, make smoke, make smoke-airgap green; make eval once with reports 11/12, see Results) ADR: one before-merge run. Fresh stack: make test, make eval once, make smoke, make smoke-airgap; rule 11; push.
+
+Commits
+- d4502ee finding 7 (ADR-0421, PDF extractor version 3); e5458b1 finding 8 (ADR-0422, workbook extractor version 5); 8b5acb6 finding 10 (ADR-0423); a3d312c finding 9 (ADR-0424, migration 0022; agent, gateway and web; `make openapi`); 9fbf3d7 findings 1 to 6 in one commit, as they share the element check and its tests (ADR-0425); 03c01ec the PROGRESS claim, the BACKLOG item and ADR-0426.
+- The two PROGRESS claims: the PDF extractor is now listed under "Changes on feat/reports outside report-only code" (Interactive reports, above); the requeue docstring and the reindex route's descriptions (agent and gateway) say the document stays indexed on its old chunks (a3d312c).
+- Measured for finding 8: a 120k-row, 6.3 MB workbook peaked at 370 MB of Python heap opened in full and peaks at 116 MiB streamed (tracemalloc, tests/unit/test_rag_chunking.py). The review overstated the effect: a workbook that large is past `extraction.max_chars` (1,000,000), so it ended `text_too_long` on main too. Opened in full on the branch it ended `extraction_aborted` (the sandbox's memory) instead. A test now asserts the cap, not the memory limit, ends it in the sandbox.
+- A consequence of finding 3's rule, kept as the owner wrote it: in a PDF table read as prose (the bulletin's Table 1) the year named with a value is a header's, so a time series drawn from it loses other years' values to «—». That is a gap, never a wrong value (`test_a_flattened_pdf_tables_values_carry_its_nearest_year`); the workbook's sheets state each row's year.
+
+Results (rule 11; ADR-0426, one run; every attempt recorded)
+- Fresh stack at 03c01ec: make clean 11:37:39Z–11:37:55Z rc 0; make models 11:37:55Z–11:37:56Z rc 0.
+- make up 11:37:56Z–11:43:45Z: **rc 2**. The seed upload of «Persons with Disability Statistics Report 2023 AR (1).pdf» failed with `[Errno 54] Connection reset by peer`. Every other document indexed: intl-economy 1, stats-gov 74. This is the same file and the same error as the previous fresh stack (15:33Z on 2026-10-29), so it recurs; not investigated, for the owner.
+  - make kb-seed once, 12:08:09Z–12:08:15Z rc 0: that file uploaded and indexed; stats-gov 75, intl-economy 1.
+- make test 12:08:15Z–12:23:09Z, rc 0:
+
+  | Layer | Passed / failed / skipped |
+  |---|---|
+  | agent | 1261 / 0 / 0 |
+  | gateway | 215 / 0 / 0 |
+  | gateway-db | 5 / 0 / 0 |
+  | web | 224 / 0 / 0 (19 files) |
+  | evals harness | 40 / 0 / 0 |
+  | timeout budget | 39 / 0 / 0 (self-test 39 / 0 / 0) |
+  | scripts/tests | 36 / 0 / 0 |
+
+  Against the last recorded run (894872e): agent +18, gateway +1, web +3, scripts/tests +4; no layer lower.
+- make eval, all suites once, 12:23:09Z–13:16:21Z, make-eval-20261030T122309Z (build/evals/make-eval-20261030T122309Z.json): **rc 2, reports FAIL**, every other suite PASS; 0 provider retries in every suite; 1 case lost (routing, validation_failed).
+  - **reports 11/12 FAIL**: form_chosen 1.00 (12), html_parses 1.00 (10), spec_valid 1.00 (10), direction 1.00 (10), **request_language 0.90 (10)**, kit_only 1.00 (10), sourced_figures 1.00 (6), no_general 1.00 (6), general_only 1.00 (4), sources_section 1.00 (6), size_cap 1.00 (10), version 1.00 (1); visual_quality 0.70 (10) reported.
+    - The miss: reports/file-en-budget, an English request over an Arabic attached file. The page's title came back in Arabic («مؤشرات الميزانية – المبالغ المعتمدة والمصروفة حسب البند»). This is the title-language case ADR-0396 gated; it passed in runs 4 to 6. It is a model answer, not a provider refusal or a timeout.
+    - reports/kb-gulf-leave passed (21 and 30 days found; some values «—»).
+  - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53).
+  - rag 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.99, answer correctness 0.90, abstention 1.00. Misses: twenty-past-truncation-p3 and -p18 (cited neighbouring pages, known).
+  - rag@mcp 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.99, answer correctness 0.89, abstention 1.00. Misses: twenty-past-truncation-p6 and -p15.
+  - routing 112/113 (0.99): general-gulf-word lost, validation_failed.
+  - directions 27/27: every metric 1.00.
+  - general 28/28.
+  - kb 29/31: hit_at_8 1.00, citation_accuracy 0.87 (latest-inflation-ar, latest-growth-gulf, the known misses), latest_version 1.00, cross_kb_attribution 1.00, abstention 1.00; facts_kept 1.00 reported.
+  - internal-comms 11/11; official_memo 8/8 (no_invented_fields 0.60 and facts_kept 0.80 reported).
+  - Not rerun (rule 13; the owner asked for one run). The owner decides whether this run meets the gate.
+- make smoke 13:16:21Z–13:21:22Z: **258/258**, rc 0 (previous 256).
+- make smoke-airgap 13:21:22Z–13:29:18Z: **264/264**, rc 0 (previous 264).
+- `docs/HANDOFF.md` untouched.
+
+Files for human review
+- config/artifacts/design-system.md 2.2.0, config/prompts/report/system.{ar,en}.md.j2 2.2.0, config/artifacts/report.yaml 2.3.0 (`removed_sentences`), config/artifacts/report-spec.schema.json (text and callout `sources`).
+- services/agent/app/db/migrations/0022_kb_document_reindex.sql.
+- On the next `make up` over an existing volume, the seed re-indexes stats-gov's 43 PDFs (extractor 3) and 32 workbooks (extractor 5) beside their chunks.
 
 ## Phase 07: Planner
 
