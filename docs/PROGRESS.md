@@ -2658,6 +2658,27 @@ Files for human review
 - services/web/src/app/globals.css (the identity tokens), services/web/public/brand and public/fonts.
 - scripts/smoke.sh (the report checks).
 
+### Review round 1 of PR #17 (2026-10-30, same branch)
+
+- The owner's message: fix findings 1 to 10 of the review and its two PROGRESS claims, each in its own commits, with an ADR where a decision changes; then one before-merge run (owner decision, ADR). `docs/HANDOFF.md` untouched. Local main fast-forwarded to origin/main (a102bc1); the branch already contains it.
+- Baseline: the last recorded runs above (894872e): agent 1243 / 0 / 0, gateway 214 / 0 / 0, gateway-db 5 / 0 / 0, web 221 / 0 / 0, evals harness 40 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 32 / 0 / 0; make smoke 256/256, make smoke-airgap 264/264.
+- Done when: every item below in its own commit with tests; from a fresh stack make test, make eval (all suites, once), make smoke, make smoke-airgap green, recorded per rule 11; pushed.
+
+Checklist
+- [ ] 7. restore_numbers: only the exact drawn run, on number boundaries; ambiguous order left as extracted; the reviewer's case (15.6 beside a reversed 6.5).
+- [ ] 8. Workbook extractor back to read-only streaming, merged ranges read from the sheet XML; a 120k-row workbook under the sandbox limit, peak heap recorded.
+- [ ] 9. Re-index keeps the document in retrieval on its old chunks until the new ones are indexed, swapped in one step; a failed re-index keeps the old chunks, `reindex_failed`, retryable from the admin page and by the seed; through the per-uploader limiter.
+- [ ] 10. The seed reports and skips a deleted seeded KB and goes on; make up exits 0.
+- [ ] 1. Signs read (− and +); a sign matches the source's sign or its wording (انخفض / ارتفع).
+- [ ] 2. The measure from the row, column or table title, never workbook or sheet title lines.
+- [ ] 3. A time-series category's year matches its source row's year; a prose value carries the nearest year.
+- [ ] 4. Text and callout figures checked like KPIs against the section's cited passages; a failing sentence dropped and named in the reply.
+- [ ] 5. Number words on the page folded before checking.
+- [ ] 6. A table counts as kept only when its names appear in its cited passages; NothingFound counts verified elements only.
+- [ ] PROGRESS claims: the PDF extractor in the changes outside report-only code; the requeue docstring and route description.
+- [ ] BACKLOG: the edition/supersedes duplicate under "KB content quality (future track)".
+- [ ] ADR: one before-merge run. Fresh stack: make test, make eval once, make smoke, make smoke-airgap; rule 11; push.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
