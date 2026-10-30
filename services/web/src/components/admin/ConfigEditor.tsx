@@ -32,9 +32,9 @@ import {
 } from "@/lib/policyConfig";
 import { LabelChip } from "./ConfigSummary";
 
-const input = "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm";
-const small = "rounded-md px-2 py-1 text-xs text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50";
-const label = "flex flex-col gap-1 text-sm text-slate-700";
+const input = "w-full rounded-md border border-line-strong px-2 py-1.5 text-sm";
+const small = "rounded-md px-2 py-1 text-xs text-fg ring-1 ring-line-strong hover:bg-surface-2";
+const label = "flex flex-col gap-1 text-sm text-fg";
 // A symbol, the same in both locales; the button's name comes from the catalog.
 const REMOVE_MARK = "×";
 
@@ -44,7 +44,7 @@ function Problems({ problems }: { problems: ConfigProblem[] }) {
   return (
     <>
       {problems.map((p) => (
-        <span key={`${p.key}-${p.row ?? ""}`} role="alert" className="text-[11px] text-red-700" data-problem={p.key}>
+        <span key={`${p.key}-${p.row ?? ""}`} role="alert" className="text-[11px] text-error" data-problem={p.key}>
           {t(`policies.editor.errors.${p.key}`)}
         </span>
       ))}
@@ -126,24 +126,24 @@ export function ConfigEditor({
 
   return (
     <fieldset className="flex flex-col gap-3 sm:col-span-2" data-config-editor={checker}>
-      <legend className="text-sm text-slate-700">{t("policies.fields.config")}</legend>
+      <legend className="text-sm text-fg">{t("policies.fields.config")}</legend>
       {!parsed.ok && (
-        <p role="alert" className="text-xs text-red-700" data-problem="paused">
+        <p role="alert" className="text-xs text-error" data-problem="paused">
           {t("policies.editor.paused")}
         </p>
       )}
-      {!known && <p className="text-xs text-slate-500">{t("policies.editor.noChecker")}</p>}
+      {!known && <p className="text-xs text-muted">{t("policies.editor.noChecker")}</p>}
       <fieldset disabled={!parsed.ok} className="flex flex-col gap-3 disabled:opacity-60">
         {checker === "keyword_list" && (
           <div className={label}>
             {t("policies.config.keywords")}
             <ul className="flex flex-wrap gap-1" data-tags="">
               {keywords.map((word) => (
-                <li key={word} className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">
+                <li key={word} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs">
                   <bdi dir="auto">{word}</bdi>
                   <button
                     type="button"
-                    className="text-slate-500 hover:text-red-700"
+                    className="text-muted hover:text-error"
                     aria-label={t("policies.editor.removeItem", { item: word })}
                     onClick={() => set("keywords", keywords.filter((w) => w !== word))}
                   >
@@ -267,7 +267,7 @@ export function ConfigEditor({
               {t("policies.config.examples")}
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-slate-500">
+                  <tr className="text-xs text-muted">
                     <th className="py-1 text-start font-medium">{t("policies.config.exampleText")}</th>
                     <th className="py-1 text-start font-medium">{t("policies.config.verdict")}</th>
                     <th />
@@ -405,7 +405,7 @@ export function ConfigEditor({
             data-advanced-json=""
           />
           {!parsed.ok && (
-            <span role="alert" className="text-[11px] text-red-700" data-problem="jsonInvalid">
+            <span role="alert" className="text-[11px] text-error" data-problem="jsonInvalid">
               {t("policies.editor.jsonInvalid")}
             </span>
           )}

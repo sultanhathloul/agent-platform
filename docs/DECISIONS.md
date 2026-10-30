@@ -3024,7 +3024,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0331: Proof-of-concept KB «الاقتصاد الدولي», seeded by make kb-poc in development only (D4)
 - Date: 2026-10-26
 - Phase: 08 (owner decision D4)
-- Status: decided
+- Status: decided — Superseded in part by ADR-0392 on 2026-10-29
 - Decision: A proof-of-concept KB «الاقتصاد الدولي» / "International economy", readable by the seed users analyst and evaluator, is seeded by `make kb-poc` from the freely downloadable public sources the owner listed (IMF Article IV China 2025 report and press release, IMF WEO April and July 2026 pages, stats.gov.cn and english.gov.cn releases, english.scio.gov.cn, fmprc.gov.cn and mfa.gov.cn pages, SPA, SAMA, PIF and Aramco news pages, the World Bank blog post on Hormuz, qna.org.qa, bricspolicycenter.org, sab.com, un.china-mission). Paywalled or rating-agency pages (Moody's, Fitch, S&P, Bloomberg) are excluded and listed as "upload by subscription". Downloaded content is never committed: `make kb-poc` fetches it in development only; a manifest (URL, retrieved date, hash) is committed instead. Under smoke-airgap the POC KB is absent and nothing depends on it. Evals use generated fake documents (ADR-0065).
 - Consequences: The POC depends on those sites being reachable and unchanged; a changed page shows as a hash mismatch in the manifest run, not as a silent difference. Real public documents enter a development stack only, which ADR-0065 allows for public data.
 
@@ -3207,7 +3207,7 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 ### ADR-0356: How `make kb-poc` seeds the proof-of-concept KB (details of ADR-0331)
 - Date: 2026-10-26
 - Phase: 08
-- Status: assumed
+- Status: assumed — Superseded in part by ADR-0392 on 2026-10-29
 - Decision: scripts/kb_poc/sources.yaml lists the KB «الاقتصاد الدولي» (slug `intl-economy`) and each source with its URL and D3 metadata; scripts/kb_poc.py fetches each one (30 s, 20 MiB, redirects followed), keeps an HTML page as its visible text in Markdown (KB ingestion reads no HTML) and a PDF as it is, in build/kb-poc/ (git-ignored), uploads it through the gateway as the admin with its metadata (a document of the same title is kept; `supersedes` by key), waits for indexing and writes scripts/kb_poc/manifest.json (URL, retrieval time, size, SHA-256, status), which is committed. It refuses to run under the airgap profile. A site that refuses a script (imf.org answers 403 to it, a bot check) is never worked around: the owner saves that page from a browser as build/kb-poc/manual/<key>.pdf or .md and the next run uses it, recording its hash. The prompt names most sources by site only (stats.gov.cn, english.gov.cn, english.scio.gov.cn, fmprc.gov.cn, mfa.gov.cn, SPA, SAMA, PIF, Aramco, qna.org.qa, bricspolicycenter.org, sab.com, the China UN mission); their entries carry `url: null` and are skipped and listed until the owner writes the exact pages. URLs found by search and written: the IMF China 2025 Article IV press release (26/053) and staff report (Country Report 26/44), the WEO April 2026 and July 2026 Update pages (the July one supersedes April), and the World Bank blog post "Strait of Hormuz disruption sends oil prices surging". Moody's, Fitch, S&P and Bloomberg are listed as upload by subscription and never fetched.
 - Consequences: In this session the KB holds the World Bank post only; the IMF documents wait for a browser download, the other sources for their URLs (PROGRESS lists both). Evals never read this KB (ADR-0065).
 
@@ -3262,3 +3262,557 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   - `.env` assigns each variable once.
 - Consequences: A model may now be served by different providers within one run, so answers, latency and cost per token can vary between calls in development; eval scores carry that variance. The models stay the same. No real or ministry data on this profile (ADR-0065) still holds, and is the more important with more providers in the path.
 
+
+### ADR-0363: At a tie on one claim, page attribution cites the newer version of a source (carried from phase 08)
+- Date: 2026-10-28
+- Phase: reports PR (carried item, docs/BACKLOG.md "From phase 08")
+- Status: assumed
+- Context: In phase 08's before-merge run 1 (make-eval-20261027T133658Z) cross-annual-growth-en missed cross-KB attribution: «a GDP growth of 3.6 percent for 2031, revising the previous April 2031 forecast of 3.1 percent» is one claim holding the July figure and the April one, the July and April pages tie on it, and the per-claim pass (ADR-0357) took the first retrieved, the April page, so the current page went uncited. The backlog named two options: cite every page tied at a claim's best score, or prefer the newer version of the same source at a tie (D3 of phase 08). The owner asked for a measurement on the recorded answers before a change.
+- Decision: The per-claim pass picks, among the sources tied at a claim's best score, one that no newer version supersedes (its `superseded_by` is empty), then the first retrieved as before (`_best_index` in app/rag/citations.py). Option one was not taken: it would cite the superseded page beside the current one on every such claim, which D3's "use the latest" argues against. Measured offline before the change: every recorded kb answer of the phase 08 runs (build/evals/make-eval-2026102*.json, 278 answers) through attribution over the indexed fixture chunks of the case's KBs, once with the superseded version retrieved first and once last (556 replays): two citation sets change, both from failing to passing (cross-annual-growth-en of make-eval-20261027T133658Z and cross-annual-inflation-ar of make-eval-20261026T121202Z, superseded version first), none from passing to failing. A unit test holds the case's answer and chunk texts in both orders and fails without the change.
+- Consequences: Sources without versions (uploads, KB documents no other document supersedes) are attributed exactly as before. The kb, rag and rag@mcp suites depend on attribution and run in this PR's full make eval.
+
+### ADR-0364: A report is an output form, not a data source (owner decision D1, reports PR)
+- Date: 2026-10-28
+- Phase: reports PR (standalone, pulled forward from phase 11; owner decision D1 of phase 08, ADR-0328)
+- Status: decided
+- Context: The owner wants answers shaped like Claude's artifacts: a dashboard, report, indicators board, infographic or presentation-style page, built live beside the chat, from whatever the turn already has (the model's general knowledge, the toggled knowledge bases, the attached files).
+- Decision: A report changes only how the answer is written. Capabilities, KB toggles and attachments work as today; on a report turn the answer node writes one HTML page instead of text. A report turn applies no text skill.
+- Consequences: No capability changes, and no new permission: whoever may ask a question may ask for its answer as a report. The skill picked or chosen on a report turn is dropped (ADR-0378 records how).
+
+### ADR-0365: General-knowledge figures are marked unverified; sourced figures carry their source (owner decision D2)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided — Superseded in part by ADR-0388 on 2026-10-29; Superseded by ADR-0398 on 2026-10-29
+- Decision: Figures from the model's general knowledge are allowed but visibly marked «غير موثق» / "Unverified"; figures from knowledge bases or files carry their source. No figure is ever shown unmarked.
+- Consequences: The figure check of ADR-0371 enforces it after generation; the eval suite gates it (ADR-0376).
+
+### ADR-0366: Report selection by keyword through the router, or from the composer's output picker (owner decision D3)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A turn becomes a report automatically when one of the report keywords («داشبورد», «لوحة مؤشرات», «لوحة معلومات», «تقرير تفاعلي», «إنفوجرافيك», «عرض», dashboard, infographic, report page, …) is in the message, through the router as skills are (the keyword makes it a candidate, the router model decides), or explicitly from an output picker in the composer («نص» / «تقرير تفاعلي»).
+- Consequences: The keywords are configuration (config/artifacts/report.yaml). The router prompt and its cache key change (ADR-0378).
+
+### ADR-0367: A follow-up edits the latest report into a new version (owner decision D4)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A follow-up in the same conversation ("غيّر الألوان", "أضف رسمًا للتضخم") edits the latest report and creates a new version of it; earlier versions stay viewable.
+- Consequences: Versions are numbered per report and never overwritten (ADR-0373).
+
+### ADR-0368: PDF export is out of scope (owner decision D5)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: No PDF export in this PR; it comes later.
+
+### ADR-0369: The report_writer role on the heavy tier, with its own deadline profile (owner decision I1)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: Reports are written by the role `report_writer` on the heavy tier (config/models.yaml), with at most 16k output tokens. Report turns use their own deadline profile in config/turn.yaml (deadline 300 s, answer ceiling 270 s, the gateway's stream bound the deadline plus its margin), validated by app/resilience/budget.py and shown in /admin/settings. The HTML streams to the panel as it is written.
+- Consequences: A report turn holds its turn slot up to 300 s. ADR-0379 records how the profile is chosen before the turn starts and how the gateway learns it.
+
+### ADR-0370: A design kit served by the platform, never from the internet (owner decision I2)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: config/artifacts/design-system.md is the prompt part (layout, cards, KPI tiles, tables, charts, typography, spacing, dark and light, RTL with logical properties, English terms in <bdi>). Static assets live at a same-origin path: kit.css, self-hosted IBM Plex Sans Arabic, and Chart.js pinned and vendored. Chart data lives in one `<script type="application/json" id="report-data">` block that a kit helper renders, so figures are checkable.
+- Consequences: No report ever loads anything from the internet; the air-gapped profile renders reports as the connected one does.
+
+### ADR-0371: A figure check after generation, and a sources section (owner decision I3)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: After generation, linear and size-capped, every number in the visible text and in report-data is matched against the turn's findings and the user's message (reusing phase 08's number folding). Unmatched figures are wrapped in the kit's unverified marker and logged. A «المصادر» section is appended from the citations (KB, title, publisher, date, page).
+- Consequences: ADR-0381 records what counts as a figure and a match.
+
+### ADR-0372: Report safety: a sandboxed iframe, CSP from its own path, a size cap, runtime guards on its text (owner decision I4)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A report renders in an iframe with sandbox="allow-scripts" (no same-origin), served from its own path with CSP default-src 'none', scripts, styles and fonts only from the kit path and inline, connect-src 'none', and no external URLs. Each version is capped at 512 KB. The guard OUTPUT and DATA policies run on the report's visible text.
+- Consequences: ADR-0382 and ADR-0383 record the sanitizer and how the guards run while the page streams.
+
+### ADR-0373: Report storage and owner-only access (owner decision I5)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: Each version is stored in MinIO as artifacts/<tenant>/<conversation>/<id>/v<n>.html, with a DB table (owner, conversation, title, versions). Only the conversation's owner reads a report, checked at the gateway AND the agent. The conversation history shows the report card.
+
+### ADR-0374: Report API, additive, minor version bump (owner decision I6)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: New events artifact_start {id, title}, artifact_delta and artifact_done {id, version, size}; a GET of a version for the panel; a download that returns one self-contained file (kit CSS, JS and fonts inlined) that opens offline.
+
+### ADR-0375: The report side panel (owner decision I7)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: A side panel like Claude's artifacts: chat on the right and panel on the left in RTL (mirrored in English); live build; tabs «معاينة» / «الكود»; buttons for download, full screen, copy code, version switcher and close; a report card in the chat reopens it. Arabic first, Western digits (ADR-0288).
+
+### ADR-0376: The reports eval suite (owner decision I8)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: reports.jsonl, about 12 cases (Arabic, Gulf, English; general knowledge, KB, attached file; one iteration case). Gated: the HTML parses, dir=rtl for Arabic, the kit only and no external URL, KB figures match their source, general-knowledge figures marked, the sources section present, the size cap. Reported: visual quality.
+
+### ADR-0377: Report smoke checks (owner decision I9)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: decided
+- Decision: smoke checks that a report turn produces a version served with the CSP headers, that the download has no external reference, that another user cannot fetch it, and that a follow-up creates v2.
+
+### ADR-0378: How a turn becomes a report: the picker, keyword candidacy through the router, a follow-up on a conversation with a report
+- Date: 2026-10-28
+- Phase: reports PR (details of D1, D3, D4)
+- Status: assumed
+- Context: D3 asks for selection "through the router as skills are" or from a composer picker; D4 asks that a follow-up edit the latest report. A follow-up such as «غيّر الألوان» holds no report keyword.
+- Decision:
+  - The chat request carries an optional `output` (`text` | `report`), the composer's picker. A picked form is applied with no router decision on it.
+  - Without a picker, a turn is a report candidate when one of config/artifacts/report.yaml's keywords is in the message (matched as a skill's, Arabic-normalized), or when the conversation already holds a report. The router model is then asked, beside its capability and skill questions, for `output`: "report" or "text" (router.system 1.3.0, router.request 1.4.0, with the current report's title escaped); the candidacy and that title enter the router's cache key. A candidate costs one router call when nothing else needed one. An unusable answer or a router failure gives text.
+  - A report turn applies no skill: a picked or chosen skill is dropped (`skill_dropped`, reason `report_turn`).
+  - In a conversation that holds a report, every report turn writes the next version of its latest report (D4); a new report is asked for in a new conversation. The route node records `output {form, decided_by}` on the state and the span; the done event's `state_digest.output` and its `artifact {id, kind, title, version}` say what was written.
+- Consequences: A conversation with a report pays a router call on each later turn, so a plain question there can still be answered as text. «عرض» is also an everyday word ("offer", "width", "display"): it only makes a candidate, and the router decides. Two reports in one conversation are not supported; asking for a different report there revises the current one.
+
+### ADR-0379: The report deadline profile is chosen at admission and sent to the gateway in a response header
+- Date: 2026-10-28
+- Phase: reports PR (details of I1)
+- Status: assumed
+- Context: I1 gives report turns their own deadline (300 s, answer 270 s, gateway bound deadline + margin), but the turn's deadline opens when its request arrives (ADR-0264), before the route node knows whether the answer is a report, and the gateway sets its relay's bound before the agent answers.
+- Decision: config/turn.yaml gains `profiles.report {deadline_s 300, answer_s 270, role report_writer}`. At admission, inside admission_s, the agent chooses the profile from the same conditions that make a report candidate (ADR-0378): the picker chose report; or it chose nothing and a keyword is in the message or the conversation holds a report (one indexed read of agent.reports). The turn's deadline is then the profile's from its arrival. The agent's stream response carries `X-Turn-Deadline-S`; the gateway's whole-exchange bound is the longest profile's deadline plus gateway_margin_s, and its relay ends a stream at its start plus min(the header's value, the longest deadline) plus the margin (a missing header: deadline_s, as before). budget.py gains three rules per profile (its turn in the relay, its answer in its turn with the post-answer reserve kept, its role's call in its answer), each with a mutation; /admin/settings shows and edits the report deadline, the answer ceiling and the report_writer call's ceiling, checked by the same rules. The internal limits read by the gateway gains `profile_deadlines_s`.
+- Consequences: A candidate that turns out to be text still runs under the 300 s deadline; its own model calls keep their ceilings (reasoning 90 s), so it is not slower. The report answer's call is min(270 s, what remains − post_answer_reserve_s); capabilities run under their own manifest bounds as on any turn.
+
+### ADR-0380: The report writer's context: the kit block, the current version block, and citations from the page's text
+- Date: 2026-10-28
+- Phase: reports PR (details of D1, D4, I1, I2, I3)
+- Status: assumed
+- Decision:
+  - The answer node branches on `output.form == report` to app/artifacts/writer.py; the core graph is unchanged. The writer assembles node `report` (config/context.yaml): the blocks the turn's capabilities need, as for a text answer, without the skill block, plus two new blocks: `report_kit` (design-system.md, reviewed text, system role, `<design_kit id= version=>`, never dropped; its size is checked at startup against blocks.report_kit.max_tokens 4000) and `report_current` (a follow-up's latest version, without the platform's marks and sources section, as data in the user role inside `<current_report>`; never cut, so a version over blocks.report_current.max_tokens 24000 ends the turn `report_edit_too_large`). Prompt report.system 1.0.0 (ar, en).
+  - The role report_writer's output ceiling is 16000 tokens (config/models.yaml `role_max_output`, a new key); its assembly budget reserves the same, so the heavy tier's 65536 window leaves about 48k input tokens. Its temperature is 0.3, its call ceiling 270 s.
+  - The report's id is generated before the page streams, so the panel follows one id from artifact_start to artifact_done, and across versions.
+  - Citations: page attribution (ADR-0140 onward) runs on the page's visible text, as on a text answer; validate checks them against this turn's sources as usual. A follow-up's sources section keeps the previous version's citations beside this turn's.
+  - The chat's reply is one line (config/artifacts/report.yaml `text.created` / `text.updated`), so history, memory and later context never hold the page; the assistant message keeps `artifact {id, kind, title, version}` for the history's report card.
+- Consequences: A report costs one heavy call of up to 16k output tokens and holds a turn slot up to 300 s. Later turns see the report's title and version, not its content, except a follow-up's report_current block.
+
+### ADR-0381: What counts as a figure, and what a figure is matched against
+- Date: 2026-10-28
+- Phase: reports PR (details of D2, I3)
+- Status: assumed — Superseded in part by ADR-0389 on 2026-10-29
+- Decision: A figure is a run of Western or Arabic-Indic digits with thousands separators and one decimal part, not glued to a word (a letter or a letter and a hyphen before it, a Latin letter after it: Q1, COVID-19, 5G are names). Its canonical form drops separators and leading and trailing zeros (1,250 = ١٬٢٥٠ = 1250.0). The allowed set is the canonical figures of: the capabilities' findings, the passages fetched for the answer, the sources' titles, publishers, KB names and dates (with a written date's parts), the user's message, and on a follow-up the figures the previous version verified; number words on that side are folded to digits first (ADR-0359). In the page, every figure of the body's text not in the set is wrapped in `<span class="kit-unverified">` (inside an SVG drawing, followed by a `<tspan>` with the marker's words); in report-data, each point and each label holding one is flagged (`unverified`, `unverified_labels`) and the kit marks the dataset and the chart. The document's `<title>` and attribute values are not marked (no element can wrap them). Counts go to the turn's span and log; the unverified values themselves only when content capture is on.
+- Consequences: Rounding, unit changes and computed figures (a sum, a share) are marked unverified even when their inputs are sourced: the safe side of D2. Number words in the page are not figures; the prompt asks for digits.
+
+### ADR-0382: The page is rebuilt from an allowlist; the model writes no script; the kit is added when the page is served
+- Date: 2026-10-28
+- Phase: reports PR (details of I2, I4)
+- Status: assumed
+- Context: I4 allows scripts "from the kit path and inline". A model-written script could rebuild a URL from strings and leak the page's content by navigating the frame, which no CSP directive in the frame stops, and a download opened from a file runs without the gateway's headers.
+- Decision: The model's output is parsed once, as it streams, by the standard library's HTMLParser (linear, after a cap of report.yaml max_model_chars) and rebuilt: allowed HTML and inline SVG elements and attributes only, every text escaped, CSS with no url() other than an in-document #reference, no import or font-face, no event attribute, no link other than an in-page anchor, no image other than a data: image, no script other than the first `<script type="application/json" id="report-data">` block, which is reduced to the charts the kit renders (types, titles, labels, numbers) and re-serialized with `<` escaped. Text before the document and after `</html>` (a Markdown fence) is dropped. The platform writes the frame: doctype, `<html lang dir>` from the turn's locale (dir="rtl" for Arabic), charset, viewport and a `<!--report-kit-->` marker where the kit goes. Interactivity is the kit's (kit.js: charts, theme toggle, tabs, sortable tables). The kit is never stored in the page: the view links kit.css and the scripts from the gateway's kit path; the download inlines them, the fonts as data: URLs, with a meta CSP whose script-src lists the inlined scripts' SHA-256 hashes only and connect-src 'none'.
+- Consequences: The served page needs no inline script, so its CSP's script-src is the kit path alone; inline styles stay allowed (a report's colours). A report cannot have hand-written behaviour beyond the kit's; a kit change is a reviewed PR.
+
+### ADR-0383: The page streams through the guards segment by segment, then the whole page once
+- Date: 2026-10-28
+- Phase: reports PR (details of I1, I4)
+- Status: assumed
+- Decision: As the text answer streams sentence by sentence through OUTPUT (redact policies) and DATA (ADR-0039, ADR-0106), the page streams by segment: the sanitizer's pieces gather until their visible text reaches report.yaml stream.flush_chars (600) or the report-data block closes; the visible texts (text, the attribute values a person reads: title, alt, aria-label, data-label; the data block's titles, units and labels) are checked as one joined payload (app/guardrails/fields.py, so a redaction lands in its own field), the figure marks are added, and the segment leaves as `artifact_delta`, after one `artifact_start`. At the end, OUTPUT with every action and DATA run on the whole page's visible text (ADR-0111's pass): a block ends the turn, a rewrite ends it as a block (a page is not rewritten), a redaction changes the pieces; the stored page is rendered again from the checked pieces with the sources section, and `artifact_done` tells the panel to read the stored version. In buffered mode (an OUTPUT policy that can block, rewrite or redact applies) nothing leaves until the whole page passed. An error before artifact_done leaves no version; the panel drops the unfinished build.
+- Consequences: A personal number split across two text nodes by a tag («<b>050</b>1234567») is seen by neither the segment nor the whole-page pass as one number; the same limit as the text path's newline case, now at element boundaries. The judge checker on OUTPUT or DATA would see a whole page's text (up to a few tens of thousands of characters) in the final pass.
+
+### ADR-0384: Report storage: the agent's own MinIO user, bounded calls, and the version row
+- Date: 2026-10-28
+- Phase: reports PR (details of I5)
+- Status: assumed
+- Decision: minio-init creates the bucket `artifacts` and a user (MINIO_ARTIFACTS_ACCESS_KEY, .env) whose policy allows PutObject and GetObject there only; the agent, which held no MinIO credentials, gets that user. Pages are keyed <tenant>/<conversation>/<report>/v<n>.html. Migration 0016 adds agent.reports (owner, conversation, title, latest_version) and agent.report_versions (title, object key, size, SHA-256, locale, turn, citations, verified figures, counts). A version is numbered under the report row's lock and its page written before its row, so a row always names a stored page; a read checks the page's hash against its row. Every read names the owner: another user's or tenant's report, like a missing one, is `report_not_found`. MinIO is reached by the minio client in a worker thread with urllib3 timeouts (connect 3 s, read 10 s, no retry) and the caller's deadline around each call (report.yaml storage.store_s 10 s): past the deadline the caller stops waiting and the thread ends by its own read timeout. scripts/init_env.sh gains `--add-missing`, which appends to an existing .env only the variables docker-compose.yml requires with no default.
+- Consequences: The worker thread can outlive its caller by up to its read timeout (the residual of LiteLLM's ADR-0257 row, here bounded at 10 s). No report is ever deleted by the product (ADR-0166); a conversation's reports stay with it.
+
+### ADR-0385: The reports eval suite: where it lives, its page checks and its thresholds (details of I8)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: assumed
+- Decision: The suite is evals/outputs/reports/ (reports.jsonl, metrics.yaml, fixtures.yaml including the kb suite's fake knowledge bases, judge.md); the harness globs evals/outputs/*/*.jsonl and names no form. Twelve cases: four general-knowledge (Arabic, Gulf, English, one by the picker), three over the fake KBs, two over the fake budget workbook, one follow-up (D4) and two that must stay text («العرض والطلب», and the picker's text with a report word). The harness gains generic hooks: a case's `output` (the picker) and `before` (earlier turns in the same conversation); turn fields `form`, `artifact`, `page` (the stored version read back through the gateway as its owner) and `download`; scorers `page` (evals/pages.py: parses, direction, kit_only on the page and its download, sources, size, figures_marked, figures_sourced, version) and `page_judge` (the judge alias rates the design 1 to 5 from judge.md; reported at 4 or more). Gated: html_parses, direction, kit_only, unverified_marked, sources_section, size_cap and version at 1.00; form_chosen 0.90 (the router decides on candidates); sourced_figures 0.80 (whether the model shows an expected figure is the model's).
+- Consequences: A report case costs one heavy call (up to 270 s); the suite adds roughly 20 to 40 minutes to make eval in development. The form's choice is measured here rather than in routing.jsonl, whose scorer reads capabilities.
+
+### ADR-0386: The gateway's report paths: the view link, a separate filter chain, audit actions, the relay bound (details of I4, I5, I6)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: assumed
+- Decision:
+  - The view link is an HMAC-SHA256 ticket over [user, tenant, report, version, expiry], valid 60 s, verified in constant time; its key is 32 random bytes made when the gateway starts. Nothing is stored. Before issuing one, the gateway checks the report's conversation is the caller's in its own conversations table (an unknown conversation is nobody's: 404), and the agent checks the owner again on every read, the page's included.
+  - /report-views/** and /report-kit/** run in their own Spring Security chain: GET only, no token, no CORS, no frame options and no default cache headers there; the view sends the CSP of ADR-0372 with `sandbox allow-scripts` and `frame-ancestors` the web's origin, nosniff and no-referrer. The kit serves only the files report.yaml lists, by exact name, read into memory at start (a missing, oversized or wrongly typed file fails startup), with `Access-Control-Allow-Origin: *` for the sandboxed page's opaque origin.
+  - Audit actions, fail-closed, with the report id and version and never its title or page: `report.read`, `report.list`, `report.view_link`, `report.view`, `report.download`; `chat.turn` gains `output_requested`, `output` and `artifact` (`<id>@v<n>`). Another owner's report is 404 `report_not_found`; another owner's conversation's list is 403 `conversation_forbidden`, as the messages endpoint answers.
+  - The relay bound (ADR-0379): the stream client's whole-exchange bound is the longest profile's deadline plus the margin; once the agent's headers arrive the stream closes at its start plus min(`X-Turn-Deadline-S`, the longest) plus the margin; a missing or unusable header keeps deadline_s. The gateway's copy of the limits takes `profile_deadlines_s`, the file's values when absent, and refuses an answer with a deadline of zero or less.
+  - API 2.7.0.
+- Consequences: A gateway restart invalidates view links (the panel asks for a new one), and a link works only on the gateway that issued it: a second replica needs a shared key or sticky routing (docs/BACKLOG.md, hardening).
+
+### ADR-0387: The web's report panel and output picker (details of I7, D3)
+- Date: 2026-10-28
+- Phase: reports PR
+- Status: assumed
+- Decision:
+  - The output picker has three choices, «تلقائي» / «نص» / «تقرير تفاعلي» (automatic first, sending no `output`), kept per conversation in the browser like the KB toggles and not reset after a turn. While «تقرير تفاعلي» is chosen the skill picker is disabled and a picked skill cleared (D1).
+  - The panel is the second item of the conversation's flex row, so it sits on the left in RTL and on the right in English with no left or right in the code; half the width from Tailwind's `md` (768 px), a full overlay below it; not resizable. Switching conversation closes it; a report card reopens it at its version.
+  - The live build is an `<iframe sandbox="allow-scripts">` with `srcdoc` redrawn at most every 300 ms; the `<!--report-kit-->` marker is replaced by a meta CSP (the view's directives without frame-ancestors and sandbox, which a meta cannot carry) and the kit's links from the gateway's kit path; until the marker has streamed, they are put right after the doctype, so no part of a partial page runs without the policy. After `artifact_done` the frame loads the gateway's view link (a new one for every load), `referrerPolicy="no-referrer"`; the frame stays mounted behind the Code tab. A build that ends without `artifact_done` is dropped and the panel returns to the version it showed, or closes.
+  - Errors show the envelope's message_ar / message_en, else the catalog's. Version dates use the existing page format (ar-SA with Western digits, ADR-0288).
+
+### ADR-0388: Every figure in a report carries its source's label; general knowledge reads «من المعرفة العامة» (owner decision A)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, A)
+- Status: decided — Superseded in part by ADR-0398 on 2026-10-29; Superseded by ADR-0408 on 2026-10-29
+- Context: ADR-0365 (D2) marked general-knowledge figures «غير موثق» / "Unverified". The owner replaces that wording with the figure's source.
+- Decision: A figure from the model's general knowledge reads «من المعرفة العامة» / "General knowledge"; a figure from a knowledge base reads «من: <KB name>» / "From: <KB name>"; a figure from an attached file reads «من: <file title>». The label stays visible, and every figure keeps exactly one label. This replaces the «غير موثق» / "Unverified" marker everywhere: the kit, the prompts, the figure check, the evals and the messages. The rest of ADR-0365 stands: general-knowledge figures are allowed, and no figure is shown without its mark.
+- Consequences: The details, including the label of a figure that only the user's message holds, are in ADR-0389.
+
+### ADR-0389: How a figure's label is chosen, written and kept (details of ADR-0388)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, A)
+- Status: assumed — Accepted on 2026-10-29 (the request's label «من: طلبك» / "From: your request", owner decision 2 on PR #17); Superseded in part by ADR-0398 and ADR-0399 on 2026-10-29; Superseded by ADR-0408 on 2026-10-29
+- Decision:
+  - One label per canonical figure (ADR-0381's figure rule is unchanged), the first source in this order that holds it: each source of the turn in the capabilities' order, by its fetched passage and its metadata (a source with a KB name is labelled with the KB's name in the page's language; a document source, `kind: doc`, with its title, which for an attached file is the file's name; any other source with its title); then each capability's findings, labelled with the capability's name; then the user's message, labelled «من: طلبك» / "From: your request" (the owner's three labels name no case for a figure only the request holds, and the rule "every figure keeps exactly one label" needs one); then, on a follow-up, the label the previous version gave the figure; otherwise general knowledge. The label texts are in config/artifacts/report.yaml (`general_label`, `source_label`, `message_label`).
+  - In the text a figure becomes `<span class="kit-figure" data-kit="figure" data-kit-source="<kind>" data-kit-label="<label>" title="<label>">`; the kit shows `data-kit-label` after it as CSS content, so the label is visible, never part of the figure's text (sorting a table and copying a figure are unchanged), and an over-long name is cut with an ellipsis, the whole one in the title. General knowledge keeps the warm marker colours; a source's label is in the muted ink. Inside SVG, the figure is followed by `<tspan class="kit-figure-svg">` with the label's words. In report-data each dataset gets `sources` (one label per point) and `general` (the indices of general-knowledge points, drawn dashed as before), and a chart whose axis labels hold figures gets `label_sources`; the kit adds the label to each tooltip and a row of the chart's distinct sources under it.
+  - The model cannot write a label: the sanitizer strips the platform's classes and the `data-kit`, `data-kit-source` and `data-kit-label` attributes, and normalize_data keeps only the chart keys it knows.
+  - Storage: migration 0017 renames `report_versions.verified` to `figure_labels` (a map of canonical figure to its kind and label, which a follow-up keeps) and `unverified` to `general` (the count labelled general knowledge); a version written before it keeps no labels. The API's `unverified` count becomes `general` (API 2.7.0, which has not left this PR, ADR-0046).
+  - The reports suite's `unverified_marked` becomes `figures_labelled` (every figure labelled once, and those not in the message general knowledge, threshold 1.00); `sourced_figures` now needs the KB's or the file's label on each expected figure. report.system 1.2.0 and design-system.md 1.1.0 describe the labels to the model.
+- Consequences: A page shows one label for every figure, years included, so dense tables carry many labels; the label is small and cut at 16 em. A figure in both a KB passage and the user's message reads as the KB's.
+
+
+### ADR-0390: A report's page keeps to its locale's writing scripts; one regeneration naming the failure (owner decision D)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, D)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: report_b276fb00 v2 held Chinese letters inside Arabic text («أندريه في拉斯»). A text answer is script-checked by validate (ADR-0060), but a report turn's answer is only the one-line reply, so its page never was.
+- Decision: The owner's rule: the same allowed-script validation as a text answer applies to the report's visible text and its report-data; on a failure the page is regenerated once with the failure named in the prompt, then the turn fails with the existing validation message. The details:
+  - What is checked is the page's visible text as the guards read it (app/artifacts/stream.py `visible_text`): its text, the title, the attribute values a person reads, and report-data's titles, units, labels and dataset labels; the policy is config/validation.yaml's for the turn's locale (Arabic: Arabic and Latin letters, no word mixing two scripts; English has no policy and is not checked).
+  - It runs after the page's guard pass, before the figure labels, the sources section and storage. On a failure the writer calls the model again on the same context package with `script_retry` (the issue codes and up to five offending words) in the prompt's variables; report.system 1.3.0 names them in words. The retry is a new page stream: its `artifact_start` starts the panel over (the web keeps the version it showed before the first build, so an error still returns to it). The two calls share the answer's deadline (ADR-0263); tokens of both count.
+  - A second failure ends the turn as `validation_failed` (config/messages/errors.yaml), detail `report: <issues>`; nothing is stored. The text answer's own retry stays off (ADR-0065); this regeneration is the report's only.
+- Consequences: A page that fails costs a second heavy-tier call within the same 270 s; when the first used most of it, the retry runs out of time and the turn ends with the deadline's error instead.
+
+### ADR-0391: A development report ends with a strip naming the model calls behind it (owner decision C)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, C)
+- Status: decided (the owner's rule); assumed (the details below)
+- Decision: The owner's rule: a small footer strip at the end of every report shows the model id, provider, tier alias, generation time and input and output tokens of the call that wrote it and of any call that produced its findings; one setting controls it, true in development and false in the production profile, and it is never shown when false; the download carries it when shown. The details:
+  - The setting is `show_model_info: {development: true, production: false}` in config/artifacts/report.yaml (the owner's "config/artifacts.yaml"); the profile is the new `PLATFORM_PROFILE` (development or production), production when unset, so a deployment that forgets it shows nothing. .env.example sets development; docker-compose.yml passes it with the production default.
+  - The rows: the writer's call that produced the stored page (a script retry's refused first call is not shown, ADR-0390), then each model call a capability made through its runtime's `call_model` (the calls that produced findings: a declarative capability's extract call, for one), in order. The model id and provider come from the deployment name LiteLLM returns (`x-litellm-model-name`, "<provider>/<model id>", ADR-0072), "unknown" when it names none; the alias is the tier's; the time is the call's from send to its last byte, retries included; tokens as the turn usage counts them. Guard, router, summarizer and memory calls are not findings and are not listed.
+  - The strip is platform markup after the sources section: `<footer class="kit-model-info" data-kit="model-info">` with a table, styled small and muted by kit.css. Its numbers are never figures (no labels; the eval checks skip it, as they skip the sources section), and the model cannot forge it (its class and data-kit are stripped from model markup). It is written into the stored version when the setting is true, so the view, the code view and the download all carry it; the agent removes it from any page it serves while the setting is false, including pages stored while it was true, and a follow-up's model never sees it.
+- Consequences: Switching a deployment to production hides the strip at once for every stored report without rewriting them. The strip adds about 1 KB per report.
+
+### ADR-0392: Knowledge bases seeded from kb-seed/<slug>/, committed with their documents, by a step make up runs (owner decision B)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, B)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The phase 08 proof-of-concept KB was filled by `make kb-poc`, which kept its downloads out of git (ADR-0331, ADR-0356), so a fresh stack had an empty KB until someone ran it, online.
+- Decision: The owner's rule: one folder kb-seed/<slug>/ per KB holds kb.yaml (Arabic and English name and description, the realm role kb:<slug>:read and the development users that get it), the documents, one metadata sidecar per document and a manifest, all committed, documents included. A seed step runs after `make up` and on demand as `make kb-seed`: it creates each KB that is missing, uploads every document the KB does not already hold (by SHA-256) and skips the rest; idempotent; offline. A document dropped into a folder without a sidecar is uploaded with its file name as title and flagged "metadata missing" on its admin page. analyst and evaluator get kb:stats-gov:read in infra/keycloak/realm-export.json. «الاقتصاد الدولي» moves to the same mechanism (kb-seed/intl-economy/) and `make kb-poc` is retired. Tested: idempotent, a new file picked up, a removed file reported and not deleted silently, and a fresh stack showing both KBs ready to analyst. The details:
+  - Sidecar: `<file>.meta.yaml` (title, publisher, published_on, source_url, optional supersedes: the earlier file's name in the same folder, uploaded first; other keys such as stats-gov's category are kept for people and ignored by the upload). Manifest: manifest.json, one entry per file (file, url, retrieved_at, sha256, bytes); a test checks each committed file against it and its sidecar's presence, and kb.yaml's role and users against the realm export. kb.yaml, manifest.json, fetch.yaml, README.md and the sidecars are not documents.
+  - The SHA-256 is the gateway's: it hashes the upload's temporary file before storing it and sends it with the registration; migration 0018 keeps it in `agent.kb_documents.sha256` with `metadata_missing`; the admin API returns both. A document registered before 0018 has no hash and is matched by its title. A held document whose file is gone from the folder, or whose file changed (a new hash: the new file is uploaded), is printed as REMOVED, never deleted. A held document whose ingestion failed is reported and not retried, so a broken file does not pile up failed records on every `make up`.
+  - A file without a sidecar is uploaded with its file name as title, kb.yaml's `default_publisher` and the file's date as publication date (the platform requires both, D3 of phase 08), with the upload form field `metadata_missing=true`. The admin page shows «بيانات المصدر ناقصة» / "Metadata missing" and what to correct; saving the metadata clears the flag.
+  - The step runs as the realm's admin through the gateway, like any administrator, so the KB's role is made or converged by the gateway (phase 08, I1); it retries a 429 (uploads in flight) a bounded number of times, then waits up to 900 s for what it uploaded to be indexed. `make up` fails if an upload is refused; a document that fails ingestion is reported without failing it.
+  - The KB is the tenant `default`'s, as the realm's users are.
+- Consequences: The repository carries the KBs' documents (kb-seed/ is about 14 MB). A changed or removed file leaves its old document in the index until an administrator deletes it. `make up` takes longer on a fresh stack (the first seed indexes every document). ADR-0331's KB and ADR-0356's sources are kept; their fetching is replaced. The KB stays out of the evals (ADR-0065).
+
+### ADR-0393: What `make kb-fetch` takes from stats.gov.sa for the KB stats-gov (owner decision B4)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on the branch, B4)
+- Status: decided (the owner's rule); assumed (the details below) — Superseded in part by ADR-0395 on 2026-10-29
+- Decision: The owner's rule: `make kb-fetch` downloads, in development only, from stats.gov.sa (الإحصاءات → الإحصاءات الاجتماعية) the ten named categories only; in each, the most recent year available, and in that year the latest edition of each publication; PDF and Excel preferred; each document's category in its sidecar; a report per category of the year taken, the files fetched and what failed and why. The details:
+  - The site's listings are server-rendered HTML that robots.txt allows (/ar/statistics, /ar/statistics-tabs, /documents/); its /api/ and /o/ paths, which robots.txt disallows, are not used. The social tab's accordion gives each category's sub-categories, whose publication listings (tab النشرات) hold the items, newest first; a category with no sub-category, or one the tab does not list, is read from its own listing. kb-seed/stats-gov/fetch.yaml names the ten categories with the site's ids.
+  - "The most recent year available" is read per category, as the owner wrote it: the largest year among all its sub-categories' items; a sub-category whose newest year is older contributes nothing (PROGRESS lists those left out, so the owner can widen the rule). "The latest edition of each publication": the first item, in listing order, of each title once its year, quarter and edition words are taken out (Q2 2026 over Q1 2026). Both the PDF and the Excel file of an item are taken (the Excel's title marked «(جداول Excel)»); an .xls file is reported as a failure (KBs ingest no .xls).
+  - The listing shows no publication date: the sidecar's published_on is the file's Last-Modified date, said so in the sidecar. Publisher: «الهيئة العامة للإحصاء». Requests are paced (1 s), bounded (60 s, 20 MiB per file, the KB upload limit) and carry a browser user agent naming the script; the script refuses to run unless PLATFORM_PROFILE is development, and under the airgap profile.
+  - A file an earlier run fetched that is no longer selected is removed from the folder (the seed step then reports it and the index keeps it); files dropped by hand are never touched. The manifest holds the per-category report.
+- Consequences: On 2026-10-29 the categories الرياضة and المساكن list no publication of their own on the site (sport is under الصحة, housing under حيوية وسكانية, both fetched there); الخدمات الاجتماعية's latest year is 2022. Within سوق العمل, الصحة and الأحوال المعيشية (latest 2026), the sub-categories whose newest year is 2025 or older were left out by the per-category rule.
+
+### ADR-0394: A capability floor only raises a tier, never lowers it (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided
+- Context: A live report over stats-gov ran the report writer on `standard` ("capability floor kb=standard"): the resolver gave a call made on behalf of capabilities the highest of their floors in place of the role's default, so report_writer's heavy (I1, ADR-0369) held only for a turn with no capability.
+- Decision: The tier of any call is max(the role's default tier, the floors of the capabilities it runs for, per-step overrides first), then escalation and the cap as before. The tier event's reason names both, `role default <role>=<tier>; capability floor <slug>=<tier>, …; highest <tier>`. README §19.3 is amended.
+- Consequences: report_writer runs on heavy over kb, docs or directions turns. No other call changes today: `reasoning` is standard and every manifest floor is standard, and extract steps run on `extractor` (fast) under a standard floor, which is raised to standard as before. A per-step override below its role's default no longer lowers the call (the test probe's `draft: fast` under `reasoning` now runs on standard; phase 10's `sql` `fix_error: fast` will need a role whose default is fast). A heavy page streams more slowly (about 140 characters a second in development, ADR-0380).
+
+### ADR-0395: kb-fetch takes the newest edition of every publication series (owner decision 3 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Decision: The owner's rule, replacing ADR-0393's per-category year: every publication series in the ten categories keeps its own newest edition (health status 2025 beside the 2026 series). The details:
+  - A series is a listing's titles that match once the year (Western or Arabic-Indic, with م or هـ), the quarter and edition words (الربع, للربع, الأول … الرابع, لعام, عام, نشرة, تقرير), harakat, tatweel, alef forms and punctuation are taken out, a quarterly series (a title naming a quarter) apart from an annual one (the annual consumer confidence index beside its quarterly editions). Its newest edition is its item of the highest year, the first in the listing's newest-first order among equals; an item with no year stands for its series only when the series has no dated one. Archive series count too: a series whose newest edition is 2017 is taken as 2017.
+  - A file listed under two categories is written once (the same SHA-256), and the seed step uploads a file once even if a folder holds it twice. A link whose bytes are not its icon's kind (an old .xls behind an Excel icon) is a failure, not a file. Page requests and downloads are tried at most 3 times on a timeout, a connection error or a 5xx, with exponential backoff and jitter; if the social tab's page does not answer, the sub-categories recorded in fetch.yaml on 2026-10-29 stand in, said so in the report.
+- Consequences: kb-seed/stats-gov/ grows from 25 to 75 files (about 105 MiB in git), most of them older series; two files over the 20 MiB upload limit and one .xls are reported, not fetched (PROGRESS: "download by hand").
+
+### ADR-0396: A report's title, headings and labels follow the language of the request (owner decision 4 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: make-eval-20261029T094813Z: two English requests (kb-en-exports, file-en-budget) got Arabic titles over Arabic sources. With the writer on heavy (ADR-0394), a development run (make-eval-20261029T103028Z) gave whole Arabic pages to all three English requests, the general one included; the model also wrote «من المعرفة العامة» as a header label of its own.
+- Decision: The owner's rule: a report's title, headings and labels follow the language of the request whatever the sources' language, and the cases that failed it are gated. The details:
+  - report.system 1.4.0 names each part (<title> and <h1>, headings, KPI labels, table headers, chart titles, axis labels and series names), asks for source titles to be translated and never copied, makes a revision follow the language of this request, and ends, after the evidence, with one line naming the page's language and forbidding a source label written by the model. The template is the request's locale's, as the page frame's lang and dir are.
+  - The reports suite gains `request_language` (threshold 1.00) on every page case, kb-en-exports and file-en-budget among them: for English, no Arabic letter in the title, headings, table headers, KPI and hero labels, eyebrow, subtitles, or report-data's chart titles, labels and series names; for Arabic, the title and the main heading are Arabic (an English term inside them is allowed). The platform's sources section and model strip are not read.
+- Consequences: The development run after the change (make-eval-20261029T103733Z) gave English pages to the three English requests. A request written in one language under the other locale's interface still gets the locale's template.
+
+### ADR-0397: A no-break space between digit groups is a thousands separator (refines ADR-0381)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: assumed
+- Decision: The figure rule accepts U+202F (narrow no-break space) and U+00A0 (no-break space) between groups of three digits, as it accepts the comma and the Arabic separator; a plain space never joins two figures. The eval check reads figures the same way.
+- Consequences: The heavy model wrote «3 872» with U+202F (make-eval-20261029T103028Z), which the rule read as 3 and 872, two figures and two labels; it is one figure with one label now (ADR-0388's "exactly one label").
+
+### ADR-0398: A report draws from exactly one kind of source per turn, never mixed (owner decision on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: Report c7efd45d v3 (Al Hilal, no KB toggled) was saved as v3 of the conversation's labour-market report, listed the labour-market files as its sources, labelled 16 club figures «من: إحصاءات الهيئة العامة للإحصاء» by coincidental number matches, and its header claimed sources the model never consulted. The causes: a follow-up was always an edit of the conversation's latest report (ADR-0400 changes that); the previous version's figure labels were kept by figure value (ADR-0389), so any equal number took a KB's label; the sources section merged the previous version's citations; the page's own text kept the previous header. This decision supersedes ADR-0365's (D2) and ADR-0388's allowance of general-knowledge figures beside sourced ones, and item 1 of the owner's previous message.
+- Decision: The owner's rule: with knowledge bases toggled or files attached, every figure, table, chart and statement of fact comes only from that turn's findings, anything they do not hold is shown as «غير متوفر» / "Not available", and no general knowledge appears anywhere in the page; with nothing toggled and no files, the page is general model knowledge only, every figure labelled «من المعرفة العامة», and no KB or file label can appear. The details:
+  1. Findings belong to the turn that fetched them. A turn is sourced when it carries toggled KBs (`selected_kbs`), files sent with it (`turn_attachment_ids`), sources, or a capability's non-empty findings; otherwise it is a general-knowledge turn. Nothing of an earlier turn reaches the figure check or the sources section: ADR-0389's "the label the previous version gave the figure" is removed (`FigureLabels.keep` is gone), and the sources section lists only this turn's citations (the follow-up merge is gone). The labels stored with a version stay, for the record.
+  2. Only figures matched in this turn's findings get a source label (with ADR-0399's row or column rule); on a general-knowledge turn the matching is skipped and every figure, the request's own included, is labelled general knowledge (the request's label «من: طلبك» applies on a sourced turn only). On a sourced turn a figure no source holds is replaced in the text by «غير متوفر» (a `kit-figure` span with `data-kit-source="unavailable"` and no label after it; a following % sign goes with the number), a chart point becomes null with `sources[i]` «غير متوفر» and its index in the dataset's `unavailable`, and an axis label's figure is replaced the same way. config/artifacts/report.yaml 1.2.0 adds `text.unavailable_label`; kit.css draws it muted.
+  3. The page never names a source in its own text unless it is in the turn's citations: after each attempt the page's visible text is checked against the source names the conversation could suggest (the conversation's files, and the KB names, titles and publishers its latest report cited; a name under six letters folded is not read). A page that names one this turn did not cite is written again once with the names given (as the script retry of ADR-0390, `source_retry` in the prompt), then the turn ends `validation_failed` (`uncited_source`). A knowledge base no report cited is not checked: its name may be an ordinary phrase on a page about its subject.
+  4. report.system 1.5.0 (1.6.0 with item 5) and design-system.md 1.2.0 state the rule to the model: with evidence, its figures only and «غير متوفر» where it holds none, no source it does not name; without, general knowledge only and no source named; a revision rebuilds its figures from this turn's evidence, or, with none, counts them as general knowledge and drops any source the current version names.
+  5. A reply with no page (no visible text in a document: the model wrote a chat line such as «أُنشئ التقرير …», as the Al Hilal turn of the item 6 run did, which stored an empty page) is written again once with the failure named (`document_retry`), then the turn ends `validation_failed` (`no_document`); report.system 1.6.0 tells the model its reply is the page, never the chat line.
+  6. The reports suite's `figures_labelled` (general cases) now needs every figure labelled general knowledge, the request's included.
+- Consequences: A report over a KB shows «غير متوفر» wherever the model wanted a figure the passages do not hold, rather than a general-knowledge figure beside sourced ones. Changing only the colours of a KB report without toggling the KB again is a general-knowledge turn: its figures read general knowledge and the KB's name leaves the page. A page that keeps naming an uncited source after one retry fails the turn rather than ship the claim.
+
+### ADR-0399: A figure counts as sourced only when its number and its row or column label are in the same passage (details of ADR-0398)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: assumed (the owner's rule, item 4 of the previous message, stated in one line in this message; the details are mine) — Superseded in part by ADR-0407 on 2026-10-29
+- Context: ADR-0389 matched a figure to any passage of the turn that held the same number, so a page's 16 matched a 16 in an unrelated table.
+- Decision: Each fetched passage, and each capability's findings, is one entry; a figure takes an entry's label only when the entry holds the figure and one word of the figure's label. The label is what the page writes beside the figure: in a table, the row's first cell and the column's header (a header row is a row of `th`); in a chart, the point's category, its series and the chart's title (and, for an axis label holding a figure, the chart's title and series); elsewhere, the figure's own text and the last text with letters before it (a KPI tile's label). Words are compared light-stemmed (app/text/arabic.py `search_terms`) with one plural ending (ون، ين، ات) and then one nisba or taa marbuta ending (ية، ة، ي) folded when three letters remain, so «سعوديون», «للسعوديين» and «سعودي» are one word; three letters or more, with generic words (عدد، نسبة، إجمالي، معدل، المملكة، عام، الربع، مليون; total, number, rate, year, quarter, million…) left out. «السعودية» is not generic: Saudi and non-Saudi are the rows of most labour tables. A source's metadata (title, publisher, date) and the user's message are matched by the figure alone. A label with no letter in the passage's script (an English page over an Arabic KB, ADR-0396) cannot be compared word for word; there the figure alone decides.
+- Consequences: The first run on the stack (item 6) matched the total and Saudi unemployment series of Table 1 of the Q2 2026 bulletin as «غير متوفر» (no chart title in the context, «سعوديون» against «سعودي»); the chart title and the ending folding above come from it, with a test on that table. A coincidental equal number in another table no longer earns a source label; it reads «غير متوفر». A figure the model places under a label the passage does not use (a paraphrase with no shared word) also reads «غير متوفر»: the safe side. Translated pages keep ADR-0389's figure-only match.
+
+### ADR-0400: A follow-up edits the latest report only when it asks to change it; another subject is a new report (owner decision on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: D4 (ADR-0378) made every report turn in a conversation that holds a report a revision of it; the Al Hilal request became v3 of the labour-market report (ADR-0398's context).
+- Decision: The router's existing call decides. When the conversation holds a report, router.system 1.4.0 asks for `"edit": true` only when the message asks to change the current report itself (colours, layout, a chart, a section, its figures, or something added on its subject) and `false` for a page on a different subject; only an explicit `true` is an edit, and a cached decision keeps its `edit`. When the composer's picker chose a report and the conversation holds one, the same call is made for `edit` alone (`report_picked`); the picker still decides the form. A router failure or an unusable answer is not an edit (a new report). The route node records `output.edit` and `output.edit_decided_by`, sets `route.output.edit` on the span and logs `route report … edit=… decided_by=…`; the writer revises the latest report (its current version in the context, version n+1) only on an edit, and otherwise starts a new report at version 1 with a new id that inherits nothing. Tests: a follow-up on another subject is a new report v1 with no `report_current` block; an edit through the picker is v2 of the same report; the parser's `edit` cases.
+- Consequences: One router call as before; a picked report in a conversation with a report adds that call. A request the router reads as a new subject never sees the old page.
+
+### ADR-0401: A report turn reads deeper, and an edit re-runs retrieval on the report's subject (owner decision on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: assumed (items 2 and 3 of the owner's previous message, stated in one line in this message; the details are mine) — Superseded in part by ADR-0402 and ADR-0403 on 2026-10-29
+- Context: A report builds every figure from the passages alone (ADR-0398), and 8 passages rarely fill a dashboard. An edit such as «أضف رسم دائري لتوزيع العاملين حسب الجنس» searched with its own words only.
+- Decision: `CapabilityInput` gains `output` ("text" or "report", from the route node) and `report_title` (the current report's title on an edit), both optional, so no capability has to change (a core contract change the owner's request implies). kb and docs fetch `retrieval.report_top_k` passages (20, the search tools' limit; config/kb.yaml and config/docs.yaml) on a report turn instead of `top_k` (8), and on an edit search twice: the report's title at `report_top_k` (the subject, so the passages behind the figures the page already shows come back), then the request at `top_k`, the hits merged without repeats. The first run (item 6) searched once with the title and the request joined; the request's words pulled other passages and the edit lost Table 1. The report node's retrieval block takes 20 chunks within 16,000 tokens (config/context.yaml `nodes.report.blocks.retrieval`). Every report turn with KBs toggled or files runs its capabilities, so an edit's figures come from that turn's retrieval.
+- Consequences: A report turn's search returns up to 20 passages and its prompt is larger (up to 16k tokens of passages on the heavy tier). An edit without the KB toggled has no retrieval and is a general-knowledge turn (ADR-0398).
+
+### ADR-0402: An edit with the knowledge base still toggled fetches again the passages its current version cited (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The second item 6 run's edit searched by the report's title and the request; neither returned Table 1 of the Q2 2026 bulletin, so the edit lost the figures v1 had. The owner: re-fetching, from the KB now and under this turn's permissions, the passages the current version cited is a fresh retrieval from the same source, not an earlier turn's findings, so it is consistent with ADR-0398.
+- Decision: A version stores the passages behind its citations by reference (migration 0019, `report_versions.passages`: each source's backend, collection, ref and metadata, never text; this turn's fetched sources whose document the page cites, at most 40). On an edit of a report turn with knowledge bases toggled or files, the capabilities node reads them from the latest version and passes them to the capabilities (`CapabilityInput.report_sources`); kb and docs return those of their own kind first, beside their searches, within `report_max_passages`. The core fetches their text as for any source: from the backend and collection that hold it, under this turn's scope (ADR-0202), so a passage of a knowledge base no longer toggled, deleted or no longer readable gets no text. The writer keeps as the page's sources only those whose text was fetched this turn; an edit with nothing toggled reads no passages (ADR-0398).
+- Consequences: An edit keeps its figures' sources as long as the KB is toggled and still holds the passages. A version written before migration 0019 stores no passages; its edit has the searches only.
+
+### ADR-0403: A sourced report plans its sections and searches once per planned chart or table (owner decision 2 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The item 6 runs searched once (twice on an edit); a dashboard needs a table per chart, and the passages the general search returns rarely cover them all.
+- Decision: Before the capabilities run, a report turn with knowledge bases toggled or indexed files makes one planning call (`report.plan` and `report.plan_request` 1.0.0, role `extractor`, fast tier, node `report_plan` in config/context.yaml; the request, and on an edit the current version's title, headings and chart titles, as data in the user role). Its JSON lists up to 8 sections, each with a search query worded as a statistical table's title. kb and docs then search the message at `report_top_k` (12), on an edit the report's title, and each planned query at `report_section_k` (4), merged without repeats after an edit's cited passages, keeping at most `report_max_passages` (40) (config/kb.yaml, config/docs.yaml). The report writer's retrieval block takes 40 chunks within 24,000 tokens. A planning failure leaves the general search (and an edit's) alone; the plan is logged (`report plan turn=… sections=… queries=…`) and its count set on the span. This supersedes ADR-0401's numbers (20 passages, one search).
+- Consequences: A sourced report turn costs one fast-tier call and up to 10 searches more; its writer's prompt can reach 24,000 tokens of passages. A report on general knowledge plans nothing.
+
+### ADR-0404: A workbook's precise figure matches the page's rounding to one or two decimals (refines ADR-0381 and ADR-0399)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: assumed
+- Context: The owner asked whether stats-gov holds employed persons by gender for Q2 2026. It does: table 3-1 of «إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)», «التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس (%) - سلسلة زمنية», row Q2 2026: Saudi 66.366373 male, 33.633627 female; non-Saudi 91.46388445, 8.536115554; total 83.60299013, 16.39700987. The workbook's cells are stored at full precision, and ADR-0381 matched no rounding, so a page's 83.6 could never be sourced from it.
+- Decision: A source figure with more than two decimals also matches its value rounded half up to one and two decimals; a source figure with two decimals or fewer is matched as written. No other rounding is matched.
+- Consequences: The gender doughnuts can be sourced from table 3-1. A page figure that rounds a different precise number to the same one or two decimals would match it too: the row or column label rule (ADR-0399) still applies to passages.
+
+### ADR-0405: A chart or table whose values are all «غير متوفر» leaves the page; one with gaps stays (owner decision 3 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below) — Superseded in part by ADR-0407 on 2026-10-29
+- Decision: On a sourced turn the writer renders the checked page once to find each chart whose every point is null after the figure check (the model's own nulls included) and each table whose cells hold figures and none available, removes that element with the kit card around it (`kit-card`) when the card holds no other chart or table, removes the chart's entry from report-data, and renders the stored page from what stays. A chart or table with some figures available stays, its gaps shown as «غير متوفر» (null points, text marks). report.system 1.7.0 asks the model to leave out a chart or table its evidence holds no figure for. A general-knowledge page loses nothing.
+- Consequences: The page streamed live still shows the removed parts until the panel loads the stored version; the stored page, the download and the next version's context do not. KPI tiles with «غير متوفر» stay.
+
+### ADR-0406: Reports are a declarative report spec the platform renders ("option C"), not free HTML (owner decision A on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The item 6 runs showed a free-HTML page cannot be held to its sources: figures sat anywhere in markup, a passage was matched to a figure by coincidence, the model wrote a chat line instead of a page, and a header claimed sources. Supersedes ADR-0369's HTML page, ADR-0370's HTML kit guide for the model, ADR-0380's sanitized stream and ADR-0405's HTML probe.
+- Decision:
+  1. The writer answers with JSON matching config/artifacts/report-spec.schema.json (`report-spec/1.0.0`), generated from the Pydantic models in app/artifacts/spec.py (`python -m app.artifacts.spec`; a test holds the file equal to the models): `title`, `subtitle`, `period`, `language`, and 1 to 30 ordered `sections` of the kinds `kpi_row` (items: label, value, unit, optional delta), `chart` (bar, line, area, pie, doughnut, stacked_bar; title, labels, series, unit), `table` (title, columns, rows), `text` (Markdown) and `callout` (tone, Markdown). Every kpi_row, chart and table carries `sources`: the passage ids the context gave ("P1"…) or "general". A Markdown fence around the JSON is tolerated; anything else (HTML, a chat line) is not a spec and is written again once with the failure named (`spec_retry`), then the turn ends `validation_failed` (`invalid_spec`).
+  2. The platform renders the checked spec to the stored HTML, server-side and deterministically (app/artifacts/render.py): the frame and header, each section with the kit's classes, every string escaped, Markdown a safe subset (paragraphs, lists, bold, italic), each chart's data in its own `<script type="application/json" class="kit-chart-data">`, the sources, the model strip, and the checked spec itself (`class="kit-spec"`), which the evals read. The panel's view and the download are that file. Charts are drawn by the kit with Apache ECharts 5.5.1 (vendored `echarts.min.js`, Apache-2.0, pinned by SHA-256 in kit/SOURCE.md), replacing Chart.js; RTL mirrors the category axis, and dark and light follow the kit's theme. Each section streams into the panel (`artifact_delta`) as soon as its JSON object completes (app/artifacts/spec.py `SectionReader`), after the OUTPUT and DATA guards on its strings and its check; the whole-spec pass runs at the end. The free-HTML path, its sanitizer (app/artifacts/html.py) and stream are removed.
+  3. Edits change the spec: the current version's checked spec (stored in `report_versions.spec`, migration 0020) is the edit's context (context.report_current 2.0.0) and the writer returns the whole changed spec; the re-fetch of cited passages (ADR-0402) is kept. A version written before option C has no spec; its edit writes a whole new spec under the same report.
+  4. report.system 2.0.0 and design-system.md 2.0.0 (now the spec guide) describe the spec; the passages carry their ids (context.retrieval 2.2.0).
+- Consequences: The model chooses content and order only; layout, escaping and charts are the platform's. A page is reproducible from its spec. The live preview shows sections as they pass; a section the check drops never appears.
+
+### ADR-0407: Each element's values are checked against the passages it cites (owner decision A3 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Decision: app/artifacts/verify.py. With knowledge bases or file findings (ADR-0398), each value of a kpi_row, chart or table counts only when one of the passages that element cites holds it (ADR-0381's canonical figure; a precise figure's rounding to one or two decimals, ADR-0404) together with a word of its position and a word of its measure, wherever each has a word of its own (ADR-0399's light-stemmed words, generic words left out): a chart point's category, and its series or the chart's title; a table cell's row label, and its column or the table's title; a KPI's label (or its row's title). A label in a script the passage does not use (an English report over Arabic sources) cannot be compared word for word; the figure decides there. A value not found is shown as «—» (a null chart point, a «—» cell or KPI) and listed under its element in the sources as not available; an element whose values are all unavailable, one that cites "general", and one that cites no passage of this turn are dropped. Figures in text and callouts must be held by some passage of the turn with a word of their paragraph, else they become «—». Without findings nothing is matched: every element's sources become "general" and no passage id remains. This supersedes ADR-0399's matching against any passage of the turn, and ADR-0405's HTML probe (the rule "all unavailable leaves, some gaps stay" stands).
+- Consequences: In the item 6 run 4 the gender doughnut showed 84.3 (the male participation rate of the bulletin's Table 1) as a share of employed men; with the measure required, Table 1 does not hold it, and table 3-1 of the workbook does hold 83.6 / 16.4 (rounding of 83.60299013 / 16.39700987).
+
+### ADR-0408: No label beside any figure; sources listed per document with the elements they support (owner decision B on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Decision: No figure carries a label anywhere (text, KPI, table, chart, tooltip). A sourced report ends with «المصادر» / "Sources": one entry per document a value was found in (KB › title, publisher, date), and under it each element it supports, «رسم: <title> — ص 4» or «جدول: <title> — ورقة 3-1» (pages, or the workbook sheet), with «غير متوفر في المصدر: …» naming the values that element could not find. A general-knowledge report opens with one line, «هذا التقرير من المعرفة العامة للنموذج، دون مصادر موثقة» / "This report is from the model's general knowledge, without verified sources", and has no sources section. config/artifacts/report.yaml 2.0.0: `general_banner`, `kinds`, `untitled_element`, `sheet`, `unavailable`, `chart_gaps`; the per-figure label texts are removed. This supersedes ADR-0388 and ADR-0389 (per-figure labels) and the figure marks of ADR-0398.
+- Consequences: A version's citations are the documents a value was found in, with their pages; its passages are those values' passages (ADR-0402).
+
+### ADR-0409: The reports suite reads the stored spec (owner decision D on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Decision: evals/pages.py reads the spec the page carries. New gated metrics: `spec_valid` (the spec matches the committed schema; a standard-library validator for the keywords that schema uses), `no_general` (with knowledge bases or files, no element cites "general" and no general-knowledge line), `general_only` (without them, the line, no sources section, every element "general"). Changed: `sourced_figures` (each expected figure is a value the platform kept in a sourced element that the sources list, i.e. found with its label in a cited passage), `sources_section` (each element listed under a document), `request_language` (the spec's title and labels), `kit_only` (no script but the page's JSON blocks). Removed: `figures_labelled`. Thresholds 1.00 except `sourced_figures` 0.80 and `form_chosen` 0.90, as before.
+- Consequences: The harness checks what the platform kept and listed; the platform's per-value check (ADR-0407) is what ties a value to its passage.
+
+### ADR-0410: A workbook chunk repeats its sheet, its table's titles and all its header rows; the seed re-indexes what an older extractor cut (owner decision 2 on PR #17, completed)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: Table 3-1 of the Q2 2026 labour-market workbook (employed persons by sex) could not be found or matched: its Q2 2026 row sat in a chunk whose repeated header was the workbook's one-line title, because the extractor took "the first row followed by a row of the same width" as the header (A3, ADR-0135) and GASTAT sheets open with titles and merged multi-row headers.
+- Decision:
+  - The XLSX extractor (version 2) opens every chunk of a sheet with `[<sheet name>]` and the table's preamble: every non-empty row above the first data row, a data row being two cells or more with one numeric cell that is not a year (so a header row of years stays a header). The preamble holds the workbook's title, the table's own title and number and all of its header rows. A sheet with no data row keeps the earlier rule (the first row followed by a row of its width, else the first row), with the sheet's name. This supersedes A3's header-only repeat. There is no CSV extractor (CSV is not an accepted kind, config/docs.yaml), so the owner's "Excel and CSV" applies to workbooks only.
+  - `agent.kb_documents.extractor` (migration 0021, default "1") records the version of its kind's extractor that indexed a KB document; `reindex_due` (indexed by an older version) is on the document's view. `POST /v1/admin/kbs/{slug}/documents/{id}/reindex` (agent; gateway route audited `kb.document.reindex`) puts a due document back to pending with its attempts reset and hands it to the backend again; the ingestion job replaces its chunks in one transaction (the job's own idempotence); a document already current comes back unchanged. While pending, the document is out of search until its new chunks are in.
+  - `make kb-seed` (and so `make up`) re-indexes every held document that is due and waits for it like an upload; a second run finds nothing due.
+  - In the report check (ADR-0407), words nearly every statistical table's title holds (توزيع، نسبي، جنس، جنسية، سلسلة، زمنية، إحصاءات) are generic: the measure must be told by another word («المشتغلين» against «السكان في سن العمل»).
+- Consequences: The 32 workbooks of stats-gov were re-indexed by the seed on 2026-10-29 (32 of 32 indexed; a second run re-indexed none). Attached workbooks in conversations are cut the new way from now on; files indexed before keep their chunks. Chunks of workbooks are longer by their preamble (truncated at half the chunk budget).
+
+### ADR-0411: A number a PDF draws right to left in pieces is read in its pieces' position order (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's request to investigate and fix); assumed (the details below)
+- Context: The KB text answer gave Saudi unemployment 5.6% where the Q2 2026 bulletin says 6.5, on phase/08-kb's code too. The stored chunk of page 1 read «بلغ معدل البطالة للسعوديين 5.6 % في الربعالثاني من عام 6202 ،بارتفاع مقداره 10. … بمقدار 30.»; poppler's pdftotext reads the same line «%6.5 … 2026 … 0.1 … 0.3». The page draws those numbers one piece per text operation from the right («5» at x 455.9, «.» at 454.2, «6» at 449.3; «6» then «202»; «1» then «0.»), and pypdf joins pieces in stream order. The bulletin has no presentation forms, so app/rag/bidi.py's one signal for visual order (ADR-0173) never applied. The same sentence's 67.2 and 2025, drawn left to right, were right.
+- Decision: The PDF extractor (version 2) collects each page's drawn pieces with their positions (pypdf's text visitor) and, in app/rag/bidi.py, finds runs of consecutive number pieces (digits and the marks inside a number) on one baseline, each touching the one before it on its left (gap within 1.5 times its estimated width, 0.6 em a character at its size), at most 12 characters, with a mark alone at either end left to the text (a sentence's full stop). Each run is put back in position order in pypdf's text, found in stream order. Pieces far apart (a table row's cells drawn right to left) and runs longer than one number (axis labels drawn edge to edge) are left alone, so a row keeps its header's order. The seed re-indexes PDFs indexed by version 1 (ADR-0410).
+- Consequences: On 2026-10-29 the seed re-indexed stats-gov's 43 PDFs (43 indexed; a second run re-indexed none); 110 of their 1,135 chunks changed, in 17 documents (reversed years such as 8201 for 2018, decimals, section numbers such as «7.1.» that pypdf read «1.7.», each checked against pdftotext on samples). intl-economy holds one Markdown file and was not affected. Tests: Arabic PDFs drawn as the bulletin draws (decimals, a percentage, years, a range, a thousands number, a table row, a full stop).
+
+### ADR-0412: An edit only on the latest report's subject; «عرض» is not a report keyword; no chart of totals (owner decisions 2 to 4 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rules); assumed (the details below)
+- Decision:
+  - The router reads the latest report's title and its section titles (from its stored spec, at most 12) inside `report_option` (router.request 1.5.0), and router.system 1.5.0 sets `edit` true only when the message is about that subject (a change to the report, or something added to it on the same subject); a message about another subject is a new report even when it says «أضف» or "add". Tests: the prompts carry the sections and the rule; the sections come from the stored spec; the new-report and edit paths (ADR-0400's tests).
+  - «عرض» is removed from config/artifacts/report.yaml's keywords (2.1.0): «اعرض لي…» or «العرض والطلب» no longer makes a report candidate. «عرض تقديمي» and the composer's picker remain.
+  - report.system 2.1.0 and design-system.md 2.1.0: a chart never plots a column of 100% totals, nor a table's total row or column against its own parts; the total, when it matters, is a KPI.
+- Consequences: The report-candidate profile (300 s, a router call deciding the form) no longer applies to ordinary requests that use «عرض».
+
+### ADR-0413: A workbook's merged headers name every column, and its cells read as displayed (owner decision 2 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The KB text answer saw sheet 2-1's Q2 2026 row and still said no non-Saudi figure was given: the nationality header was « | السعوديين | | | غير السعوديين | | |» (merged cells blank) and the cells were at full float precision (1.3296091920036393).
+- Decision: The XLSX extractor (version 3, then 4) opens the workbook in full (not read-only) for its merged ranges and number formats. A merged range's value fills every cell it spans, except a range on one row as wide as the table's value columns, which is a title. A preamble row whose filled cells all say the same is written once (a title merged over part of the table: sheets 2-2 and 2-3 of the Q2 2026 workbook; version 4). The preamble ends with `[columns]`, each column's full label from its header rows, repeats dropped («غير السعوديين › الإجمالي»). A numeric cell reads as the workbook displays it through its number format: its decimals, thousands separator, percent and literal text, rounded half away from zero; "General" at most 10 significant digits; date, fraction and conditional formats read as General. The seed re-indexes the 32 workbooks once per version (ADR-0410).
+- Consequences: Sheet 1's row reads «معدل البطالة | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3 | 2.1 | 7.6 | 3.0» under «[columns] … | غير السعوديين › الإجمالي | …». A workbook is held in memory in full while it is parsed, inside the extraction child process's limits (config/docs.yaml).
+
+### ADR-0414: A value is sourced only in its own row and column, its qualifiers part of its label (owner decision 1 on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decisions on PR #17)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: The dashboard runs showed 63.9 and 60.8 (Saudi men's participation and employment-to-population rates) as the totals 67.2 and 65.2, and 4.8 (Saudi men's unemployment) as the total 3.0: the check of ADR-0407 asked for a word of the label anywhere in the cited passage, and «الإجمالي» was a generic word.
+- Decision: A passage is read as units: in a workbook chunk (one with `[columns]`, ADR-0413), each numeric cell, its context the table's title lines, its row's label and its column's label; in prose, each figure, its context the text before it (up to 400 characters, back to the last full stop, layout line breaks joined) and just after. A value counts only in a unit that holds it, holds a word of its position and of its measure (ADR-0407), and whose qualifiers agree with its label's: sex («الذكور»، «الإناث»، «السعوديات»…), nationality («السعوديين»، «غير السعوديين»), and the period (a quarter and a year). The label's qualifiers come from all its labels (a KPI's label and its row's title; a chart point's category, series and title; a table cell's row, column and title), with the report's period (its `period`) when the label names none. A label with no sex or nationality, or with «الإجمالي», is the total and matches only a total's row or column; a pair named together («للسعوديين وغير السعوديين»، «الذكور والإناث») is the total. In prose, the nearest sex and nationality before the figure win, a later «الإجمالي» makes it the total, a unit that names both without a pair does not constrain, and prose sets no period (a period near a figure is as often the one it is compared with); a workbook row's period does.
+- Consequences: In the bulletin's text 4.8, 63.9 and 60.8 are the men's and are refused as totals; in sheet 1, 3.0, 67.2 and 65.2 are the totals' and 1.3 is the non-Saudi total; a Q1 2026 row is refused for a Q2 2026 report. A table flattened by the PDF extractor (the bulletin's Table 1) names its columns far from its values, so its total-column values are refused as totals there; the workbook states them in their columns. Tests: these cases, with the workbook chunks as the extractor cuts them.
+
+### ADR-0415: The platform's visual identity: palm green and gold as design tokens, the logo, light and dark (owner request on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner request on the same branch)
+- Status: decided (the owner's identity and rules); assumed (the details below)
+- Decision:
+  - Brand: the owner's assets in services/web/public/brand (the PNGs; logo.svg, an auto-trace, kept unused). The document head links favicon.ico (16, 32, 48), favicon-32.png, favicon-16.png and apple-touch-icon.png (180). The header shows logo-64.png at 32 px beside «منصة الوكيل» / "Agent Platform" at the inline-start corner (top right in Arabic, mirrored in English), on every page, the sign-in screen and /admin included; its alt text is `header.logoAlt` in ar.json and en.json.
+  - Tokens in one place, services/web/src/app/globals.css: the owner's light and dark values for background, surface, border, text, muted text, primary, primary hover, gold accent and its subtle background, plus a second surface, a strong (input) border, a subtle text, the text on primary, a darker gold for text on light (`accent-fg`), a focus gold, and success, warning, error (with a solid error for destructive buttons), info and highlight, in both themes. Each is a Tailwind colour (`bg-surface`, `text-muted`, `bg-primary`, `ring-focus`…); no component names a raw colour. Every text and control pair was computed at WCAG AA or better (text 4.5:1; borders, focus rings and state marks 3:1). The owner's light gold #B8954A is 2.8:1 on white, so it marks surfaces and highlights, and focus rings and selected borders use #9C7B34 (3.5:1 or more on every light surface); inputs' borders #879389 light and #62736A dark.
+  - Typography: IBM Plex Sans Arabic for Arabic and Latin, self-hosted from public/fonts (the report kit's OFL files; the platform runs air-gapped); a type scale of 12, 14, 16, 18, 22 and 28 px with line heights of 1.4 to 1.8 (generous for Arabic); rounded corners (8 to 20 px), two soft shadows.
+  - Use of colour: green for primary actions (send, save, sign in, the user's message); gold sparingly: the selected KB toggle, the current conversation, the memory switch when on, the report card's icon, the active tab's underline, focus rings and the text selection.
+  - Light and dark: the default follows the system; the header's toggle sets `<html data-theme>` and remembers it in the browser's storage (`platform-theme`, per browser profile, as the owner's "per user (browser storage)"); an inline script in the head applies the remembered choice before the first paint, so no page flashes the other theme; with storage blocked the choice holds for the page only.
+  - Applied everywhere: 473 colour classes in 28 files (chat, composer, KB and skill pickers, citations, tool chips, the report panel, /admin policies, settings and KBs, memory, the sign-in and callback screens) mapped to tokens; the KB delete button gets its own danger style.
+  - Report pages: the kit's surfaces, ink, grid and accent take the identity's values in both themes; the chart series start with the brand green and gold, then blue, orange, teal, olive, purple and rose, ordered for the largest adjacent-pair difference under normal, deuteranopic and protanopic vision (worst ΔE 33 light, 21 dark).
+  - RTL and Western digits (ADR-0288) unchanged.
+- Consequences: The identity changes in one file. Keycloak's own sign-in page, reached from the platform's sign-in screen, keeps Keycloak's theme: styling it needs a Keycloak login theme (a later change). No web test asserted a colour or the header; new tests cover the theme (system default, remembered choice before paint, blocked storage) and the strings.
+
+### ADR-0416: A report is never silent about what it could not do; nothing found ends plainly; charts, chips and KPI rows fixed (owner visual check on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner visual check of report 4aa403a3)
+- Status: decided (the owner's rules); assumed (the details below)
+- Decision:
+  1. Never silent: after the line naming the report, the reply says in one or two plain sentences, in the report's language (its spec's `language`), what it could not do: the elements left out for want of data («لم أجد في المصادر بيانات «…»، فتركت ذلك خارج التقرير.»), the categories a chart lost, and that some values show «—»; an edit's note opens «أضفت ما أمكن.» Texts in config/artifacts/report.yaml 2.2.0 (`partial`, `missing_elements`, `trimmed_categories`, `gaps`).
+  2. Nothing found: a report over toggled KBs or files that keeps no KPI row, chart or table ends with «لا تحوي المصادر المختارة (<names>) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.» (`nothing_found`), no page saved and no retry; on such a turn prose waits for the first element kept, so the panel never opens on an empty report.
+  3. Charts: a category no series has a value for leaves the chart; a chart left with fewer than two categories is dropped and reported as in 1. The chart's box is laid out left to right (ECharts places its SVG text left to right; under dir="rtl" it ran over the legend's marks) and the options mirror the chart in RTL: the category axis inverted, the value axis on the right, every category label shown and wrapped to its share of the width, tooltips right to left.
+  4. The legend: right-aligned in RTL, each colour mark on its item's right, 18 px between items, scrollable when long.
+  5. Chips (web): one chip per tool with its count («× 9») and its worst status, one per tier; a guard chip for allow or log_only only to administrators (the admin flag read once per session, MeProvider).
+  6. KPI rows: the platform picks the columns (up to 4 in a row; 5, 6 and 9 in rows of 3; 7 and 8 in rows of 4; two per row on narrow screens), so a last row does not hold one card alone; a year (1800 to 2100) is written as a year, not «1,957».
+- Consequences: The reply can be two or three sentences longer when something is missing. A KB that holds nothing on a subject no longer costs a retry or shows the validation message.
+
+### ADR-0417: With the capabilities already chosen, an empty capability list in the router's answer is not unusable (fix)
+- Date: 2026-10-29
+- Phase: reports PR (found in the owner visual check's re-run)
+- Status: assumed
+- Context: With stats-gov toggled the rules choose kb, and the router is asked only for the skill and the answer's form (and edit). It answered `"capabilities": [], "output": "report"`, which parse_decision treated as unusable; the turn fell back to `router_default` and a text answer, so the Al Hilal request with stats-gov toggled never reached the report path.
+- Decision: When the rules decided the capabilities (no router pool), an empty or foreign capability list keeps the rules' capabilities and the rest of the answer (skill, output, edit) is used.
+- Consequences: Report requests with KBs toggled reach the report writer; the routing suite's cases are unchanged (they route with a pool).
+
+### ADR-0418: A total beside its own parts is dropped from a chart, in code (owner decision on PR #17)
+- Date: 2026-10-29
+- Phase: reports PR (owner decision after the visual check)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: report.system 2.1.0 asks the writer not to chart a total beside its parts (ADR-0412); the model did not always keep it (a stacked bar with a «الإجمالي» category beside «السعوديون» and «غير السعوديين», 2026-10-29).
+- Decision: Before a chart's values are checked (app/artifacts/verify.py), a category whose label is a total («الإجمالي», «إجمالي», «المجموع», «total», «overall», folded) leaves the chart when other categories remain, its points with it; a series named as a total leaves when other series remain. A total-only chart (one category or one series, the total) keeps it, and a KPI or a table is not touched. A chart left with fewer than two categories is dropped and named in the reply (ADR-0416). Tests: a stacked bar, a pie (and one left with one slice), a grouped bar (and a total series alone).
+- Consequences: A chart compares parts only; the total, when it matters, is a KPI. A series that is the total of the others («الإجمالي» beside «السعوديين») leaves even on a line chart of rates.
+
+
+### ADR-0419: A figure a passage writes in words is found in its prose sentence (fix, found by the before-merge eval runs)
+- Date: 2026-10-29
+- Phase: reports PR (the final before-merge runs)
+- Status: assumed (a fix)
+- Context: reports/kb-gulf-leave failed in all three before-merge eval runs (make-eval-20261029T162319Z, T171258Z, T180017Z) with the nothing-found reply. The eval KB's labour law states «إجازة سنوية مدتها واحد وعشرون يوما، تزيد إلى ثلاثين يوما». `figures()` folds number words to digits, but the prose units of ADR-0414 were cut from the unfolded text, so a sentence whose figures are words gave no unit: every value was unavailable, every element dropped, and since ADR-0416 the turn ended without a page (before it, the page kept its text).
+- Decision: Prose is folded with `fold_number_words` (app/text/arabic.py, the same folding as `figures()`) before it is cut into units; each figure's sentence and qualifiers are read on the folded text. Workbook cells are unchanged. Test: the labour-law passage, 21, 30 and 10 found, 25 not.
+- Consequences: A value stated in words is found under the same row and qualifier rules as one in digits. The words a figure was written in are no longer in its context, which matched no label anyway.
+
+### ADR-0420: Eval runs 4 to 6 of PR #17 are accepted for merge (owner decision)
+- Date: 2026-10-30
+- Phase: reports PR (the before-merge gate)
+- Status: decided
+- Context: Rule 13 asks for three passing make eval runs before merge when prompts, routing or retrieval changed. After the ADR-0419 fix, the three runs at 894872e were make-eval-20261029T190307Z (rag@mcp below threshold: abstention 0.83, leave-housing abstained but showed a source line), make-eval-20261029T195359Z (directions below threshold: unknown_or_ambiguous_handled 0.86, ambiguous-msa-university) and make-eval-20261029T204249Z (every suite passed).
+- Decision: The owner accepts runs 4 to 6 as the before-merge eval gate of PR #17. The reports suite, which this PR adds and changes, passed all three (12/12). The directions failure is the known ambiguous-place case, on a capability this PR does not change. The rag@mcp abstention failure happened once in three runs.
+- Consequences: PR #17 is ready to merge on its evals. This acceptance covers this PR only; the rule 13 gate is unchanged for later PRs. The ambiguous-place case and the abstention source line stay open as known model misses.
+
+### ADR-0421: A number drawn right to left is reordered only as the exact drawn run, on number boundaries (refines ADR-0411; review round 1 of PR #17, finding 7)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: `restore_numbers` (app/rag/bidi.py) searched pypdf's text for a reversed run's pieces with no number boundary and replaced the first match after the previous one. A page with «15.6» printed in order and 6.5 drawn «5», «.», «6» extracted as «16.5 … 5.6»: the correct number was corrupted and the reversed one stayed wrong. It runs for every PDF, attached files on text turns included.
+- Decision: A drawn run matches only as a whole number: no digit or number mark before it, no digit after it, nor a mark followed by a digit. The text's whole-number matches of a run are counted against the times the page drew that run reversed; when they differ (the same digits also printed in order), every one is left as extracted. Overlapping edits keep the first. PDF extractor version 3, so the seed re-indexes KB PDFs cut by version 2 (ADR-0410). Tests: the reviewer's case, a longer number holding the run, pypdf's joining spaces, the ambiguous case, two reversed draws of one run.
+- Consequences: A correct number is never changed by the reorder. A page that prints the same digits both in order and reversed keeps pypdf's reading for that run (the reversed one stays wrong there, as before ADR-0411).
+
+### ADR-0422: The workbook extractor streams read-only again; merged ranges are read from the sheet XML (supersedes the full load of ADR-0413; review round 1 of PR #17, finding 8)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: ADR-0413 opened workbooks in full (`read_only=False`) to read merged ranges and number formats. A 120k-row, 6.3 MB workbook then peaked at 370 MB of Python heap (10 MB read-only), against the sandbox's 640 MiB of address space sized on the read-only extractor (ADR-0252); a merged range declared over a million rows was filled cell by cell.
+- Decision: `load_workbook(read_only=True)`, the dimension reset so rows are not padded to a declared size; a read-only cell carries its number format. Each sheet's `<mergeCell ref>` elements are read in one streaming defusedxml pass over its XML, each row element dropped once read. A merge fills only the rows the sheet holds and the columns up to the table's width; a cell already holding a value is not overwritten. Rows whose only content would be a merge's repeat are not created. Extractor version 5.
+- Consequences: The 120k-row workbook peaks at 116 MiB of heap in-process (tests/unit/test_rag_chunking.py) and, in the sandbox with the shipped limits, reaches the text cap (`text_too_long`, as on main) instead of `extraction_aborted` (tests/integration/test_hostile_files.py). Measured honestly: workbooks large enough to exhaust memory under the full load were already past `extraction.max_chars` on main, so the user-visible change is the failure reason and the memory pressure on the ingest container, not a workbook that indexed on main and no longer does. The seed re-indexes stats-gov's 32 workbooks once (ADR-0410).
+
+### ADR-0423: The seed reports and skips a seeded KB an administrator deleted; one KB's failure does not stop the others (refines ADR-0392; review round 1 of PR #17, finding 10)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: A deleted KB answers 404 to GET and 409 `kb_exists` to POST (its slug stays taken). `ensure_kb` raised, the seed aborted with a traceback, KBs after it were not seeded and every later `make up` exited non-zero.
+- Decision: On 409 the seed asks again: a KB now present is used (made between the two calls); otherwise it is deleted, reported («deleted on /admin/kbs by an administrator; skipped, not recreated») and skipped, and the run goes on. Any other error in one KB is reported as that KB's failure and the KBs after it are still seeded; the exit code is non-zero only for real failures (an upload refused or a KB failing), never for a deleted KB. Tests: the fake gateway answers 409 for a deleted slug; a deleted KB is skipped with nothing created or uploaded; main seeds the KB after it and exits 0.
+- Consequences: Deleting a seeded KB is an administrator's lasting choice: the seed never brings it back. To stop the message, its folder is removed from kb-seed/.
+
+### ADR-0424: A re-index runs beside the indexed chunks; a failed one keeps them, reads reindex_failed and is retried (refines ADR-0410; review round 1 of PR #17, finding 9)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided (the owner's rule); assumed (the details below)
+- Context: `KbStore.requeue` set a re-indexed document to `pending`; retrieval reads only `indexed` documents, so the document left answers for the whole re-index, and a failed re-index left it `failed` for good (the seed skipped it by SHA-256, `reindex_due` required `indexed`). Re-indexes also bypassed the per-uploader limiter (`_handover(..., None)`).
+- Decision: Migration 0022 adds `reindex` ('pending' | 'failed' | NULL) and `reindex_reason` to agent.kb_documents. A re-index leaves `status = 'indexed'` and sets `reindex = 'pending'`: the document stays in retrieval and the catalog on its old chunks. The ingest job's new chunks replace the old with `status` kept and `reindex` cleared in one transaction (`mark_indexed`), so retrieval sees one set or the other. A re-index that fails (`mark_failed`, `mark_register_failed`) sets `reindex = 'failed'` with its reason and keeps the old chunks. `reindex_due` is true again for it (its extractor is still the older one), so the reindex route, the admin page's «أعد المحاولة» / "Retry" and the seed retry it. A re-index takes a slot of the caller's registrations in flight, as an upload does (429 `too_many_uploads` past the limit; the seed waits it out). The document view gains `reindex_status` (reindexing | reindex_failed) and `reindex_reason`; the agent and gateway APIs change inside this unmerged PR's version (ADR-0046); `make openapi` regenerated the specs and the web types. Tests: agent integration (searchable while re-indexing, swap, failure kept and retried, the limiter), gateway proxy (the field and the 429 relayed), web (badges and retry in Arabic and English), seed (retry of a failed re-index, the 429 wait, the wait's states).
+- Consequences: A re-index never takes a document out of answers. A failed one is visible to administrators with its reason. It is retried by the next seed run or by hand.
+
+### ADR-0425: A report's values are checked with their sign, their own row's measure and year, and prose sentence by sentence; a table counts only with names its passages hold (review round 1 of PR #17, findings 1 to 6)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided (the owner's rules); assumed (the details below)
+- Context: The review of PR #17 found six ways a sourced report could show a value its cited passage does not hold, or keep a page alive on content of another kind: signs never read (a correct fall dropped, a rise of the same size kept); the measure matched in the workbook's title («العمل» made two measures of sheet 1's rows interchangeable); a time series' years unchecked (swapped years kept in prose and under a title naming a range); text and callout figures checked against any passage of the turn with any word of their paragraph; number words on the page never folded; a table with no figures counted as kept, so the Al Hilal page with a KB toggled was saved with model-knowledge content.
+- Decision (app/artifacts/figures.py, verify.py, spec.py, writer.py; tests/unit/test_report_spec.py):
+  1. Signs: a figure is read with a sign glued to it («-0.1», «−0.1», «+0.1»; «15-24» stays a range), its canonical form keeps a minus. In prose, an unsigned figure stated as the amount of a fall («انخفض … بمقدار 0.1»، «بانخفاض … مقداره»، "fell by") is negative, of a rise positive; a level («انخفض إلى 3.0») keeps its sign. A page value matches only a source value of the same sign: a KPI's delta -0.1 against «انخفض بمقدار 0.1», never +0.1; a table cell «+0.1» or «-3.2» only against a source of that sign.
+  2. Measure: a workbook chunk's title lines are split; with two or more, the first is the workbook's title (the same on every sheet) and is never matched, nor the sheet's name or the table number line. A value's position (category, row label) must share a word with its cell's own row and column; its measure (a KPI's own label, its row title only when the label names none; a series or column with the element's title; a sentence's words) with what the row and column name beyond the position and the qualifiers, or, when they name nothing more (a time series' rows of quarters), with the table's own title.
+  3. Years: a value's period is read from its most specific label first (category or row, then series or column, then the element's title, then the report's period), and a category or row label naming a year matches only a source row of that year. A workbook cell's year is its row's or column's, else its table title's; a prose figure's year is the one named with it (the first figure after it in its sentence, when that is a year), else the last named before it in its sentence.
+  4. Text and callouts gain `sources` (the schema, design-system.md 2.2.0, report.system 2.2.0). On a sourced turn each sentence's figures are checked like a KPI's against that section's cited passages only, with the sentence's words before the figure as its measure, its qualifiers and its year; a sentence whose figure is not found leaves the page, and the reply says how many were removed (report.yaml `removed_sentences`). Without findings, unchanged.
+  5. Number words on the page (table cells, text) are folded to digits with the source side's `fold_number_words` before they are checked.
+  6. A table's name cells (row labels, text cells) count as values: each is found only when one of the table's cited passages holds one of its words; a text cell not found shows «—». An element counts as kept only when something in it was found, so a table of names its passages never mention is dropped, and `NothingFound` (kept elements only) ends the Al Hilal case with a KB toggled with the nothing-found reply.
+- Consequences: The checks refuse more: a value is shown only when its sign, its row's measure and its year are those of its passage. A PDF table read as prose (the bulletin's Table 1) states its years in a header far from its values; the year named with or before a value there is a header's, so a time series drawn from such a table loses the values of other years to «—» (a gap, never a wrong value; tests/unit/test_report_spec.py `test_a_flattened_pdf_tables_values_carry_its_nearest_year`), while the workbook's sheets state each row's year. A sentence of prose that states a figure without citing a passage leaves the page.
+
+### ADR-0426: One before-merge run after review round 1 of PR #17, not three (owner decision)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided
+- Context: Review round 1 changed prompts (report.system 2.2.0, design-system.md 2.2.0), retrieval inputs (the PDF and workbook extractors, ADR-0421 and ADR-0422, and the re-index that follows) and the report checks (ADR-0425). Rule 13 asks for three passing make eval runs before merge when such inputs change.
+- Decision: The owner asks for one before-merge run, from a fresh stack (make clean, make models, make up): make test, make eval with all suites once, make smoke, make smoke-airgap, each recorded per rule 11 with its evidence. Every attempt is recorded, a failed one with its evidence, never silently rerun.
+- Consequences: PR #17's eval gate after round 1 is that single run. The rule 13 gate is unchanged for later PRs.

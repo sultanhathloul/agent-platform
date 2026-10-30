@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 s ?=
 
-.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals test-budget eval smoke smoke-airgap logs ps openapi purge-pre-guard
+.PHONY: help env models up down clean seed mcp-hashes test test-agent test-gateway test-gateway-db test-web test-evals test-budget eval smoke smoke-airgap logs ps openapi purge-pre-guard kb-seed kb-fetch
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
@@ -20,6 +20,8 @@ models: ## Pull the Ollama models named in .env and fetch the reranker weights (
 up: .env ## Build and start the full stack, seeded, and wait until healthy
 	@scripts/preflight.sh
 	$(COMPOSE) up -d --build --wait --wait-timeout 900
+	@# The KBs of kb-seed/, created and filled, so a fresh stack needs no manual step (ADR-0392).
+	uv run -q scripts/kb_seed.py
 
 down: ## Stop the stack (keeps volumes)
 	$(COMPOSE) --profile test down
@@ -71,7 +73,7 @@ test-evals:
 test-budget:
 	uv run -q scripts/check_timeout_budget.py --self-test
 	uv run -q scripts/check_timeout_budget.py
-	uv run -q --no-project --with pytest --with pyyaml pytest -q scripts/tests
+	uv run -q --no-project --with pytest --with pyyaml --with httpx pytest -q scripts/tests
 
 eval: .env ## Golden suites against the live stack (real models)
 	RAGAS_DO_NOT_TRACK=true uv run evals/run_evals.py $(s)
@@ -97,8 +99,13 @@ purge-pre-guard: ## One-time purge of memory and summaries stored before the DAT
 mcp-hashes: ## Print each MCP server's tool schema hashes beside config/mcp.yaml's pins (I5)
 	$(COMPOSE) exec -T agent python -m app.mcp.hashes
 
-kb-poc: .env ## Development only: seed the proof-of-concept KB intl-economy from public sources (D4)
-	uv run scripts/kb_poc.py
+# Seeded knowledge bases (owner decision B on the report branch, ADR-0392): kb-seed/<slug>/, committed with
+# their documents. `make up` runs kb-seed; it is idempotent (by SHA-256) and offline.
+kb-seed: .env ## Create the KBs of kb-seed/ and upload the documents they do not hold yet (make up runs it)
+	uv run -q scripts/kb_seed.py
+
+kb-fetch: .env ## Development only: fetch the KB stats-gov's documents from stats.gov.sa into kb-seed/stats-gov/ (ADR-0393)
+	uv run -q scripts/kb_fetch.py
 
 logs: ## Tail logs, e.g. make logs s=agent
 	$(COMPOSE) logs -f --tail=200 $(s)
@@ -112,6 +119,8 @@ openapi: ## Regenerate docs/openapi/*.json, docs/events.schema.json and the web'
 		-v "$(CURDIR)/config/models.yaml":/config/models.yaml:ro -e GATEWAY_MODELS_CONFIG=/config/models.yaml \
 		-v "$(CURDIR)/config/docs.yaml":/config/docs.yaml:ro -e GATEWAY_DOCS_CONFIG=/config/docs.yaml \
 		-v "$(CURDIR)/config/turn.yaml":/config/turn.yaml:ro -e GATEWAY_TURN_CONFIG=/config/turn.yaml \
+		-v "$(CURDIR)/config/artifacts":/config/artifacts:ro -e GATEWAY_REPORTS_CONFIG=/config/artifacts/report.yaml \
+		-e GATEWAY_REPORTS_KIT_DIR=/config/artifacts/kit \
 		gradle:9.7.1-jdk21 gradle cleanTest test --no-daemon --no-build-cache --tests '*OpenApiExportTest.exportsSnakeCaseSpec'
 	cp services/gateway/build/openapi/gateway.json docs/openapi/gateway.json
 	cd services/web && npm run gen:api

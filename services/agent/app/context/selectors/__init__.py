@@ -5,6 +5,8 @@ from app.context.selectors.base import MemoryReader, Step, StepDeps
 from app.context.selectors.blocks import (
     CapabilityFindings,
     MemoryRetrieval,
+    ReportCurrent,
+    ReportKit,
     RollingSummary,
     SemanticRetrieval,
     SkillInstructions,
@@ -21,6 +23,7 @@ STEPS: dict[str, type[Step]] = {
     for step in (
         SystemInstructions,
         SkillInstructions,
+        ReportKit,
         StateDigest,
         RollingSummary,
         SlidingWindow,
@@ -28,6 +31,7 @@ STEPS: dict[str, type[Step]] = {
         SemanticRetrieval,
         ToolResults,
         CapabilityFindings,
+        ReportCurrent,
         UserMessage,
         BudgetGuard,
     )

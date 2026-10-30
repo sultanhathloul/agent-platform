@@ -24,7 +24,7 @@ export function LocaleToggle() {
       onClick={switchLocale}
       disabled={pending}
       aria-label={t("header.switchLanguage")}
-      className="rounded-md px-2.5 py-1.5 text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100 disabled:opacity-50"
+      className="rounded-md px-2.5 py-1.5 text-fg ring-1 ring-line-strong hover:bg-surface-2 disabled:opacity-50"
     >
       <span lang={other}>{t(`locale.${other}`)}</span>
     </button>

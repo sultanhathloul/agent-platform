@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -61,8 +62,17 @@ class Settings(BaseSettings):
     minio_sweeper_secret_key: str = ""
     minio_secure: bool = False
     uploads_bucket: str = "uploads"
+    # Interactive reports (reports PR, ADR-0384): the agent's own MinIO user, limited to the bucket of
+    # config/artifacts/report.yaml storage.bucket. Empty: reports cannot be stored, and a report turn ends
+    # report_unavailable.
+    minio_artifacts_access_key: str = ""
+    minio_artifacts_secret_key: str = ""
     # The ingest service's health port (compose healthcheck).
     ingest_health_port: int = 8001
+    # The deployment's profile (owner decision C on the report branch, ADR-0391): development shows a
+    # report's model strip when config/artifacts/report.yaml `show_model_info.development` is true; anything
+    # else is production. Production unless the environment says otherwise.
+    platform_profile: Literal["development", "production"] = "production"
     # The reranker, per environment (review round 2, finding 3): development leaves it off; a GPU
     # deployment turns it on with 16 candidates on 1070 characters. These override config/docs.yaml's
     # retrieval.rerank, so a redeploy changes the configuration without a code change (see .env.example).

@@ -97,7 +97,17 @@ public final class KbDtos {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
             @Schema(format = "date-time") String indexedAt,
             String uploadedByUsername,
-            String uploadedByName) {
+            String uploadedByName,
+            @Schema(description = "The file's SHA-256, computed by the gateway as it stored it (ADR-0392)") String sha256,
+            @Schema(description = "Uploaded without its source metadata; cleared when an administrator corrects it")
+            boolean metadataMissing,
+            @Schema(description = "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)")
+            boolean reindexDue,
+            @Schema(description = "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, "
+                    + "reindex_failed when it could not finish (the document stays indexed on its old chunks)",
+                    allowableValues = {"reindexing", "reindex_failed"})
+            String reindexStatus,
+            @Schema(description = "Why the re-index failed (reindex_failed only)") String reindexReason) {
         public KbDocumentView {
             warnings = warnings == null ? List.of() : List.copyOf(warnings);
         }
@@ -107,7 +117,8 @@ public final class KbDtos {
     public record KbDocumentList(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<KbDocumentView> documents) {}
 
     /** Body of the agent's KB document registration (I2). */
-    record Registration(String name, String mime, long size, String objectKey, SourceMetadata metadata) {}
+    record Registration(String name, String mime, long size, String objectKey, SourceMetadata metadata, String sha256,
+            boolean metadataMissing) {}
 
     // ------------------------------------------------------------------ the composer (I3)
 

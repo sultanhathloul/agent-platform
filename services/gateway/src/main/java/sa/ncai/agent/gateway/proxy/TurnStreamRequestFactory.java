@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
@@ -32,7 +32,9 @@ import org.springframework.http.client.ClientHttpResponse;
  * The turn stream's requests to the agent, with two bounds (the PR #12 review, decision 5,
  * ADR-0264): the agent's response headers within {@code headers} (15 s, config/turn.yaml
  * gateway_headers_s, past the agent's own admission bound of 10 s), and the whole exchange, from
- * the request to the body's last byte, within {@code total} (135 s, deadline_s + gateway_margin_s).
+ * the request to the body's last byte, within {@code total}: deadline_s + gateway_margin_s (135 s),
+ * or, when the agent's headers declare a profile's deadline ({@code X-Turn-Deadline-S}, a report turn's
+ * 300 s), that deadline + the margin, never past the longest deadline in force + the margin (ADR-0379).
  * Spring's JDK factory has one read timeout covering both (ADR-0256), so this factory uses the
  * JDK client itself: the request's own timeout bounds the headers (the JDK's semantics: until the
  * response is received, which for a streamed body is its headers), and the body is closed at the
@@ -53,10 +55,13 @@ final class TurnStreamRequestFactory implements ClientHttpRequestFactory {
 
     private final HttpClient http;
     private final Duration headers;
-    /** Read when each request is sent: the deadline in force then (ADR-0283). */
-    private final Supplier<Duration> total;
+    /**
+     * The whole exchange's bound from the agent's {@code X-Turn-Deadline-S} (null when absent), read
+     * when its response headers arrive: the deadlines in force then (ADR-0283, ADR-0379).
+     */
+    private final Function<String, Duration> total;
 
-    TurnStreamRequestFactory(HttpClient http, Duration headers, Supplier<Duration> total) {
+    TurnStreamRequestFactory(HttpClient http, Duration headers, Function<String, Duration> total) {
         this.http = http;
         this.headers = headers;
         this.total = total;
@@ -96,7 +101,6 @@ final class TurnStreamRequestFactory implements ClientHttpRequestFactory {
         @Override
         protected ClientHttpResponse executeInternal(HttpHeaders requestHeaders) throws IOException {
             long started = System.nanoTime();
-            Duration totalBound = total.get();
             HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                     .timeout(headers)
                     .method(method.name(), HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()));
@@ -121,6 +125,7 @@ final class TurnStreamRequestFactory implements ClientHttpRequestFactory {
                 }
                 throw e.getCause() instanceof IOException io ? io : new IOException(e.getCause());
             }
+            Duration totalBound = total.apply(response.headers().firstValue(AgentClient.TURN_DEADLINE_HEADER).orElse(null));
             long left = totalBound.toNanos() - (System.nanoTime() - started);
             InputStream stream = response.body();
             ScheduledFuture<?> bound = CLOSER.schedule(() -> closeQuietly(stream), Math.max(left, 0),

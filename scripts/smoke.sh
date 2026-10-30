@@ -1149,7 +1149,7 @@ curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/capabilities" > "$TMP/caps
 check "the analyst's composer lists moe among its KBs, and the kb capability" jq -e \
   '([.data.knowledge_bases[].slug] | index("moe")) != null and ([.data.capabilities[].slug] | index("kb")) != null' "$TMP/caps-analyst.json"
 check "the analyst's composer never lists a KB it holds no role for" jq -e \
-  '[.data.knowledge_bases[].slug] - ["moe", "intl-economy"] == []' "$TMP/caps-analyst.json"
+  '[.data.knowledge_bases[].slug] - ["moe", "intl-economy", "stats-gov"] == []' "$TMP/caps-analyst.json"
 KB_CONV=$(uuidgen | tr 'A-Z' 'a-z')
 kb_chat "$ANALYST" "$KB_CONV" "كم مدة إجازة الأمومة في نظام العمل في الواحة؟" "$TMP/kb-turn.jsonl" moe
 cp "$TMP/kb-turn.jsonl" build/smoke/kb-turn.jsonl   # kept for diagnosis
@@ -1160,6 +1160,19 @@ check "it cites the document with its KB, KB name, publisher, date and page (I4)
      and .publisher == "وزارة الموارد البشرية في الواحة" and .published_on == "2030-11-01" and (.pages | length > 0))] | length == 1' \
   "$TMP/kb-turn.jsonl"
 printf '        kb answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/kb-turn.jsonl" | head -c 200 | tr '\n' ' ')"
+
+step "seeded KBs: make up left both kb-seed/ KBs ready to the analyst with no manual step (ADR-0392)"
+for slug in intl-economy stats-gov; do
+  folder="kb-seed/$slug"
+  files=$(find "$folder" -maxdepth 1 -type f ! -name kb.yaml ! -name manifest.json ! -name fetch.yaml ! -name README.md ! -name '*.meta.yaml' | wc -l | tr -d ' ')
+  curl -fsS -H "Authorization: Bearer $ADMIN" "$GW/v1/admin/kbs/$slug/documents" > "$TMP/seed-$slug.json" || fail "the admin's list of $slug"
+  check "$slug: each of its $files committed files is in the KB, indexed, with its SHA-256" jq -e --argjson n "$files" \
+    '[.data.documents[] | select(.status == "indexed" and (.sha256 | test("^[0-9a-f]{64}$")))] | length >= $n' "$TMP/seed-$slug.json"
+  check "the analyst's composer lists $slug" jq -e --arg s "$slug" '([.data.knowledge_bases[].slug] | index($s)) != null' "$TMP/caps-analyst.json"
+done
+uv run -q scripts/kb_seed.py --wait-s 0 > "$TMP/kb-seed-again.txt" 2>&1 || fail "make kb-seed on a seeded stack"
+tail -1 "$TMP/kb-seed-again.txt" | sed 's/^kb-seed: //' | jq -e 'length >= 2 and all(.[]; .uploaded == 0 and .removed == 0 and .failed_uploads == 0)' >/dev/null \
+  && ok "make kb-seed again uploads nothing: every file is already in its KB (idempotent)" || fail "a second kb-seed uploaded: $(tail -1 "$TMP/kb-seed-again.txt")"
 
 step "phase 08: the viewer, without kb:moe:read, cannot list, toggle, retrieve from or see moe (I7)"
 curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/capabilities" > "$TMP/caps-viewer.json" || fail "the viewer's capabilities"
@@ -1203,5 +1216,94 @@ code=$(curl -s -o "$TMP/kb-deleted-turn.json" -w '%{http_code}' -H "Authorizatio
   && ok "the analyst selecting the deleted KB → 403 kb_forbidden at the gateway" || fail "a turn on the deleted KB returned $code"
 ok "no smoke step selects or needs the proof-of-concept KB intl-economy (D4)"
 
-printf '\nsmoke: all phase 01 to 08 checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
+# ------------------------------------------------------------------ interactive reports (reports PR, I9)
+step "reports: a picked report turn streams a page, stores version 1 and shows it as the chat's report card (D1, D3, I1, I6)"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+report_chat() {  # $1 token, $2 conversation, $3 message, $4 output file: the composer's picker set to a report
+  curl -sN -H "Authorization: Bearer $1" -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    -D "$4.headers" \
+    -d "$(jq -cn --arg c "$2" --arg m "$3" '{conversation_id: $c, message: $m, locale: "ar", output: "report"}')" \
+    "$GW/v1/chat/turns" | sed -n 's/^data: //p' > "$4"
+}
+REPORT_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+report_chat "$ANALYST" "$REPORT_CONV" "اعمل لوحة مؤشرات قصيرة من ثلاث بطاقات عن الطقس في الرياض" "$TMP/report-1.jsonl"
+cp "$TMP/report-1.jsonl" build/smoke/report-turn.jsonl   # kept for diagnosis
+check "the report turn ends done with output report and version 1 of a report" jq -se \
+  'last.type == "done" and last.data.state_digest.output == "report" and last.data.artifact.version == 1' "$TMP/report-1.jsonl"
+check "the page streamed: artifact_start, artifact_delta parts, then artifact_done before done" jq -se \
+  '(map(.type) | index("artifact_start")) < (map(.type) | index("artifact_delta")) and (map(.type) | index("artifact_done")) < (map(.type) | index("done"))' \
+  "$TMP/report-1.jsonl"
+REPORT_ID=$(jq -rse 'last.data.artifact.id' "$TMP/report-1.jsonl")
+[[ $REPORT_ID =~ ^[0-9a-f-]{36}$ ]] || fail "the report turn named no report id"
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$REPORT_CONV/messages" > "$TMP/report-history.json" || fail "the report conversation's history"
+check "the history's reply carries the report card {id, title, version}" jq -e --arg r "$REPORT_ID" \
+  '[.data.messages[] | select(.artifact.id == $r and .artifact.version == 1 and (.artifact.title | length > 0))] | length == 1' "$TMP/report-history.json"
+
+step "reports: the version is served sandboxed from its own path with the CSP headers; the kit from the platform (I2, I4, I9)"
+curl -fsS -X POST -H "Authorization: Bearer $ANALYST" "$GW/v1/reports/$REPORT_ID/versions/1/view" > "$TMP/report-view-link.json" || fail "the view link"
+VIEW_URL=$(jq -r '.data.url' "$TMP/report-view-link.json")
+[[ $VIEW_URL == "$GW/report-views/"* ]] || fail "the view link is not on the gateway's report-views path: $VIEW_URL"
+code=$(curl -s -D "$TMP/report-view.headers" -o "$TMP/report-view.html" -w '%{http_code}' "$VIEW_URL")
+[[ $code == 200 ]] || fail "the view returned $code"
+csp=$(tr -d '\r' < "$TMP/report-view.headers" | awk -F': ' 'tolower($1) == "content-security-policy" {print $2}')
+for directive in "default-src 'none'" "connect-src 'none'" "sandbox allow-scripts" "frame-ancestors $WEB" "script-src $GW/report-kit/v1/"; do
+  [[ $csp == *"$directive"* ]] || fail "the view's CSP lacks \"$directive\": $csp"
+done
+ok "the view's CSP: default-src 'none', scripts from the kit path only, connect-src 'none', sandbox allow-scripts, framed by the web only"
+tr -d '\r' < "$TMP/report-view.headers" | grep -qi '^x-frame-options:' && fail "the view sends X-Frame-Options" || ok "the view sends no X-Frame-Options (frame-ancestors decides)"
+tr -d '\r' < "$TMP/report-view.headers" | grep -qi '^x-content-type-options: nosniff' && ok "the view is nosniff" || fail "the view is not nosniff"
+grep -q '<html lang="ar" dir="rtl">' "$TMP/report-view.html" && ok "the Arabic page is dir=rtl" || fail "the Arabic page is not dir=rtl"
+grep -q "<link rel=\"stylesheet\" href=\"$GW/report-kit/v1/kit.css\">" "$TMP/report-view.html" && ok "the view links the kit from the gateway's kit path" || fail "the view does not link the kit"
+# A report with no KB, file or findings opens with the general-knowledge line and has no sources section (ADR-0408).
+grep -q 'data-kit="general"' "$TMP/report-view.html" && ! grep -q 'data-kit="sources"' "$TMP/report-view.html" \
+  && ok "the general-knowledge page opens with its general line and has no sources section (ADR-0408)" \
+  || fail "the general-knowledge page lacks its general line or has a sources section"
+code=$(curl -s -D "$TMP/kit.headers" -o /dev/null -w '%{http_code}' "$GW/report-kit/v1/kit.css")
+[[ $code == 200 ]] && tr -d '\r' < "$TMP/kit.headers" | grep -qi '^access-control-allow-origin: \*' \
+  && ok "the kit is served by the platform (kit.css 200, readable from the sandboxed page's opaque origin)" || fail "kit.css returned $code"
+[[ $(status "$GW/report-kit/v1/../report.yaml") != 200 && $(status "$GW/report-kit/v1/SOURCE.md") == 404 ]] \
+  && ok "the kit path serves its listed files only" || fail "the kit path serves an unlisted file"
+[[ $(status "${VIEW_URL%?}x") == 404 ]] && ok "a tampered view link is refused 404" || fail "a tampered view link was served"
+
+step "reports: the download is one self-contained file with no external reference (I6, I9)"
+code=$(curl -s -D "$TMP/report-download.headers" -o "$TMP/report-download.html" -w '%{http_code}' -H "Authorization: Bearer $ANALYST" \
+  "$GW/v1/reports/$REPORT_ID/versions/1/download")
+[[ $code == 200 ]] || fail "the download returned $code"
+tr -d '\r' < "$TMP/report-download.headers" | grep -qi '^content-disposition: attachment' && ok "the download is an attachment" || fail "the download is not an attachment"
+python3 - "$TMP/report-download.html" <<'PY' && ok "the download names no URL outside itself and inlines the kit, fonts included" || fail "the download has an external reference or no inlined kit"
+import re, sys
+page = open(sys.argv[1], encoding="utf-8").read()
+external = re.search(r"""(?:\b(?:src|href|action|data|poster|srcset)\s*=\s*["']?\s*(?:https?:)?//)|(?:url\(\s*["']?\s*(?:https?:)?//)|@import""", page, re.I)
+sys.exit(0 if not external and "data:font/woff2;base64," in page and "connect-src 'none'" in page else 1)
+PY
+
+step "reports: another user cannot fetch the report (I5, gateway AND agent)"
+for path in "/v1/reports/$REPORT_ID" "/v1/reports/$REPORT_ID/versions/1" "/v1/reports/$REPORT_ID/versions/1/download"; do
+  [[ $(status -H "Authorization: Bearer $VIEWER" "$GW$path") == 404 ]] || fail "the viewer reached $path"
+done
+[[ $(status -X POST -H "Authorization: Bearer $VIEWER" "$GW/v1/reports/$REPORT_ID/versions/1/view") == 404 ]] || fail "the viewer got a view link"
+[[ $(status -H "Authorization: Bearer $VIEWER" "$GW/v1/conversations/$REPORT_CONV/reports") == 403 ]] || fail "the viewer listed the analyst's conversation's reports"
+ok "the viewer is refused (404 report_not_found) on the report, its version, its download and a view link, and 403 on the conversation's list"
+agent_report=$(docker compose exec -T agent python -c "
+import urllib.request, os
+request = urllib.request.Request('http://127.0.0.1:8000/v1/reports/$REPORT_ID', headers={'X-Internal-Token': os.environ['AGENT_INTERNAL_TOKEN'], 'X-User-Id': 'viewer-not-owner', 'X-Tenant-Id': 'default'})
+try:
+    urllib.request.urlopen(request); print(200)
+except urllib.error.HTTPError as exc:
+    print(exc.code)")
+[[ $agent_report == 404 ]] && ok "the agent refuses another user too (404), whatever the gateway sends" || fail "the agent answered $agent_report to another user"
+audited=$(sql "select string_agg(distinct action, ',' order by action) from gateway.audit_events where detail->>'report_id' = '$REPORT_ID'")
+[[ $audited == *report.download* && $audited == *report.view* ]] && ok "the view and the download are audited ($audited)" || fail "report reads audited: $audited"
+
+step "reports: a follow-up in the same conversation creates version 2 of the same report (D4)"
+report_chat "$ANALYST" "$REPORT_CONV" "غيّر الألوان إلى الأخضر" "$TMP/report-2.jsonl"
+cp "$TMP/report-2.jsonl" build/smoke/report-turn-2.jsonl
+check "the follow-up ends done with version 2 of the same report" jq -se --arg r "$REPORT_ID" \
+  'last.type == "done" and last.data.artifact.id == $r and last.data.artifact.version == 2' "$TMP/report-2.jsonl"
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/reports/$REPORT_ID" > "$TMP/report-meta.json" || fail "the report's metadata"
+check "both versions stay readable (D4)" jq -e '[.data.versions[].version] == [1, 2]' "$TMP/report-meta.json"
+[[ $(status -H "Authorization: Bearer $ANALYST" "$GW/v1/reports/$REPORT_ID/versions/1") == 200 ]] && ok "version 1 is still served" || fail "version 1 is gone"
+
+printf '\nsmoke: all phase 01 to 08 checks, the interactive report checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
 

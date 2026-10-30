@@ -90,7 +90,7 @@ class ChatProxyTest extends GatewayTestSupport {
         // roles never reach the agent; this caller holds no role with a tier cap (ADR-0046)
         assertThat(principal.has("roles")).isFalse();
         assertThat(principal.has("max_tier")).isFalse();
-        assertThat(principal.path("display_name").asText()).isEqualTo("سارة المحللة");
+        assertThat(principal.path("display_name").asText()).isEqualTo("سلطان الهذلول");
         assertThat(principal.path("locale").asText()).isEqualTo("ar");
 
         AuditEvent event = singleAudit();
@@ -646,6 +646,66 @@ class ChatProxyTest extends GatewayTestSupport {
         mvc.perform(chat(body("سؤال", List.of()))).andExpect(status().isOk());
         JsonNode principal = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8()).path("principal");
         assertThat(principal.has("policy_roles")).isFalse();
+    }
+
+    private static final String REPORT_STREAM = """
+            event: artifact_start
+            id: 1
+            data: {"type":"artifact_start","request_id":"r","turn_id":"t","seq":1,"data":{"id":"5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f","title":"لوحة التضخم","version":1}}
+
+            event: artifact_delta
+            id: 2
+            data: {"type":"artifact_delta","request_id":"r","turn_id":"t","seq":2,"data":{"id":"5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f","text":"<section>"}}
+
+            event: artifact_done
+            id: 3
+            data: {"type":"artifact_done","request_id":"r","turn_id":"t","seq":3,"data":{"id":"5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f","version":1,"size":2048}}
+
+            event: done
+            id: 4
+            data: {"type":"done","request_id":"r","turn_id":"t","seq":4,"data":{"answer":"أُنشئ التقرير","citations":[],"usage":{"tokens_in":1,"tokens_out":1,"cost_usd":0.0},"guard_events":[],"state_digest":{"output":"report"},"artifact":{"id":"5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f","kind":"report","title":"لوحة التضخم","version":1},"trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"}}
+
+            """;
+
+    @Test
+    void thePickedOutputIsForwardedAndAuditedAndTheReportEventsRelayedUnchanged() throws Exception {
+        AGENT.enqueue(sse(REPORT_STREAM));
+
+        MockHttpServletResponse response = mvc.perform(chat(mapper.writeValueAsString(java.util.Map.of(
+                        "conversation_id", CONVERSATION_ID, "message", "داشبورد للتضخم", "output", "report"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+
+        // artifact_start, artifact_delta and artifact_done pass byte for byte, like any other event.
+        assertThat(response.getContentAsByteArray()).isEqualTo(REPORT_STREAM.getBytes(StandardCharsets.UTF_8));
+        JsonNode sent = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.path("output").asText()).isEqualTo("report");
+        AuditEvent event = singleAudit();
+        assertThat(event.detail()).containsEntry("output_requested", "report");
+        assertThat(event.detail()).containsEntry("output", "report");
+        assertThat(event.detail()).containsEntry("artifact", "5d0c6a3e-1f2b-4c3d-8e4f-5a6b7c8d9e0f@v1");
+        // content-free: never the report's title
+        assertThat(event.detail().toString()).doesNotContain("التضخم");
+    }
+
+    @Test
+    void withoutAPickedOutputNoneIsForwardedOrAudited() throws Exception {
+        AGENT.enqueue(sse(DONE_STREAM));
+        mvc.perform(chat(body("سؤال", List.of()))).andExpect(status().isOk());
+        JsonNode sent = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.has("output")).isFalse();
+        assertThat(singleAudit().detail()).doesNotContainKeys("output_requested", "output", "artifact");
+    }
+
+    @Test
+    void anUnknownOutputIsInvalidAndNeverReachesTheAgent() throws Exception {
+        for (String output : List.of("pdf", "REPORT", "")) {
+            mvc.perform(chat(mapper.writeValueAsString(java.util.Map.of(
+                            "conversation_id", CONVERSATION_ID, "message", "سؤال", "output", output))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("invalid_request"));
+        }
+        assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
     }
 
     private static MockResponse sse(String body) {

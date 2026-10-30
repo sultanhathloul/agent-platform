@@ -138,6 +138,11 @@ def _document_view(record: KbDocumentRecord, superseded_by: str | None = None) -
         indexed_at=record.indexed_at,
         uploaded_by_username=record.uploaded_by_username,
         uploaded_by_name=record.uploaded_by_name,
+        sha256=record.sha256,
+        metadata_missing=record.metadata_missing,
+        reindex_due=record.reindex_due,
+        reindex_status=record.reindex_status,
+        reindex_reason=record.reindex_reason if record.reindex == "failed" else None,
     )
 
 
@@ -258,6 +263,8 @@ async def register_document(slug: Slug, body: KbDocumentRegistration, call: Admi
                 object_key=body.object_key,
                 metadata=_metadata(body.metadata),
                 actor=call.actor,
+                sha256=body.sha256,
+                metadata_missing=body.metadata_missing,
             )
     except UnsupportedType:
         return call.error("file_type_unsupported", 415)
@@ -304,6 +311,35 @@ async def update_metadata(slug: Slug, document_id: DocumentId, body: KbSourceMet
         record = await store.update_metadata(call.tenant_id, slug, document_id, _metadata(body))
     except InvalidSupersedes as exc:
         return call.error("kb_supersedes_invalid", 409, [str(exc)])
+    if record is None:
+        return call.error("kb_document_not_found", 404)
+    return _document_view(record)
+
+
+@router.post(
+    "/v1/admin/kbs/{slug}/documents/{document_id}/reindex",
+    response_model=KbDocumentView,
+    responses={
+        **_ADMIN_ERRORS,
+        404: {"model": ErrorEnvelope, "description": "kb_not_found or kb_document_not_found"},
+        429: {"model": ErrorEnvelope, "description": "too_many_uploads: the caller's uploads in flight are at the limit"},
+    },
+)
+async def reindex_document(slug: Slug, document_id: DocumentId, call: Admin):
+    """Re-indexes a document an older version of its kind's extractor cut (ADR-0410), or retries a re-index that
+    failed; one already current is returned unchanged, so the call is idempotent. The document stays indexed, on
+    its old chunks, with reindex_status reindexing until its new chunks replace the old in one step; a re-index
+    that fails keeps the old chunks and reads reindex_failed (ADR-0424). Counted toward the caller's uploads in
+    flight: too_many_uploads (429) past the limit."""
+    if isinstance(call, JSONResponse):
+        return call
+    kb = await call.services.kbs.store.get(call.tenant_id, slug)
+    if kb is None:
+        return call.error("kb_not_found", 404)
+    try:
+        record = await call.services.kbs.reindex(kb, document_id, call.actor)
+    except TooManyUploads:
+        return call.error("too_many_uploads", 429)
     if record is None:
         return call.error("kb_document_not_found", 404)
     return _document_view(record)

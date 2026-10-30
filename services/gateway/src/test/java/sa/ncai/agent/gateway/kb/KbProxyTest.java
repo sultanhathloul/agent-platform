@@ -280,9 +280,44 @@ class KbProxyTest extends GatewayTestSupport {
         assertThat(sent.path("metadata").path("publisher").asText()).isEqualTo("صندوق النقد الدولي");
         assertThat(sent.path("metadata").path("published_on").asText()).isEqualTo("2026-07-15");
         assertThat(objects().objects).containsKey(sent.path("object_key").asText());
+        // ADR-0392: the stored file's SHA-256, computed by the gateway, and no metadata flag unless asked.
+        assertThat(sent.path("sha256").asText()).isEqualTo(java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(pdf())));
+        assertThat(sent.path("metadata_missing").asBoolean()).isFalse();
         AuditEvent event = auditLog().events().getLast();
         assertThat(event.action()).isEqualTo("kb.document.upload");
         assertThat(event.detail()).containsEntry("document_id", "6f1c0a2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b");
+    }
+
+    @Test
+    void aReindexRelaysItsStatusAndTheAgentsTooManyUploads() throws Exception {
+        // ADR-0424: the document stays indexed while re-indexed beside its chunks; a re-index past the caller's
+        // uploads in flight is the agent's 429 too_many_uploads, relayed.
+        String id = "6f1c0a2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        String reindexing = DOCUMENT_VIEW.replace("\"status\":\"pending\"", "\"status\":\"indexed\"")
+                .replace("\"created_at\"", "\"reindex_status\":\"reindexing\",\"created_at\"");
+        AGENT.enqueue(json(200, reindexing));
+        mvc.perform(post("/v1/admin/kbs/" + SLUG + "/documents/" + id + "/reindex")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("indexed"))
+                .andExpect(jsonPath("$.data.reindex_status").value("reindexing"));
+        assertThat(AGENT.takeRequest(5, TimeUnit.SECONDS).getPath())
+                .isEqualTo("/v1/admin/kbs/" + SLUG + "/documents/" + id + "/reindex");
+        assertThat(auditLog().events().getLast().detail()).containsEntry("reindex_status", "reindexing");
+        AGENT.enqueue(json(429, "{\"request_id\":\"r\",\"error\":{\"code\":\"too_many_uploads\",\"message_ar\":\"x\","
+                + "\"message_en\":\"x\"}}"));
+        mvc.perform(post("/v1/admin/kbs/" + SLUG + "/documents/" + id + "/reindex")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin())))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.error.code").value("too_many_uploads"));
+    }
+
+    @Test
+    void aSeededFileWithoutItsMetadataIsRegisteredFlagged() throws Exception {
+        AGENT.enqueue(json(201, DOCUMENT_VIEW));
+        mvc.perform(upload(admin(), "تقرير.pdf", "2026-07-15").param("metadata_missing", "true"))
+                .andExpect(status().isCreated());
+        JsonNode sent = mapper.readTree(AGENT.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.path("metadata_missing").asBoolean()).isTrue();
     }
 
     @Test

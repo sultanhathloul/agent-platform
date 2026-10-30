@@ -2263,6 +2263,468 @@ Owner decision: on the OpenRouter development profile, OpenRouter may route each
 - LiteLLM logged no 429 from the recreate to 00:42Z (0 `429 Too Many Requests`, 0 `RateLimitError`).
 - make smoke 00:37:05Z–00:41:42Z: **failed**, 217 checks ok, then "the analyst's composer never lists a KB it holds no role for" (scripts/smoke.sh expects analyst's KBs to be exactly moe and intl-economy). Cause: at 00:34Z, during this sequence, the owner's separate development task assigned the realm role kb:stats-gov:read to analyst in the running Keycloak, so /v1/capabilities correctly listed stats-gov too. Not a platform or provider fault; smoke stops at its first failure, so its later checks did not run. No 429 in this attempt.
 
+## Interactive reports (standalone PR, owner decision)
+
+- Branch: `feat/reports`, from `main` at a102bc1 (PR #16, development provider routing, merged on 2026-10-28T00:47:18Z; phase 08 merged as PR #15 at 8bfc70f). The session prompt is kept verbatim in `docs/REPORTS-PROMPT.md`; it arrived whole (it ends with FINISH).
+- Status: **awaiting the owner's review; not marked done.** make test, make smoke and make smoke-airgap green from a clean stack; make eval (all suites, once) passed every suite but directions (unknown_or_ambiguous_handled 0.86, 6/7, one case the development model answered by asking for both places; directions is unchanged in this PR, and the same message listed the three candidates in two live turns). See Results below; the owner decides whether that meets the done-check.
+- Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- Done when (the prompt; phase 11's artifact-output row, pulled forward for HTML reports): a report turn, chosen by keyword through the router or by the composer's output picker, writes a complete HTML page with the report_writer role on the heavy tier under its own deadline profile, streamed live to a side panel; the page uses only the platform's design kit, every figure it shows is either matched to the turn's findings or the user's message or visibly marked «غير موثق» / "Unverified", and it ends with a «المصادر» section from the citations; it is served sandboxed with CSP from its own path, stored per version in MinIO and the database, readable by the conversation's owner only (gateway AND agent), downloadable as one self-contained offline file; a follow-up edits the latest report into a new version; reports.jsonl gated; `make test`, `make eval` once (all suites), `make smoke` and `make smoke-airgap` green from `make clean && make models && make up`, recorded per rule 11.
+- Baseline on `main` (rule 11): main at a102bc1 carries the code of 59ecf68 plus ADR-0362 (infrastructure only); its last recorded runs are the ADR-0362 checks of 2026-10-28 (above):
+  - `make test`: agent 1166 / 0 / 0, gateway 193 / 0 / 0, gateway-db 5 / 0 / 0, web 192 / 0 / 0 (16 files), evals harness 31 / 0 / 0, timeout budget 36 / 0 / 0, scripts/tests 17 / 0 / 0.
+  - `make smoke` 231/231 at 59ecf68 (the ADR-0362 attempt failed on a KB role assigned outside the run); `make smoke-airgap` 239/239 at c41bf95.
+  - Eval suites (make-eval-20261027T160155Z, the last full run): guardrails, rag, rag@mcp, routing, directions, general, internal-comms, official_memo, kb; scores in "Phase 08" above.
+  - No layer may end lower unless an ADR names each removed test and why.
+
+Restated (five lines, session protocol):
+1. A report is an output form (D1): capabilities, KB toggles and attachments run as today; the answer node writes one HTML page instead of text, with no text skill, selected by keyword candidacy through the router (as skills are) or by the composer's picker «نص» / «تقرير تفاعلي» (D3).
+2. Generation is role report_writer on the heavy tier, 16k output tokens, under a report deadline profile (300 s, answer 270 s, gateway bound deadline + margin) checked by budget.py and shown in /admin/settings; the HTML streams to the panel as it is written (I1).
+3. The page uses only the platform's kit (design-system.md prompt part; kit.css, IBM Plex Sans Arabic and Chart.js served by the platform; chart data in one `report-data` block); after generation every figure is matched to the findings or the message or marked unverified, and a «المصادر» section is appended (D2, I2, I3); OUTPUT/DATA run on its visible text; 512 KB cap; sandboxed iframe with CSP from its own path (I4).
+4. Versions live in MinIO and a DB table; only the conversation's owner reads them (gateway AND agent); events artifact_start / artifact_delta / artifact_done, a version GET, an offline self-contained download (I5, I6); a follow-up makes v2 (D4); the web side panel with preview, code, download, full screen, copy, versions, close and a report card in the chat (I7).
+5. Done = reports.jsonl gated (I8), smoke checks (I9), and make test, make eval once (all suites), make smoke, make smoke-airgap green from a clean stack, recorded per rule 11, with the pages for the owner's visual check.
+
+Carried items (ALSO):
+- The superseded-version tie (docs/BACKLOG.md "From phase 08": cross-annual-growth-en cites the April page instead of July): fixed first, measured on the recorded kb answers before the change.
+- The agent restart of phase 08 run 3: docs/BACKLOG.md records no cause for it (PROGRESS "Phase 08", run 3: restart count 0, not OOM-killed, nothing in the session restarted it), so the prompt's condition does not hold and nothing is changed for it.
+
+Checklist:
+- [x] A. First commit: the prompt verbatim (docs/REPORTS-PROMPT.md), this section.
+- [x] B. ADRs from ADR-0363 (0363 the tie; 0364–0377 decided; 0378 onward assumed): D1–D5 and I1–I9 decided; the tie fix; assumptions as they arise. BACKLOG: the report PR's status, the tie item.
+- [x] C. The superseded-version tie (ADR-0363, d1151f7): replay the recorded kb answers, then prefer the newer version of the same source at a tie; unit test with the case's texts; its own commit.
+- [x] D. Contracts first, as types with tests: config (config/artifacts/report.yaml keywords and limits, design-system.md, the report prompts, the report_writer role and its output ceiling, the report deadline profile in config/turn.yaml with budget.py rules and settings fields); migration (agent.reports, agent.report_versions); events artifact_start / artifact_delta / artifact_done; the chat request's `output`; the report and version endpoints at the agent and the gateway; API minor bump, `make openapi`, events schema, web types.
+- [x] E. Agent: selection in the route node (picker, keyword candidacy through the router, a follow-up on a conversation with a report), no skill on a report turn; the deadline profile chosen at admission; the report writer in the answer node over the turn's findings and evidence, with the latest version for a follow-up; the streaming pipeline (incremental tokenizer, sanitizer to kit-only with no external URL, figure check against findings and message with number folding, OUTPUT redact and DATA on visible text, artifact_delta); the whole-page pass (parse, size cap, sources section, OUTPUT and DATA, the figure log); storage (MinIO bucket `artifacts`, its own MinIO user, bounded calls) and the versions table; owner-only reads; the history's report card; rule 12 rows and tests.
+- [x] F. Kit: config/artifacts/kit (kit.css with dark and light and logical properties, kit.js rendering report-data with Chart.js, the unverified marker, IBM Plex Sans Arabic woff2 with its OFL, Chart.js pinned and vendored with its licence and hash); served by the gateway at its own path with CSP; the download inlines it.
+- [x] G. Gateway: chat request `output` (picker) forwarded; the relay bound from the agent's profile; report list, version metadata, a short-lived view link and the sandboxed view with CSP headers, download, owner checks and audit; the kit's static path; tests (another user refused, CSP headers, no external reference).
+- [x] H. Web: the output picker; the side panel (live build, «معاينة» / «الكود», download, full screen, copy code, versions, close), RTL mirrored in English, Western digits; the report card in the chat and the history; i18n ar/en; component tests.
+- [x] I. Evals: reports.jsonl (about 12 cases: Arabic, Gulf, English; general knowledge, KB, attached file; one iteration case) with generic scorers and thresholds; the form's choice (picker, keyword through the router, a word that asks for text) gated in the same suite as `form_chosen`.
+- [x] J. Smoke and smoke-airgap: a report turn makes a version served with the CSP headers; the download has no external reference; another user cannot fetch it; a follow-up creates v2.
+- [x] K. Docs: README (§5.3, §6.2, §13, §20.9 keys), RESILIENCE rows, BACKLOG statuses.
+- [ ] L. (make test, make smoke, make smoke-airgap green; make eval once with directions below its threshold, see Results) Finish from `make clean && make models && make up`: make test; make eval once (all suites); make smoke; make smoke-airgap; rule 11 counts; files for human review and pages for the visual check; push; MR.
+
+Notes on the build
+- The gateway (ADR-0386) and the web (ADR-0387) parts were written by two delegated agents against the contract of ADR-0374, ADR-0378 and ADR-0379; their test counts are below with the rest.
+- LiteLLM honours the agent's per-request timeout over its own 85 s `request_timeout`: a heavy-tier stream through it ran 257.8 s (35 998 characters, about 140 characters a second on the development provider). At that pace a page near the 16k-token ceiling would not end within the 270 s answer ceiling, so design-system.md asks for a focused page under about 30 KB; the reports suite's pages were 8 to 17 KB.
+- A live report turn (analyst, «اعمل لوحة مؤشرات عن اقتصاد المملكة…», picker) took 39 s, 11 695 bytes, 19 figures marked unverified, every page check of the suite passing; rendered from the view link in Chrome with no console error (fonts, KPI tiles, charts and the dark theme from the kit).
+
+Results (rule 11; every attempt recorded, rule 13)
+
+make test
+- make test-agent during development (not done-checks): 1164 / 3 / 0 at an early snapshot (two stale specs, one test pinning state_digest before its additive `output`; fixed), then a collection error of two new tests reading config/ by the repository path (fixed to the settings' default), then 1198 / 0 / 0.
+- From the clean stack (make clean, make models and make up 01:45:02Z–01:46:51Z), 01:48:19Z–01:59:52Z at c5a7e6c: **failed**, agent 1197 / 1 / 0: tests/integration/test_turn_limits.py::test_a_tenant_at_its_share_leaves_another_tenant_unaffected, the other tenant's turn 3.29 s against 1.07 s, the log showing `remaining connection slots are reserved for roles with the SUPERUSER attribute` (Postgres max_connections 100; the fresh stack held 75 at idle, 51 of them Langfuse's). make stopped there; the other layers did not run. The same test passed at the same code in the run before (1198 / 0 / 0).
+- 02:00:23Z–02:13:29Z at c5a7e6c: agent 1198 / 0 / 0, gateway 213 / 0 / 0, gateway-db 5 / 0 / 0, web 211 / 0 / 0 (17 files), evals harness 36 / 0 / 0, timeout budget 39 / 0 / 0 (self-test 39 / 0 / 0, deploy-values ok), scripts/tests 17 / 0 / 0. Against the baseline: agent +32 (27 page and kit unit tests, the tie test, 4 report integration tests), gateway +20, web +19, evals harness +5, timeout budget +3 (the profile rules); no layer lower. The harness later gained 2 tests with its two fixes below (38 / 0 / 0 at 547b145).
+
+make eval
+1. 02:13:49Z–02:59:02Z at c5a7e6c: **crashed** in the reports suite's first case (KeyError: the harness read a report version outside the gateway's `data` envelope) after every other suite had run; no record was written. Fixed with a test in de80d66.
+2. Development run, not a done-check: make eval s=reports 02:59:31Z–03:05:49Z, make-eval-20261028T025931Z: reports 11/12, **unverified_marked 0.75** (4): general-ar-picker's chart labels Q1–Q4 were counted as figures by the eval's own check, which the platform rightly treats as names (ADR-0381); the check now reads figures by the platform's rule (no expectation relaxed). Also seen: two English requests over Arabic sources got Arabic pages; report.system 1.1.0 asks for the whole page in the user's language (547b145).
+3. All suites, once, 03:06:50Z–03:55:23Z at 547b145, make-eval-20261028T030650Z (build/evals/make-eval-20261028T030650Z.json): rc 2, **directions FAIL**, every other suite PASS; 0 provider retries, 2 cases lost (routing, validation_failed).
+   - reports 12/12 PASS: form_chosen 1.00 (12), html_parses 1.00 (10), direction 1.00 (10), kit_only 1.00 (10), sourced_figures 1.00 (6), unverified_marked 1.00 (4), sources_section 1.00 (10), size_cap 1.00 (10), version 1.00 (1); reported visual_quality 1.00 (10).
+   - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53). rag 52/53: hit@8 1.00, citation page accuracy 0.97, faithfulness 0.99, answer correctness 0.90, abstention 1.00. rag@mcp 51/53: 1.00, 0.94, 0.98, 0.89, 1.00. routing 111/113 (0.98; lost 2 validation_failed, negative-msa-career-path and kw-free-msa-diriyah-masmak; skill-none-letter-directions routed to directions and general); reported keyword_free 0/9, skill_keyword_free 0/5. general 28/28. kb 29/31 PASS: hit_at_8 1.00 (27), citation_accuracy 0.93 (15), latest_version 1.00 (5), cross_kb_attribution 0.92 (12), abstention 1.00 (4); reported facts_kept 0.96. internal-comms 11/11 (gated 1.00; reported format_adherence 1.00, facts_kept 1.00). official_memo 8/8 (gated 1.00; reported no_invented_fields 0.60, facts_kept 0.80, citations_kept 1.00).
+   - directions 26/27: places_resolved 1.00 (17), distance_duration_correct 1.00 (17), **unknown_or_ambiguous_handled 0.86 (7) < 0.90**, injection_no_effect 1.00 (3). Missed: ambiguous-msa-university, «كم يبعد المطار عن الجامعة؟» answered «يرجى تحديد موقع الانطلاق ومكان الوصول.» without the candidates. directions' manifest, prompts, dataset and server are unchanged in this PR, and the route is not a report candidate. The same message, sent twice live at 03:58Z, listed the three universities both times (two geocode calls each).
+   - The two kb misses replayed offline against the fixture chunks with the committed attribution and with the code before ADR-0363 give the same citations (latest-inflation-ar cites July page 3 beside page 2; cross-annual-inflation-ar is the known word-form case): the tie change did not cause them.
+4. Evidence run, not a replacement: make eval s=directions 03:55:55Z–03:57:39Z, make-eval-20261028T035555Z: rc 2, directions 25/27: places_resolved 0.94, distance_duration_correct 1.00, unknown_or_ambiguous_handled 0.86 (ambiguous-msa-university again, «يرجى تحديد مدينة الانطلاق ومدينة الوصول.»), injection_no_effect 1.00; route-en-airport-masmak (an Arabic answer to an English question, known since phase 05).
+- Rule 13: prompts and routing changed, which asks for three before-merge runs; the prompt asked for make eval once, which is what ran. The owner decides whether more runs are wanted.
+
+make smoke and make smoke-airgap (from the clean stack)
+- make smoke 03:58:06Z–04:03:17Z at 547b145: **253/253** (rc 0; phase 01 to 08, the 22 interactive report checks, history, timeout budget and platform settings). Against the baseline 231.
+- make smoke-airgap 04:03:23Z–04:10:58Z: **259/259** (rc 0), the report checks included, the kit served with egress blocked. Against the baseline 239.
+
+Files for human review
+- config/artifacts/report.yaml (keywords, size cap, storage bound), config/artifacts/design-system.md (the prompt part), config/artifacts/kit/ (kit.css, kit.js; SOURCE.md and the vendored Chart.js and fonts with their licences).
+- config/turn.yaml `profiles.report`; config/models.yaml `report_writer`, `role_max_output`.
+- config/prompts/report/system.{ar,en}.md.j2 (1.1.0), config/prompts/router/system.*.md.j2 (1.3.0) and request.*.md.j2 (1.4.0), config/prompts/context/report_*.md.j2.
+- config/messages/errors.yaml and settings.yaml (the new entries).
+- docker-compose.yml (minio-init's artifacts bucket and user, the agent's MinIO env, the gateway's mounts), .env.example, scripts/init_env.sh `--add-missing`.
+- evals/outputs/reports/ (cases, metrics, the judge rubric), evals/thresholds.yaml `reports`.
+- The local .env gained MINIO_ARTIFACTS_ACCESS_KEY and MINIO_ARTIFACTS_SECRET_KEY (not committed).
+
+Pages for the owner's visual check (http://localhost:3000, analyst/analyst)
+1. The panel live: a new chat, pick «تقرير تفاعلي», ask «اعمل لوحة مؤشرات عن اقتصاد المملكة: النمو والتضخم والبطالة»; the panel opens on the left and the page builds as it streams, then reloads from the stored version.
+2. Versions: in the same chat, «غيّر الألوان إلى الأخضر»; version 2 appears; the version switcher shows 2 and 1, both viewable; the report card in each reply reopens its version; reload the conversation from the sidebar and open a card.
+3. Download opened offline: download from the panel, disconnect the network (or open the file from disk with the stack stopped) and open it: fonts, charts, theme toggle and the «غير موثق» marks all work; nothing is fetched.
+4. Dark and light: the theme toggle at the page's corner, and the OS setting; check charts and marks in both.
+5. Arabic and English: the same request with the interface in English (locale toggle) gives an English page, dir=ltr, the panel on the right; and a KB report: toggle «الاقتصاد الدولي» or, as evaluator, the fake «اقتصاد الواحة», ask for a dashboard of the 2031 outlook; its figures carry no mark and the «المصادر» section lists KB › title, publisher, date and page.
+6. The code tab, copy code, full screen and close; a narrow window (the panel overlays the chat).
+
+### Owner decisions A to D on the report branch (2026-10-29, same branch, PR #17)
+
+- The owner's message is kept verbatim in `docs/REPORTS-DECISIONS-PROMPT.md`. Each decision lands in its own commits with its ADR. `docs/HANDOFF.md` untouched.
+- Baseline (the PR's last green run, 1fa3bd8): agent 1198 / 0 / 0, gateway 213 / 0 / 0, gateway-db 5 / 0 / 0, web 211 / 0 / 0, evals harness 38 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 17 / 0 / 0; make smoke 253/253; reports suite 12/12 (make-eval-20261028T030650Z).
+- Done when: make test and make smoke green, the reports suite run (rule 13: the report prompts and checks changed), each recorded per rule 11; pushed.
+
+Checklist
+- [x] A. Source labels on figures instead of «غير موثق»: «من المعرفة العامة» / "General knowledge", «من: <KB>» / "From: <KB>", «من: <file>»; one visible label per figure; kit, prompts, figure check, evals, messages; ADR superseding the wording of ADR-0365.
+- [x] B. Seeded knowledge bases from kb-seed/<slug>/ (kb.yaml, documents, sidecars, manifest), a seed step after make up and `make kb-seed`, idempotent by sha256, offline; a document without a sidecar ingested by its file name and flagged "metadata missing"; realm roles for analyst and evaluator; KB stats-gov from `make kb-fetch` (ten social-statistics categories, latest year, latest edition); intl-economy moved to the same mechanism, `make kb-poc` retired; tests.
+- [x] C. Development model info strip at the end of a report (model id, provider, tier alias, generation time, tokens in and out, of the writer's call and of the calls that produced its findings); `show_model_info` in config/artifacts, off in the production profile; in the download when shown; both settings tested.
+- [x] D. The allowed-script check on a report's visible text and report-data; one regeneration naming the failure, then validation_failed; tested with CJK inside Arabic.
+- [x] E. make test, make smoke, make eval s=reports; rule 11 counts; push.
+
+Notes on the build
+- B4, `make kb-fetch` 2026-10-29 (manifest kb-seed/stats-gov/manifest.json), per category: سوق العمل 2026, 3 files (labour market Q2 2026 PDF and Excel, register-based labour market Q2 2026 Excel); الصحة 2026, 4 (early childhood development, physical activity: PDF and Excel each); النوع الاجتماعي والتنوع 2025, 4 (disability, elderly); حيوية وسكانية 2025, 2 (housing); أساليب الحياة 2025, 5 (culture and entertainment report PDF, household culture PDF and Excel, safety index PDF and Excel); الأحوال المعيشية 2026, 2 (consumer confidence Q2 2026); الرياضة: none, the site lists no publication under the category itself (sport is under الصحة, fetched there); المساكن: none, the category is not in the social tab and its listing is empty (housing is under حيوية وسكانية, fetched there); التعليم 2025, 4 (education and training, adult skills); الخدمات الاجتماعية 2022, 1 (Saudi women's report 2022, PDF only). 25 files, about 14 MB; **no download failed**, so nothing is to be downloaded by hand into kb-seed/stats-gov/. Left out by the per-category year (ADR-0393; BACKLOG): under سوق العمل (2026) volunteer work 2025; under الصحة (2026) occupational health and safety, health status, health care and women's health 2025, health determinants and health facilities and workforce 2024; under الأحوال المعيشية (2026) the annual consumer confidence 2025 and household income and expenditure 2023; under النوع الاجتماعي (2025) Saudi women and Saudi family 2024, the gender report and Saudi youth 2023; under حيوية وسكانية (2025) population estimates 2024.
+- «الاقتصاد الدولي» in kb-seed/intl-economy/ holds the one source `make kb-poc` had fetched (the World Bank post); its README lists the IMF pages (403 to scripts) and the sites still to be written.
+- Found by a live report over stats-gov after the first clean stack (09:21Z): a report turn whose capability returns findings failed (`'Localized' object has no attribute 'of'`, the capability's name for a label); no test ran such a turn. Fixed with an integration test of a report over a KB (commit after 5576744); the final runs below are after the fix.
+- Found by the same live report, not changed: the report writer runs on the capability's floor (`standard` for kb), not heavy, when the turn runs a capability (README §19.3's resolver rule); BACKLOG has it for the owner.
+- Live report (analyst, stats-gov, «اعمل لوحة مؤشرات عن سوق العمل في المملكة للربع الثاني 2026…»): 30.5 s, 64 figures, 30 labelled «من: إحصاءات الهيئة العامة للإحصاء», 7 «من المعرفة العامة» (the rest of the 21 general ones are chart points); citations: the labour market Q2 2026 publication and its Excel tables; the strip: qwen/qwen3.6-27b, openrouter, standard, 27.4 s, 10,608 / 2,323 tokens.
+
+Results (rule 11; every attempt recorded, rule 13)
+- Clean stack, attempt 1: make clean, make models, make up 09:17:59Z–09:18:48Z: **failed** before any service started, the image build timing out on ghcr.io (`failed to fetch anonymous token … dial tcp 20.233.83.147:443: i/o timeout`); the registry answered at once afterwards. make up again on the clean volumes 09:19:05Z–09:21:26Z: green; kb-seed created both KBs and indexed 1 + 25 documents.
+- Then the fix above; the final sequence from a new make clean, make models, make up 09:25:24Z–09:28:02Z (kb-seed: intl-economy 1 uploaded, 1 indexed; stats-gov 25 uploaded, 25 indexed; no manual step).
+- make test 09:28:02Z–09:42:13Z at the fix's commit: agent 1210 / 0 / 0, gateway 214 / 0 / 0, gateway-db 5 / 0 / 0, web 213 / 0 / 0 (17 files), evals harness 39 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 26 / 0 / 0. Against the baseline: agent +12, gateway +1, web +2, evals harness +1, scripts/tests +9; no layer lower.
+- make smoke 09:42:13Z–09:48:13Z: **258/258** (rc 0), the 5 seeded-KB checks included (both KBs indexed with their hashes, both in the analyst's composer, a second kb-seed uploading nothing). Against 253.
+- make eval s=reports 09:48:13Z–09:54:31Z, make-eval-20261029T094813Z (build/evals/make-eval-20261029T094813Z.json): reports 12/12 PASS, 0 provider retries, 0 cases lost: form_chosen 1.00 (12), html_parses 1.00 (10), direction 1.00 (10), kit_only 1.00 (10), sourced_figures 1.00 (6), figures_labelled 1.00 (4), sources_section 1.00 (10), size_cap 1.00 (10), version 1.00 (1); reported visual_quality 1.00 (10). Seen, not gated: two English KB and file requests (kb-en-exports, file-en-budget) got Arabic report titles, the pages themselves lang="en".
+- Rule 13: report prompts and checks changed, so the reports suite ran (once, as the owner asked); the other suites' inputs are unchanged. make smoke-airgap was not asked and did not run.
+
+Files for human review
+- config/artifacts/report.yaml (labels, show_model_info, the strip's text), config/artifacts/design-system.md 1.1.0, config/artifacts/kit/kit.css and kit.js, config/prompts/report/system.{ar,en}.md.j2 1.3.0.
+- kb-seed/ (both KBs' kb.yaml, sidecars, manifests; kb-seed/stats-gov/fetch.yaml), infra/keycloak/realm-export.json (kb:stats-gov:read), docker-compose.yml and .env.example (PLATFORM_PROFILE).
+- evals/outputs/reports/metrics.yaml, evals/thresholds.yaml (figures_labelled).
+- The local .env gained PLATFORM_PROFILE=development (not committed).
+
+Pages for the owner's visual check (http://localhost:3000)
+1. A report with labels: analyst, toggle «إحصاءات الهيئة العامة للإحصاء», pick «تقرير تفاعلي», ask for a labour-market dashboard for Q2 2026: each figure carries «من: إحصاءات الهيئة العامة للإحصاء» or «من المعرفة العامة»; hover a chart for the point's source and see the sources row under it; check dark and light.
+2. The strip at the page's end (development), and in the downloaded file.
+3. /admin/kbs/stats-gov (admin): 25 documents, indexed; drop a file into kb-seed/stats-gov/ without a sidecar, run `make kb-seed`, and see «بيانات المصدر ناقصة» on it until its metadata is saved.
+
+### Owner decisions 1 to 4 on PR #17 (2026-10-29, same branch)
+
+- The message is kept verbatim at the end of `docs/REPORTS-DECISIONS-PROMPT.md`. Baseline: the results above (agent 1210, gateway 214, gateway-db 5, web 213, evals harness 39, timeout budget 39, scripts/tests 26; smoke 258/258; reports 12/12).
+- Done when: make test and make smoke green, the reports and routing suites run, from a clean stack, recorded per rule 11; pushed.
+
+Checklist
+- [x] 1. Tier = max(role default, capability floors); README §19.3; tests; BACKLOG line removed (ADR-0394).
+- [x] 2. «من: طلبك» / "From: your request" accepted (ADR-0389's status).
+- [x] 3. kb-fetch: the newest edition of every publication series in the ten categories; re-run; per-category report of series and editions.
+- [x] 4. A report's title, headings and labels in the request's language; the two failing cases gated.
+- [ ] 5. From a clean stack: make test, make smoke, make eval s=reports and s=routing; rule 11; push.
+
+- Clean-stack run at 0365ac4: make clean, make models and make up from 10:41:28Z, then the verification run in the background: **interrupted** at 11:48:15Z by a power cut (every container exited 255 at that instant); the stack and the run stopped, no result recorded, the volumes kept.
+- Owner decision (2026-10-29, after the power cut): no tests, smoke or eval now; make test, make smoke and the eval suites run once at the end, after the owner confirms all changes are complete. Item 5 waits for that. Meanwhile the stack is brought up (make up, with the kb seed) on the surviving volumes for the owner to try.
+- make up on the surviving volumes (no clean), 2026-10-29 ~11:50Z: rc 0, every service healthy. kb-seed: intl-economy 1 held; stats-gov 59 held, 16 uploaded and 16 indexed. agent.kb_documents: intl-economy 1 indexed (5 chunks), stats-gov 75 indexed (2350 chunks), none pending or failed. The running Keycloak predates 0365ac4 (realm import on first boot only), so analyst's firstName «سلطان» and lastName «الهذلول» were set with kcadm; a password-grant token for analyst carries name «سلطان الهذلول». The realm export is the source of truth for a fresh volume.
+
+### Owner decision on PR #17: one kind of source per report turn (2026-10-29, same branch)
+
+- The message: a report draws from exactly one kind of source per turn, never mixed (KB toggled or files: the turn's findings only, «غير متوفر» / "Not available" for what they lack, no general knowledge; nothing toggled: general knowledge only, every figure «من المعرفة العامة»). Evidence: report c7efd45d v3 (Al Hilal, no KB) was saved as v3 of the labour-market report with its sources and 16 figures labelled «من: إحصاءات الهيئة العامة للإحصاء». It supersedes item 1 of the owner's previous message and D2's mixing. That previous message is not in this repository or session; its items 2 to 4 were implemented from this message's one-line restatement (ADR-0399, ADR-0401, status assumed).
+- No tests, smoke or eval in this session (owner decision of 2026-10-29: they run once at the end). Lint only: ruff adds line-length findings to an already non-clean baseline; nothing else.
+
+Checklist
+- [x] 1. Findings belong to their turn: no previous labels, no merged sources (ADR-0398) — 49e770f.
+- [x] 2. Only this turn's matched figures get a source label; no findings: no matching, all general (ADR-0398) — 49e770f.
+- [x] 3. New report vs edit by the router's call, logged; tests for both (ADR-0400) — 2451956.
+- [x] 4. No source named in the page outside the turn's citations; the sources section is this turn's (ADR-0398) — 49e770f.
+- [x] 5. Previous message's items: 2 deeper report retrieval and 3 an edit re-runs retrieval (ADR-0401, 94dc8d6); 4 a figure is sourced only with its row or column label in the same chunk (ADR-0399, 49e770f).
+- [x] 6. Re-run on the running stack, twice (below). Open: an edit loses figures its passages no longer return (for the owner).
+- Found on the way: report.system 1.5.0's changelog put "Not available" in double quotes inside a double-quoted YAML string; the agent did not start (make up exit 2). Fixed in 633853f; make up then green.
+
+Item 6 runs (analyst, one new conversation each; stats-gov toggled on turns 1 and 2, nothing on turn 3; no picker)
+- Run 1 at 633853f, conversation 504cc178-db93-4759-abc1-48fdf439f00d:
+  - Turn 1 «سوّ لي داشبورد عن سوق العمل في المملكة»: new report d6cc31a9 v1; text figures 23 «من: إحصاءات الهيئة العامة للإحصاء», 1 «غير متوفر», 0 general. Table 1's total and Saudi unemployment series (3.2, 3.1; 6.8, 6.4, 6.5), which the passage holds, read «غير متوفر»: the chart title was not in a point's context and «سعوديون» did not meet «سعودي». Fixed in 39e3ced.
+  - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس»: route edit=True (model); v2 of the same report; 9 sourced, 44 «غير متوفر»: one search with the title and the request joined did not return Table 1. Changed in d399f13 (two searches).
+  - Turn 3 «سوّ لي لوحة معلومات عن نادي الهلال»: route edit=False (model); new report 999b5a8a v1, sourced=False, no citations; but the model replied with the chat line «أُنشئ التقرير «لوحة معلومات نادي الهلال السعودي – موسم 2025–26» (الإصدار 1).» (76 tokens) and an empty page was stored. Fixed in 4805b55 (retry once, then validation_failed).
+- Run 2 at 4805b55, conversation 0bd27f2f-6e2c-4f4c-9683-229e50f75797:
+  - Turn 1: new report 60a0f9fc v1, 20,437 bytes; text figures 23 KB-labelled, 1 «غير متوفر», 0 general; sources: the Q2 2026 bulletin p. 1, its Excel tables, and «مسح العمل التطوعي لعام 2018» p. 6. Charts:
+    - unemploymentTrend (line) Q2 2025, Q1 2026, Q2 2026: total 3.2, 3.1, 3.0; Saudi 6.8, 6.4, 6.5; non-Saudi 1.4, 1.5, 1.3; every point and axis label «من: إحصاءات الهيئة العامة للإحصاء».
+    - participationTrend (line): total 67.1, 67.2, 67.2; Saudi 49.2, 49.0, 48.7; non-Saudi 82.4, 81.9, 82.2; all KB-labelled.
+    - occupationSaudi (horizontalBar, 7 occupations): 6 «غير متوفر», crafts 1.1 KB.
+    - occupationNonSaudi: managers 3.2, technicians 7.6, clerical 1.4, agriculture 1.2 KB; 3 «غير متوفر».
+    - sectorSaudi (doughnut): both «غير متوفر»; sectorNonSaudi: government 18 KB, private «غير متوفر».
+    - searchMethods (8 methods): 76.8, 53.5 and 48.9 KB (the three the passage states); 5 «غير متوفر» (the model's own; the passage holds no such values).
+    - outsideLabor (doughnut, 5 groups): all «غير متوفر».
+  - Turn 2: route edit=True (cache: run 1's identical decision); v2 of 60a0f9fc, 18,743 bytes; 9 KB-labelled, 14 «غير متوفر» text figures; charts: unemploymentTrend total — , — , 3.0 KB, Saudi and non-Saudi all «غير متوفر»; participationTrend total — , 67.2, 67.2 KB, Saudi — , — , 48.7 KB, non-Saudi all «غير متوفر»; occupation and sector charts all null; searchMethods 76.8, 53.5, 48.9 KB; new genderAll and genderSaudi doughnuts (ذكور، إناث) all «غير متوفر». The two searches ran (kb_search ×2, 12:26:59Z) but neither returned Table 1's passage (the writer's input did not hold it), so the edit lost figures v1 had, and the gender split is not in what was retrieved.
+  - Turn 3: route edit=False (cache); new report 09749b2f v1 «لوحة معلومات نادي الهلال – موسم 2025–26», 23,887 bytes, sourced=False; 58 text figures and every chart point «من المعرفة العامة» (goals by competition 52, 8, 6, 2; possession 62, 58, 55, 53), no KB or file label, sources section: no source.
+- Open, for the owner: an edit with the KB still toggled re-runs retrieval, but a search by the report's title and the request need not return the passages behind the figures the page already shows. A fix would re-fetch the passages the version being edited cited (through the backend, under this turn's KB scope) beside the new search; that carries an earlier turn's citations into the turn, which ADR-0398 item 1 excludes, so it waits for the owner.
+
+### Owner decisions 1 to 3 on PR #17, second message (2026-10-29, same branch)
+
+- 1. An edit with the KB still toggled re-fetches the passages its version cited (ADR-0402) — 6790ce2, 8d8838b.
+- 2. Per-section retrieval: a section plan, one search per planned chart or table (ADR-0403) — 8d8838b. Stats-gov holds employed persons by sex for Q2 2026: table 3-1 of «إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)», Q2 2026 row: Saudi 66.37 / 33.63, non-Saudi 91.46 / 8.54, total 83.60 / 16.40 (cells at full precision; ADR-0404 matches their rounding).
+- 3. A chart or table all «غير متوفر» leaves the page (ADR-0405) — 1cd0a45.
+- No tests, smoke or eval (owner decision).
+
+Runs (analyst, a new conversation each, the same three requests)
+- Run 3 at 1cd0a45, conversation 981079d6-5825-429d-8edf-99cb192da8bf: **failed**, all three turns `turn_failed`: `TypeError: _ReportRetrieval() got an unexpected keyword argument 'form'` (the helper had been inserted between `@traced("run_capabilities")` and its function). The plan had run (8 sections). Fixed in the next commit (fix(agent)…).
+- Run 4 at that fix, conversation 10244d97-ef59-4a07-99ee-39459f04e1ad:
+  - Turn 1: new report 7ad80bb9 v1, 34 text figures all «من: إحصاءات الهيئة العامة للإحصاء», 0 «غير متوفر», 0 general; sources: the Q2 2026 workbook and bulletin; plan 8 sections. Charts: unemploymentTrend total 3.2, 3.1, 3.0, Saudi 6.8, 6.4, 6.5 (correct: Table 1 of the bulletin); jobSearchMethods 76.8, 53.5, 47.1, 35.5, 27.3, 29.0, 48.9; occupationMix 4.7, 18.7, 11.9, 5.3, 18.1, 0.9, 6.8; outsideLaborForce 67.7, 20.6, 9.1, 2.6, 0.1 — every point KB-labelled. **Wrong**: 18.7, 4.7, 67.7, 20.6 are in no Q2 2026 document (67.7 in no document at all as written; 18.7 and 4.7 only in health and elderly tables), and 47.1, 35.5, 27.3 are not in the bulletin's job-search passage. They were labelled by coincidental matches: «سعودي» folded to «سعود» (ADR-0399's ending folding, and «السعودية» no longer generic) is a word of nearly every passage, and ADR-0404's rounding widens the numbers each precise passage offers. Version stored 10 passages.
+  - Turn 2: route edit=True (model); v2 of 7ad80bb9, 12 passages; every v1 chart kept with the same values and labels (the re-fetch worked); the new genderMix doughnut 84.3 / 15.7, both KB-labelled. **Wrong**: table 3-1 gives 83.6 / 16.4; 84.3 is the male labour-force participation rate of the bulletin's Table 1 (a passage that also holds «ذكور»), and 15.7 is in no Q2 2026 document. Table 3-1's Q2 2026 row is in a continuation chunk of the workbook that repeats neither the table's title nor its header, so no label rule can tie 83.6 to «ذكور».
+  - Turn 3: route edit=False (model), sourced=False: **failed** `validation_failed: report: no_document`: the writer replied with the chat line on both attempts.
+- Open, for the owner (no code changed after run 4):
+  1. A passage figure should count only with its label near it in the passage (the row label within a short window before the figure), not anywhere in the chunk; with it, the coincidental labels above go to «غير متوفر».
+  2. For table 3-1 to be found and matched, the workbook chunker should repeat each table's title and header row in its continuation chunks, and stats-gov be re-indexed (an ingestion change and a re-index of 75 documents).
+  3. The general-knowledge writer imitates the conversation's report lines; the window could show a report turn's reply as the report it produced (title) rather than the chat line, or the writer could omit the window on a new report.
+
+### Owner decisions A to D on PR #17: option C, the report spec (2026-10-29, same branch)
+
+- A. The writer answers with a report spec (config/artifacts/report-spec.schema.json); the platform renders it deterministically with ECharts and streams each section; each value checked against its element's cited passages; edits change the spec (ADR-0406, ADR-0407) — 3147f4f, 78007bf.
+- B. No label beside any figure; «المصادر» per document with the elements it supports; a general report says so once (ADR-0408) — 78007bf.
+- C. Kept: one source kind per turn, per-section retrieval, the model strip, request language, the script check, new report vs edit.
+- D. The reports suite reads the stored spec (ADR-0409) — 8ac1a6f.
+- No tests, smoke or eval (owner decision); lint and imports checked; the new unit and eval page checks exercised by hand on sample specs, not through make test.
+
+Runs (analyst, a new conversation each; stats-gov on turns 1 and 2, nothing on turn 3)
+- Run 5 at 8ac1a6f, conversation 7a62ce02-6635-4694-bd52-00f280b7b956: all three turns done. Turn 1 new report 6daf8f5f v1, 9 sections, 67 values, 63 found; every kept value is in the Q2 2026 bulletin's Table 1 or text, or in workbook sheets 3-4 and 5-15. Turn 2 edit (router: edit=True) v2, 10 sections, 63 of 63 found; its gender pie was left all null by the model and stayed (a gap in the drop rule). Turn 3 new report ec2adf50, the general line, no sources, every element "general". Found: a KPI's missing delta was listed under the KPI's own name; 3.0 shown as "3"; an edit's plan held only existing sections. Fixed in the next commit (fix(reports)…).
+- Run 6 at that fix, conversation b44e2d3f-2de1-494b-8506-9ae0842aaade:
+  - Turn 1: new report b9051f97 v1, 17 sections, 120 values, 101 found, 19 «—», none dropped; streamed in 27 deltas. Kept values against the sources: bulletin Table 1 (p. 1): unemployment Q2 2025 / Q1 2026 / Q2 2026 total 3.2, 3.1, 3.0, Saudi 6.8, 6.4, 6.5, non-Saudi 1.4, 1.5, 1.3; participation total 67.1, 67.2, 67.2, Saudi 49.2, 49.0, 48.7, non-Saudi 82.4, 81.9, 82.2; Saudi unemployment by sex men 4.3, 4.9, 4.8, women 11.3, 9.0, 9.6; employment-to-population total 65.0, 65.1, 65.2, Saudi men 61.3, 61.0, 60.8, women 30.6, 30.8, 30.5; participation Saudi men 64.0, 64.2, 63.9, women 34.5, 33.9, 33.7 — all equal to Table 1. Bulletin text: Saudi youth women unemployment 19.5, men 13.0, employment-to-population 13.0 and 27.1, participation 16.2 and 31.2; core working age 5.5, 62.9, 66.6; job search 76.8, 53.5, 48.9 — all equal. Workbook sheet 3-4 (occupations: managers 7.9 / 3.2 / 4.7 … crafts 1.1 / 9.3 / 6.8) and sheet 5-15 (labour force 48.7 / 82.2 / 67.2, outside 51.3 / 17.8 / 32.8) — equal to the cells rounded. «—»: the Q1 2026 values the model gave for youth and core-age (not found with their labels) and three KPI changes. Sources: two documents, each element under its document with p. 1 or its sheet.
+  - Turn 2: route edit=True; v2 of b9051f97, 103 values, 101 found; every v1 element kept with the same values; the new gender pie «التوزيع النسبي للمشتغلين حسب الجنس» dropped: no cited passage holds its values with their labels.
+  - Turn 3: route edit=False; new report c45df153 v1 «نادي الهلال السعودي», 7 sections, the general-knowledge line, no sources section, every element "general" (titles 66, league 19, AFC Champions League 4, King's Cup 11; competitions pie 19, 11, 13, 5, 4, 2, 2, 2, 2, 1; league positions 2, 1, 1, 1, 1).
+- Open, for the owner: employed persons by sex for Q2 2026 is table 3-1 of the workbook (total 83.60 / 16.40), but its Q2 2026 row sits in a chunk whose repeated header is the workbook's one-line title («إحصاءات سوق العمل الربع الثاني 2026»), not the table's title or its «الذكور | الاناث» header (the extractor takes the first row followed by a row of the same width, ADR-0135, and GASTAT sheets open with titles and merged headers). So neither the search nor the label check can reach it. The fix is in the workbook extractor (repeat the table's title and header rows in every chunk) and needs stats-gov's 32 workbooks re-indexed.
+
+### Owner decision 2 on PR #17, completed: workbook headers and the re-index (2026-10-29, same branch)
+
+- Extractor and re-index: f8b4bda (xlsx extractor version 2, migration 0021, reindex endpoint and route, seed) and d439782 (generic table words); ADR-0410. No CSV extractor exists (CSV is not an accepted kind), so only workbooks change. `make openapi` regenerated docs/openapi and the web's types (a Gradle export task, not the suites). No tests, smoke or eval (owner decision).
+- Re-index through the seed: make up 2026-10-29 ~13:29Z: stats-gov `reindexed 32, reindexed_ok 32`; `make kb-seed` again: `reindexed 0`. agent.kb_documents stats-gov: 32 xlsx at extractor 2, 43 pdf at 1, all indexed.
+- Table 3-1's Q2 2026 row (66.366373 | 33.633627 | … | 83.60299013 | 16.39700987) is in a chunk that opens `[3-1]`, «إحصاءات سوق العمل الربع الثاني 2026», «التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس(%) - سلسلة زمنية», «جدول (3-1)», «الربع / السنة | الجنسية», « | السعوديين | | | غير السعوديين | | | الإجمالي», « | الذكور | الاناث | الإجمالي | …».
+- The edit on conversation b44e2d3f (run 7): its latest report was the Al Hilal one (turn 3 of run 6), so the router (edit=True, model) took «أضف رسم دائري لتوزيع العاملين حسب الجنس» as an edit of «نادي الهلال السعودي»: report c45df153 v2 holds three labour charts and no Al Hilal section. Its pie read 65.56 / 34.44 from sheet 5-12 (working-age population by sex), matched by «توزيع» and «جنس»; fixed (generic table words, ADR-0410).
+- Run 8, a new conversation b281c4b8-109a-4bdc-aa60-f87746fb9880 (stats-gov on both turns): turn 1 new report d5a4a840 v1 (7 sections, 55 values, 52 found); turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس» edit=True, v2 (8 sections, 54 of 54 found): pie «التوزيع النسبي للمشتغلين حسب الجنس (الإجمالي)», ذكور 83.6, إناث 16.4 (83.60299013 / 16.39700987), sources entry «إحصاءات الهيئة العامة للإحصاء › إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel) — الهيئة العامة للإحصاء — 2026-09-30» › «رسم: التوزيع النسبي للمشتغلين حسب الجنس (الإجمالي) — ورقة 3-1». Seen: v1 also charts «التوزيع النسبي للمشتغلين حسب الجنسية» with the table's total columns (all 100): true to the source, of no use.
+- Open, for the owner: the router judged an edit across subjects (a labour-market chart onto the Al Hilal report).
+
+Changes on feat/reports outside report-only code (read-only list; since phase/08-kb, which this branch is built on; main is phase 06 and has no KB capability, so the KB question cannot run on main)
+- Tier resolver (app/models/routing.py, ADR-0394): tier = max(role default, capability floors). Text answers: unchanged (reasoning default and the general, docs, kb, directions floors are all standard); only report_writer (heavy) differs.
+- Model config and gateway (app/models/config.py, gateway.py): `role_max_output` (report_writer 16000 only); results carry alias and duration. Text answers: unchanged.
+- Citations (app/rag/citations.py, ADR-0363): at a tie, the source no newer version supersedes wins. Text answers over KBs with versions: the newer version cited.
+- Number matching (app/artifacts/figures.py, verify.py): reports only; app/text/script.py gains a helper the report retry uses.
+- Chunkers (app/rag/extract/xlsx.py, ADR-0410): every workbook chunk opens with its sheet and table preamble, for attached files and KBs; KB records and a re-index route. Text answers over workbooks: chunks now name their table and columns.
+- PDF extractor (app/rag/extract/pdf.py, app/rag/bidi.py, ADR-0411; added in review round 1 of PR #17, which found it missing here): a number a PDF draws right to left in pieces is read in its pieces' position order, for every PDF: attached files on text turns and KBs. Text answers over such PDFs: the number as printed («6.5», not «5.6»). Round 1 found the first version could rewrite a correct number sharing the digits («15.6» read «16.5»); fixed by ADR-0421 (extractor version 3).
+- Context assembly (app/context/*, config/context.yaml): new blocks report_kit and report_current and nodes report and report_plan (report turns only); the retrieval block's delimiter carries a passage id only on a report turn (context.retrieval 2.2.0). Text answers: same blocks and budgets.
+- History (app/api/history.py, persist node): a report turn's reply stores its report card. Text turns: unchanged.
+- Router (app/graph/router.py, route.py, prompts 1.3.0/1.4.0, app/api/runner.py): a turn whose message holds a report keyword (config/artifacts/report.yaml, including the common word «عرض») or whose conversation holds a report is a report candidate: admitted on the report deadline profile (300 s) and the router call also decides text or report, and with a report present edit or new. Text questions in such conversations, or with such words, cost that router call and may be answered as a report; others are unchanged.
+- Answer node: a report turn goes to the report writer; the attribute node skips report turns. Text answers: unchanged.
+- Capabilities (contract, kb and docs graphs, capabilities node): optional report fields; on a report turn a plan call and more searches. Text turns: one search at top_k 8, as before.
+- Guards: the guardrails engine, its checkpoints and the text answer's guard and streaming nodes are unchanged; report sections pass OUTPUT and DATA in app/artifacts/spec_stream.py.
+- Gateway and web: the chat request's `output` (picker), report routes and views, the KB re-index route, deadline profiles in turn limits, the output picker and report panel.
+- Measured on the running stack, one new conversation each, the agent, gateway and ingest images of phase/08-kb against this branch (same databases and KB index):
+  - General «ما عاصمة المملكة العربية السعودية، وما أكبر ثلاث مدن فيها من حيث عدد السكان؟»: same answer (الرياض; الرياض، جدة، مكة المكرمة), tier standard on both, 3.95 s base / 2.60 s branch.
+  - Attached workbook (table 3-1 copied) «ما نسبة الذكور والإناث بين المشتغلين (الإجمالي) في الربع الثاني 2026؟»: same answer (83.60299013% / 16.39700987%), cited the file, standard, 3.10 s / 3.16 s.
+  - KB (stats-gov) «ما معدل البطالة للسعوديين ولغير السعوديين في الربع الثاني 2026؟»: same answer on both, and wrong on both: Saudi 5.6% (Table 1: 6.5) and no non-Saudi figure (Table 1: 1.3), cited the bulletin p. 1; standard, 3.71 s / 5.19 s. Not introduced by this branch; not investigated.
+  - The times are single samples.
+
+### Owner decisions 1 to 4 on PR #17 (2026-10-29, after the re-index)
+
+- 1. Investigation: the 5.6% was extraction. The bulletin's page 1 draws «6.5», «2026», «0.1» and «0.3» right to left one piece per text operation; pypdf joined them in stream order («5.6», «6202», «10.», «30.»); pdftotext reads 6.5. Fixed in the PDF extractor (version 2, a8b4c98, ADR-0411). Re-index through the seed (make up): stats-gov 43 PDFs reindexed, 43 indexed; make kb-seed again: 0. Chunks: 110 of 1,135 PDF chunks changed, in 17 of 43 documents; the bulletin's page 1 now reads «بلغ معدل البطالة للسعوديين 6.5 % في الربعالثاني من عام 2026 ،بارتفاع مقداره 0.1 … بمقدار 0.3»; no chunk holds «6202» or «للسعوديين 5.6». intl-economy (one Markdown file) unaffected.
+- 2. Edit only on the latest report's subject (9b317fa); 3. «عرض» removed from the keywords (6d2cc2c); 4. no chart of totals (3856106); ADR-0412.
+- No tests, smoke or eval (owner decision). The new extractor tests were exercised by hand with a local Arabic font; the existing PDF fixtures extract unchanged.
+
+Re-runs (analyst)
+- KB text question «ما معدل البطالة للسعوديين ولغير السعوديين في الربع الثاني 2026؟» (stats-gov): «بلغ معدل البطالة للسعوديين 6.5%… الإجمالي 3.0%»; it still says no separate non-Saudi figure is given. Traced with the agent's context recording turned on for one turn (a compose override, not .env; restored after): the answer saw 8 passages, page 1 of the bulletin (its summary paragraph, not Table 1) and seven workbook chunks, three of sheet 2-1 «المعدل الربعي للبطالة حسب الجنسية والجنس»; one holds the Q2 2026 row «… | 1.0906575245495194 | 3.819325842696629 | 1.3296091920036393 | …» (non-Saudi total 1.33, Table 1's 1.3) under the header « | السعوديين | | | غير السعوديين | | | الإجمالي» whose merged cells are blank. The model did not read the column as non-Saudi. Not fixed: open for the owner (forward-filling merged header cells into one label per column, «غير السعوديين الإجمالي», in the workbook extractor, and a re-index).
+- New conversation 5497d9a3-c64e-40c4-a25d-7e435147ac7a, stats-gov on both turns:
+  - Turn 1, report 8e1a97ec v1: KPIs total unemployment 3.0 (Table 1 ✓); «معدل المشاركة في القوى العاملة» 63.9 and «معدل المشتغلين إلى السكان» 60.8 (in the bulletin, Saudi men's figures; the totals are 67.2 and 65.2: labelled without their qualifier); youth (15-24) unemployment men 13.0 women 19.5, participation 31.2 / 16.2, employment-to-population 27.1 / 13.0 (bulletin text ✓); core age 5.5 / 62.9 / 66.6 ✓; job search 76.77, 53.50, 48.87, 47.11, 35.54, 28.98, 27.34, 24.05 (sheet 2-10 ✓); Saudi occupations 7.94 … 1.08 (sheet 3-4 ✓); table 3-1 Q1 2025 to Q2 2026 by nationality and sex without the total columns (✓; decision 4).
+  - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس», edit=True, v2: pie «التوزيع النسبي للمشتغلين حسب الجنس (%)» الذكور 83.6, الإناث 16.4 (83.60299013 / 16.39700987), sources «إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)» › «رسم: التوزيع النسبي للمشتغلين حسب الجنس (%) — ورقة 3-1» ✓. But the KPI «معدل البطالة الإجمالي» became 4.8 (Saudi men's rate; the total is 3.0), and five job-search values became «—» (the edit cited other passages).
+- Open, for the owner: the check confirms a value is in a cited passage with a word of its position and of its measure, not that it is in the row of its label: «معدل البطالة الإجمالي» 4.8 passes in the paragraph about Saudi men, because «الإجمالي» is generic. A row-level rule (in a workbook chunk the value's line holds its row label; in prose its sentence, qualifiers such as «الإجمالي» / «الذكور» / «السعوديين» counted) would catch it.
+
+### Owner decisions 1 and 2 on PR #17: rows and qualifiers, workbook headers and formats (2026-10-29)
+
+- 2. Workbook extractor version 3 (merged headers fill their columns, `[columns]` labels, cells as displayed), then version 4 (a title merged over part of the table written once; sheets 2-2 and 2-3 repeated it per column): ADR-0413, commits feat(rag) and fix(rag). Re-index through the seed: version 3, 32 reindexed / 32 indexed, again 0; version 4, 32 / 32, again 0. Sheet 1 now reads «معدل البطالة | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3 | 2.1 | 7.6 | 3.0» under «[columns] … | غير السعوديين › الإجمالي | … | الإجمالي».
+- 1. Row and qualifier check: ADR-0414, commit feat(reports). Tests use the bulletin's text about Saudi men and sheets 1 and 3-1 as the extractor cuts them.
+- No tests, smoke or eval (owner decision); the new and changed tests were exercised by hand.
+
+Re-runs (analyst)
+- KB text question «ما معدل البطالة للسعوديين ولغير السعوديين في الربع الثاني 2026؟» (stats-gov):
+  - at version 3: «بلغ معدل البطالة للسعوديين 6.5 % … الإجمالي 3.0 %», non-Saudi not given. Traced (context recording on for one turn, then off): the passages were sheets 2-3 and 2-2 and the bulletin's page 1, not sheets 1 or 2-1; sheets 2-2 and 2-3 repeated their title once per column, which version 4 fixed.
+  - at version 4: «بلغ معدل البطالة للسعوديين 6.5%، ولغير السعوديين 1.3% خلال الربع الثاني من عام 2026» — both as expected (Table 1: 6.5 and 1.3); the passages included sheet 2-1's row «الربع الثاني 2026 | 4.8 | 9.6 | 6.5 | 1.1 | 3.8 | 1.3 | 2.1 | 7.6 | 3.0». Its citation names the bulletin, p. 1, only.
+- New conversation d9bc0eda-d37e-4937-a0ca-e9bf71007c9d at version 4:
+  - Turn 1, report 10659bbd v1 (27 values, 23 found, 4 «—», all KPI changes): KPIs total unemployment 3.0, Saudi 6.5, total participation 67.2, Saudi participation 48.7, Saudi employment-to-population 45.5 (Table 1: all equal); Saudi men 4.8, Saudi women 9.6 (equal); doughnuts from sheet 5-15, labour force / outside, total 67.2 / 32.8 and Saudi 48.7 / 51.3 (equal to the cells as displayed), and from sheet 5-11, outside the labour force by attachment, total 67.7, 20.6, 9.1, 2.6, 0.1 and Saudi 65.6, 21.6, 10.7, 2.0, 0.1.
+  - Turn 2 «أضف رسم دائري لتوزيع العاملين حسب الجنس», edit=True, v2: every v1 element kept with the same values; the new doughnut «توزيع المشتغلين حسب الجنس (إجمالي)» was dropped: the writer gave 84.3 / 15.7 citing sheet 5-15 (84.3 is the men's labour-force participation), which the check refused. Sheet 3-1 (83.6 / 16.4) was not among the passages: the plan's query was «التوزيع النسبي للعاملين حسب الجنس» (the request's word), the table's title says «المشتغلين».
+- Open, for the owner: the pie needs sheet 3-1 retrieved for an edit whose words differ from the table's («العاملين» against «المشتغلين»).
+
+### Owner request on PR #17: the platform's visual identity (2026-10-29)
+
+- Commits: 9020fe4 (tokens, fonts), cc5f630 (logo, icons, theme toggle), f708822 (tokens applied in 28 files), 110adc4 (report kit palette); ADR-0415. KB content quality recorded in docs/BACKLOG.md (b7bca2f), no further work on it.
+- Checks done (no tests, smoke or eval, owner decision): the web type-checks and lints; make up green; the served page links favicon.ico, the two PNG icons and the touch icon, carries the theme script and IBM Plex; logo, favicon and font return 200; in the browser the sign-in screen showed the logo and name at the top right, dark from the system, light after the toggle, and still light after a reload (data-theme light, background #FAFAF7); the stored choice was removed after.
+- Not done: Keycloak's own sign-in page keeps Keycloak's theme (needs a Keycloak login theme).
+
+Pages for the owner's visual check (http://localhost:3000), each in light and dark (the header's toggle), Arabic and English (the language switch)
+1. The sign-in screen (signed out): the logo and name at the top right in Arabic, top left in English; the green sign-in button; the browser tab's icon.
+2. /chat/new and a conversation: the sidebar (the current conversation in gold), the user's message (green), the assistant's answer with citations and tool chips, the composer with the KB toggles (a selected one in gold) and the skill and output pickers, a focus ring (Tab key) in gold.
+3. A report: the report card and the side panel (tabs, version switcher, buttons) and the page itself: KPI tiles, charts whose first series is green and second gold, the sources section; the panel's theme follows the page's own toggle.
+4. /settings/memory: the memory switch (gold when on), the saved message.
+5. /admin/policies (list, editor, test panel), /admin/settings (limits, the "current" chips), /admin/kbs and /admin/kbs/stats-gov (the documents' status badges, the delete confirmation's red button).
+6. Reload any page in dark: no flash of light before it paints.
+
+### Owner visual check on PR #17 (report 4aa403a3): six fixes (2026-10-29)
+
+- Commits: 72b66f9 (charts lose empty categories, item 3), f95633f (never silent; nothing found, items 1 and 2), b456e3f (RTL charts and legend, items 3 and 4), ff31c23 (balanced KPI rows, item 6), d104a87 (chips, item 5), e0a52ea (router fix, ADR-0417), then the year fix; ADR-0416 and ADR-0417.
+- No tests, smoke or eval (owner decision). One slip: the new web chip test file was run once (3 passed) while checking the wiring; nothing else was run.
+
+Re-run (analyst; conversation 5affa699-349b-4d6d-b73a-e4eb5a0b44ee, then 9674254c-a4ba-4189-ba89-8620b19b4066 for the router fix)
+- Dashboard (stats-gov): report 7f3e3c85 v1; reply «أُنشئ التقرير «سوق العمل في المملكة العربية السعودية» (الإصدار 1). لم أجد في المصادر بيانات «توزيع المتعطلين حسب خبرة العمل السابقة (الإجمالي)»، «التوزيع النسبي لقوة العمل السعودية حسب الجنس (2018)»، فتركت ذلك خارج التقرير.» Page: KPIs labour force 67.2 / outside 32.8 (sheet 5-15, in a row of two); a stacked bar of labour force by nationality (48.7 / 51.3 Saudi, 82.2 / 17.8 non-Saudi, 67.2 / 32.8 total; sheet 5-15); the outside-the-labour-force table by nationality and sex (sheet 5-11); and two voluntary-work elements (the 2025 voluntary work workbook, sheets 3-1 and 4-2), off the request's subject (KB content quality, backlog). Values equal to the sheets as displayed.
+- Pie edit: v2, reply «حُدّث التقرير … (الإصدار 2). أضفت ما أمكن. لم أجد في المصادر بيانات «التوزيع النسبي للمشتغلين حسب الجنسية (الإجمالي)»، فتركت ذلك خارج التقرير.» The page is v1's; the pie was not added (its table not retrieved, backlog).
+- Al Hilal with stats-gov toggled: first answered as text («لم أجد في المصادر المتاحة بيانات عن نادي الهلال…») because the router's form decision was voided (ADR-0417); after the fix: «لا تحوي المصادر المختارة (إحصاءات الهيئة العامة للإحصاء) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.» No artifact event, no page.
+- Al Hilal with nothing toggled: report 89c8a1d7 v1 «نادي الهلال السعودي», the general-knowledge line, no sources, every element "general"; KPI rows of four and two; the founding year was written «1,957» (fixed after, years unformatted).
+- Browser check of report 7f3e3c85 v2's view, dark then light: legend marks on the right of their labels with clear gaps, no overlap; categories from the right («السعوديون» first), value axis on the right; KPIs in a balanced row of two. Seen: the stacked bar still holds a «الإجمالي» category beside its parts, against report.system 2.1.0's rule (the model did not keep it).
+
+### Owner decision on PR #17: totals leave charts (ADR-0418), then the final before-merge runs (2026-10-29)
+
+- Owner decision: a total («الإجمالي» / total) beside its own parts leaves a chart, as a category or a series; a total alone stays; a chart left with fewer than two categories is dropped and named in the reply. 36dd0fa (ADR-0418), with tests for a stacked bar, a pie and a grouped bar.
+- Then the final before-merge runs (owner decision: all report changes are complete), from a fresh stack, nothing started by hand. Rule 13: prompts, routing and retrieval changed, so make eval runs three times with all suites.
+- Fixes found by these runs, each its own commit:
+  - 4451311: a general report counted no values (`figures` 0); five tests still assumed the rules before ADR-0416 and ADR-0418.
+  - 4957b7e: the gateway admin test's percent-encoded display name, missed by the analyst's rename in 0365ac4.
+  - 894872e (ADR-0419): a figure a passage writes in words («واحد وعشرون يوما») was never found in prose, so reports/kb-gulf-leave ended as nothing found.
+  - 4887b71: the smoke check for a general report still asked for a sources section (ADR-0408).
+- `docs/HANDOFF.md` untouched.
+
+Fresh stack
+- make clean 15:33:36Z–15:33:50Z rc 0; make models rc 0.
+- make up 15:33:50Z–15:39:14Z: **rc 2**. The seed upload of «Persons with Disability Statistics Report 2023 AR (1).pdf» (1,555,001 bytes) failed with `[Errno 54] Connection reset by peer`, just after the gateway turned healthy.
+  - Retried once, 15:39:36Z–15:39:51Z, rc 0: 1 uploaded and indexed.
+  - kb_documents: intl-economy md 1 indexed; stats-gov pdf 43 indexed (extractor 2) and xlsx 32 indexed (extractor 4).
+- After the ADR-0419 fix, make up 18:48:50Z–18:49:14Z rc 0 rebuilt the agent at 894872e; the volumes and seed were unchanged.
+
+make test (passed / failed / skipped)
+1. 15:39:56Z–15:51:33Z at 36dd0fa: **failed**, agent 1235 / 7 / 0. make stopped after the agent layer.
+   - The failures:
+     - test_reports: the general report's `figures` was 0 (a code bug), the strip-after-sources assertion, and the `kit-kpis` class.
+     - test_report_kit: `"Chart("` matched `readChart(`.
+     - test_report_spec: two gap tests whose one-series chart now loses its empty category and is dropped (ADR-0416).
+     - test_turn_limits::test_a_tenant_at_its_share_leaves_another_tenant_unaffected: the other tenant's turn took 3.29 s against 0.08 s alone. The log shows `remaining connection slots are reserved for roles with the SUPERUSER attribute` (the Postgres connection limit seen before on this branch).
+   - The log's "rc=0" was misread: `$?` was taken after `$(date)`, and the make line shows `Error 1`.
+2. 15:55:01Z–16:08:04Z at 4451311: **failed**. Agent 1242 / 0 / 0 (turn_limits passed); gateway 213 / 1 / 0: AdminPolicyProxyTest.anAdminListsPoliciesWithTheCallerForwarded expected the old percent-encoded display name. make stopped there.
+3. 16:08:41Z–16:22:59Z at 4957b7e, rc 0:
+
+   | Layer | Passed / failed / skipped |
+   |---|---|
+   | agent | 1242 / 0 / 0 |
+   | gateway | 214 / 0 / 0 |
+   | gateway-db | 5 / 0 / 0 |
+   | web | 221 / 0 / 0 (19 files) |
+   | evals harness | 40 / 0 / 0 |
+   | timeout budget | 39 / 0 / 0 (self-test 39 / 0 / 0) |
+   | scripts/tests | 32 / 0 / 0 |
+
+4. After ADR-0419, 18:49:14Z–19:03:06Z at 894872e, rc 0: agent **1243** / 0 / 0 (the new test), and every other layer as in run 3.
+   - Against the previous recorded run (c5a7e6c): agent +45, gateway +1, web +10, evals harness +4, scripts/tests +15. No layer is lower.
+
+make eval, all suites (every run: 0 provider retries, no provider refusal or timeout before a tool call)
+- Runs 1–3 at 4957b7e. **reports FAIL in all three** on one case, reports/kb-gulf-leave.
+  - The case ended with the nothing-found reply («لا تحوي المصادر المختارة (أنظمة العمل في الواحة) بيانات عن هذا الموضوع…»).
+  - Cause: the labour law writes its figures in words, and prose units were cut from digits only (ADR-0419).
+  - Before ADR-0416, the same page had kept its text, so the case passed this morning (make-eval-20261029T103733Z).
+  - Fixed in 894872e; runs 4–6 are the retry.
+  1. make-eval-20261029T162319Z, 16:23:19Z–17:12:57Z, rc 2:
+     - guardrails 142/142; rag 51/53; rag@mcp 52/53; routing 112/113 (1 lost, validation_failed); directions 26/27; general 28/28; kb 29/31; internal-comms 11/11; official_memo 8/8.
+     - **reports 11/12 FAIL**: form_chosen 0.92, every page metric 0.90 (10) or 0.83 (6), the one case.
+  2. make-eval-20261029T171258Z, 17:12:57Z–18:00:17Z, rc 2:
+     - **reports 11/12 FAIL** (the same case).
+     - **directions 25/27 FAIL**: unknown_or_ambiguous_handled 0.86 (7) < 0.90. ambiguous-msa-university was answered «يرجى تحديد مدينة الانطلاق ومدينة الوصول.» without the candidates (the known case of the previous record).
+     - routing 112/113 (2 lost, validation_failed); kb 28/31 (cross_kb_attribution 0.92); the rest PASS.
+  3. make-eval-20261029T180017Z, 18:00:17Z–18:46:23Z, rc 2:
+     - **reports 11/12 FAIL** (the same case).
+     - kb 31/31; routing 112/113 (skill-none-letter-directions routed to directions and general); the rest PASS.
+- Runs 4–6 at 894872e (reports 12/12 in each):
+  4. make-eval-20261029T190307Z, 19:03:06Z–19:53:59Z, rc 2:
+     - **rag@mcp 50/53 FAIL**: abstention 0.83 (6) < 0.90. leave-housing abstained («لم أجد معلومات حول بدل السكن…») but showed a source line.
+     - Other rag@mcp metrics: citation page accuracy 0.91, faithfulness 0.98, answer correctness 0.89.
+     - guardrails 142/142; rag 51/53; routing 113/113; directions 26/27; general 28/28; kb 29/31; internal-comms 11/11; official_memo 8/8; reports 12/12 PASS.
+  5. make-eval-20261029T195359Z, 19:53:59Z–20:42:49Z, rc 2:
+     - **directions 26/27 FAIL**: unknown_or_ambiguous_handled 0.86, the same ambiguous-msa-university answer.
+     - rag 53/53; rag@mcp 51/53; routing 113/113; kb 29/31; reports 12/12; the rest PASS.
+  6. make-eval-20261029T204249Z, 20:42:49Z–21:29:59Z, rc 0, **every suite PASS**:
+     - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53).
+     - rag 50/53: hit@8 1.00, citation page accuracy 0.91, faithfulness 0.99, answer correctness 0.87, abstention 1.00.
+     - rag@mcp 52/53: 1.00, 0.97, 0.99, 0.88, 1.00.
+     - routing 113/113 (keyword_free 0/9 and skill_keyword_free 0/5 reported).
+     - directions 26/27: places_resolved 0.94, distance_duration_correct 1.00, unknown_or_ambiguous_handled 1.00, injection_no_effect 1.00.
+     - general 28/28.
+     - kb 29/31: hit_at_8 1.00, citation_accuracy 0.87, latest_version 1.00, cross_kb_attribution 1.00, abstention 1.00; facts_kept 1.00 reported.
+     - internal-comms 11/11.
+     - official_memo 8/8 (no_invented_fields 0.60 and facts_kept 0.80 reported).
+     - reports 12/12: every gated metric 1.00; visual_quality 0.80 reported.
+- What failed in runs 4–6 was in suites this PR does not change: directions (manifest, prompts, dataset and server unchanged) and rag@mcp's abstention (the docs capability). Both are model answers; neither is a provider refusal or a timeout. The owner decides whether runs 4–6 meet the before-merge gate.
+- **Owner decision of 2026-10-30 (ADR-0420): runs 4 to 6 are accepted for merge.** Reasons:
+  - The reports suite passed all three (12/12).
+  - The directions failure is the known ambiguous-place case, on code this PR does not change.
+  - The rag@mcp abstention failure happened once.
+- Misses that recur and stay below threshold: the rag twenty-past-truncation citation pages, and kb latest-inflation-ar and latest-growth-gulf citation_accuracy (both known; the citation-by-claim item in BACKLOG).
+
+make smoke and make smoke-airgap
+1. At 894872e:
+   - make smoke 21:29:59Z–21:34:53Z: **failed** at «the page has no sources section» (246 checks passed before it). The smoke check for a general-knowledge report predates ADR-0408. Evidence: build/smoke/report-turn.jsonl.
+   - make smoke-airgap 21:34:53Z–21:42:55Z: **failed** at the same check (252 passed before it).
+2. Retried once after 4887b71 (the check now asks for the general line and no sources section):
+   - make smoke 21:43:50Z–21:48:39Z: **256/256**, rc 0 (baseline 253).
+   - make smoke-airgap 21:48:39Z–21:55:57Z: **264/264**, rc 0 (baseline 259).
+
+Pages for the owner's visual check (http://localhost:3000, analyst/analyst; each in light and dark with the header's theme toggle, then the report page's own toggle)
+1. The platform's identity: the login, the chat, and /admin as an administrator, in light and dark (logo, palm green and gold, IBM Plex Sans Arabic). The Keycloak login page is not themed (backlog).
+2. A sourced dashboard: toggle «إحصاءات الهيئة العامة للإحصاء», pick «تقرير تفاعلي» and ask «اعمل لوحة مؤشرات عن سوق العمل في المملكة». Check:
+   - KPI rows balanced;
+   - no chart holds a «الإجمالي» category or series beside its parts (ADR-0418);
+   - legend and axes read right to left with no overlap;
+   - the «المصادر» section lists each document with its elements, and «—» where a value was not found;
+   - the reply names what was left out.
+3. An edit on the same subject: «أضف رسمًا دائريًا لتوزيع المشتغلين حسب الجنس» gives version 2, or a reply that says what it could not add.
+4. Nothing found: with stats-gov toggled, «سوّ لي لوحة عن نادي الهلال» ends with a plain reply and no panel.
+5. General knowledge: untoggle every KB and ask the same; the page opens with the general-knowledge line and has no sources section; a founding year reads «1957».
+6. A KB fact written in words: as evaluator, toggle «أنظمة العمل في الواحة» and ask «سوّ لي لوحة معلومات عن إجازات العامل في الواحة»; 21 and 30 days are shown and sourced (ADR-0419).
+7. The chips under an answer: one per tool with its count, one per tier; the guard chips only for an administrator.
+
+Files for human review
+- config/artifacts/report.yaml (v2.2.0 texts), config/artifacts/design-system.md (2.1.0), config/artifacts/kit/ (kit.css, kit.js), config/prompts/report/*, config/prompts/router/* (1.5.0).
+- services/web/src/app/globals.css (the identity tokens), services/web/public/brand and public/fonts.
+- scripts/smoke.sh (the report checks).
+
+### Review round 1 of PR #17 (2026-10-30, same branch)
+
+- The owner's message: fix findings 1 to 10 of the review and its two PROGRESS claims, each in its own commits, with an ADR where a decision changes; then one before-merge run (owner decision, ADR). `docs/HANDOFF.md` untouched. Local main fast-forwarded to origin/main (a102bc1); the branch already contains it.
+- Baseline: the last recorded runs above (894872e): agent 1243 / 0 / 0, gateway 214 / 0 / 0, gateway-db 5 / 0 / 0, web 221 / 0 / 0, evals harness 40 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 32 / 0 / 0; make smoke 256/256, make smoke-airgap 264/264.
+- Done when: every item below in its own commit with tests; from a fresh stack make test, make eval (all suites, once), make smoke, make smoke-airgap green, recorded per rule 11; pushed.
+
+Checklist
+- [x] 7. restore_numbers: only the exact drawn run, on number boundaries; ambiguous order left as extracted; the reviewer's case (15.6 beside a reversed 6.5).
+- [x] 8. Workbook extractor back to read-only streaming, merged ranges read from the sheet XML; a 120k-row workbook under the sandbox limit, peak heap recorded.
+- [x] 9. Re-index keeps the document in retrieval on its old chunks until the new ones are indexed, swapped in one step; a failed re-index keeps the old chunks, `reindex_failed`, retryable from the admin page and by the seed; through the per-uploader limiter.
+- [x] 10. The seed reports and skips a deleted seeded KB and goes on; make up exits 0.
+- [x] 1. Signs read (− and +); a sign matches the source's sign or its wording (انخفض / ارتفع).
+- [x] 2. The measure from the row, column or table title, never workbook or sheet title lines.
+- [x] 3. A time-series category's year matches its source row's year; a prose value carries the nearest year.
+- [x] 4. Text and callout figures checked like KPIs against the section's cited passages; a failing sentence dropped and named in the reply.
+- [x] 5. Number words on the page folded before checking.
+- [x] 6. A table counts as kept only when its names appear in its cited passages; NothingFound counts verified elements only.
+- [x] PROGRESS claims: the PDF extractor in the changes outside report-only code; the requeue docstring and route description.
+- [x] BACKLOG: the edition/supersedes duplicate under "KB content quality (future track)".
+- [ ] (make test, make smoke, make smoke-airgap green; make eval once with reports 11/12, see Results) ADR: one before-merge run. Fresh stack: make test, make eval once, make smoke, make smoke-airgap; rule 11; push.
+
+Commits
+- d4502ee finding 7 (ADR-0421, PDF extractor version 3); e5458b1 finding 8 (ADR-0422, workbook extractor version 5); 8b5acb6 finding 10 (ADR-0423); a3d312c finding 9 (ADR-0424, migration 0022; agent, gateway and web; `make openapi`); 9fbf3d7 findings 1 to 6 in one commit, as they share the element check and its tests (ADR-0425); 03c01ec the PROGRESS claim, the BACKLOG item and ADR-0426.
+- The two PROGRESS claims: the PDF extractor is now listed under "Changes on feat/reports outside report-only code" (Interactive reports, above); the requeue docstring and the reindex route's descriptions (agent and gateway) say the document stays indexed on its old chunks (a3d312c).
+- Measured for finding 8: a 120k-row, 6.3 MB workbook peaked at 370 MB of Python heap opened in full and peaks at 116 MiB streamed (tracemalloc, tests/unit/test_rag_chunking.py). The review overstated the effect: a workbook that large is past `extraction.max_chars` (1,000,000), so it ended `text_too_long` on main too. Opened in full on the branch it ended `extraction_aborted` (the sandbox's memory) instead. A test now asserts the cap, not the memory limit, ends it in the sandbox.
+- A consequence of finding 3's rule, kept as the owner wrote it: in a PDF table read as prose (the bulletin's Table 1) the year named with a value is a header's, so a time series drawn from it loses other years' values to «—». That is a gap, never a wrong value (`test_a_flattened_pdf_tables_values_carry_its_nearest_year`); the workbook's sheets state each row's year.
+
+Results (rule 11; ADR-0426, one run; every attempt recorded)
+- Fresh stack at 03c01ec: make clean 11:37:39Z–11:37:55Z rc 0; make models 11:37:55Z–11:37:56Z rc 0.
+- make up 11:37:56Z–11:43:45Z: **rc 2**. The seed upload of «Persons with Disability Statistics Report 2023 AR (1).pdf» failed with `[Errno 54] Connection reset by peer`. Every other document indexed: intl-economy 1, stats-gov 74. This is the same file and the same error as the previous fresh stack (15:33Z on 2026-10-29), so it recurs; not investigated, for the owner.
+  - make kb-seed once, 12:08:09Z–12:08:15Z rc 0: that file uploaded and indexed; stats-gov 75, intl-economy 1.
+- make test 12:08:15Z–12:23:09Z, rc 0:
+
+  | Layer | Passed / failed / skipped |
+  |---|---|
+  | agent | 1261 / 0 / 0 |
+  | gateway | 215 / 0 / 0 |
+  | gateway-db | 5 / 0 / 0 |
+  | web | 224 / 0 / 0 (19 files) |
+  | evals harness | 40 / 0 / 0 |
+  | timeout budget | 39 / 0 / 0 (self-test 39 / 0 / 0) |
+  | scripts/tests | 36 / 0 / 0 |
+
+  Against the last recorded run (894872e): agent +18, gateway +1, web +3, scripts/tests +4; no layer lower.
+- make eval, all suites once, 12:23:09Z–13:16:21Z, make-eval-20261030T122309Z (build/evals/make-eval-20261030T122309Z.json): **rc 2, reports FAIL**, every other suite PASS; 0 provider retries in every suite; 1 case lost (routing, validation_failed).
+  - **reports 11/12 FAIL**: form_chosen 1.00 (12), html_parses 1.00 (10), spec_valid 1.00 (10), direction 1.00 (10), **request_language 0.90 (10)**, kit_only 1.00 (10), sourced_figures 1.00 (6), no_general 1.00 (6), general_only 1.00 (4), sources_section 1.00 (6), size_cap 1.00 (10), version 1.00 (1); visual_quality 0.70 (10) reported.
+    - The miss: reports/file-en-budget, an English request over an Arabic attached file. The page's title came back in Arabic («مؤشرات الميزانية – المبالغ المعتمدة والمصروفة حسب البند»). This is the title-language case ADR-0396 gated; it passed in runs 4 to 6. It is a model answer, not a provider refusal or a timeout.
+    - reports/kb-gulf-leave passed (21 and 30 days found; some values «—»).
+  - guardrails 142/142: deterministic 1.00 (89), llm_judge accuracy 1.00, false-positive rate 0.00 (53).
+  - rag 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.99, answer correctness 0.90, abstention 1.00. Misses: twenty-past-truncation-p3 and -p18 (cited neighbouring pages, known).
+  - rag@mcp 51/53: hit@8 1.00, citation page accuracy 0.94, faithfulness 0.99, answer correctness 0.89, abstention 1.00. Misses: twenty-past-truncation-p6 and -p15.
+  - routing 112/113 (0.99): general-gulf-word lost, validation_failed.
+  - directions 27/27: every metric 1.00.
+  - general 28/28.
+  - kb 29/31: hit_at_8 1.00, citation_accuracy 0.87 (latest-inflation-ar, latest-growth-gulf, the known misses), latest_version 1.00, cross_kb_attribution 1.00, abstention 1.00; facts_kept 1.00 reported.
+  - internal-comms 11/11; official_memo 8/8 (no_invented_fields 0.60 and facts_kept 0.80 reported).
+  - Not rerun (rule 13; the owner asked for one run). The owner decides whether this run meets the gate.
+- make smoke 13:16:21Z–13:21:22Z: **258/258**, rc 0 (previous 256).
+- make smoke-airgap 13:21:22Z–13:29:18Z: **264/264**, rc 0 (previous 264).
+- `docs/HANDOFF.md` untouched.
+
+Files for human review
+- config/artifacts/design-system.md 2.2.0, config/prompts/report/system.{ar,en}.md.j2 2.2.0, config/artifacts/report.yaml 2.3.0 (`removed_sentences`), config/artifacts/report-spec.schema.json (text and callout `sources`).
+- services/agent/app/db/migrations/0022_kb_document_reindex.sql.
+- On the next `make up` over an existing volume, the seed re-indexes stats-gov's 43 PDFs (extractor 3) and 32 workbooks (extractor 5) beside their chunks.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

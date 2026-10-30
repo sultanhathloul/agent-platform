@@ -23,7 +23,7 @@ import copy
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.runnables.config import var_child_runnable_config
@@ -32,6 +32,8 @@ from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
 
 from app.api.events import validate_payload
+from app.artifacts.plan import plan_sections
+from app.artifacts.store import ReportUnavailable
 from app.capabilities.contract import (
     CAPABILITY_EVENT_TYPES,
     CapabilityContractError,
@@ -185,7 +187,9 @@ def _model_caller(
         # gets a package that fits it and passes the gateway's tier check.
         prepared = await _prepare(cap, request, ctx, role=role, step=step)
         emit(runtime, "tier", calls.tier_event(prepared.decision))
-        return await calls.call_model(ctx, prepared)
+        result = await calls.call_model(ctx, prepared)
+        ctx.finding_calls.append((cap.slug, result))
+        return result
 
     return call_model
 
@@ -358,12 +362,51 @@ def _record_failure(span: Any, slug: str, reason: str) -> None:
     log.warning("capability %s failed: %s", slug, reason)
 
 
+@dataclass(frozen=True)
+class _ReportRetrieval:
+    """What a report turn's retrieving capabilities read (ADR-0401 to ADR-0403)."""
+
+    form: str = "text"
+    title: str | None = None
+    queries: tuple[str, ...] = ()
+    sources: list[dict] = field(default_factory=list)
+
+
+async def _report_retrieval(state: AgentState, ctx: TurnContext) -> _ReportRetrieval:
+    """On a report turn over knowledge bases or files: the section plan, and on an edit the current
+    version's title and the passages it cited. A text turn, or a report on general knowledge: nothing."""
+    form = state.get("output") or {}
+    if form.get("form") != "report":
+        return _ReportRetrieval()
+    has_files = any(a.get("status") == "indexed" for a in state.get("attachments") or [])
+    if not (state.get("selected_kbs") or has_files):
+        return _ReportRetrieval(form="report")
+    services, principal = ctx.services, ctx.principal
+    latest = page = None
+    if form.get("edit") and services.reports is not None:
+        latest = await services.reports.latest_in(principal.tenant_id, principal.user_id, state["conversation_id"])
+        if latest is not None:
+            try:
+                page = (await services.reports.page(latest, services.artifacts.report.storage.store_s)).decode("utf-8")
+            except ReportUnavailable:
+                page = None  # the plan goes on from the request alone
+    with tracer.start_as_current_span("report.plan"):
+        queries = await plan_sections(state, ctx, page)
+    return _ReportRetrieval(
+        form="report",
+        title=latest.title if latest else None,
+        queries=tuple(queries),
+        sources=list(latest.passages) if latest else [],
+    )
+
+
 @traced("run_capabilities")
 async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
     services = ctx.services
     cap_state = dict(state.get("cap_state") or {})
     outputs: list[dict] = []
+    report = await _report_retrieval(state, ctx)
 
     for slug in state["intent"]["capabilities"]:
         cap = services.registry.get(slug)
@@ -377,6 +420,10 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
                 cap_state=copy.deepcopy(own_state),
                 attachments=copy.deepcopy(list(state.get("attachments") or [])),
                 locale=state["locale"],
+                output="report" if report.form == "report" else "text",
+                report_title=report.title,
+                report_queries=list(report.queries),
+                report_sources=copy.deepcopy(report.sources),
             )
             runtime_context = RuntimeContext(
                 slug=slug,

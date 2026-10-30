@@ -68,11 +68,11 @@ const METRIC_DAYS = 14;
 // Role names are identifiers, the same in both locales: shown as an example under the field.
 const POLICY_ROLES_EXAMPLE = "policy:pii-exempt policy:no-sql";
 
-const card = "rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200";
+const card = "rounded-2xl bg-surface p-4 shadow-sm ring-1 ring-line";
 const button =
-  "rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50";
-const quiet = "rounded-md px-3 py-1.5 text-sm text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50";
-const input = "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm";
+  "rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50";
+const quiet = "rounded-md px-3 py-1.5 text-sm text-fg ring-1 ring-line-strong hover:bg-surface-2 disabled:opacity-50";
+const input = "w-full rounded-md border border-line-strong px-2 py-1.5 text-sm";
 
 type Editing = { mode: "create" | "version"; form: PolicyForm } | null;
 
@@ -228,12 +228,12 @@ export function PolicyAdmin() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4">
       <header>
-        <h1 className="text-xl font-semibold text-slate-800">{t("policies.title")}</h1>
-        <p className="mt-1 text-sm text-slate-600">{t("policies.description")}</p>
+        <h1 className="text-xl font-semibold text-fg">{t("policies.title")}</h1>
+        <p className="mt-1 text-sm text-muted">{t("policies.description")}</p>
       </header>
 
       {error && (
-        <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800 ring-1 ring-red-200">
+        <div role="alert" className="rounded-md bg-error-bg p-3 text-sm text-error ring-1 ring-error-line">
           <p>{resolveErrorMessage(error, locale, (key) => t(key))}</p>
           {error.details && error.details.length > 0 && (
             <ul className="mt-1 list-disc ps-5">
@@ -247,7 +247,7 @@ export function PolicyAdmin() {
         </div>
       )}
       {notice && (
-        <p role="status" className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 ring-1 ring-emerald-200">
+        <p role="status" className="rounded-md bg-success-bg p-3 text-sm text-primary ring-1 ring-success-line">
           {notice}
         </p>
       )}
@@ -255,7 +255,7 @@ export function PolicyAdmin() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <section className={card} aria-labelledby="policy-list">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 id="policy-list" className="font-semibold text-slate-800">
+            <h2 id="policy-list" className="font-semibold text-fg">
               {t("policies.listTitle")}
             </h2>
             <button
@@ -271,7 +271,7 @@ export function PolicyAdmin() {
             </button>
           </div>
           {policies === null ? (
-            <p className="text-sm text-slate-500">{t("policies.loading")}</p>
+            <p className="text-sm text-muted">{t("policies.loading")}</p>
           ) : (
             <PolicyList
               policies={policies}
@@ -305,7 +305,7 @@ export function PolicyAdmin() {
           ) : current ? (
             <section className={card} aria-labelledby="policy-detail">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 id="policy-detail" dir="auto" className="min-w-0 break-words font-semibold text-slate-800">
+                <h2 id="policy-detail" dir="auto" className="min-w-0 break-words font-semibold text-fg">
                   {policyName(current, locale)}
                 </h2>
                 <button
@@ -324,7 +324,7 @@ export function PolicyAdmin() {
                 />
               </div>
               {policyDescription(current, locale) && (
-                <p dir="auto" className="mt-2 text-sm text-slate-600">
+                <p dir="auto" className="mt-2 text-sm text-muted">
                   {policyDescription(current, locale)}
                 </p>
               )}
@@ -338,7 +338,7 @@ export function PolicyAdmin() {
             </section>
           ) : (
             <section className={card}>
-              <p className="text-sm text-slate-500">{t("policies.select")}</p>
+              <p className="text-sm text-muted">{t("policies.select")}</p>
             </section>
           )}
 
@@ -378,7 +378,7 @@ type Authorized = <T>(call: (token: string) => Promise<T>) => Promise<{ ok: true
 function OverridesNote({ overrides, exception }: { overrides: string[]; exception: boolean }) {
   const t = useTranslations();
   return (
-    <p className={`mt-2 text-xs ${exception ? "text-amber-800" : "text-slate-600"}`}>
+    <p className={`mt-2 text-xs ${exception ? "text-warning" : "text-muted"}`}>
       {overrides.length === 0 ? (
         t("policies.overrides.nothing")
       ) : (
@@ -402,7 +402,7 @@ function WarningsNote({ warnings }: { warnings: PolicyWarning[] }) {
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
   if (warnings.length === 0) return null;
   return (
-    <ul className="mt-1 space-y-1 text-xs text-amber-800" role="status">
+    <ul className="mt-1 space-y-1 text-xs text-warning" role="status">
       {warnings.map((w) => (
         <li key={w.code}>{t("policies.warnings.wholeTextCannotLift", { list: formatList(w.policies, locale) })}</li>
       ))}
@@ -433,11 +433,11 @@ function PolicyEditor({
 }) {
   const t = useTranslations();
   const set = <K extends keyof PolicyForm>(key: K, value: PolicyForm[K]) => onChange({ ...form, [key]: value });
-  const field = "flex flex-col gap-1 text-sm text-slate-700";
+  const field = "flex flex-col gap-1 text-sm text-fg";
 
   return (
     <section className={card} aria-labelledby="policy-editor">
-      <h2 id="policy-editor" className="mb-3 font-semibold text-slate-800">
+      <h2 id="policy-editor" className="mb-3 font-semibold text-fg">
         {mode === "create" ? t("policies.createTitle") : t("policies.versionTitle", { id: form.id })}
       </h2>
       <form
@@ -522,7 +522,7 @@ function PolicyEditor({
                   }
                 />
                 <bdi className="font-mono">{c}</bdi>
-                <span className="text-slate-500">{t(`policies.checkpoints.${c}`)}</span>
+                <span className="text-muted">{t(`policies.checkpoints.${c}`)}</span>
               </label>
             ))}
           </div>
@@ -590,7 +590,7 @@ function PolicyEditor({
           checkpoints={form.checkpoints}
           onChange={(configText) => set("configText", configText)}
         />
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-fg">
           <input type="checkbox" checked={form.enabled ?? true} onChange={(e) => set("enabled", e.target.checked)} />
           {t("policies.fields.enabled")}
         </label>
@@ -671,10 +671,10 @@ function TestPanel({
 
   return (
     <section className={card} aria-labelledby="policy-test">
-      <h2 id="policy-test" className="font-semibold text-slate-800">
+      <h2 id="policy-test" className="font-semibold text-fg">
         {t("policies.test.title")}
       </h2>
-      <p className="mt-1 text-xs text-slate-500">{policyId ? t("policies.test.storedNote") : t("policies.test.draftNote")}</p>
+      <p className="mt-1 text-xs text-muted">{policyId ? t("policies.test.storedNote") : t("policies.test.draftNote")}</p>
       <textarea
         dir="auto"
         rows={4}
@@ -687,7 +687,7 @@ function TestPanel({
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
         <label className="flex items-center gap-1">
           {t("policies.test.checkpoint")}
-          <select className="rounded-md border border-slate-300 px-2 py-1" value={checkpoint} onChange={(e) => setCheckpoint(e.target.value)}>
+          <select className="rounded-md border border-line-strong px-2 py-1" value={checkpoint} onChange={(e) => setCheckpoint(e.target.value)}>
             {checkpoints.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -698,7 +698,7 @@ function TestPanel({
         {checkpoint === "DATA" && (
           <label className="flex items-center gap-1">
             {t("policies.test.target")}
-            <select className="rounded-md border border-slate-300 px-2 py-1" value={target} onChange={(e) => setTarget(e.target.value)}>
+            <select className="rounded-md border border-line-strong px-2 py-1" value={target} onChange={(e) => setTarget(e.target.value)}>
               {TARGETS.map((x) => (
                 <option key={x} value={x}>
                   {t(`policies.targets.${x}`)}
@@ -712,22 +712,22 @@ function TestPanel({
         </button>
       </div>
       <fieldset className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        <legend className="text-xs text-slate-500">{t("policies.test.principal")}</legend>
+        <legend className="text-xs text-muted">{t("policies.test.principal")}</legend>
         <label className="flex items-center gap-1">
           {t("policies.test.tenant")}
-          <input dir="ltr" className="rounded-md border border-slate-300 px-2 py-1 font-mono" value={tenant} onChange={(e) => setTenant(e.target.value)} />
+          <input dir="ltr" className="rounded-md border border-line-strong px-2 py-1 font-mono" value={tenant} onChange={(e) => setTenant(e.target.value)} />
         </label>
         <label className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {t("policies.test.roles")}
           <input
             dir="ltr"
-            className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 font-mono placeholder:font-sans"
+            className="min-w-0 flex-1 rounded-md border border-line-strong px-2 py-1 font-mono placeholder:font-sans"
             value={roles}
             placeholder={t("policies.test.rolesHint")}
             aria-describedby="policy-roles-example"
             onChange={(e) => setRoles(e.target.value)}
           />
-          <span id="policy-roles-example" className="basis-full text-[11px] text-slate-500">
+          <span id="policy-roles-example" className="basis-full text-[11px] text-muted">
             {t("policies.test.rolesExample")}{" "}
             <bdi dir="ltr" className="font-mono">
               {POLICY_ROLES_EXAMPLE}
@@ -739,10 +739,10 @@ function TestPanel({
       {result && (
         <div className="mt-3 space-y-2 text-sm" aria-live="polite">
           <p className="flex flex-wrap gap-2">
-            <span className={`rounded-full px-2 py-0.5 text-xs ${result.matched ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${result.matched ? "bg-warning-bg text-warning" : "bg-surface-2 text-fg"}`}>
               {result.matched ? t("policies.test.matched") : t("policies.test.notMatched")}
             </span>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg">
               {t("policies.test.action")}{" "}
               {preventsSavingHere
                 ? t("policies.actionPreventSave")
@@ -750,48 +750,48 @@ function TestPanel({
                   ? t(`guardActions.${result.action}`)
                   : result.action}
             </span>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg">
               {t("policies.test.score")} <bdi>{result.score.toFixed(2)}</bdi>
             </span>
-            <bdi className="font-mono text-xs text-slate-500">{result.policy_ref}</bdi>
+            <bdi className="font-mono text-xs text-muted">{result.policy_ref}</bdi>
           </p>
           {(result.explanation_key || result.explanation) && (
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted">
               {t("policies.test.explanation")}{" "}
               <Explanation explanationKey={result.explanation_key} args={result.explanation_args} fallback={result.explanation} />
             </p>
           )}
           {result.error && (
-            <p className="text-xs text-red-700">
+            <p className="text-xs text-error">
               {t("policies.test.error")} <bdi dir="ltr">{result.error}</bdi>
             </p>
           )}
           <div>
-            <h3 className="text-xs font-semibold text-slate-500">{t("policies.test.spans")}</h3>
-            <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-2 leading-7">
+            <h3 className="text-xs font-semibold text-muted">{t("policies.test.spans")}</h3>
+            <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-md bg-surface-2 p-2 leading-7">
               {segments.map((segment, i) =>
                 segment.entity ? (
-                  <mark key={i} title={segment.entity} className="rounded bg-amber-200 px-0.5">
+                  <mark key={i} title={segment.entity} className="rounded bg-highlight px-0.5">
                     {segment.text}
-                    <EntityName entity={segment.entity} className="ms-1 align-super text-[10px] text-amber-900" />
+                    <EntityName entity={segment.entity} className="ms-1 align-super text-[10px] text-warning" />
                   </mark>
                 ) : (
                   <span key={i}>{segment.text}</span>
                 ),
               )}
             </p>
-            {result.spans.length === 0 && <p className="mt-1 text-xs text-slate-500">{t("policies.test.noSpans")}</p>}
+            {result.spans.length === 0 && <p className="mt-1 text-xs text-muted">{t("policies.test.noSpans")}</p>}
           </div>
           {result.output_text != null && result.output_text !== tested && (
             <div>
               <OutputHeading action={result.action} />
-              <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-2">
+              <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-md bg-surface-2 p-2">
                 {result.output_text}
               </p>
             </div>
           )}
           {messageFor(result, locale) && (
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted">
               {t("policies.test.message")} <span dir="auto">{messageFor(result, locale)}</span>
             </p>
           )}
@@ -808,10 +808,10 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
   const currentVersion = detail.current.policy.version;
   return (
     <section className={card} aria-labelledby="policy-history">
-      <h2 id="policy-history" className="font-semibold text-slate-800">
+      <h2 id="policy-history" className="font-semibold text-fg">
         {t("policies.history.title")}
       </h2>
-      <ol className="mt-2 divide-y divide-slate-100">
+      <ol className="mt-2 divide-y divide-line">
         {detail.versions.map((v) => (
           <li key={v.policy.version} className="py-2 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -819,11 +819,11 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
                 {/* A label that holds Arabic: the sans face, never monospace (ADR-0119). */}
                 <span className="font-medium">{t("policies.history.version", { version: v.policy.version ?? 1 })}</span>
                 {v.policy.version === currentVersion && (
-                  <span className="ms-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
+                  <span className="ms-2 rounded-full bg-success-bg px-2 py-0.5 text-xs text-primary">
                     {t("policies.history.current")}
                   </span>
                 )}
-                <span className="ms-2 text-xs text-slate-500">
+                <span className="ms-2 text-xs text-muted">
                   {t.rich("policies.history.by", {
                     user: v.created_by,
                     date: new Date(v.created_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
@@ -846,7 +846,7 @@ function History({ detail, onRestore }: { detail: PolicyDetail; onRestore: (form
               <PolicyMeta policy={v.policy} exception={Boolean(v.exception)} overrides={v.overrides ?? []} />
             </div>
             {shown === v.policy.version && (
-              <pre dir="ltr" className="mt-2 max-h-56 overflow-auto rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+              <pre dir="ltr" className="mt-2 max-h-56 overflow-auto rounded-md bg-surface-2 p-2 text-xs text-fg">
                 {JSON.stringify(v.policy, null, 2)}
               </pre>
             )}
@@ -876,22 +876,22 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
 
   return (
     <section className={card} aria-labelledby="policy-changes">
-      <h2 id="policy-changes" className="font-semibold text-slate-800">
+      <h2 id="policy-changes" className="font-semibold text-fg">
         {t("policies.changes.title")}
       </h2>
-      {changes !== null && changes.length === 0 && <p className="mt-2 text-sm text-slate-500">{t("policies.changes.empty")}</p>}
-      <ol className="mt-2 divide-y divide-slate-100">
+      {changes !== null && changes.length === 0 && <p className="mt-2 text-sm text-muted">{t("policies.changes.empty")}</p>}
+      <ol className="mt-2 divide-y divide-line">
         {(changes ?? []).map((c, i) => (
           <li key={`${c.changed_at}-${i}`} className="flex flex-wrap items-center gap-2 py-2 text-sm">
             <span>{t.has(`policies.changes.kinds.${c.change}`) ? t(`policies.changes.kinds.${c.change}`) : c.change}</span>
             <bdi className="font-mono text-xs">{c.policy_ref}</bdi>
             {c.exception && (
-              <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-900" title={formatList(c.overrides, locale)}>
+              <span className="rounded-full bg-warning-bg px-1.5 text-xs text-warning" title={formatList(c.overrides, locale)}>
                 {t("policies.changes.exception")}
               </span>
             )}
             {(c.induced ?? []).length > 0 && (
-              <span className="text-xs text-slate-600">
+              <span className="text-xs text-muted">
                 {t("policies.changes.induced", {
                   list: formatList(
                     (c.induced ?? []).map((i) =>
@@ -904,7 +904,7 @@ function ChangeLog({ authorized, gatewayUrl, policyId }: { authorized: Authorize
                 })}
               </span>
             )}
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-muted">
               {t.rich("policies.changes.by", {
                 user: c.actor,
                 date: new Date(c.changed_at).toLocaleString(locale === "ar" ? "ar-SA" : "en-GB"),
@@ -958,10 +958,10 @@ function ImportExport({
   }
 
   return (
-    <div className="mt-4 border-t border-slate-100 pt-3">
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+    <div className="mt-4 border-t border-line pt-3">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
         {t("policies.io.title")}
-        <bdi dir="ltr" className="rounded-full bg-slate-100 px-1.5 font-mono text-[11px] font-normal text-slate-600" data-chip="format">
+        <bdi dir="ltr" className="rounded-full bg-surface-2 px-1.5 font-mono text-[11px] font-normal text-muted" data-chip="format">
           {t("policies.io.format")}
         </bdi>
       </h3>
@@ -996,7 +996,7 @@ function ImportExport({
         {t("policies.io.import")}
       </button>
       {report && (
-        <p role="status" className="mt-2 text-xs text-slate-600">
+        <p role="status" className="mt-2 text-xs text-muted">
           {t("policies.io.report", {
             created: report.created.length,
             versioned: report.versioned.length,
@@ -1026,16 +1026,16 @@ export function MatchesPerDay({
   );
   return (
     <section className={card} aria-labelledby="policy-metrics">
-      <h2 id="policy-metrics" className="font-semibold text-slate-800">
+      <h2 id="policy-metrics" className="font-semibold text-fg">
         {t("policies.metrics.title", { days: metrics?.days ?? METRIC_DAYS })}
       </h2>
       {grouped.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">{t("policies.metrics.empty")}</p>
+        <p className="mt-2 text-sm text-muted">{t("policies.metrics.empty")}</p>
       ) : (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-slate-500">
+              <tr className="text-muted">
                 <th className="py-1 text-start font-medium">{t("policies.metrics.policy")}</th>
                 <th className="px-1 py-1 text-end font-medium">{t("policies.metrics.total")}</th>
                 {days.map((d) => (
@@ -1047,13 +1047,13 @@ export function MatchesPerDay({
             </thead>
             <tbody>
               {grouped.map((g) => (
-                <tr key={g.policyId} className="border-t border-slate-100" data-match-row={g.policyId}>
+                <tr key={g.policyId} className="border-t border-line" data-match-row={g.policyId}>
                   <td className="py-1">
                     <bdi className="font-mono">{g.policyId}</bdi>
                   </td>
                   <td className="px-1 py-1 text-end font-medium">{g.total}</td>
                   {days.map((d) => (
-                    <td key={d} className={`px-1 py-1 text-center ${g.byDay[d] ? "text-slate-800" : "text-slate-300"}`}>
+                    <td key={d} className={`px-1 py-1 text-center ${g.byDay[d] ? "text-fg" : "text-subtle"}`}>
                       {g.byDay[d] ?? 0}
                     </td>
                   ))}

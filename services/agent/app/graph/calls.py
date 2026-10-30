@@ -35,7 +35,7 @@ def tier_event(decision: TierDecision) -> dict:
 def _budget(ctx: TurnContext, decision: TierDecision, max_input: int | None) -> Budget:
     services = ctx.services
     return services.assembler.budget(
-        decision.final, services.models_config.tiers[decision.final], max_input=max_input
+        decision.final, services.models_config.spec_for(decision.role, decision.final), max_input=max_input
     )
 
 

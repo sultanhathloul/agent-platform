@@ -5,7 +5,9 @@ the threshold on average but holds pages under it is indexed from its text pages
 others (`pages_without_text`, D7, ADR-0201); they are not read (OCR is v2). Bounded
 (owner decision R4): a stream that decompresses past `extraction.max_pdf_stream_bytes` fails as
 `stream_too_large`, and more than `extraction.max_chars` of text as `text_too_long`, as soon as
-the page that passes it is read."""
+the page that passes it is read. A number a producer drew right to left in pieces («5», «.», «6» for 6.5,
+inside Arabic text) is read in the order of its pieces' positions (ADR-0411); extractor version 2. Version 3: only the exact
+drawn run, as a whole number, is reordered; an ambiguous one is left as extracted (ADR-0421)."""
 
 import io
 import logging
@@ -13,12 +15,15 @@ import logging
 from pypdf import PdfReader, apply_configuration
 from pypdf.errors import LimitReachedError, PdfReadError
 
-from app.rag.bidi import restore_text
+from app.rag.bidi import restore_numbers, restore_text, reversed_numbers
 from app.rag.config import DocsConfig
 from app.rag.extract.base import ExtractionFailed
 from app.rag.types import ExtractedDocument, Segment
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)
+
+# Bumped when the text a page gives changes, so the seed re-indexes what an older version cut (ADR-0410).
+VERSION = "3"
 
 
 class PdfExtractor:
@@ -65,7 +70,14 @@ class PdfExtractor:
                 contents = page.get_contents()
                 if contents is not None:
                     contents.get_data()
-                raw = page.extract_text() or ""
+                drawn: list[tuple[float, float, str, float]] = []
+                raw = page.extract_text(
+                    visitor_text=lambda text, cm, tm, font, size: drawn.append(
+                        (tm[4], tm[5], text, abs(size * tm[0]) or abs(size))
+                    )
+                ) or ""
+                # A number drawn right to left, piece by piece, read in position order (ADR-0411).
+                raw = restore_numbers(raw, reversed_numbers(drawn))
             except LimitReachedError as exc:
                 raise ExtractionFailed("stream_too_large", pages=pages, detail=type(exc).__name__) from exc
             except Exception as exc:  # a broken content stream on one page

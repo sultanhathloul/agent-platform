@@ -7,9 +7,9 @@ import { resolveErrorMessage } from "@/lib/errors";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
 
 const badgeClass: Record<string, string> = {
-  pending: "bg-amber-50 text-amber-800 ring-amber-200",
-  indexed: "bg-emerald-50 text-emerald-800 ring-emerald-200",
-  failed: "bg-red-50 text-red-800 ring-red-200",
+  pending: "bg-warning-bg text-warning ring-warning-line",
+  indexed: "bg-success-bg text-primary ring-success-line",
+  failed: "bg-error-bg text-error ring-error-line",
 };
 
 /** The limits line shown before a file is chosen (D2): numbers from the gateway, words from i18n. */
@@ -22,7 +22,7 @@ export function LimitsHint({ limits }: { limits: AttachmentLimits }) {
   const list = new Intl.ListFormat(locale === "ar" ? "ar" : "en", { type: "conjunction" }).format(names);
   const number = new Intl.NumberFormat(locale === "ar" ? "ar" : "en");
   return (
-    <p className="text-xs text-slate-500">
+    <p className="text-xs text-muted">
       {t("limits", {
         files: number.format(limits.max_files_per_conversation),
         size: number.format(sizeInMb(limits.max_file_bytes)),
@@ -50,9 +50,9 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
     detail = t(reasonKey(file.attachment?.reason, (key) => t.has(key)));
   }
   return (
-    <li className="flex max-w-full flex-col gap-0.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-sm ring-1 ring-slate-200">
+    <li className="flex max-w-full flex-col gap-0.5 rounded-lg bg-surface-2 px-2.5 py-1.5 text-sm ring-1 ring-line">
       <div className="flex items-center gap-2">
-        <bdi dir="auto" className="truncate font-medium text-slate-800" title={file.name}>
+        <bdi dir="auto" className="truncate font-medium text-fg" title={file.name}>
           {file.name}
         </bdi>
         {status ? (
@@ -62,7 +62,7 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
               : t(`attachments.status.${status}`)}
           </span>
         ) : (
-          <span className="shrink-0 text-[11px] text-slate-500">{t("attachments.uploading", { percent })}</span>
+          <span className="shrink-0 text-[11px] text-muted">{t("attachments.uploading", { percent })}</span>
         )}
         {onRemove && (
           <button
@@ -70,7 +70,7 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
             onClick={onRemove}
             aria-label={t("attachments.remove")}
             title={t("attachments.remove")}
-            className="ms-auto shrink-0 rounded px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            className="ms-auto shrink-0 rounded px-1 text-subtle hover:bg-line hover:text-fg"
           >
             <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M4 4l8 8M12 4l-8 8" />
@@ -79,16 +79,16 @@ export function AttachmentChip({ file, onRemove }: { file: ComposerFile; onRemov
         )}
       </div>
       {!status && (
-        <div className="h-1 w-full overflow-hidden rounded bg-slate-200" aria-hidden>
-          <div className="h-full bg-emerald-600 transition-all" style={{ width: `${file.progress}%` }} />
+        <div className="h-1 w-full overflow-hidden rounded bg-line" aria-hidden>
+          <div className="h-full bg-primary transition-all" style={{ width: `${file.progress}%` }} />
         </div>
       )}
       {detail && (
-        <p role="alert" className="text-xs text-red-700">
+        <p role="alert" className="text-xs text-error">
           {detail}
         </p>
       )}
-      {unread > 0 && <p className="text-xs text-amber-800">{t("attachments.unreadPagesNote")}</p>}
+      {unread > 0 && <p className="text-xs text-warning">{t("attachments.unreadPagesNote")}</p>}
     </li>
   );
 }

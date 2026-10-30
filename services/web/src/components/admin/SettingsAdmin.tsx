@@ -262,11 +262,11 @@ export function SettingsAdmin() {
     return (
       <main className="mx-auto max-w-4xl p-6">
         {error ? (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-error">
             {message(error)}
           </p>
         ) : (
-          <p className="text-sm text-slate-500">{t("settings.loading")}</p>
+          <p className="text-sm text-muted">{t("settings.loading")}</p>
         )}
       </main>
     );
@@ -277,23 +277,23 @@ export function SettingsAdmin() {
     <main className="mx-auto max-w-4xl space-y-4 p-6">
       <header>
         <h1 className="text-xl font-semibold">{t("settings.title")}</h1>
-        <p className="mt-1 text-sm text-slate-600">{t("settings.description")}</p>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-sm text-muted">{t("settings.description")}</p>
+        <p className="mt-1 text-xs text-muted">
           {view.version > 0 ? t("settings.versionInForce", { version: f.number(view.version) }) : t("settings.versionFiles")}
         </p>
         {view.ignored.length > 0 && (
-          <p role="alert" className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900">
+          <p role="alert" className="mt-2 rounded-md bg-warning-bg p-2 text-sm text-warning">
             {t("settings.ignored")}
           </p>
         )}
       </header>
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 p-2 text-sm text-red-800">
+        <p role="alert" className="rounded-md bg-error-bg p-2 text-sm text-error">
           {message(error)}
         </p>
       )}
       {notice && (
-        <p role="status" className="rounded-md bg-emerald-50 p-2 text-sm text-emerald-900">
+        <p role="status" className="rounded-md bg-success-bg p-2 text-sm text-success">
           {notice}
         </p>
       )}
@@ -321,7 +321,7 @@ export function SettingsAdmin() {
         <div className="mt-2">
           <ChangeList fields={fields} inForce={inForce} overrides={overrides} changed={changed} />
         </div>
-        {preview && !reviewed && <p className="mt-2 text-xs text-amber-800">{t("settings.review.stale")}</p>}
+        {preview && !reviewed && <p className="mt-2 text-xs text-warning">{t("settings.review.stale")}</p>}
         {reviewed && (
           <div className="mt-3 space-y-3">
             <ProblemList problems={preview.result.problems} />

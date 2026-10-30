@@ -44,10 +44,17 @@ public record ChatTurnRequest(
         @Schema(nullable = true, pattern = SKILL,
                 description = "The skill picked in the composer (phase 06, ADR-0292); absent: chosen automatically. "
                         + "A skill the caller holds no skill:{slug} role for is 403 skill_forbidden.")
-        String skill) {
+        String skill,
+
+        @Pattern(regexp = OUTPUT)
+        @Schema(nullable = true, allowableValues = {"text", "report"},
+                description = "The output form picked in the composer (reports PR, D3); absent: chosen automatically. "
+                        + "`report` writes an interactive HTML report.")
+        String output) {
 
     public static final int MAX_MESSAGE_CHARS = 8000;
     static final String SKILL = "^[a-z][a-z0-9_-]{0,63}$";
+    static final String OUTPUT = "^(text|report)$";
     static final String UUID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     public ChatTurnRequest {

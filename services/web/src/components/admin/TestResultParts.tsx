@@ -8,7 +8,7 @@ import { useLabel } from "./ConfigSummary";
 export function OutputHeading({ action }: { action: string }) {
   const t = useTranslations();
   const key = `policies.test.outputBy.${action}`;
-  return <h3 className="text-xs font-semibold text-slate-500">{t.has(key) ? t(key) : t("policies.test.output")}</h3>;
+  return <h3 className="text-xs font-semibold text-muted">{t.has(key) ? t(key) : t("policies.test.output")}</h3>;
 }
 
 /**
@@ -65,9 +65,9 @@ export function Explanation({
               <span key={item}>
                 {i > 0 && " "}
                 {entities ? (
-                  <EntityName entity={item} className="rounded bg-slate-100 px-1" />
+                  <EntityName entity={item} className="rounded bg-surface-2 px-1" />
                 ) : (
-                  <bdi dir="auto" className="rounded bg-slate-100 px-1" data-value="">
+                  <bdi dir="auto" className="rounded bg-surface-2 px-1" data-value="">
                     {item}
                   </bdi>
                 )}

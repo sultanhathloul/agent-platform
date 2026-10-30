@@ -125,7 +125,13 @@ async def create_turn(
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "X-Request-Id": request_id},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Request-Id": request_id,
+            # The turn's deadline in seconds, from its profile (ADR-0379): the gateway bounds its relay by it.
+            "X-Turn-Deadline-S": f"{admission.deadline_s:g}",
+        },
         # Idempotent; covers a client gone before the stream started.
         background=BackgroundTask(admission.release),
     )

@@ -23,6 +23,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.resilience.limits import Caps, ConcurrencyLimiter
 
 
+class TurnProfile(BaseModel):
+    """A deadline profile (reports PR, ADR-0379): a longer deadline for turns that may write a report."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    deadline_s: float = Field(gt=0)
+    answer_s: float = Field(gt=0)
+    role: str = Field(min_length=1)
+
+
 class TurnConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -37,6 +47,7 @@ class TurnConfig(BaseModel):
     per_user_max: int = Field(default=2, ge=1)
     per_tenant_max: int | None = Field(default=None, ge=1)
     per_tenant_overrides: dict[str, int] = Field(default_factory=dict)
+    profiles: dict[str, TurnProfile] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _nested(self) -> "TurnConfig":
@@ -46,9 +57,18 @@ class TurnConfig(BaseModel):
             raise ValueError("post_answer_reserve_s must be shorter than answer_reserve_s")
         if self.persist_s >= self.post_answer_reserve_s and self.post_answer_reserve_s > 0:
             raise ValueError("persist_s must be shorter than post_answer_reserve_s")
+        for name, profile in self.profiles.items():
+            if profile.deadline_s < self.deadline_s:
+                raise ValueError(f"profiles.{name}.deadline_s must not be shorter than deadline_s")
+            if profile.answer_s > profile.deadline_s - self.post_answer_reserve_s:
+                raise ValueError(f"profiles.{name}.answer_s must leave post_answer_reserve_s before its deadline")
         if any(value < 1 for value in self.per_tenant_overrides.values()):
             raise ValueError("per_tenant_overrides must be at least 1")
         return self
+
+    def deadline_for(self, profile: str | None) -> float:
+        """The deadline of a turn under `profile` (None: the default one)."""
+        return self.profiles[profile].deadline_s if profile in self.profiles else self.deadline_s
 
     def limiter(self, platform_capacity: int) -> ConcurrencyLimiter:
         """The turn limits over `platform_capacity` turns at once (LOCK_POOL_SIZE)."""

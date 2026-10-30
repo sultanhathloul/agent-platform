@@ -60,6 +60,7 @@ from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
 
 from app.api.events import (
+    ArtifactRef,
     DoneData,
     ErrorData,
     GuardAuditData,
@@ -83,6 +84,7 @@ from app.platform_settings import effective
 from app.resilience import deadline
 from app.resilience.limits import Slot
 from app.skills.registry import available_skills
+from app.text.arabic import contains_keyword
 
 log = logging.getLogger(__name__)
 
@@ -130,6 +132,10 @@ class Admission:
     ends_at: float
     # The platform settings in force when the turn arrived: it keeps them to its end (ADR-0279).
     settings: effective.Effective | None = None
+    # The turn's deadline profile (config/turn.yaml profiles, ADR-0379) and its deadline in seconds, which
+    # the gateway reads from the response headers to bound its relay.
+    profile: str | None = None
+    deadline_s: float = 0.0
 
     async def release(self) -> None:
         try:
@@ -242,7 +248,8 @@ class TurnRunner:
         snapshot = self.services.platform.current if self.services.platform is not None else None
         with effective.pin(snapshot):
             turn = effective.turn(self.services.turn)
-        ends_at = (deadline.now() if arrived is None else arrived) + turn.deadline_s
+        arrived = deadline.now() if arrived is None else arrived
+        ends_at = arrived + turn.deadline_s
         principal = req.principal
         if req.skill is not None and req.skill not in {
             s.slug for s in available_skills(self.services, principal)
@@ -264,6 +271,7 @@ class TurnRunner:
                     raise TurnRefused("kb_forbidden")
                 if not await self.claim(req.conversation_id, principal):
                     raise TurnRefused("conversation_forbidden")
+                profile = await self.profile(req)
                 lease = await self.lock(req.conversation_id)
         except (TimeoutError, LockPoolBusy):
             slot.release()
@@ -274,7 +282,28 @@ class TurnRunner:
         if lease is None:
             slot.release()
             raise TurnRefused("turn_in_flight")
-        return Admission(lease=lease, slot=slot, ends_at=ends_at, settings=snapshot)
+        deadline_s = turn.deadline_for(profile)
+        return Admission(
+            lease=lease, slot=slot, ends_at=arrived + deadline_s, settings=snapshot, profile=profile,
+            deadline_s=deadline_s,
+        )
+
+    async def profile(self, req: TurnRequest) -> str | None:
+        """The turn's deadline profile (ADR-0379): `report` when the turn may write a report, decided before
+        the turn starts, so its deadline is known from its arrival: the composer picked a report; or it
+        picked nothing and a report keyword is in the message (D3), or the conversation holds a report a
+        follow-up may edit (D4). The route node then decides among these (ADR-0378)."""
+        services = self.services
+        if services.artifacts is None or services.reports is None or req.output == "text":
+            return None
+        if req.output == "report":
+            return "report"
+        if any(contains_keyword(req.message, k) for k in services.artifacts.report.keywords.all()):
+            return "report"
+        principal = req.principal
+        if await services.reports.has_report(principal.tenant_id, principal.user_id, req.conversation_id):
+            return "report"
+        return None
 
     async def lock(self, conversation_id: str) -> TurnLease | None:
         """The conversation's turn lock, or None while another turn holds it (D6). Raises
@@ -332,7 +361,7 @@ class TurnRunner:
                     return
             # This task and every task the turn starts read the settings it was admitted with.
             effective.pin_here(admission.settings)
-            await self._run(req, request_id, turn_id, parent, emit, admission.ends_at)
+            await self._run(req, request_id, turn_id, parent, emit, admission.ends_at, admission.profile)
         finally:
             try:
                 if admission is not None:
@@ -342,7 +371,8 @@ class TurnRunner:
                 queue.put_nowait(_END)
 
     async def _run(
-        self, req: TurnRequest, request_id: str, turn_id: str, parent, emit, ends_at: float
+        self, req: TurnRequest, request_id: str, turn_id: str, parent, emit, ends_at: float,
+        profile: str | None = None,
     ) -> None:
         settings = self.services.settings
         principal = req.principal
@@ -352,6 +382,7 @@ class TurnRunner:
             request_id=request_id,
             turn_id=turn_id,
             conversation_id=req.conversation_id,
+            profile=profile,
         )
         graph_input = {
             "conversation_id": req.conversation_id,
@@ -362,6 +393,9 @@ class TurnRunner:
             "selected_kbs": list(dict.fromkeys(kb for kb in req.selected_kbs if principal.can_read_kb(kb))),
             # The picked skill (phase 06): admission checked it is available; route applies it.
             "requested_skill": req.skill,
+            # The composer's output picker (reports PR, D3); a report is written only on a report profile.
+            "requested_output": req.output,
+            "report": None,
         }
         with tracer.start_as_current_span("turn", context=parent) as span:
             set_trace_attributes(
@@ -418,7 +452,7 @@ class TurnRunner:
         log.warning(
             "turn %s ended with turn_timeout after %.0f s",
             ctx.turn_id,
-            effective.turn(self.services.turn).deadline_s,
+            effective.turn(self.services.turn).deadline_for(ctx.profile),
         )
         span.set_status(Status(StatusCode.ERROR, "turn_timeout"))
         emit("error", self._error(ctx, "turn_timeout", retryable=True))
@@ -477,8 +511,10 @@ class TurnRunner:
                 turn=final["turn"],
                 capabilities=final["intent"]["capabilities"],
                 skill=_skill_ref(final.get("skill")),
+                output="report" if final.get("report") else "text",
             ),
             trace_id=current_trace_id(),
+            artifact=ArtifactRef.model_validate(final["report"]) if final.get("report") else None,
         )
         if done.state_digest.skill:
             span.set_attribute("turn.skill", done.state_digest.skill)  # id@version only (G8)

@@ -34,14 +34,14 @@ export function PolicyList({
 
   return (
     <>
-      <label className="mb-2 flex items-center gap-1.5 text-xs text-slate-600">
+      <label className="mb-2 flex items-center gap-1.5 text-xs text-muted">
         <input type="checkbox" checked={showTest} onChange={(e) => onShowTest(e.target.checked)} />
         {t("policies.showTest")}
       </label>
       {shown.length === 0 ? (
-        <p className="text-sm text-slate-500">{t("policies.empty")}</p>
+        <p className="text-sm text-muted">{t("policies.empty")}</p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {shown.map((view) => {
             const p = view.policy;
             const on = p.enabled ?? true;
@@ -51,7 +51,7 @@ export function PolicyList({
                 <button
                   type="button"
                   onClick={() => onOpen(p.id)}
-                  className={`min-w-0 flex-1 text-start ${selected === p.id ? "text-emerald-800" : "text-slate-800"}`}
+                  className={`min-w-0 flex-1 text-start ${selected === p.id ? "text-primary" : "text-fg"}`}
                 >
                   <span dir="auto" className="block truncate font-medium" title={name}>
                     {name}
@@ -60,7 +60,7 @@ export function PolicyList({
                     <PolicyMeta policy={p} exception={Boolean(view.exception)} overrides={view.overrides ?? []} />
                   </span>
                 </button>
-                <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+                <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
                   <input
                     type="checkbox"
                     checked={on}

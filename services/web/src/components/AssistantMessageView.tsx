@@ -4,14 +4,17 @@ import { useLocale, useTranslations } from "next-intl";
 import { resolveErrorMessage } from "@/lib/errors";
 import { isLocale, DEFAULT_LOCALE } from "@/lib/locale";
 import { safeHref } from "@/lib/return-path";
-import type { Citation } from "@/lib/api/types";
-import type { AssistantMessage, Chip } from "@/lib/stream";
+import type { ArtifactRef, Citation } from "@/lib/api/types";
+import { shownChips, type ShownChip } from "@/lib/chips";
+import type { AssistantMessage } from "@/lib/stream";
+import { useIsAdmin } from "./MeProvider";
 import { MessageMarkdown } from "./MessageMarkdown";
+import { ReportCard } from "./ReportPanel";
 
 const chipClass =
-  "inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200";
+  "inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted ring-1 ring-line";
 
-function ChipView({ chip }: { chip: Chip }) {
+function ChipView({ chip }: { chip: ShownChip }) {
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
@@ -35,7 +38,7 @@ function ChipView({ chip }: { chip: Chip }) {
             {chip.policyId ? `${chip.policyId}@${chip.policyVersion ?? "?"}` : chip.checkpoint}
           </bdi>
           {t.has(actionKey) ? <span>{t(actionKey)}</span> : <bdi>{chip.action}</bdi>}
-          {chip.target && t.has(targetKey) && <span className="text-slate-400">{t(targetKey)}</span>}
+          {chip.target && t.has(targetKey) && <span className="text-subtle">{t(targetKey)}</span>}
         </li>
       );
     }
@@ -53,6 +56,7 @@ function ChipView({ chip }: { chip: Chip }) {
             </>
           )}
           {t.has(statusKey) ? <span>{t(statusKey)}</span> : <bdi>{chip.status}</bdi>}
+          {chip.count > 1 && <span className="font-medium">{t("chips.count", { count: chip.count })}</span>}
           {chip.latencyMs !== null && <span>{t("chips.latency", { ms: chip.latencyMs })}</span>}
         </li>
       );
@@ -73,8 +77,8 @@ export function CitationList({ citations }: { citations: Citation[] }) {
   const number = new Intl.NumberFormat(tag);
   const list = new Intl.ListFormat(tag, { type: "conjunction" });
   return (
-    <section className="mt-3 border-t border-slate-100 pt-2">
-      <h3 className="text-xs font-semibold text-slate-500">{t("chat.citationsTitle")}</h3>
+    <section className="mt-3 border-t border-line pt-2">
+      <h3 className="text-xs font-semibold text-muted">{t("chat.citationsTitle")}</h3>
       <ul className="mt-1 space-y-0.5 text-sm">
         {citations.map((c) => {
           const href = safeHref(c.url);
@@ -84,11 +88,11 @@ export function CitationList({ citations }: { citations: Citation[] }) {
             <li key={c.id} className="flex flex-wrap items-baseline gap-x-2" data-citation-kb={c.kb ?? undefined}>
               {kbName && (
                 // A knowledge base document: KB › title, then its publisher and date (phase 08, I4).
-                <span className="text-xs font-medium text-emerald-800">
+                <span className="text-xs font-medium text-primary">
                   {t.rich("chat.citationKb", {
                     kb: () => <bdi dir="auto">{kbName}</bdi>,
                     sep: (chunks) => (
-                      <span aria-hidden className="px-1 text-slate-400">
+                      <span aria-hidden className="px-1 text-subtle">
                         {chunks}
                       </span>
                     ),
@@ -96,35 +100,35 @@ export function CitationList({ citations }: { citations: Citation[] }) {
                 </span>
               )}
               {href ? (
-                <a href={href} target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">
+                <a href={href} target="_blank" rel="noopener noreferrer" className="text-info underline">
                   <bdi dir="auto">{c.title}</bdi>
                 </a>
               ) : (
-                <bdi dir="auto" className="font-medium text-slate-700">
+                <bdi dir="auto" className="font-medium text-fg">
                   {c.title}
                 </bdi>
               )}
               {pages.length > 0 ? (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-muted">
                   {t(pages.length === 1 ? "chat.citationPageOne" : pages.length === 2 ? "chat.citationPageTwo" : "chat.citationPageMany", {
                     pages: list.format(pages.map((p) => number.format(p))),
                   })}
                 </span>
               ) : (
                 c.locator && (
-                  <bdi dir="auto" className="text-xs text-slate-500">
+                  <bdi dir="auto" className="text-xs text-muted">
                     {c.locator}
                   </bdi>
                 )
               )}
               {c.publisher && (
-                <bdi dir="auto" className="text-xs text-slate-500">
+                <bdi dir="auto" className="text-xs text-muted">
                   {c.publisher}
                 </bdi>
               )}
               {c.published_on && (
                 // ISO date in Western digits in both languages (ADR-0288).
-                <span className="text-xs text-slate-500" dir="ltr">
+                <span className="text-xs text-muted" dir="ltr">
                   {t("chat.citationDate", { date: c.published_on })}
                 </span>
               )}
@@ -136,16 +140,24 @@ export function CitationList({ citations }: { citations: Citation[] }) {
   );
 }
 
-export function AssistantMessageView({ message }: { message: AssistantMessage }) {
+export function AssistantMessageView({
+  message,
+  onOpenReport,
+}: {
+  message: AssistantMessage;
+  /** Reopens the report panel at the version this reply wrote (reports PR, I7). */
+  onOpenReport?: (ref: ArtifactRef) => void;
+}) {
   const t = useTranslations();
   const rawLocale = useLocale();
   const locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
+  const chips = shownChips(message.chips, { admin: useIsAdmin() });
 
   return (
-    <article className="max-w-[90%] self-start rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
-      <h2 className="mb-1 text-xs font-medium text-slate-500">{t("chat.assistant")}</h2>
+    <article className="max-w-[90%] self-start rounded-2xl bg-surface px-4 py-3 shadow-sm ring-1 ring-line">
+      <h2 className="mb-1 text-xs font-medium text-muted">{t("chat.assistant")}</h2>
 
-      {(message.chips.length > 0 || message.skill) && (
+      {(chips.length > 0 || message.skill) && (
         <ul className="mb-2 flex flex-wrap gap-1.5">
           {message.skill && (
             // The skill the answer was written with (phase 06): from the `skill` event or the history.
@@ -154,7 +166,7 @@ export function AssistantMessageView({ message }: { message: AssistantMessage })
               <span className="font-medium">{locale === "ar" ? message.skill.label.ar : message.skill.label.en}</span>
             </li>
           )}
-          {message.chips.map((chip) => (
+          {chips.map((chip) => (
             <ChipView key={chip.key} chip={chip} />
           ))}
         </ul>
@@ -163,13 +175,15 @@ export function AssistantMessageView({ message }: { message: AssistantMessage })
       {message.text ? (
         <MessageMarkdown text={message.text} />
       ) : (
-        message.status === "streaming" && <p className="animate-pulse text-slate-500">{t("chat.thinking")}</p>
+        message.status === "streaming" && <p className="animate-pulse text-muted">{t("chat.thinking")}</p>
       )}
 
-      {message.status === "aborted" && <p className="mt-2 text-xs text-amber-700">{t("chat.stopped")}</p>}
+      {message.artifact && <ReportCard artifact={message.artifact} onOpen={onOpenReport} />}
+
+      {message.status === "aborted" && <p className="mt-2 text-xs text-warning">{t("chat.stopped")}</p>}
 
       {message.status === "error" && message.error && (
-        <p role="alert" className="mt-2 text-sm text-red-700">
+        <p role="alert" className="mt-2 text-sm text-error">
           {resolveErrorMessage(message.error, locale, (key) => t(key))}
         </p>
       )}
@@ -177,7 +191,7 @@ export function AssistantMessageView({ message }: { message: AssistantMessage })
       {message.citations.length > 0 && <CitationList citations={message.citations} />}
 
       {message.usage && (
-        <p className="mt-2 text-[11px] text-slate-400">
+        <p className="mt-2 text-[11px] text-subtle">
           {t("chat.usage", { tokensIn: message.usage.tokens_in ?? 0, tokensOut: message.usage.tokens_out ?? 0 })}
         </p>
       )}

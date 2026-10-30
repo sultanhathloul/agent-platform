@@ -21,22 +21,23 @@ from fastapi.responses import JSONResponse
 from app.api.admin import router as admin_router
 from app.api.attachments import router as attachments_router
 from app.api.conversations import router as conversations_router
+from app.api.kbs import router as kbs_router
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
 from app.api.ownership import ConversationOwners
+from app.api.reports import router as reports_router
 from app.api.routes import router
 from app.api.runner import TurnRunner
 from app.api.schemas import ErrorEnvelope
 from app.api.settings import internal as internal_router
 from app.api.settings import router as settings_router
 from app.api.skills import router as skills_router
+from app.artifacts.config import load_artifacts
+from app.artifacts.store import PageStore, ReportStore
 from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
 from app.attachments.store import AttachmentStore
-from app.api.kbs import router as kbs_router
-from app.kb.service import KbService
-from app.kb.store import KbStore
 from app.capabilities.registry import CapabilityRegistry, ManifestError, load_capability_config
 from app.context.assembler import ContextAssembler, load_context_config
 from app.context.log import ContextLog
@@ -59,6 +60,8 @@ from app.guardrails.config import load_guardrails_config
 from app.guardrails.engine import GuardEngine
 from app.guardrails.sanitize import Sanitizer
 from app.guardrails.store import PolicyStore
+from app.kb.service import KbService
+from app.kb.store import KbStore
 from app.mcp.setup import build_mcp_client
 from app.mcp.tools import register_mcp_tools, transport_operations
 from app.memory.config import load_memory_config
@@ -98,10 +101,12 @@ CORE_PROMPTS = (
     "context.tool_result",
     "context.findings",
     "context.skill",
+    "context.report_kit",
+    "context.report_current",
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.6.0"
+API_VERSION = "2.7.0"
 
 
 def build_services(
@@ -143,6 +148,17 @@ def build_services(
                 raise ManifestError(f"{cap.path}: context.needs has 'system' but {exc}") from exc
 
     counter = default_counter()
+    artifacts = load_artifacts(settings.config_dir, settings.platform_profile)
+    kit_tokens = counter.count(
+        prompts.render("context.report_kit", "ar", id=artifacts.design.id, version=artifacts.design.version,
+                       text=artifacts.design.text).text
+    )
+    if kit_tokens > context_config.blocks["report_kit"].max_tokens:
+        raise ValueError(
+            f"config/artifacts/design-system.md is {kit_tokens} tokens, over blocks.report_kit.max_tokens "
+            f"{context_config.blocks['report_kit'].max_tokens}"
+        )
+    log.info("report kit block tokens=%d", kit_tokens)
     for slug, tokens in check_instruction_budgets(skills, prompts, context_config, counter).items():
         log.info("skill %s block tokens=%d (blocks.skill.max_tokens %d)", slug, tokens,
                  context_config.blocks["skill"].max_tokens)
@@ -312,6 +328,18 @@ def build_services(
         redis=redis,
         closers=(presidio.close,),
     )
+    pages = (
+        PageStore(
+            settings.minio_endpoint,
+            settings.minio_artifacts_access_key,
+            settings.minio_artifacts_secret_key,
+            artifacts.report.storage.bucket,
+            secure=settings.minio_secure,
+        )
+        if settings.minio_artifacts_access_key
+        else None
+    )
+    services = dataclasses.replace(services, artifacts=artifacts, reports=ReportStore(db, pages))
     judge.bind(services)
     platform.on_change(lambda snapshot: _resize(services, snapshot))
     return services
@@ -499,6 +527,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(settings_router)
     app.include_router(skills_router)
     app.include_router(kbs_router)
+    app.include_router(reports_router)
     app.include_router(internal_router)
 
     @app.exception_handler(RequestValidationError)

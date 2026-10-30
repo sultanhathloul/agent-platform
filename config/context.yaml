@@ -3,6 +3,7 @@
 pipeline:
   - system_instructions
   - skill_instructions  # the selected skill's instructions, system role, answer node only (phase 06, ADR-0300)
+  - report_kit          # the design kit's prompt part, system role, report writer only (reports PR, ADR-0380)
   - state_digest
   - sliding_window
   - rolling_summary   # after the window: part of the current message, never before history (ADR-0077)
@@ -10,6 +11,7 @@ pipeline:
   - semantic_retrieval
   - tool_results
   - capability_findings
+  - report_current      # the report version a follow-up revises, user role, report writer only (D4, ADR-0380)
   - user_message
   - budget_guard
 
@@ -28,6 +30,8 @@ blocks:
   retrieval:    {max_tokens: 6000, top_k: 8}
   tool_results: {max_tokens: 2000}
   findings:     {max_tokens: 8000}
+  report_kit:   {max_tokens: 4000}    # never dropped; design-system.md over it fails startup (ADR-0380)
+  report_current: {max_tokens: 24000} # never cut; a version over it ends the turn report_edit_too_large
 
 # Over the tier budget, the budget guard drops in this order (README §7 step 9): old
 # window messages, lowest-scored chunks, memory, then it shortens the summary. System
@@ -56,6 +60,23 @@ nodes:
     system_prompt: answer.system
     needs: [system, state_digest, summary, window, memory, findings, user_message]
     forms: {findings: full}
+  report:
+    # The report writer (reports PR, D1, ADR-0380): the answer node's blocks for the turn's capabilities,
+    # plus the kit and, on a follow-up, the current version. Never the skill block: a report applies none.
+    system_prompt: report.system
+    needs: [system, report_kit, state_digest, summary, window, memory, findings, report_current, user_message]
+    forms: {findings: full}
+    # A report draws its tables and charts from the passages alone (ADR-0398), so it reads deeper than a
+    # text answer: the general search, one per planned chart or table and, on an edit, the passages the
+    # current version cited, up to `report_max_passages` (ADR-0401, ADR-0402, ADR-0403).
+    blocks:
+      retrieval: {max_tokens: 24000, top_k: 40}
+  report_plan:
+    # A report's section plan before its capabilities search (ADR-0403): the request (and, on an edit, the
+    # current version's headings) as data in the user role; no window, no evidence.
+    system_prompt: report.plan
+    request_prompt: report.plan_request
+    needs: [system, user_message]
   summarizer:
     system_prompt: summarizer.system
     request_prompt: summarizer.request

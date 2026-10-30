@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -33,6 +35,10 @@ import sa.ncai.agent.gateway.proxy.TurnLimits;
  * cannot be read, the last values read stay in force; before the first read, the files' values
  * (config/turn.yaml and config/docs.yaml, with GATEWAY_DOCS_UPLOADS_PER_MINUTE). A refresh of
  * zero turns the reads off (the test profile, whose agent is a scripted mock).
+ *
+ * <p>The deadline profiles (reports PR, ADR-0379) come the same way, as {@code profile_deadlines_s};
+ * an answer without them (an agent from before them) keeps config/turn.yaml's. A turn stream's bound
+ * is the deadline its agent declared, capped at the longest of them all, plus the margin.
  */
 @Component
 public class PlatformLimits {
@@ -47,13 +53,16 @@ public class PlatformLimits {
             @JsonProperty("version") long version,
             @JsonProperty("deadline_s") double deadlineS,
             @JsonProperty("uploads_per_minute") int uploadsPerMinute,
-            @JsonProperty("max_concurrent_uploads") int maxConcurrentUploads) {}
+            @JsonProperty("max_concurrent_uploads") int maxConcurrentUploads,
+            @JsonProperty("profile_deadlines_s") Map<String, Double> profileDeadlinesS) {}
 
     private record Cached(Limits limits, Instant readAt) {}
 
     private final AtomicReference<Cached> current;
     private final Duration margin;
     private final Duration headers;
+    /** config/turn.yaml's profile deadlines, in force until the agent names its own. */
+    private final Map<String, Double> fileProfiles;
     private final RestClient client;
     private final String internalToken;
     private final Clock clock;
@@ -68,8 +77,12 @@ public class PlatformLimits {
         this.clock = clock;
         this.margin = turn.gatewayMargin();
         this.headers = turn.headers();
+        Map<String, Double> profiles = new LinkedHashMap<>();
+        turn.profileDeadlines().forEach((name, deadline) -> profiles.put(name, deadline.toMillis() / 1000.0));
+        this.fileProfiles = Map.copyOf(profiles);
         this.current = new AtomicReference<>(new Cached(
-                new Limits(0, turn.deadline().toMillis() / 1000.0, docs.uploadsPerMinute(), docs.maxConcurrentUploads()),
+                new Limits(0, turn.deadline().toMillis() / 1000.0, docs.uploadsPerMinute(), docs.maxConcurrentUploads(),
+                        fileProfiles),
                 null));
         HttpClient http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -100,9 +113,15 @@ public class PlatformLimits {
                     .header(AgentClient.INTERNAL_TOKEN_HEADER, internalToken)
                     .retrieve()
                     .body(Limits.class);
-            if (read == null || read.deadlineS() <= 0 || read.uploadsPerMinute() < 1 || read.maxConcurrentUploads() < 1) {
+            if (read == null || read.deadlineS() <= 0 || read.uploadsPerMinute() < 1 || read.maxConcurrentUploads() < 1
+                    || (read.profileDeadlinesS() != null
+                            && read.profileDeadlinesS().values().stream().anyMatch(d -> d == null || d <= 0))) {
                 LOG.warn("platform limits: the agent's answer is not usable; the last values stay in force");
                 return false;
+            }
+            if (read.profileDeadlinesS() == null) {
+                read = new Limits(read.version(), read.deadlineS(), read.uploadsPerMinute(),
+                        read.maxConcurrentUploads(), fileProfiles);
             }
             Cached before = current.getAndSet(new Cached(read, clock.instant()));
             if (before.limits().version() != read.version()) {
@@ -127,7 +146,43 @@ public class PlatformLimits {
 
     /** The relay's one bound on a turn stream: the deadline in force plus gateway_margin_s (I3). */
     public Duration relayBound() {
-        return Duration.ofMillis(Math.round(limits().deadlineS() * 1000)).plus(margin);
+        return seconds(limits().deadlineS()).plus(margin);
+    }
+
+    /**
+     * The relay's bound on a stream whose agent declared {@code declaredS} seconds as its turn's
+     * deadline ({@code X-Turn-Deadline-S}, ADR-0379): that deadline, at most the longest in force, plus
+     * gateway_margin_s; without a usable declaration, {@link #relayBound()}.
+     */
+    public Duration relayBound(Double declaredS) {
+        if (declaredS == null || !(declaredS > 0) || declaredS.isInfinite()) {
+            return relayBound();
+        }
+        Duration declared = seconds(declaredS);
+        Duration longest = longestDeadline();
+        return (declared.compareTo(longest) < 0 ? declared : longest).plus(margin);
+    }
+
+    /** The longest deadline a turn may run under: the deadline in force or a profile's, whichever is longer. */
+    public Duration longestDeadline() {
+        Limits limits = limits();
+        double longest = limits.deadlineS();
+        for (double profile : limits.profileDeadlinesS().values()) {
+            longest = Math.max(longest, profile);
+        }
+        return seconds(longest);
+    }
+
+    /**
+     * The ceiling on any turn stream, whatever its agent declares: the longest deadline plus
+     * gateway_margin_s, so no turn's own bound is ever longer (ADR-0379).
+     */
+    public Duration streamCeiling() {
+        return longestDeadline().plus(margin);
+    }
+
+    private static Duration seconds(double value) {
+        return Duration.ofMillis(Math.round(value * 1000));
     }
 
     /** The agent's response headers within gateway_headers_s (ADR-0264); a redeploy changes it. */

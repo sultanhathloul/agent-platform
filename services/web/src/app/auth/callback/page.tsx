@@ -26,17 +26,17 @@ export default function AuthCallbackPage() {
     };
   }, [ready, completeSignin, router]);
 
-  if (!failed) return <p className="p-8 text-center text-sm text-slate-500">{t("completing")}</p>;
+  if (!failed) return <p className="p-8 text-center text-sm text-muted">{t("completing")}</p>;
 
   return (
     <div className="p-8 text-center">
-      <p role="alert" className="text-sm text-red-700">
+      <p role="alert" className="text-sm text-error">
         {t("callbackFailed")}
       </p>
       <button
         type="button"
         onClick={() => void login("/chat/new")}
-        className="mt-4 rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800"
+        className="mt-4 rounded-lg bg-primary px-4 py-2 font-medium text-on-primary hover:bg-primary-hover"
       >
         {t("retry")}
       </button>

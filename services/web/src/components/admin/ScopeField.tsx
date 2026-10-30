@@ -3,8 +3,8 @@
 import { useTranslations } from "next-intl";
 import { SCOPE_KINDS, parseScope, scopeText, scopeValueFor, unknownPolicyRole, type ScopeKind } from "@/lib/policies";
 
-const input = "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm";
-const chip = "rounded-full bg-slate-100 px-1.5 font-mono text-[11px] text-slate-600";
+const input = "w-full rounded-md border border-line-strong px-2 py-1.5 text-sm";
+const chip = "rounded-full bg-surface-2 px-1.5 font-mono text-[11px] text-muted";
 
 // Example ids are identifiers, the same in both locales: each is its own chip after the sentence.
 const SCOPE_EXAMPLES: Record<ScopeKind, string[]> = {
@@ -20,7 +20,7 @@ export const GROUP_EXAMPLES = ["pii-output", "pii-memory"];
 export function Hint({ text, examples }: { text: string; examples: string[] }) {
   const t = useTranslations();
   return (
-    <span className="flex flex-wrap items-center gap-1 text-[11px] text-slate-500" data-hint="">
+    <span className="flex flex-wrap items-center gap-1 text-[11px] text-muted" data-hint="">
       <span>{text}</span>
       {examples.length > 0 && <span>{t("policies.fields.example")}</span>}
       {examples.map((example) => (
@@ -53,7 +53,7 @@ export function ScopeField({
   const roleOptions = kind === "role" && value && !roles.includes(value) ? [value, ...roles] : roles;
 
   return (
-    <fieldset className="flex flex-col gap-1 text-sm text-slate-700" data-scope-field="">
+    <fieldset className="flex flex-col gap-1 text-sm text-fg" data-scope-field="">
       <legend>{t("policies.fields.scope")}</legend>
       <div className="flex gap-2">
         <select
@@ -99,7 +99,7 @@ export function ScopeField({
       </div>
       <Hint text={t(`policies.fields.scopeHints.${kind}`)} examples={SCOPE_EXAMPLES[kind]} />
       {missingRole && (
-        <span role="status" className="text-[11px] text-amber-800">
+        <span role="status" className="text-[11px] text-warning">
           {t("policies.fields.unknownRole")}{" "}
           <bdi dir="ltr" className="font-mono">
             {missingRole}

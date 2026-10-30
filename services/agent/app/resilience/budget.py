@@ -250,6 +250,37 @@ def checks(v: dict) -> list[Check]:
             c["attempt_margin_s"],
         ),
     ]
+    # Deadline profiles (reports PR, ADR-0379): each profile's turn in the gateway's relay, its answer
+    # in its turn with the post-answer reserve kept, and its role's model call in its answer.
+    for name, profile in sorted((turn.get("profiles") or {}).items()):
+        out += [
+            _pair(
+                f"profile-turn-in-relay:{name}",
+                f"Chat ({name} turns): the agent's turn in the gateway's relay",
+                f"profiles.{name}.deadline_s",
+                profile["deadline_s"],
+                f"profiles.{name}.deadline_s + gateway_margin_s",
+                profile["deadline_s"] + turn["gateway_margin_s"],
+            ),
+            _pair(
+                f"profile-answer-in-turn:{name}",
+                f"Chat ({name} turns): the answer in the turn, the post-answer reserve kept",
+                f"profiles.{name}.answer_s",
+                profile["answer_s"],
+                f"profiles.{name}.deadline_s − post_answer_reserve_s",
+                profile["deadline_s"] - turn["post_answer_reserve_s"],
+                strict=False,
+            ),
+            _pair(
+                f"profile-role-in-answer:{name}",
+                f"Chat ({name} turns): the {profile['role']} call in the answer",
+                f"timeouts.roles.{profile['role']}",
+                roles[profile["role"]],
+                f"profiles.{name}.answer_s",
+                profile["answer_s"],
+                strict=False,
+            ),
+        ]
     sandbox = docs["ingest"]["sandbox"]
     for service, workers in sorted(v["sandbox_workers"].items()):
         budget = workers * sandbox["memory_mb"] + sandbox["parent_reserve_mb"]
@@ -509,6 +540,9 @@ EXPECTED: tuple[str, ...] = (
     "attempt-margin-used",
     "sandbox-memory:ingest",
     "sandbox-memory:mcp-rag-ref",
+    "profile-turn-in-relay:report",
+    "profile-answer-in-turn:report",
+    "profile-role-in-answer:report",
 )
 
 
@@ -553,6 +587,13 @@ MUTATIONS: dict[str, Callable[[dict], None]] = {
     ),
     "sandbox-memory:ingest": lambda v: v["sandbox_workers"].update(ingest=3),
     "sandbox-memory:mcp-rag-ref": lambda v: v["mem_limits_mb"].update({"mcp-rag-ref": 1024}),
+    "profile-turn-in-relay:report": lambda v: v["turn"].update(gateway_margin_s=0),
+    "profile-answer-in-turn:report": lambda v: v["turn"]["profiles"]["report"].update(
+        answer_s=v["turn"]["profiles"]["report"]["deadline_s"]
+    ),
+    "profile-role-in-answer:report": lambda v: v["models"]["timeouts"]["roles"].update(
+        report_writer=v["turn"]["profiles"]["report"]["answer_s"] + 1
+    ),
 }
 
 
@@ -703,6 +744,26 @@ _FIXED_SETTINGS: tuple[Setting, ...] = (
         _at("turn", "deadline_s"),
     ),
     _setting(
+        "turn.report_deadline_s",
+        "turns",
+        "config/turn.yaml profiles.report.deadline_s",
+        "s",
+        False,
+        1,
+        _fixed(900),
+        _at("turn", "profiles", "report", "deadline_s"),
+    ),
+    _setting(
+        "turn.report_answer_s",
+        "turns",
+        "config/turn.yaml profiles.report.answer_s",
+        "s",
+        False,
+        1,
+        _fixed(900),
+        _at("turn", "profiles", "report", "answer_s"),
+    ),
+    _setting(
         "turn.answer_reserve_s",
         "turns",
         "config/turn.yaml answer_reserve_s",
@@ -751,6 +812,16 @@ _FIXED_SETTINGS: tuple[Setting, ...] = (
         1,
         _fixed(600),
         _roles(REASONING_ROLES),
+    ),
+    _setting(
+        "models.report_writer_s",
+        "models",
+        "config/models.yaml timeouts.roles.report_writer",
+        "s",
+        False,
+        1,
+        _fixed(900),
+        _roles(("report_writer",)),
     ),
     _setting(
         "models.embed_query_s",

@@ -117,7 +117,7 @@ Status: → phase 06 (docs/PHASE-06-BUILD-PROMPT.md, ADR-0289 to ADR-0323; docs/
 Phase 08 (kb) is built first, from main after phase 06; then a standalone **report PR** (HTML report artifacts, pulled forward from phase 11's artifact outputs, MCP item 7 above); then phase 07 (planner). Phase 11 keeps the rest of artifact outputs and long-running tool calls. CLAUDE.md's phase table carries the note.
 
 ### Report PR (after phase 08, before phase 07)
-Status: not started. Scope to be written in its own prompt: HTML report artifacts (a capability or skill returns an HTML page, stored, shown in a sandboxed preview, downloadable, its text through runtime DATA policies). Out of phase 08 (its prompt's OUT OF SCOPE).
+Status: → feat/reports (docs/REPORTS-PROMPT.md, ADR-0364 onward; docs/PROGRESS.md "Interactive reports"). Scope as first sketched: HTML report artifacts (a capability or skill returns an HTML page, stored, shown in a sandboxed preview, downloadable, its text through runtime DATA policies). Out of phase 08 (its prompt's OUT OF SCOPE).
 
 ---
 
@@ -173,9 +173,9 @@ Status: → phase 08 (docs/PHASE-08-BUILD-PROMPT.md, ADR-0328 onward), except "R
 ### From phase 08 (listed, not implemented)
 - **Attribution across languages beyond numbers** (ADR-0354): an English answer over Arabic KB documents is cited only when it states a figure; one with no figure shows no source line (kb.jsonl's reported `cross_language` set, 0/2 in development). Option to measure: multilingual embedding similarity (bge-m3) between answer clauses and the retrieved chunks, decided on eval numbers (citation accuracy, no source on abstentions).
 - **Attribution across Arabic word forms** (ADR-0358): number words — done in phase 08 (ADR-0359, ADR-0360: folded to digits before matching). Left: suffixed nouns («مدة» / «مدتها») and dual nouns («يومين» = 2), to measure with the cross-language item above.
-- **A claim holding a current and a superseded figure** (phase 08 before-merge run 1, cross-annual-growth-en): «3.6 percent …, revising the previous April forecast of 3.1 percent» is one claim; the July and April pages tie and the per-claim pass (ADR-0357) takes one, the April page, so the current page goes uncited. Options: cite every page tied at a claim's best score, or prefer the newer version of the same title at a tie (D3). Measure on the recorded kb answers before changing.
+- → done in the reports PR (ADR-0363: the newer version wins a tie; measured on the recorded kb answers first). **A claim holding a current and a superseded figure** (phase 08 before-merge run 1, cross-annual-growth-en): «3.6 percent …, revising the previous April forecast of 3.1 percent» is one claim; the July and April pages tie and the per-claim pass (ADR-0357) takes one, the April page, so the current page goes uncited. Options: cite every page tied at a claim's best score, or prefer the newer version of the same title at a tie (D3). Measure on the recorded kb answers before changing.
 - **An MCP-backed KB's server copy after a delete** (ADR-0344): no MCP operation may delete (D6), so the reference RAG server keeps a deleted KB's documents and chunks; operations remove them (`DELETE FROM rag_ref.documents WHERE collection = 'kb_<slug>'`). A purge operation would need an owner decision on D6.
-- **The proof-of-concept KB's remaining sources** (ADR-0356): the exact pages of the sources the prompt names by site (stats.gov.cn, english.gov.cn, english.scio.gov.cn, fmprc.gov.cn, mfa.gov.cn, SPA, SAMA, PIF, Aramco, qna.org.qa, bricspolicycenter.org, sab.com, the China UN mission) go into scripts/kb_poc/sources.yaml; the IMF pages refuse a script and are saved from a browser into build/kb-poc/manual/.
+- **The proof-of-concept KB's remaining sources** (ADR-0356): the exact pages of the sources the prompt names by site (stats.gov.cn, english.gov.cn, english.scio.gov.cn, fmprc.gov.cn, mfa.gov.cn, SPA, SAMA, PIF, Aramco, qna.org.qa, bricspolicycenter.org, sab.com, the China UN mission) go into scripts/kb_poc/sources.yaml; the IMF pages refuse a script and are saved from a browser into build/kb-poc/manual/. Since 2026-10-29 (ADR-0392): saved into kb-seed/intl-economy/ with a sidecar and a manifest line; the list is in that folder's README.md.
 - **KB role assignment from the admin page**: the role is shown; assigning it to users stays in Keycloak (ADR-0337).
 
 ## Hardening phase tech debt (was phase 09, then phase 10 after the MCP shift, now phase 12 after the 2026-10-14 order; notes rather than risks unless stated)
@@ -211,6 +211,12 @@ From phase 05 (resilience, `docs/RESILIENCE.md`, CLAUDE.md rule 12):
 - **Move per-user and per-tenant limits to Bucket4j + Redis**, required before running more than one gateway (supersedes the in-memory counters of ADR-0185 and ADR-0190).
 - **Settle the four scaling traps of `docs/RESILIENCE.md`**: fail open for limits when Redis is down (recommended), with a local fallback cap per process and an immediate alert; a TTL on concurrency counters so a crashed replica cannot hold slots; MCP `max_concurrency` written as a total per server and shared between replicas (or agreed in the ICD); breakers stay per process.
 
+From the reports PR (2026-10-28, listed, not implemented):
+- **The report view link's key lives in one gateway's memory** (ADR-0386): a second gateway replica needs a shared key (a mounted secret) or sticky routing.
+- **A personal number split across two elements of a report page** («<b>050</b>1234567») is seen whole by no guard pass (ADR-0383), as the text path's newline case.
+- **Report figures by rounding, unit change or arithmetic** are marked unverified even when their inputs are sourced (ADR-0381); a tolerance or unit folding would be decided on the reports suite's numbers.
+- **A conversation holds one report** (ADR-0378): asking for a different report there revises the current one.
+
 From the timeout budget PR (fix/timeout-budget, 2026-10-21; T1: listed, not fixed):
 - **Rows of the timeout budget still unbounded** (docs/RESILIENCE.md): the ingest service's per-job deadline (up to 125 embedding batches of 60 s each); the agent's Redis client (no timeout set; 5 s only in the installed redis-py); the gateway's MinIO Java client (library default, not verified); the web's chat request (no timer; the gateway ends the stream at 135 s); overlapping status polls in the web (a 2 s period over a 2 s read).
 - **LiteLLM relays a flooding stream on its own event loop**: another user's call through LiteLLM waited 4.02 s while one provider sent 20 000 one-character chunks, and 0.56 s while one sent a 2 MiB embedding; the agent's own loop stayed under 50 ms (ADR-0257). Measure under the k6 load test and decide on LiteLLM workers or replicas.
@@ -239,3 +245,19 @@ From phase 06 (make eval make-eval-20261024T190302Z, 2026-10-24; listed, not imp
 - Memory retention.
 - Whether entities need self-managed policies later (a tenant-admin role; ADR-0117 makes admin a platform operator).
 - Whether external MCP servers (internet services) are ever allowed, and under which policy.
+
+## Owner decisions A to D on the report branch (2026-10-29)
+
+- **A seeded document whose file left kb-seed/** (ADR-0392): `make kb-seed` reports it and the index keeps it; deleting a single KB document is not in the product yet (phase 08 deletes a whole KB). Add a per-document delete to /admin/kbs/<slug>, then let the seed offer it.
+- **stats-gov's per-category year rule** (ADR-0393): read literally, it leaves out sub-categories whose newest year is older than their category's (for example health status 2025 under الصحة, 2026). If the owner wants every current series, change `select` in scripts/kb_fetch.py to per sub-category.
+- **Label density on dense pages** (ADR-0389): every figure carries its label, years included; a table of many figures carries many. A per-column or per-table label would need the owner's view of "exactly one label per figure".
+- **The API count `general`** (ADR-0389): renamed from `unverified` in API 2.7.0 before merge; clients of an unmerged branch only.
+
+
+## KB content quality (future track) — owner decision, 2026-10-29
+
+No more KB content-accuracy work for now; these are recorded, not scheduled.
+- Search terms that differ from a source's own words: a report's plan searched «التوزيع النسبي للعاملين حسب الجنس» (the request's word) and missed table 3-1 «التوزيع النسبي للمشتغلين بحسب الجنسية و الجنس» of the Q2 2026 labour-market workbook, so the pie edit of 2026-10-29 found no source (docs/PROGRESS.md, owner decisions 1 and 2, re-runs). Options raised: the planner writes queries in the sources' terms, or a small synonym list for statistical terms (العاملين ↔ المشتغلين ↔ القوى العاملة). The owner declined both for now.
+- A KB text answer cites the documents by claim score: the answer of 2026-10-29 took 1.3 from the workbook's sheet 2-1 and cited only the bulletin, p. 1.
+- A table flattened by the PDF extractor (the bulletin's Table 1) names its columns far from its values; its values are checked by figure and nearest qualifier only (ADR-0414); the workbook states them by column.
+- A newer edition of a seeded file is a second, unrelated document (review round 1 of PR #17): its bytes have a new SHA-256, so the seed uploads it beside the old one; `make kb-fetch` writes its sidecar without `supersedes` and removes the old file, so the two are not chained and `prefer_latest` cannot rank them, and both stay indexed and cited. Today an administrator sets `supersedes` by hand (PUT …/metadata). The seed's «REMOVED … delete it on /admin/kbs/<slug>» line names a per-document delete the platform does not have (only a whole KB is deleted), and says «no longer in kb-seed/» for a file edited in place under the same name. Options: kb-fetch writes `supersedes` from the series it replaces; a per-document delete; the seed matching a file by name as well as by hash.

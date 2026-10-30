@@ -7,6 +7,7 @@ contract: CRUD, documents with their D3 metadata and supersedes rules, cross-KB 
 citations carry the KB, title, publisher, date and page (I4), and the latest version of a source
 first (D3)."""
 
+import json
 import uuid
 from datetime import date
 
@@ -366,3 +367,218 @@ async def test_kb_metadata_dates_are_iso_and_kept(services, api):
     await _create(api, slug)
     view = await _document(services, api, slug, LABOR, title="نظام", published_on="2029-12-31", ingest=False)
     assert date.fromisoformat(view["metadata"]["published_on"]) == date(2029, 12, 31)
+
+
+DATES_SPEC = json.dumps({"title": "لوحة التمور", "language": "ar", "sections": [
+    {"kind": "kpi_row", "items": [{"label": "صادرات التمور", "value": 812, "unit": "مليون ريال"},
+                                  {"label": "نمو الصادرات", "value": 7.5, "unit": "%"}], "sources": ["P1"]},
+    {"kind": "chart", "type": "bar", "title": "صادرات النخيل", "labels": ["2029"],
+     "series": [{"name": "القيمة", "data": [640]}], "sources": ["P1"]},
+    {"kind": "text", "markdown": "بلغت صادرات التمور 812 مليون ريال. ونمت الصادرات 7.5 بالمئة.", "sources": ["P1"]},
+]}, ensure_ascii=False)
+
+
+async def test_a_report_over_a_kb_keeps_the_values_its_cited_passages_hold_and_lists_them_under_their_document(services, api):
+    # Option C (ADR-0406 to ADR-0408): 812 is in the passage P1 with «التمور»; 7.5 is not, so it reads «—» and is
+    # listed as not available; the chart holds nothing P1 has, so it leaves; no label beside any figure.
+    trade = _slug()
+    await _create(api, trade, name_ar="التجارة")
+    await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
+    swapped, _ = replacing(services, {"report_writer": DATES_SPEC})
+    request = TurnRequest(conversation_id=str(uuid.uuid4()), principal=_reader(f"kb:{trade}:read"),
+                          message="اعمل لوحة مؤشرات عن صادرات التمور", locale="ar", selected_kbs=[trade], output="report")
+    events = [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, "req-kb-report")]
+    assert events[-1]["type"] == "done", events[-1]
+    done = next(e for e in events if e["type"] == "artifact_done")["data"]
+    principal = request.principal
+    record = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 1)
+    page = (await services.reports.page(record, 10)).decode()
+    assert '<div class="kit-kpi-value">812<span class="kit-kpi-unit">مليون ريال</span></div>' in page
+    assert '<div class="kit-kpi-value kit-missing">—</div>' in page and "صادرات النخيل" not in page.split("kit-spec")[0]
+    # A sentence whose figure its cited passage does not hold leaves the page, and the reply says so (ADR-0425).
+    body = page.split("kit-spec")[0]
+    assert "بلغت صادرات التمور 812 مليون ريال." in body and "ونمت الصادرات" not in body
+    assert "kit-figure" not in page and "kit-general-note" not in page
+    assert "جملًا لم أجد أرقامها في المصادر: 1" in events[-1]["data"]["answer"]
+    sources = page[page.index('data-kit="sources"'):]
+    assert "التجارة › تقرير التجارة — هيئة الإحصاء — 2031-02-01" in sources
+    assert "مؤشرات: المؤشرات الرئيسة" in sources and "غير متوفر في المصدر: نمو الصادرات" in sources
+    assert record.citations and record.citations[0]["title"] == "تقرير التجارة" and record.passages
+
+
+
+async def test_a_report_whose_sources_hold_nothing_on_its_subject_says_so_and_saves_no_page(services, api):
+    """ADR-0416, the Al Hilal case: a KB toggled whose passages hold nothing on the subject; no generic validation
+    message, no page: the reply names the KB and says untoggling it builds the report from general knowledge."""
+    trade = _slug()
+    await _create(api, trade, name_ar="التجارة")
+    await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
+    hilal = json.dumps({"title": "نادي الهلال", "language": "ar", "sections": [
+        {"kind": "text", "markdown": "نادي الهلال من أكثر الأندية تتويجًا بـ 66 بطولة."},
+        {"kind": "kpi_row", "items": [{"label": "عدد البطولات", "value": 66}], "sources": ["P1"]},
+        # A table of names with no figure, citing the KB's passage (review round 1, finding 6, ADR-0425): it
+        # names nothing the passage holds, so it is no kept element either.
+        {"kind": "table", "title": "أبرز اللاعبين", "columns": ["اللاعب", "المركز"],
+         "rows": [["سالم الدوسري", "جناح"], ["ياسين بونو", "حارس مرمى"]], "sources": ["P1"]}]}, ensure_ascii=False)
+    swapped, _ = replacing(services, {"report_writer": hilal})
+    principal = _reader(f"kb:{trade}:read")
+    request = TurnRequest(conversation_id=str(uuid.uuid4()), principal=principal, message="سوّ لي لوحة معلومات عن نادي الهلال",
+                          locale="ar", selected_kbs=[trade], output="report")
+    events = [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, "req-nothing")]
+    assert events[-1]["type"] == "done", events[-1]
+    assert not [e for e in events if e["type"].startswith("artifact_")]
+    answer = events[-1]["data"]["answer"]
+    assert "لا تحوي المصادر المختارة (التجارة) بيانات عن هذا الموضوع" in answer and "ألغِ تحديدها" in answer
+    assert not await services.reports.has_report(principal.tenant_id, principal.user_id, request.conversation_id)
+
+
+async def test_a_version_keeps_its_passages_and_an_edit_fetches_them_only_under_its_own_scope(services, api):
+    """ADR-0402: v1 stores the passages behind its citations by reference; an edit with the KB still toggled
+    fetches them again from the KB; an edit with nothing toggled gets nothing from them and is general."""
+    trade = _slug()
+    await _create(api, trade, name_ar="التجارة")
+    await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
+    page = json.dumps({"title": "لوحة التمور", "language": "ar", "sections": [
+        {"kind": "kpi_row", "items": [{"label": "صادرات التمور", "value": 812}], "sources": ["P1"]}]}, ensure_ascii=False)
+    edit = '{"capabilities": ["general"], "skill": null, "output": "report", "edit": true, "complexity": "low", "risk": "low"}'
+    plan = '{"sections": [{"title": "الصادرات", "query": "صادرات التمور"}]}'
+    swapped, _ = replacing(services, {"report_writer": page, "router": edit, "extractor": plan})
+    principal = _reader(f"kb:{trade}:read", "cap:general")
+    conversation = str(uuid.uuid4())
+
+    async def turn(message, kbs):
+        request = TurnRequest(conversation_id=conversation, principal=principal, message=message, locale="ar",
+                              selected_kbs=kbs, output="report")
+        return [e.model_dump(mode="json") async for e in TurnRunner(swapped).stream(request, f"req-{uuid.uuid4().hex[:6]}")]
+
+    first = await turn("اعمل لوحة مؤشرات عن صادرات التمور", [trade])
+    assert first[-1]["type"] == "done", first[-1]
+    done = next(e for e in first if e["type"] == "artifact_done")["data"]
+    v1 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 1)
+    assert v1.passages and all(p["kind"] == "kb" and p["ref"] and p["collection"] for p in v1.passages)
+
+    second = await turn("غيّر الألوان إلى الأخضر", [trade])
+    assert second[-1]["type"] == "done", second[-1]
+    v2 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 2)
+    assert {p["ref"] for p in v1.passages} <= {p["ref"] for p in v2.passages}
+    html2 = "".join(e["data"]["text"] for e in second if e["type"] == "artifact_delta")
+    assert '<div class="kit-kpi-value">812</div>' in html2 and v2.citations[0]["title"] == "تقرير التجارة"
+
+    third = await turn("غيّر الخط", [])
+    assert third[-1]["type"] == "done", third[-1]
+    v3 = await services.reports.version(principal.tenant_id, principal.user_id, done["id"], 3)
+    assert v3.citations == [] and v3.passages == [] and v3.general == v3.figures
+
+
+async def test_a_registration_keeps_the_files_hash_and_a_missing_metadata_flag_until_corrected(services, api):
+    # Owner decision B (ADR-0392): the seed step's idempotence and the admin page's flag.
+    slug = _slug()
+    await _create(api, slug)
+    digest = "ab" * 32
+    response = await api.post(
+        f"/v1/admin/kbs/{slug}/documents",
+        json={"name": "يدوي.pdf", "mime": "application/pdf", "size": 3, "object_key": f"kb/{slug}/{uuid.uuid4()}",
+              "metadata": {"title": "يدوي.pdf", "publisher": "جهة", "published_on": "2026-10-29"},
+              "sha256": digest, "metadata_missing": True},
+        headers=_admin(),
+    )
+    assert response.status_code == 201, response.text
+    view = response.json()
+    assert view["sha256"] == digest and view["metadata_missing"] is True
+    listed = (await api.get(f"/v1/admin/kbs/{slug}/documents", headers=_admin())).json()["documents"]
+    assert [(d["sha256"], d["metadata_missing"]) for d in listed] == [(digest, True)]
+    corrected = await api.put(
+        f"/v1/admin/kbs/{slug}/documents/{view['id']}/metadata",
+        json={"title": "تقرير يدوي", "publisher": "الهيئة", "published_on": "2026-10-01"}, headers=_admin(),
+    )
+    assert corrected.status_code == 200 and corrected.json()["metadata_missing"] is False
+    assert corrected.json()["sha256"] == digest
+
+
+# ------------------------------------------------------------------ re-index beside the indexed chunks (ADR-0424)
+
+
+async def _chunks(services, document_id: str) -> list[str]:
+    async with services.db.connection() as conn:
+        rows = await (await conn.execute(
+            "SELECT text FROM agent.rag_chunks WHERE kb_document_id = %s ORDER BY text", (document_id,))).fetchall()
+    return [row["text"] for row in rows]
+
+
+async def _older_extractor(services, document_id: str) -> None:
+    async with services.db.connection() as conn:
+        await conn.execute("UPDATE agent.kb_documents SET extractor = '0' WHERE id = %s", (document_id,))
+
+
+async def test_a_reindex_keeps_the_document_in_retrieval_until_its_new_chunks_replace_the_old(services, api):
+    """Review round 1 of PR #17, finding 9: a document being re-indexed stayed `pending` and left retrieval."""
+    slug = _slug()
+    await _create(api, slug)
+    document = await _document(services, api, slug, LABOR, title="نظام العمل")
+    reader = _reader(f"kb:{slug}:read")
+    old = await _chunks(services, document["id"])
+    await _older_extractor(services, document["id"])
+    started = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert started.status_code == 200, started.text
+    view = started.json()
+    assert (view["status"], view["reindex_status"], view["reindex_due"]) == ("indexed", "reindexing", False)
+    # While it runs: still found, on its old chunks, and still in the catalog retrieval and citations use.
+    found = await _search(services, reader, [slug], "مدة إجازة الأمومة")
+    assert [s["attachment_id"] for s in found.sources][:1] == [document["id"]]
+    assert document["id"] in await services.kbs.catalog("default", [slug])
+    assert await _chunks(services, document["id"]) == old
+    assert await ingestion(services).pipeline.run(f"kb:{document['id']}") == "indexed"
+    done = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+    assert (done["status"], done["reindex_status"], done["reindex_due"]) == ("indexed", None, False)
+    assert await _chunks(services, document["id"])
+    again = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert again.json()["reindex_status"] is None  # current: unchanged
+
+
+async def test_a_failed_reindex_keeps_the_old_chunks_reads_reindex_failed_and_can_be_retried(services, api):
+    slug = _slug()
+    await _create(api, slug)
+    document = await _document(services, api, slug, LABOR, title="نظام العمل")
+    reader = _reader(f"kb:{slug}:read")
+    old = await _chunks(services, document["id"])
+    async with services.db.connection() as conn:
+        row = await (await conn.execute(
+            "SELECT object_key FROM agent.kb_documents WHERE id = %s", (document["id"],))).fetchone()
+    original = await services.attachments.objects.get(row["object_key"])
+    await services.attachments.objects.put(row["object_key"], b"%PDF-1.7 not a pdf", "application/pdf")
+    await _older_extractor(services, document["id"])
+    await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert await ingestion(services).pipeline.run(f"kb:{document['id']}") == "failed"
+    failed = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+    assert (failed["status"], failed["reindex_status"]) == ("indexed", "reindex_failed")
+    assert failed["reindex_reason"] and failed["reason"] is None and failed["reindex_due"] is True
+    assert await _chunks(services, document["id"]) == old
+    found = await _search(services, reader, [slug], "مدة إجازة الأمومة")
+    assert [s["attachment_id"] for s in found.sources][:1] == [document["id"]]
+    # Retried, as the admin page and the seed do, once the file reads again.
+    await services.attachments.objects.put(row["object_key"], original, "application/pdf")
+    retried = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert retried.json()["reindex_status"] == "reindexing"
+    assert await ingestion(services).pipeline.run(f"kb:{document['id']}") == "indexed"
+    done = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+    assert (done["reindex_status"], done["reindex_reason"], done["reindex_due"]) == (None, None, False)
+
+
+async def test_a_reindex_counts_toward_the_callers_uploads_in_flight(services, api):
+    slug = _slug()
+    await _create(api, slug)
+    document = await _document(services, api, slug, LABOR, title="نظام العمل")
+    await _older_extractor(services, document["id"])
+    held = []
+    while not isinstance(slot := services.kbs.in_flight.try_acquire("default", "kb-admin"), str):
+        held.append(slot)
+    try:
+        refused = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+        assert refused.status_code == 429 and refused.json()["error"]["code"] == "too_many_uploads"
+        view = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+        assert (view["status"], view["reindex_status"], view["reindex_due"]) == ("indexed", None, True)
+    finally:
+        for slot in held:
+            slot.release()
+    accepted = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert accepted.status_code == 200 and accepted.json()["reindex_status"] == "reindexing"

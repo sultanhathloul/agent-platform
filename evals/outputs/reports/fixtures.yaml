@@ -1,0 +1,2 @@
+# The reports suite reads the kb suite's fake knowledge bases (reports PR, I8); nothing of its own.
+include: [services/agent/app/capabilities/kb/evals/fixtures.yaml]

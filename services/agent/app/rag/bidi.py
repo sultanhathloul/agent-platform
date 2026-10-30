@@ -87,3 +87,86 @@ def restore_line(line: str) -> str:
 
 def restore_text(text: str) -> str:
     return "\n".join(restore_line(line) for line in text.splitlines())
+
+
+# ------------------------------------------------------------------ numbers drawn right to left (ADR-0411)
+
+# A piece of a number as a PDF may draw it: digits and the marks inside a number, nothing else.
+MAX_NUMBER_CHARS = 12
+_NUMBER_PIECE = re.compile(r"^[0-9٠-٩۰-۹.,٫٬]+$")
+
+
+def reversed_numbers(pieces: list[tuple[float, float, str, float]]) -> list[tuple[list[str], str]]:
+    """The numbers a page drew right to left, piece by piece: consecutive number pieces (in the order the
+    content stream draws them) on one baseline, each touching the one before it on its left (its gap at most
+    1.5 times its own width at the font's size, 0.6 em a character). pypdf joins them in stream order, so 6.5
+    drawn «5», «.», «6» reads «5.6», 2026 drawn «6», «202» reads «6202» and 0.1 drawn «1», «0.» reads «10.».
+    Separate numbers, a table row's cells drawn right to left, are far apart and never joined, so their
+    order stays the row's. Returns each as (its pieces in stream order, the number in position order).
+    `pieces` is (x, y, text, font size) of every drawn text piece, in stream order."""
+    found: list[tuple[list[str], str]] = []
+    group: list[tuple[float, float, str, float]] = []
+
+    def close() -> None:
+        # A mark drawn on its own at either end (a sentence's full stop, a comma) is the text's, not the
+        # number's: it stays where it is.
+        while group and not any(ch.isdigit() for ch in group[0][2]):
+            group.pop(0)
+        while group and not any(ch.isdigit() for ch in group[-1][2]):
+            group.pop()
+        joined = "".join(p[2] for p in group)
+        # One number, not a run of labels drawn edge to edge (a chart axis's «2021 2022 … 2025»).
+        if len(group) >= 2 and len(joined) <= MAX_NUMBER_CHARS:
+            found.append(([p[2] for p in group], "".join(p[2] for p in sorted(group))))
+        group.clear()
+
+    for x, y, text, size in pieces:
+        if not text:
+            continue
+        piece = text.strip()
+        if not (piece and _NUMBER_PIECE.match(piece) and piece == text):
+            close()
+            continue
+        if group:
+            last = group[-1]
+            touching = last[1] == y and 0 < last[0] - x <= 1.5 * len(piece) * 0.6 * size + 1
+            if not touching:
+                close()
+        group.append((x, y, piece, size))
+    close()
+    return found
+
+
+# A number's edges in pypdf's text: no digit or number mark before it, no digit after it, nor a mark that
+# carries on into another digit («15.6» holds no «5.6»; «6.5» is not the start of «6.52»).
+_DIGITS = "0-9٠-٩۰-۹"
+_NUMBER_START = rf"(?<![{_DIGITS}.,٫٬])"
+_NUMBER_END = rf"(?![{_DIGITS}]|[.,٫٬][{_DIGITS}])"
+
+
+def restore_numbers(raw: str, reversed_: list[tuple[list[str], str]]) -> str:
+    """`raw` (pypdf's text, in stream order) with each number drawn right to left in position order. A drawn
+    run is found only as a whole number, its pieces joined as pypdf joined them (spaces allowed between
+    them), so a number printed in the right order that shares its digits («15.6» beside a reversed «5.6») is
+    never touched. When the text holds that run more often than the page drew it reversed (the same digits
+    also printed in order), which one was reversed is ambiguous, and every one is left as extracted
+    (review round 1 of PR #17, ADR-0421)."""
+    runs: dict[tuple[str, ...], list[str]] = {}
+    for pieces, number in reversed_:
+        runs.setdefault(tuple(pieces), []).append(number)
+    edits: list[tuple[int, int, str]] = []
+    for pieces, numbers in runs.items():
+        pattern = re.compile(_NUMBER_START + r"\s*".join(re.escape(p) for p in pieces) + _NUMBER_END)
+        matches = list(pattern.finditer(raw))
+        if len(matches) != len(numbers):
+            continue
+        edits += [(m.start(), m.end(), number) for m, number in zip(matches, numbers, strict=True)]
+    out, at = [], 0
+    for start, end, number in sorted(edits):
+        if start < at:  # two runs over the same text: the first kept, the other left as extracted
+            continue
+        out += [raw[at:start], number]
+        at = end
+    out.append(raw[at:])
+    return "".join(out)
+

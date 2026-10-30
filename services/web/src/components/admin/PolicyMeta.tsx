@@ -9,7 +9,7 @@ export function policyRef(id: string, version: number | null | undefined): strin
   return [id, version ?? 1].join("@");
 }
 
-const chip = "rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-600";
+const chip = "rounded-full bg-surface-2 px-1.5 text-[11px] text-muted";
 // Latin identifiers only: a monospace face never holds Arabic text (shaping, ADR-0119).
 const code = `${chip} font-mono`;
 
@@ -44,7 +44,7 @@ export function PolicyMeta({
         {t.has(actionKey) ? t(actionKey) : policy.action}
       </bdi>
       {exception && (
-        <bdi data-chip="exception" className="rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-900" title={formatList(overrides, locale)}>
+        <bdi data-chip="exception" className="rounded-full bg-warning-bg px-1.5 text-[11px] text-warning" title={formatList(overrides, locale)}>
           {t("policies.overrides.badge")}
         </bdi>
       )}

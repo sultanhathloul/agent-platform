@@ -1,0 +1,101 @@
+# Interactive HTML reports (reports PR, owner decisions D1–D5, I1–I9; ADR-0364 onward).
+# A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
+# today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
+# (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
+version: 2.3.0
+
+# D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
+# skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
+# words (app/text/arabic.py contains_keyword). A conversation that already holds a report is a candidate
+# on every turn, so a follow-up such as «غيّر الألوان» can edit it (D4). «عرض» alone is not a keyword: it is
+# too common in ordinary requests («اعرض لي»، «العرض والطلب»); «عرض تقديمي» and the composer's picker remain
+# (owner decision 3 on PR #17, ADR-0412).
+keywords:
+  ar: [داشبورد, لوحة مؤشرات, لوحة معلومات, لوحة بيانات, تقرير تفاعلي, إنفوجرافيك, انفوجرافيك, انفوغرافيك, عرض تقديمي, صفحة تقرير]
+  en: [dashboard, infographic, report page, interactive report, indicators board, presentation, slide page]
+
+# I4: one version's stored HTML, after the sources section; past it the turn ends report_too_large.
+max_bytes: 524288
+# The model's raw output read before any parsing (12d: size-capped before parsing). The tier's own
+# output ceiling (role_max_output, 16k tokens) ends a longer answer first.
+max_model_chars: 600000
+# The latest version a follow-up edits, in the report_current block (D4); a larger one cannot be edited
+# in one call and the turn ends report_edit_too_large.
+current_max_tokens: 24000
+
+# Streaming (I1, ADR-0383): a segment of the page is released once it holds this much visible text or a
+# block element closed, after the OUTPUT redact policies and DATA ran on its visible text.
+stream:
+  flush_chars: 600
+
+# Storage (I5, ADR-0373): MinIO bucket and its bound per call; the version row in the same deadline.
+storage:
+  bucket: artifacts
+  store_s: 10
+
+# Owner decision C (ADR-0391): a strip at the end of every report names the model calls behind it (the
+# call that wrote it and any call that produced its findings: model id, provider, tier alias, generation
+# time, input and output tokens), for development. Chosen by the deployment's profile (PLATFORM_PROFILE,
+# production unless set); never shown when false, in the view, the code view or the download.
+show_model_info:
+  development: true
+  production: false
+
+# The design kit (I2): served by the gateway at `path` (same origin as the report page), read from
+# config/artifacts/kit/; never from the internet. `version` is part of the path, so a cached asset never
+# outlives a kit change.
+kit:
+  version: v1
+  path: /report-kit/v1/
+  # Served at `path` + file; a download inlines the scripts in this order and the stylesheet with its fonts
+  # as data: URLs. Each file's SHA-256 is pinned in config/artifacts/kit/SOURCE.md and checked by a test.
+  stylesheet: kit.css
+  scripts: [vendor/echarts.min.js, kit.js]
+  fonts: [fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2, fonts/ibm-plex-sans-arabic-latin-400-normal.woff2,
+          fonts/ibm-plex-sans-arabic-arabic-500-normal.woff2, fonts/ibm-plex-sans-arabic-latin-500-normal.woff2,
+          fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2, fonts/ibm-plex-sans-arabic-latin-600-normal.woff2,
+          fonts/ibm-plex-sans-arabic-arabic-700-normal.woff2, fonts/ibm-plex-sans-arabic-latin-700-normal.woff2]
+
+# What the platform writes into the page and the chat: the sources section and the reply's line.
+text:
+  sources_heading: {ar: "المصادر", en: "Sources"}
+  no_sources: {ar: "لم يُعثر على قيم هذا التقرير في المصادر.", en: "None of this report's values were found in the sources."}
+  # Owner decision B on PR #17 (ADR-0408): no label beside any figure. A general-knowledge report opens with
+  # this line and has no sources section; a sourced one ends with «المصادر», one entry per document and under
+  # it each element it supports ({kind}: {title} — pages or sheets) and the values it could not find.
+  general_banner: {ar: "هذا التقرير من المعرفة العامة للنموذج، دون مصادر موثقة", en: "This report is from the model's general knowledge, without verified sources"}
+  kinds:
+    kpi_row: {ar: "مؤشرات", en: "Indicators"}
+    chart: {ar: "رسم", en: "Chart"}
+    table: {ar: "جدول", en: "Table"}
+  untitled_element: {ar: "المؤشرات الرئيسة", en: "Key indicators"}
+  sheet: {ar: "ورقة", en: "sheet"}
+  unavailable: {ar: "غير متوفر في المصدر: {values}", en: "Not available in the source: {values}"}
+  change: {ar: "التغير", en: "change"}
+  chart_gaps: {ar: "قيم غير متوفرة في المصادر: {count}", en: "Values not available in the sources: {count}"}
+  page: {ar: "ص", en: "p."}
+  created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
+  updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}
+  untitled: {ar: "تقرير", en: "Report"}
+  # Never silent (owner visual check on PR #17, ADR-0416): what a report could not do, said in its reply, in the
+  # request's language. {items} are titles in quotes, joined; {sources} the toggled KBs' or the files' names.
+  partial: {ar: "أضفت ما أمكن.", en: "I added what I could."}
+  missing_elements: {ar: "لم أجد في المصادر بيانات {items}، فتركت ذلك خارج التقرير.", en: "I found no data in the sources for {items}, so I left that out of the report."}
+  trimmed_categories: {ar: "وأزلت من «{chart}» ما لا بيانات له في المصادر: {items}.", en: "From \"{chart}\" I removed what has no data in the sources: {items}."}
+  gaps: {ar: "وبعض القيم غير متوفرة في المصادر فظهرت «—».", en: "Some values are not in the sources and show as «—»."}
+  # A sentence of text whose figure its cited passages do not hold leaves the page (ADR-0425).
+  removed_sentences: {ar: "وحذفت من النص جملًا لم أجد أرقامها في المصادر: {count}.", en: "I removed sentences whose figures are not in the sources: {count}."}
+  nothing_found: {ar: "لا تحوي المصادر المختارة ({sources}) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.", en: "The selected sources ({sources}) hold no data on this subject, so I did not create the report. Untoggle them to build it from general knowledge."}
+  # The model strip (ADR-0391).
+  model_info:
+    heading: {ar: "معلومات النموذج (بيئة التطوير)", en: "Model information (development)"}
+    wrote: {ar: "كتابة التقرير", en: "Wrote the report"}
+    findings: {ar: "نتائج: {name}", en: "Findings: {name}"}
+    call: {ar: "الاستدعاء", en: "Call"}
+    model: {ar: "النموذج", en: "Model"}
+    provider: {ar: "المزوّد", en: "Provider"}
+    tier: {ar: "الفئة", en: "Tier"}
+    time: {ar: "زمن التوليد", en: "Generation time"}
+    tokens: {ar: "الرموز (إدخال / إخراج)", en: "Tokens (in / out)"}
+    seconds: {ar: "{value} ث", en: "{value} s"}
+    unknown: {ar: "غير معروف", en: "unknown"}

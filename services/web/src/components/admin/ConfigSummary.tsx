@@ -18,8 +18,8 @@ import {
   type Config,
 } from "@/lib/policyConfig";
 
-const quiet = "rounded-md px-3 py-1.5 text-sm text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50";
-const chip = "rounded-full bg-slate-100 px-1.5 text-xs text-slate-700";
+const quiet = "rounded-md px-3 py-1.5 text-sm text-fg ring-1 ring-line-strong hover:bg-surface-2 disabled:opacity-50";
+const chip = "rounded-full bg-surface-2 px-1.5 text-xs text-fg";
 // Latin identifiers only: a monospace face never holds Arabic text (ADR-0119).
 const code = `${chip} font-mono`;
 
@@ -49,8 +49,8 @@ export function LabelChip({ namespace, id }: { namespace: string; id: string }) 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)]" data-summary-row="">
-      <dt className="text-xs font-medium text-slate-500">{label}</dt>
-      <dd className="flex min-w-0 flex-wrap items-center gap-1 text-sm text-slate-800">{children}</dd>
+      <dt className="text-xs font-medium text-muted">{label}</dt>
+      <dd className="flex min-w-0 flex-wrap items-center gap-1 text-sm text-fg">{children}</dd>
     </div>
   );
 }
@@ -101,7 +101,7 @@ export function ConfigSummary({ checker, config, checkpoints }: { checker: strin
                     <bdi dir="ltr" className={code}>
                       {row.name}
                     </bdi>
-                    <bdi dir="ltr" className="min-w-0 break-all font-mono text-xs text-slate-700">
+                    <bdi dir="ltr" className="min-w-0 break-all font-mono text-xs text-fg">
                       {row.pattern}
                     </bdi>
                   </li>
@@ -136,14 +136,14 @@ export function ConfigSummary({ checker, config, checkpoints }: { checker: strin
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-xs text-slate-500">
+                    <tr className="text-xs text-muted">
                       <th className="py-1 text-start font-medium">{t("policies.config.exampleText")}</th>
                       <th className="py-1 text-start font-medium">{t("policies.config.verdict")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {readExamples(config).map((example, i) => (
-                      <tr key={i} className="border-t border-slate-100" data-example-row="">
+                      <tr key={i} className="border-t border-line" data-example-row="">
                         <td dir="auto" className="py-1 pe-2">
                           {example.text}
                         </td>
@@ -185,7 +185,7 @@ export function ConfigSummary({ checker, config, checkpoints }: { checker: strin
         {technical ? t("policies.summary.hideTechnical") : t("policies.summary.showTechnical")}
       </button>
       {technical && (
-        <pre dir="ltr" className="mt-2 max-h-64 overflow-auto rounded-md bg-slate-50 p-2 text-xs text-slate-700" data-raw-config="">
+        <pre dir="ltr" className="mt-2 max-h-64 overflow-auto rounded-md bg-surface-2 p-2 text-xs text-fg" data-raw-config="">
           {JSON.stringify(config, null, 2)}
         </pre>
       )}
