@@ -3754,3 +3754,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: reports/kb-gulf-leave failed in all three before-merge eval runs (make-eval-20261029T162319Z, T171258Z, T180017Z) with the nothing-found reply. The eval KB's labour law states «إجازة سنوية مدتها واحد وعشرون يوما، تزيد إلى ثلاثين يوما». `figures()` folds number words to digits, but the prose units of ADR-0414 were cut from the unfolded text, so a sentence whose figures are words gave no unit: every value was unavailable, every element dropped, and since ADR-0416 the turn ended without a page (before it, the page kept its text).
 - Decision: Prose is folded with `fold_number_words` (app/text/arabic.py, the same folding as `figures()`) before it is cut into units; each figure's sentence and qualifiers are read on the folded text. Workbook cells are unchanged. Test: the labour-law passage, 21, 30 and 10 found, 25 not.
 - Consequences: A value stated in words is found under the same row and qualifier rules as one in digits. The words a figure was written in are no longer in its context, which matched no label anyway.
+
+### ADR-0420: Eval runs 4 to 6 of PR #17 are accepted for merge (owner decision)
+- Date: 2026-10-30
+- Phase: reports PR (the before-merge gate)
+- Status: decided
+- Context: Rule 13 asks for three passing make eval runs before merge when prompts, routing or retrieval changed. After the ADR-0419 fix, the three runs at 894872e were make-eval-20261029T190307Z (rag@mcp below threshold: abstention 0.83, leave-housing abstained but showed a source line), make-eval-20261029T195359Z (directions below threshold: unknown_or_ambiguous_handled 0.86, ambiguous-msa-university) and make-eval-20261029T204249Z (every suite passed).
+- Decision: The owner accepts runs 4 to 6 as the before-merge eval gate of PR #17. The reports suite, which this PR adds and changes, passed all three (12/12). The directions failure is the known ambiguous-place case, on a capability this PR does not change. The rag@mcp abstention failure happened once in three runs.
+- Consequences: PR #17 is ready to merge on its evals. This acceptance covers this PR only; the rule 13 gate is unchanged for later PRs. The ambiguous-place case and the abstention source line stay open as known model misses.

@@ -2625,6 +2625,10 @@ make eval, all suites (every run: 0 provider retries, no provider refusal or tim
      - official_memo 8/8 (no_invented_fields 0.60 and facts_kept 0.80 reported).
      - reports 12/12: every gated metric 1.00; visual_quality 0.80 reported.
 - What failed in runs 4–6 was in suites this PR does not change: directions (manifest, prompts, dataset and server unchanged) and rag@mcp's abstention (the docs capability). Both are model answers; neither is a provider refusal or a timeout. The owner decides whether runs 4–6 meet the before-merge gate.
+- **Owner decision of 2026-10-30 (ADR-0420): runs 4 to 6 are accepted for merge.** Reasons:
+  - The reports suite passed all three (12/12).
+  - The directions failure is the known ambiguous-place case, on code this PR does not change.
+  - The rag@mcp abstention failure happened once.
 - Misses that recur and stay below threshold: the rag twenty-past-truncation citation pages, and kb latest-inflation-ar and latest-growth-gulf citation_accuracy (both known; the citation-by-claim item in BACKLOG).
 
 make smoke and make smoke-airgap
