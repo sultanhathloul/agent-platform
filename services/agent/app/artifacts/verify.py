@@ -20,7 +20,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from app.artifacts.figures import ARABIC, LATIN, canonical, canonical_number, figures, spans, words
+from app.artifacts.figures import ARABIC, LATIN, canonical, canonical_number, figures, signed, spans, words
 from app.artifacts.spec import Callout, Chart, KpiRow, ReportSpec, Table, Text
 from app.text.arabic import fold_number_words, normalize
 
@@ -96,9 +96,12 @@ class Qualifiers:
         sex = None
         if max(male, female) > total:
             sex = "male" if male > female else "female"
-        # No period from prose: the one near a figure is as often the one it is compared with («مقارنةً
-        # بالربع الأول»); a workbook row names its own.
+        # No quarter from prose: the one near a figure is as often the one it is compared with («مقارنةً
+        # بالربع الأول»); a workbook row names its own. The year is the one named nearest (`nearest_year`).
         return cls(sex=sex, nationality=nationality)
+
+    def with_year(self, year: str | None) -> "Qualifiers":
+        return Qualifiers(self.sex, self.nationality, self.quarter, year if year is not None else self.year)
 
     def agrees(self, row: "Qualifiers") -> bool:
         """A label's qualifiers against its row's: sex and nationality equal, a total (None) only against a
@@ -111,17 +114,60 @@ class Qualifiers:
         return not (self.year and row.year and self.year != row.year)
 
 
+def nearest_year(before: str, after: str) -> str | None:
+    """The year a prose figure is of (review round 1 of PR #17, finding 3, ADR-0425): the one named with it,
+    after it and before the next figure in its sentence («من 50.2 في عام 2023 إلى 51.4 في عام 2024»: 50.2 is
+    2023's, 51.4 2024's; «… 6.5 % في الربع الثاني من عام 2026»), else the last one named before it in its
+    sentence («في عام 2026 بلغ المعدل 6.5»)."""
+    following = spans(_FULL_STOP.split(after, maxsplit=1)[0])
+    if following and _YEAR.fullmatch(following[0][2]):
+        return following[0][2]
+    back = _YEAR.findall(before)
+    return back[-1] if back else None
+
+
+# Words that qualify a value's group rather than name its measure (ADR-0414's qualifiers, ADR-0425).
+QUALIFIER_WORDS = words([
+    "ذكور الذكور ذكر رجال الرجال اناث الاناث الإناث انثى نساء النساء سعوديين السعوديين سعوديون السعوديون سعودي "
+    "سعوديات السعوديات غير male males men female females women non nationals",
+])
+
+
 @dataclass
 class _Unit:
-    """One place a passage states figures: a workbook cell (its row and column) or a sentence of prose."""
+    """One place a passage states figures: a workbook cell (its row and column) or a sentence of prose.
+    `cells`: the words of the cell's own row and column (a sentence's words in prose); `table`: the words of
+    its table's own title lines, never the workbook's title or the sheet's name (ADR-0425)."""
 
     context: str
     figures: set[str]
     words: set[str]
     qualifiers: Qualifiers
+    cells: set[str] = field(default_factory=set)
+    table: set[str] = field(default_factory=set)
 
 
 _SENTENCE = re.compile(r"(?<=[.!?؟])\s+(?=\D)|\n+")
+
+
+_TABLE_NUMBER = re.compile(r"^\s*(?:\|\s*)?(?:جدول|table)\s*\(?[\w.\-]*\)?\s*$", re.I)
+
+
+def _title_lines(lines: list[str]) -> tuple[list[str], list[str]]:
+    """A workbook chunk's preamble titles (ADR-0413): (all of them, the table's own). Titles are the one-cell
+    lines before the [columns] line; when there are two or more, the first is the workbook's title, the same on
+    every sheet («إحصاءات سوق العمل الربع الثاني 2026»), and the rest the table's; a table number line
+    («جدول (3-1)») and the sheet's name («[3-1]») name nothing (ADR-0425)."""
+    titles = []
+    for line in lines:
+        if line.startswith("[columns]"):
+            break
+        if line.startswith("[") or _TABLE_NUMBER.match(line):
+            continue
+        if line.startswith(" | ") or "|" not in line:
+            titles.append(line.strip(" |"))
+    own = titles[1:] if len(titles) >= 2 else titles
+    return titles, own
 
 
 def _units(text: str) -> list[_Unit]:
@@ -130,9 +176,12 @@ def _units(text: str) -> list[_Unit]:
     units: list[_Unit] = []
     if columns is not None:
         # A workbook chunk (ADR-0413): its title lines, then rows «label | v1 | v2 …» under [columns].
-        titles = [line for line in lines if line.startswith(" | ") or line.startswith("[") and not line.startswith("[columns]")]
-        title = " ".join(t.strip(" |[]") for t in titles if "|" not in t.strip(" |") or t.startswith(" | "))
-        for line in lines:
+        titles, own = _title_lines(lines)
+        title = " ".join(titles)
+        table_words = words(own)
+        table_year = Qualifiers.of(" ".join(own)).year
+        rows = lines[next(i for i, line in enumerate(lines) if line.startswith("[columns] ")) + 1 :]
+        for line in rows:  # the preamble's titles are no rows, though one may name a year (ADR-0425)
             cells = line.split(" | ")
             if line.startswith("[") or len(cells) < 2 or not any(spans(c) for c in cells[1:]):
                 continue
@@ -143,11 +192,16 @@ def _units(text: str) -> list[_Unit]:
                 label = columns[col] if col < len(columns) else ""
                 row_and_column = f"{cells[0]} {label}"
                 context = f"{title} {row_and_column}"
-                units.append(_Unit(context, found, words([context]), Qualifiers.of(row_and_column)))
+                qualifiers = Qualifiers.of(row_and_column)
+                if qualifiers.year is None:
+                    qualifiers = qualifiers.with_year(table_year)
+                units.append(_Unit(context, found, words([context]), qualifiers,
+                                   cells=words([row_and_column]), table=table_words))
         return units
     # Prose (a PDF page, a document's text): one unit per figure, read with the text just before it, its
     # layout line breaks joined, and number words folded to digits first, as figures() reads them: «مدتها واحد
-    # وعشرون يوما» states 21.
+    # وعشرون يوما» states 21. A figure stated as the amount of a fall is negative (ADR-0425), and of the year
+    # named nearest to it.
     flat = fold_number_words(re.sub(r"\s+", " ", text))
     for start, end, figure in spans(flat):
         before = flat[max(0, start - PROSE_WINDOW) : start]
@@ -155,7 +209,10 @@ def _units(text: str) -> list[_Unit]:
         if stops:
             before = before[stops[-1].end() :]
         context = before + flat[start : end + 40]
-        units.append(_Unit(context, figures([flat[start:end]]), words([context]), Qualifiers.before(before)))
+        found = {signed(f, before) for f in figures([flat[start:end]])}
+        year = nearest_year(before, flat[end : end + PROSE_WINDOW]) if not _YEAR.fullmatch(figure) else None
+        sentence = words([context])
+        units.append(_Unit(context, found, sentence, Qualifiers.before(before).with_year(year), cells=sentence))
     return units
 
 
@@ -172,6 +229,7 @@ class Passage:
     page: int | None = None
     locator: str | None = None
     _units: list[_Unit] | None = None
+    _words: set[str] | None = None
 
     @property
     def units(self) -> list[_Unit]:
@@ -179,28 +237,69 @@ class Passage:
             self._units = _units(self.text)
         return self._units
 
-    def holds(self, figure: str, groups: Sequence[Sequence[str]], qualifiers: Qualifiers | None = None) -> bool:
-        """The figure sits in one of the passage's rows (a workbook cell's row and column, or a sentence) that
-        also holds, for each group of labels with a word of its own, one of its words (the value's position,
-        its measure), and whose qualifiers agree with the label's (ADR-0414): a total's label only in a total's
-        row or column, «الذكور» only in the men's, the period its own. So 4.8, Saudi men's unemployment, is not
-        «معدل البطالة الإجمالي», and 84.3 under «ذكور» in a participation table is not a share of employed men."""
+    def holds(
+        self,
+        figure: str,
+        position: Sequence[str] = (),
+        measure: Sequence[str] = (),
+        qualifiers: Qualifiers | None = None,
+        *,
+        year: str | None = None,
+    ) -> bool:
+        """The figure, its sign included, sits in one of the passage's rows (a workbook cell's row and column, or
+        a sentence) whose qualifiers agree with the label's (ADR-0414) and which names the value's position and
+        its measure (ADR-0425):
+        - `position` (a chart point's category, a table cell's row label) shares a word with the cell's own row
+          and column (the sentence, in prose);
+        - `measure` (a KPI's label, a series or column with its element's title, a sentence) shares a word with
+          what the row and column name beyond the position and the qualifiers, or, when they name nothing more
+          (a time series' rows of quarters), with the table's own title; never with the workbook's title or the
+          sheet's name. So «معدل المشاركة» is not 3.0 in sheet 1's «معدل البطالة» row because the workbook
+          speaks of «سوق العمل»;
+        - `year`, a position's own year («2023» as a category), only in a row of that year."""
         for unit in self.units:
             if figure not in unit.figures:
                 continue
             if qualifiers is not None and not qualifiers.agrees(unit.qualifiers):
                 continue
-            if all(self._worded(labels, unit) for labels in groups):
+            if year is not None and unit.qualifiers.year != year:
+                continue
+            if self._named(position, measure, unit):
                 return True
         return False
 
-    def _worded(self, labels: Sequence[str], unit: _Unit) -> bool:
-        wanted = words(labels)
-        if not wanted or wanted & unit.words:
+    def _named(self, position: Sequence[str], measure: Sequence[str], unit: _Unit) -> bool:
+        placed: set[str] = set()
+        wanted = words(position)
+        if wanted:
+            placed = wanted & unit.cells
+            if not placed and not self._translated(position, unit):
+                return False
+        wanted = words(measure) - QUALIFIER_WORDS
+        if not wanted:
             return True
-        # A label in a script the passage does not use was translated (ADR-0396): the figure decides.
+        rest = unit.cells - QUALIFIER_WORDS - placed
+        return bool(wanted & (rest or unit.table)) or self._translated(measure, unit)
+
+    @staticmethod
+    def _translated(labels: Sequence[str], unit: _Unit) -> bool:
+        """A label in a script the passage does not use was translated (ADR-0396): the figure decides."""
         text = " ".join(labels)
         return not ((ARABIC.search(text) and ARABIC.search(unit.context)) or (LATIN.search(text) and LATIN.search(unit.context)))
+
+    def names(self, text: str) -> bool:
+        """Some word of a table's name cell (a row's label, a category) is in this passage (ADR-0425)."""
+        wanted = words([text]) - QUALIFIER_WORDS
+        if not wanted:
+            return True
+        if self._words is None:
+            self._words = words([self.text])
+        return bool(wanted & self._words) or self._translated([text], _Unit(self.text, set(), set(), Qualifiers()))
+
+
+# A page's prose cut into sentences, each keeping its closing mark and space (ADR-0425).
+_PAGE_SENTENCE = re.compile(r"(?:[^.!?؟]|\.(?=\d))+(?:[.!?؟]+\s*|$)|[.!?؟]+\s*")
+_FIGURES_OUT = re.compile(r"[-−+]?\d[\d.,٫٬]*")
 
 
 _TOTAL_LABEL = re.compile(r"(?:^|\s|\()(?:ال|لل|ل)?(?:اجمالي|مجموع)(?:\s|\)|$)|\btotal\b|\boverall\b", re.I)
@@ -272,6 +371,8 @@ class Verified:
     found: int = 0
     unavailable: int = 0
     refs: list[str] = field(default_factory=list)  # the passages a value was found in, in order
+    # Sentences of text and callouts whose figures were not found in their cited passages (ADR-0425).
+    removed: list[str] = field(default_factory=list)
 
 
 class Verifier:
@@ -297,11 +398,15 @@ class Verifier:
                 # A general report counts its values too: the version's `figures`, all of them general.
                 self.result.values += _values(section)
             return section
-        if isinstance(section, Text | Callout):
-            section.markdown = self._text(section.markdown)
-            return section
-        cited = [self.passages[s] for s in section.sources if s in self.passages]
         title = getattr(section, "title", None) or self.untitled
+        if isinstance(section, Text | Callout):
+            # Checked like a KPI against the section's own cited passages only (ADR-0425); a sentence whose
+            # figure is not found leaves the page and is named in the reply.
+            cited = [self.passages[s] for s in section.sources if s in self.passages]
+            section.markdown = self._text(section.markdown, cited)
+            section.sources = [s for s in section.sources if s in self.passages]
+            return section if section.markdown.strip() else None
+        cited = [self.passages[s] for s in section.sources if s in self.passages]
         if not cited or "general" in section.sources:
             self.result.dropped.append(title)
             return None
@@ -309,17 +414,26 @@ class Verifier:
         missing: list[str] = []
         total = found = 0
 
-        def check(value, groups: list[list[str]], name: str) -> bool:
+        def check(value, name: str, *, position: Sequence[str] = (), measure: Sequence[str] = (),
+                  period: Sequence[str] = ()) -> bool:
+            """`period`: the labels a value's period is read from, most specific first (its category or row,
+            then its series or column, then its element's title), the report's period last (ADR-0425)."""
             nonlocal total, found
             total += 1
             figure = canonical_number(value) if isinstance(value, int | float) else canonical(str(value))
-            label = " ".join(text for group in groups for text in group if text)
-            qualifiers = Qualifiers.of(label)
-            if self.period and qualifiers.quarter is None and qualifiers.year is None:
-                period = Qualifiers.of(self.period)
-                qualifiers = Qualifiers(qualifiers.sex, qualifiers.nationality, period.quarter, period.year)
+            qualifiers = Qualifiers.of(" ".join(t for t in (*position, *measure) if t))
+            own = Qualifiers.of(" ".join(t for t in position if t)) if position else Qualifiers()
+            year = own.year
+            for label in (*period, self.period or ""):
+                found_period = Qualifiers.of(label or "")
+                if found_period.year or found_period.quarter:
+                    qualifiers = Qualifiers(qualifiers.sex, qualifiers.nationality, found_period.quarter,
+                                            found_period.year)
+                    break
+            else:
+                qualifiers = Qualifiers(qualifiers.sex, qualifiers.nationality)
             for passage in cited:
-                if passage.holds(figure, groups, qualifiers):
+                if passage.holds(figure, position, measure, qualifiers, year=year):
                     found += 1
                     self._use(uses, section, title, passage)
                     if passage.ref not in self.result.refs:
@@ -330,10 +444,13 @@ class Verifier:
 
         if isinstance(section, KpiRow):
             for item in section.items:
-                groups = [[item.label, section.title or ""]]
-                if item.value is not None and not check(item.value, groups, item.label):
+                # The KPI's own label names its measure; its row's title only when the label names none.
+                measure = [item.label] if words([item.label]) - QUALIFIER_WORDS else [item.label, section.title or ""]
+                period = [item.label, section.title or ""]
+                if item.value is not None and not check(item.value, item.label, measure=measure, period=period):
                     item.value = None
-                if item.delta is not None and not check(item.delta, groups, f"{item.label} ({self.change})"):
+                if item.delta is not None and not check(item.delta, f"{item.label} ({self.change})", measure=measure,
+                                                        period=period):
                     item.delta = None
         elif isinstance(section, Chart):
             _without_totals(section)
@@ -345,7 +462,8 @@ class Verifier:
                     if value is None:
                         continue
                     category = section.labels[i] if i < len(section.labels) else ""
-                    if not check(value, [[category], [series.name, section.title]], f"{category} · {series.name}"):
+                    if not check(value, f"{category} · {series.name}", position=[category],
+                                 measure=[series.name, section.title], period=[category, series.name, section.title]):
                         series.data[i] = None
             # A category no series has a value for leaves the chart (ADR-0416): no empty group of bars.
             empty = [i for i in range(len(section.labels)) if all(i >= len(s.data) or s.data[i] is None for s in section.series)]
@@ -359,23 +477,39 @@ class Verifier:
         elif isinstance(section, Table):
             for row in section.rows:
                 for c, cell in enumerate(row):
-                    if c == 0 or cell is None:
-                        continue  # the row's label is a name, not a value
-                    raw = str(cell)
-                    found_spans = spans(raw)
-                    if not found_spans:
+                    if cell is None:
                         continue
+                    raw = fold_number_words(str(cell))  # a figure in words is checked as one (ADR-0425)
+                    found_spans = spans(raw)
                     column = section.columns[c] if c < len(section.columns) else ""
-                    groups = [[str(row[0] or "")], [column, section.title]]
+                    if c == 0 or not found_spans:
+                        # A name (a row's label, a category, a text cell): counted only when its cited passages
+                        # name it too, so a table of names the sources never mention keeps nothing (ADR-0425).
+                        if not words([raw]) - QUALIFIER_WORDS:
+                            continue
+                        total += 1
+                        named = next((p for p in cited if p.names(raw)), None)
+                        if named is not None:
+                            found += 1
+                            self._use(uses, section, title, named)
+                        elif c > 0:
+                            row[c] = MISSING
+                            missing.append(f"{row[0]} · {column}")
+                        else:
+                            missing.append(str(cell))
+                        continue
                     name = f"{row[0]} · {column}"
-                    if not all(check(figure, groups, name) for _, _, figure in found_spans):
+                    if not all(check(figure, name, position=[str(row[0] or "")], measure=[column, section.title],
+                                     period=[str(row[0] or ""), column, section.title])
+                               for _, _, figure in found_spans):
                         row[c] = MISSING
         self.result.values += total
         self.result.found += found
         self.result.unavailable += total - found
         self.result.checked += 1
-        # Nothing found, or nothing to find (a chart or KPI row the model left all null): the element leaves.
-        if (total and not found) or (not total and not isinstance(section, Table)):
+        # Nothing found, or nothing to find (an element the model left all null, a table with nothing its
+        # passages name): the element leaves, and a sourced report counts only elements verified (ADR-0425).
+        if not found:
             self.result.dropped.append(title)
             return None
         # A chart with fewer than two categories left says nothing as a chart (ADR-0416).
@@ -403,18 +537,44 @@ class Verifier:
         if where and where not in use.where:
             use.where.append(where)
 
-    def _text(self, markdown: str) -> str:
-        """Figures in prose must be held by some passage of the turn with a word of their paragraph."""
-        out = []
-        for paragraph in re.split(r"(\n\s*\n)", markdown):
-            pieces, at = [], 0
-            for start, end, figure in spans(paragraph):
-                if not any(p.holds(figure, [[paragraph]]) for p in self.passages.values()):
-                    pieces.append(paragraph[at:start] + MISSING)
-                    at = end
-            pieces.append(paragraph[at:])
-            out.append("".join(pieces))
-        return "".join(out)
+    def _text(self, markdown: str, cited: Sequence[Passage]) -> str:
+        """Prose figures checked like a KPI's (ADR-0425), sentence by sentence, against the section's cited
+        passages only: each figure (number words folded, its sign from its wording) with the words of its
+        sentence before it as its measure, the qualifiers it names and the year named nearest to it, the
+        report's period otherwise. A sentence holding a figure not found leaves the text and is named in the
+        reply; one with no figure stays."""
+        out: list[str] = []
+        for line in markdown.split("\n"):
+            bullet = re.match(r"^\s*(?:[-*•]|\d+[.)])\s+", line)
+            lead = bullet.group(0) if bullet else ""
+            kept = []
+            for sentence in _PAGE_SENTENCE.findall(line[len(lead):]):
+                if sentence.strip() and not self._sentence_holds(sentence, cited):
+                    self.result.removed.append(sentence.strip())
+                    continue
+                kept.append(sentence)
+            body = "".join(kept).strip()
+            if body or not line[len(lead):].strip():
+                out.append(lead + body if body else line)
+        return "\n".join(out).strip("\n")
+
+    def _sentence_holds(self, sentence: str, cited: Sequence[Passage]) -> bool:
+        plain = fold_number_words(sentence.replace("**", "").replace("__", ""))
+        for start, end, figure in spans(plain):
+            before = plain[:start]
+            figure = signed(figure, before)
+            year = nearest_year(before, plain[end:]) if not _YEAR.fullmatch(figure.lstrip("-")) else None
+            if year is None:
+                year = Qualifiers.of(self.period or "").year
+            qualifiers = Qualifiers.before(before).with_year(year)
+            # Only the words of its own sentence before it say what the figure is.
+            measure = [_FIGURES_OUT.sub(" ", before)]
+            holding = next((p for p in cited if p.holds(figure, (), measure, qualifiers)), None)
+            if holding is None:
+                return False
+            if holding.ref not in self.result.refs:
+                self.result.refs.append(holding.ref)
+        return True
 
     # ------------------------------------------------------------------ the whole spec
     def spec(self, spec: ReportSpec) -> Verified:

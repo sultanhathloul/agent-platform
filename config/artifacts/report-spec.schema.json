@@ -37,6 +37,16 @@
           "maxLength": 1000,
           "title": "Markdown",
           "type": "string"
+        },
+        "sources": {
+          "default": [],
+          "items": {
+            "pattern": "^(P[1-9][0-9]{0,2}|general)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Sources",
+          "type": "array"
         }
       },
       "required": [
@@ -360,6 +370,16 @@
           "maxLength": 4000,
           "title": "Markdown",
           "type": "string"
+        },
+        "sources": {
+          "default": [],
+          "items": {
+            "pattern": "^(P[1-9][0-9]{0,2}|general)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Sources",
+          "type": "array"
         }
       },
       "required": [

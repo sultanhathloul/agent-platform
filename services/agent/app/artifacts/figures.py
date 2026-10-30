@@ -9,6 +9,11 @@ are folded to digits first (ADR-0359), a date gives its parts, and a figure stat
 decimals (a workbook cell, 83.60299013) also gives its rounding half up to one and two decimals (ADR-0404);
 no other rounding, no unit changes and no arithmetic are matched.
 
+A figure carries its sign (review round 1 of PR #17, finding 1, ADR-0425): «-0.1», «−0.1» and «+0.1» are read
+with it, a sign glued to the figure and not to a word or a number before it («15-24» is a range, not -24), and
+the canonical form keeps a minus. In prose, a figure stated as the amount of a fall («انخفض … بمقدار 0.1»،
+"fell by 0.1") is negative and of a rise positive (`by_wording`); a level («انخفض إلى 3.0») keeps its sign.
+
 A label's words are light-stemmed with their plural and nisba endings folded («سعوديون», «للسعوديين» and
 «سعودي» are one word), three letters or more, generic words such as «عدد» or "total" left out (ADR-0399).
 
@@ -18,7 +23,7 @@ import re
 from collections.abc import Iterable
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.text.arabic import fold_number_words, search_terms
+from app.text.arabic import fold_number_words, normalize, search_terms
 
 _INDIC = str.maketrans(
     {**{a: str(i) for i, a in enumerate("٠١٢٣٤٥٦٧٨٩")}, **{a: str(i) for i, a in enumerate("۰۱۲۳۴۵۶۷۸۹")}}
@@ -27,17 +32,32 @@ _DIGIT = r"[0-9٠-٩۰-۹]"
 _DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{2,4}")
 # Thousands separators: the comma, the Arabic one, and the narrow and plain no-break spaces of the SI
 # style ("3 872"), which a model writes too; a plain space never joins two figures.
-FIGURE = re.compile(rf"{_DIGIT}{{1,3}}(?:[,٬\u202f\u00a0]{_DIGIT}{{3}})+(?:[.٫]{_DIGIT}+)?|{_DIGIT}+(?:[.٫]{_DIGIT}+)?")
+# A sign glued to the figure, with no letter, digit or decimal mark before it (ADR-0425).
+_SIGN = r"(?:(?<![\w.,٫٬])[-−+](?=[0-9٠-٩۰-۹]))?"
+FIGURE = re.compile(
+    rf"{_SIGN}(?:{_DIGIT}{{1,3}}(?:[,٬\u202f\u00a0]{_DIGIT}{{3}})+(?:[.٫]{_DIGIT}+)?|{_DIGIT}+(?:[.٫]{_DIGIT}+)?)"
+)
 
 
 def canonical(raw: str) -> str:
-    """A figure's canonical form: Western digits, no separators, no leading or trailing zeros."""
-    text = raw.translate(_INDIC).replace(",", "").replace("٬", "").replace("\u202f", "").replace("\u00a0", "")
+    """A figure's canonical form: Western digits, no separators, no leading or trailing zeros, a minus kept
+    (never on zero) and a plus dropped."""
+    text = raw.strip().translate(_INDIC).replace(",", "").replace("٬", "").replace("\u202f", "").replace("\u00a0", "")
     text = text.replace("٫", ".")
+    negative = text[:1] in ("-", "−")
+    text = text.lstrip("-−+")
     whole, _, fraction = text.partition(".")
     whole = whole.lstrip("0") or "0"
     fraction = fraction.rstrip("0")
-    return f"{whole}.{fraction}" if fraction else whole
+    out = f"{whole}.{fraction}" if fraction else whole
+    return f"-{out}" if negative and out != "0" else out
+
+
+def negated(figure: str) -> str:
+    """A canonical figure with its sign turned."""
+    if figure == "0":
+        return figure
+    return figure[1:] if figure.startswith("-") else f"-{figure}"
 
 
 def canonical_number(value: float | int) -> str:
@@ -54,6 +74,8 @@ def _glued(text: str, start: int, end: int) -> bool:
     or a Latin letter right after it ("5G", "3D")."""
     if end < len(text) and text[end].isascii() and text[end].isalpha():
         return True
+    if text[start] in "-−+":  # a sign is never glued to what precedes it (FIGURE's lookbehind)
+        return False
     if start == 0:
         return False
     before = text[start - 1]
@@ -72,7 +94,7 @@ def rounded(figure: str) -> list[str]:
     whole, _, fraction = figure.partition(".")
     if len(fraction) <= 2:
         return []
-    value = Decimal(figure)
+    value = Decimal(figure)  # a minus rounds with it
     return [canonical(str(value.quantize(Decimal(step), rounding=ROUND_HALF_UP))) for step in ("0.1", "0.01")]
 
 
@@ -118,6 +140,39 @@ def _key(word: str) -> str:
                 word = word[: -len(ending)]
                 break
     return word
+
+
+# The words of a change in prose (ADR-0425), matched on normalized text: a direction, then the amount it
+# introduces right before the figure («بمقدار 0.1»، «مقداره 0.1»، «بنسبة 2.5»، "by 0.1"). A level («إلى 3.0»،
+# "to 3.0") is not an amount.
+_FALL = re.compile(
+    r"انخفض|انخفاض|بانخفاض|تراجع|بتراجع|هبط|هبوط|نقص|انكمش|انكماش|تدني|\b(?:decreas|declin|fell|fall|drop|lower|down)\w*",
+    re.I,
+)
+_RISE = re.compile(r"ارتفع|ارتفاع|بارتفاع|زاد|زياده|بزياده|نما|نمو|صعد|تحسن|\b(?:increas|rose|rise|grew|grow|up)\w*", re.I)
+_AMOUNT = re.compile(r"(?:بمقدار|مقداره|مقدارها|قدره|قدرها|بنسبه|نسبته|نسبتها|\bby)\s*$", re.I)
+_CLAUSE = re.compile(r"[.!?؟؛;،,]")
+
+
+def by_wording(before: str) -> int:
+    """-1 when the text just before a figure states it as the amount of a fall, +1 of a rise, 0 otherwise
+    (a level, or no direction in its clause)."""
+    text = normalize(before[-160:])
+    if not _AMOUNT.search(text):
+        return 0
+    clause = _CLAUSE.split(text)[-1]
+    falls = [m.end() for m in _FALL.finditer(clause)]
+    rises = [m.end() for m in _RISE.finditer(clause)]
+    if not falls and not rises:
+        return 0
+    return -1 if max(falls, default=-1) > max(rises, default=-1) else 1
+
+
+def signed(figure: str, before: str) -> str:
+    """A prose figure with the sign its wording gives it: an unsigned amount of a fall is negative."""
+    if by_wording(before) < 0 and not figure.startswith("-"):
+        return negated(figure)
+    return figure
 
 
 ARABIC = re.compile(r"[\u0600-\u06ff]")

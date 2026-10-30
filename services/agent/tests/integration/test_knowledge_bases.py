@@ -374,7 +374,7 @@ DATES_SPEC = json.dumps({"title": "لوحة التمور", "language": "ar", "se
                                   {"label": "نمو الصادرات", "value": 7.5, "unit": "%"}], "sources": ["P1"]},
     {"kind": "chart", "type": "bar", "title": "صادرات النخيل", "labels": ["2029"],
      "series": [{"name": "القيمة", "data": [640]}], "sources": ["P1"]},
-    {"kind": "text", "markdown": "ونمت الصادرات 7.5 بالمئة."},
+    {"kind": "text", "markdown": "بلغت صادرات التمور 812 مليون ريال. ونمت الصادرات 7.5 بالمئة.", "sources": ["P1"]},
 ]}, ensure_ascii=False)
 
 
@@ -395,7 +395,11 @@ async def test_a_report_over_a_kb_keeps_the_values_its_cited_passages_hold_and_l
     page = (await services.reports.page(record, 10)).decode()
     assert '<div class="kit-kpi-value">812<span class="kit-kpi-unit">مليون ريال</span></div>' in page
     assert '<div class="kit-kpi-value kit-missing">—</div>' in page and "صادرات النخيل" not in page.split("kit-spec")[0]
-    assert "ونمت الصادرات — بالمئة." in page and "kit-figure" not in page and "kit-general-note" not in page
+    # A sentence whose figure its cited passage does not hold leaves the page, and the reply says so (ADR-0425).
+    body = page.split("kit-spec")[0]
+    assert "بلغت صادرات التمور 812 مليون ريال." in body and "ونمت الصادرات" not in body
+    assert "kit-figure" not in page and "kit-general-note" not in page
+    assert "جملًا لم أجد أرقامها في المصادر: 1" in events[-1]["data"]["answer"]
     sources = page[page.index('data-kit="sources"'):]
     assert "التجارة › تقرير التجارة — هيئة الإحصاء — 2031-02-01" in sources
     assert "مؤشرات: المؤشرات الرئيسة" in sources and "غير متوفر في المصدر: نمو الصادرات" in sources
@@ -411,7 +415,11 @@ async def test_a_report_whose_sources_hold_nothing_on_its_subject_says_so_and_sa
     await _document(services, api, trade, TRADE, title="تقرير التجارة", publisher="هيئة الإحصاء", published_on="2031-02-01")
     hilal = json.dumps({"title": "نادي الهلال", "language": "ar", "sections": [
         {"kind": "text", "markdown": "نادي الهلال من أكثر الأندية تتويجًا بـ 66 بطولة."},
-        {"kind": "kpi_row", "items": [{"label": "عدد البطولات", "value": 66}], "sources": ["P1"]}]}, ensure_ascii=False)
+        {"kind": "kpi_row", "items": [{"label": "عدد البطولات", "value": 66}], "sources": ["P1"]},
+        # A table of names with no figure, citing the KB's passage (review round 1, finding 6, ADR-0425): it
+        # names nothing the passage holds, so it is no kept element either.
+        {"kind": "table", "title": "أبرز اللاعبين", "columns": ["اللاعب", "المركز"],
+         "rows": [["سالم الدوسري", "جناح"], ["ياسين بونو", "حارس مرمى"]], "sources": ["P1"]}]}, ensure_ascii=False)
     swapped, _ = replacing(services, {"report_writer": hilal})
     principal = _reader(f"kb:{trade}:read")
     request = TurnRequest(conversation_id=str(uuid.uuid4()), principal=principal, message="سوّ لي لوحة معلومات عن نادي الهلال",

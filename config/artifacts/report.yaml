@@ -2,7 +2,7 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 2.2.0
+version: 2.3.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
@@ -83,6 +83,8 @@ text:
   missing_elements: {ar: "لم أجد في المصادر بيانات {items}، فتركت ذلك خارج التقرير.", en: "I found no data in the sources for {items}, so I left that out of the report."}
   trimmed_categories: {ar: "وأزلت من «{chart}» ما لا بيانات له في المصادر: {items}.", en: "From \"{chart}\" I removed what has no data in the sources: {items}."}
   gaps: {ar: "وبعض القيم غير متوفرة في المصادر فظهرت «—».", en: "Some values are not in the sources and show as «—»."}
+  # A sentence of text whose figure its cited passages do not hold leaves the page (ADR-0425).
+  removed_sentences: {ar: "وحذفت من النص جملًا لم أجد أرقامها في المصادر: {count}.", en: "I removed sentences whose figures are not in the sources: {count}."}
   nothing_found: {ar: "لا تحوي المصادر المختارة ({sources}) بيانات عن هذا الموضوع، فلم أنشئ التقرير. ألغِ تحديدها لأبني التقرير من المعرفة العامة.", en: "The selected sources ({sources}) hold no data on this subject, so I did not create the report. Untoggle them to build it from general knowledge."}
   # The model strip (ADR-0391).
   model_info:

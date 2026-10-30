@@ -73,6 +73,9 @@ class Text(_Strict):
     kind: Literal["text"]
     title: Short | None = None
     markdown: Annotated[str, Field(max_length=4000)]
+    # The passages its figures come from (ADR-0425): on a sourced turn each sentence's figures are checked
+    # against these only; none, and a sentence stating a figure leaves the page.
+    sources: Annotated[list[SourceId], Field(max_length=12)] = []
 
 
 class Callout(_Strict):
@@ -80,6 +83,7 @@ class Callout(_Strict):
     tone: Literal["info", "success", "warning"] = "info"
     title: Short | None = None
     markdown: Annotated[str, Field(max_length=1000)]
+    sources: Annotated[list[SourceId], Field(max_length=12)] = []
 
 
 Section = Annotated[KpiRow | Chart | Table | Text | Callout, Field(discriminator="kind")]

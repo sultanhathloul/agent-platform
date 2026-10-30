@@ -97,6 +97,7 @@ class ReportText(_Strict):
     trimmed_categories: Localized
     gaps: Localized
     nothing_found: Localized
+    removed_sentences: Localized
     model_info: ModelInfoText
 
 

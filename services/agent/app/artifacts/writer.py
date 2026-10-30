@@ -186,6 +186,8 @@ def shortfall(verified: Verified, spec: ReportSpec, text: ReportText, *, edit: b
         parts.append(text.missing_elements.of(language).format(items=_quoted(list(dict.fromkeys(verified.dropped)), language)))
     for chart, removed in verified.trimmed:
         parts.append(text.trimmed_categories.of(language).format(chart=chart, items=_quoted(removed, language)))
+    if verified.removed:
+        parts.append(text.removed_sentences.of(language).format(count=len(verified.removed)))
     if gaps(spec):
         parts.append(text.gaps.of(language))
     if not parts:

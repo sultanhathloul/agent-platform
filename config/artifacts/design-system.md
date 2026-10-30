@@ -1,12 +1,13 @@
 ---
 id: artifacts.design_system
-version: 2.1.0
+version: 2.2.0
 changelog:
   - "1.0.0: first version (reports PR, I2, ADR-0370): the kit's layout, cards, KPI tiles, tables, charts through report-data, typography, dark and light, RTL with logical properties, <bdi> for English terms"
   - "1.1.0: the platform labels every figure with its source (owner decision A, ADR-0388); the page size guidance"
   - "1.2.0: one kind of source per turn: with findings, only their figures and «غير متوفر» / \"Not available\" where they hold none; without, general knowledge only (owner decision on PR #17, ADR-0398)"
   - "2.0.0: the report spec replaces HTML (option C, owner decision A on PR #17, ADR-0406): its sections, their fields and their sources; the platform renders the page and its sources (ADR-0408)"
   - "2.1.0: no chart of 100% total columns or of a total row or column against its own parts (owner decision 4 on PR #17, ADR-0412)"
+  - "2.2.0: `text` and `callout` list `sources` too, and each sentence's figure is checked like a KPI's; signs and years (review round 1 of PR #17, ADR-0425)"
 ---
 # The report spec (v1)
 
@@ -18,12 +19,14 @@ You answer with ONE JSON object, the report spec, and nothing else: no HTML, no 
   - `kpi_row`: `title` (optional), `items`: 1 to 8 of {`label`, `value` (a number or null), `unit` (such as "%" or "مليون"), `delta` (a number, optional)}, `sources`.
   - `chart`: `type`: "bar", "line", "area", "pie", "doughnut" or "stacked_bar"; `title`; `labels` (the categories); `series`: 1 to 8 of {`name`, `data`: one number or null per label}; `unit`; `sources`. A pie or doughnut has one series.
   - `table`: `title`, `columns` (the first is the rows' label), `rows`: each a list of cells, one per column (text or numbers), `sources`.
-  - `text`: `title` (optional), `markdown`: short explanatory prose; paragraphs, "- " lists, **bold**.
-  - `callout`: `tone`: "info", "success" or "warning"; `title` (optional); `markdown`: one key finding.
+  - `text`: `title` (optional), `markdown`: short explanatory prose; paragraphs, "- " lists, **bold**; `sources`.
+  - `callout`: `tone`: "info", "success" or "warning"; `title` (optional); `markdown`: one key finding; `sources`.
 - Numbers are JSON numbers in Western digits, exactly as the source states them (3.6, 1250, 18), never words or strings; a missing value is null.
+- A change keeps its sign as its source states it: a fall of 0.1 is -0.1, a rise 0.1. A value of one year is under that year's category or row.
 
 ## Sources
-- Every `kpi_row`, `chart` and `table` lists in `sources` the ids of the passages its values come from, as the evidence gives them: `["P3", "P7"]`. The platform checks each value against those passages, with its label (the KPI's label, the chart's category and series, the table's row and column), and shows «—» for one it does not find there.
+- Every `kpi_row`, `chart` and `table` lists in `sources` the ids of the passages its values come from, as the evidence gives them: `["P3", "P7"]`. The platform checks each value against those passages, with its label (the KPI's label, the chart's category and series, the table's row and column), and shows «—» for one it does not find there. A table's names (its rows' labels, its text cells) must be ones its passages name.
+- A `text` or `callout` that states figures lists the passages they come from in `sources` too; the platform checks each sentence's figures against those passages only, with the sentence's words, and removes a sentence whose figure they do not hold.
 - With no documents or knowledge bases, every element's `sources` is `["general"]`, and no passage id appears.
 - Never write a source, a label such as «من المعرفة العامة», or a sources section yourself: the platform adds «المصادر» from the ids.
 
@@ -39,4 +42,4 @@ You answer with ONE JSON object, the report spec, and nothing else: no HTML, no 
  {"kind": "kpi_row", "items": [{"label": "معدل البطالة الإجمالي", "value": 3.0, "unit": "%"}], "sources": ["P1"]},
  {"kind": "chart", "type": "line", "title": "معدل البطالة حسب الربع", "labels": ["الربع الأول 2026", "الربع الثاني 2026"],
   "series": [{"name": "سعودي", "data": [6.4, 6.5]}], "unit": "%", "sources": ["P1"]},
- {"kind": "text", "markdown": "تراجع معدل البطالة الإجمالي إلى **3.0%**."}]}
+ {"kind": "text", "markdown": "تراجع معدل البطالة الإجمالي إلى **3.0%**.", "sources": ["P1"]}]}

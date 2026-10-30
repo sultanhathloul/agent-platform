@@ -71,8 +71,8 @@ def spec(*sections, language="ar") -> ReportSpec:
     return ReportSpec.model_validate({"title": "سوق العمل", "language": language, "sections": list(sections)})
 
 
-UNEMPLOYMENT = {"kind": "chart", "type": "line", "title": "معدل البطالة", "labels": ["الربع الثاني 2025", "الربع الأول 2026"],
-                "series": [{"name": "جميع المقيمين", "data": [3.2, 3.1]}, {"name": "سعوديون", "data": [6.8, 6.4]}], "unit": "%",
+UNEMPLOYMENT = {"kind": "chart", "type": "line", "title": "معدل البطالة", "labels": ["الربع الأول 2026", "الربع الثاني 2026"],
+                "series": [{"name": "جميع المقيمين", "data": [3.1, 3.0]}, {"name": "سعوديون", "data": [6.4, 6.5]}], "unit": "%",
                 "sources": ["P1"]}
 GENDER = {"kind": "chart", "type": "doughnut", "title": "توزيع المشتغلين حسب الجنس", "labels": ["الذكور", "الإناث"],
           "series": [{"name": "الإجمالي", "data": [83.6, 16.4]}], "sources": ["P2"]}
@@ -130,7 +130,7 @@ def test_names_with_digits_are_not_figures_and_a_workbooks_precision_rounds():
 def test_a_value_counts_only_with_its_label_in_one_of_its_elements_cited_passages():
     v = verifier()
     checked = v.element(spec(UNEMPLOYMENT).sections[0])
-    assert [s.data for s in checked.series] == [[3.2, 3.1], [6.8, 6.4]]
+    assert [s.data for s in checked.series] == [[3.1, 3.0], [6.4, 6.5]]
     # 84.3 is in Table 1, but as the male participation rate: not with «الذكور» or «التوزيع» in that passage.
     gender_from_table_1 = {**GENDER, "series": [{"name": "الإجمالي", "data": [84.3, 15.7]}], "sources": ["P1"]}
     assert v.element(spec(gender_from_table_1).sections[0]) is None  # nothing found: the element leaves
@@ -147,11 +147,11 @@ def test_the_gender_doughnut_is_found_in_table_3_1_in_its_quarters_row():
 
 def test_a_value_not_found_is_a_gap_listed_under_its_document_and_the_element_stays():
     v = verifier()
-    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.8, 47.1]}, {"name": "جميع المقيمين", "data": [3.2, 3.1]}]}
+    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.4, 47.1]}, {"name": "جميع المقيمين", "data": [3.1, 3.0]}]}
     checked = v.element(spec(chart).sections[0])
-    assert [s.data for s in checked.series] == [[6.8, None], [3.2, 3.1]]
+    assert [s.data for s in checked.series] == [[6.4, None], [3.1, 3.0]]
     use = v.result.documents[0].uses[0]
-    assert use.kind == "رسم" and use.where == ["p1"] and use.unavailable == ["الربع الأول 2026 · سعوديون"]
+    assert use.kind == "رسم" and use.where == ["p1"] and use.unavailable == ["الربع الثاني 2026 · سعوديون"]
 
 
 def test_with_findings_general_is_not_allowed_and_without_them_nothing_is_matched():
@@ -160,7 +160,7 @@ def test_with_findings_general_is_not_allowed_and_without_them_nothing_is_matche
     assert v.element(spec({**UNEMPLOYMENT, "sources": ["P9"]}).sections[0]) is None  # not this turn's
     general = verifier(sourced=False)
     checked = general.element(spec({**UNEMPLOYMENT, "sources": ["P1"]}).sections[0])
-    assert checked.sources == ["general"] and checked.series[0].data == [3.2, 3.1]
+    assert checked.sources == ["general"] and checked.series[0].data == [3.1, 3.0]
     assert not general.result.documents
 
 
@@ -169,11 +169,14 @@ def test_kpis_tables_and_prose_are_checked_the_same_way():
     kpis = v.element(spec({"kind": "kpi_row", "items": [
         {"label": "معدل البطالة", "value": 3.0, "unit": "%"}, {"label": "عدد المشتغلين", "value": 14.2}], "sources": ["P1"]}).sections[0])
     assert [i.value for i in kpis.items] == [3.0, None]
-    table = v.element(spec({"kind": "table", "title": "البطالة", "columns": ["الفئة", "الربع الثاني 2025"],
-                            "rows": [["سعودي", 6.8], ["الإجمالي", "3.2%"], ["الشباب", 19.9]], "sources": ["P1"]}).sections[0])
-    assert table.rows == [["سعودي", 6.8], ["الإجمالي", "3.2%"], ["الشباب", MISSING]]
-    text = v.element(spec({"kind": "text", "markdown": "بلغ معدل البطالة 3.0% وعدد الأندية 18."}).sections[0])
-    assert text.markdown == f"بلغ معدل البطالة 3.0% وعدد الأندية {MISSING}."
+    table = v.element(spec({"kind": "table", "title": "البطالة", "columns": ["الفئة", "الربع الثاني 2026"],
+                            "rows": [["سعودي", 6.5], ["الإجمالي", "3.0%"], ["الشباب", 19.9]], "sources": ["P1"]}).sections[0])
+    assert table.rows == [["سعودي", 6.5], ["الإجمالي", "3.0%"], ["الشباب", MISSING]]
+    # Prose is checked like a KPI against its own cited passages (ADR-0425): the sentence whose figure they do
+    # not hold leaves, and is counted for the reply.
+    text = v.element(spec({"kind": "text", "markdown": "بلغ معدل البطالة 3.0%. وعدد الأندية 18.",
+                           "sources": ["P1"]}).sections[0])
+    assert text.markdown == "بلغ معدل البطالة 3.0%." and v.result.removed == ["وعدد الأندية 18."]
 
 
 # ------------------------------------------------------------------ the page
@@ -188,7 +191,7 @@ def page_of(s: ReportSpec, *, sourced=True) -> tuple[str, Verifier]:
 
 def test_the_page_is_rendered_by_the_platform_deterministically_with_no_label_beside_any_figure():
     s = spec({"kind": "kpi_row", "items": [{"label": "<b>البطالة</b>", "value": 3.0, "unit": "%"}], "sources": ["P1"]},
-             UNEMPLOYMENT, GENDER, {"kind": "text", "markdown": "**مهم**: <script>alert(1)</script>"})
+             UNEMPLOYMENT, GENDER, {"kind": "text", "markdown": "**مهم**: <script>alert(document.cookie)</script>"})
     page, _ = page_of(s)
     again, _ = page_of(s)
     assert page == again and page.startswith('<!doctype html><html lang="ar" dir="rtl">') and KIT_MARKER in page
@@ -199,12 +202,12 @@ def test_the_page_is_rendered_by_the_platform_deterministically_with_no_label_be
 
 
 def test_the_sources_list_each_document_and_under_it_the_elements_it_supports():
-    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.8, 47.1]}, {"name": "جميع المقيمين", "data": [3.2, 3.1]}]}
+    chart = {**UNEMPLOYMENT, "series": [{"name": "سعوديون", "data": [6.4, 47.1]}, {"name": "جميع المقيمين", "data": [3.1, 3.0]}]}
     page, _ = page_of(spec(chart, GENDER))
     sources = re.search(r'<section class="kit-sources".*?</section>', page, re.S).group(0)
     assert "<h2>المصادر</h2>" in sources
     assert "إحصاءات الهيئة العامة للإحصاء › إحصاءات سوق العمل للربع الثاني 2026 — الهيئة العامة للإحصاء — 2026-09-30" in sources
-    assert "رسم: معدل البطالة — ص 1" in sources and "غير متوفر في المصدر: الربع الأول 2026 · سعوديون" in sources
+    assert "رسم: معدل البطالة — ص 1" in sources and "غير متوفر في المصدر: الربع الثاني 2026 · سعوديون" in sources
     assert "رسم: توزيع المشتغلين حسب الجنس — ورقة 3-1" in sources
 
 
@@ -228,7 +231,7 @@ def test_the_checks_read_every_string_a_person_reads_and_nothing_structural():
     s = spec(UNEMPLOYMENT)
     found = [text for _, text in strings(s.model_dump(mode="json"))]
     assert "معدل البطالة" in found and "سعوديون" in found and "P1" not in found and "line" not in found
-    assert "الربع الثاني 2025" in visible_text(s)
+    assert "الربع الثاني 2026" in visible_text(s)
 
 
 # ------------------------------------------------------------------ the served forms and the model strip
@@ -408,3 +411,137 @@ def test_a_figure_written_in_words_in_prose_is_found():
     # A figure the words do not state is still not found.
     wrong = {**kpis, "items": [{"label": "الإجازة السنوية", "value": 25, "unit": "يوم"}]}
     assert v.element(spec(wrong).sections[0]) is None
+
+
+# ------------------------------------------------------------------ review round 1 of PR #17 (ADR-0425)
+
+# Sheet 1 as the extractor cuts it in the KB: the workbook's own title line first, the same on every sheet.
+SHEET_1_KB = SHEET_1.replace("[1]\n", "[1]\n | إحصاءات سوق العمل الربع الثاني 2026\n", 1)
+P5 = Passage("P5", "r5", SHEET_1_KB, document_id="workbook", title="إحصاءات سوق العمل للربع الثاني 2026 (جداول Excel)",
+             locator="1")
+# A bulletin sentence with a fall and a rise stated as amounts, and a level.
+CHANGES = ("انخفض معدل البطالة الإجمالي بمقدار 0.1 نقطة مئوية ليبلغ 3.0 % في الربع الثاني 2026، "
+           "وارتفع معدل المشاركة في القوى العاملة بمقدار 0.2 نقطة مئوية.")
+P6 = Passage("P6", "r6", CHANGES, document_id="bulletin", page=2)
+# A workbook cell written with its sign.
+SIGNED = """[2-4]
+ | التغير الربعي في معدل البطالة
+[columns] الجنسية | التغير
+السعوديين | -0.1
+غير السعوديين | 0.2"""
+P7 = Passage("P7", "r7", SIGNED, document_id="workbook", locator="2-4")
+# Two years in one sentence, and a workbook time series titled with a range of years.
+YEARS = "ارتفع معدل المشاركة في القوى العاملة من 50.2 في عام 2023 إلى 51.4 في عام 2024."
+P8 = Passage("P8", "r8", YEARS, document_id="bulletin", page=3)
+SERIES = """[2-1]
+ | معدل البطالة 2023-2024
+[columns] السنة | الإجمالي
+2023 | 5.1
+2024 | 4.9"""
+P9 = Passage("P9", "r9", SERIES, document_id="workbook", locator="2-1")
+LEAVE = "نظام العمل في الواحة: للعامل إجازة سنوية مدتها واحد وعشرون يوما، وتمنح المرأة العاملة إجازة وضع."
+P10 = Passage("P10", "r10", LEAVE, document_id="law", page=4)
+
+
+def checker(*passages: Passage, period: str | None = None) -> Verifier:
+    v = Verifier(list(passages), sourced=True, kinds=KINDS, untitled=TEXT.untitled_element.of("ar"))
+    v.period = period
+    return v
+
+
+def test_a_sign_must_match_the_sources_sign_or_its_wording():
+    """Finding 1: a correct fall was dropped and a rise of the same size kept."""
+    v = checker(P6, P7)
+    kpis = v.element(spec({"kind": "kpi_row", "items": [
+        {"label": "معدل البطالة الإجمالي", "value": 3.0, "delta": -0.1},
+        {"label": "معدل البطالة الإجمالي", "value": 3.0, "delta": 0.1},
+        {"label": "معدل المشاركة في القوى العاملة", "value": None, "delta": 0.2},
+        {"label": "معدل المشاركة في القوى العاملة", "value": None, "delta": -0.2}], "sources": ["P6"]}).sections[0])
+    assert [i.delta for i in kpis.items] == [-0.1, None, 0.2, None]
+    table = v.element(spec({"kind": "table", "title": "التغير الربعي في معدل البطالة", "columns": ["الجنسية", "التغير"],
+                            "rows": [["السعوديين", "-0.1"], ["غير السعوديين", "+0.2"], ["السعوديين", "+0.1"],
+                                     ["غير السعوديين", "-0.2"]], "sources": ["P7"]}).sections[0])
+    assert [row[1] for row in table.rows] == ["-0.1", "+0.2", MISSING, MISSING]
+
+
+def test_the_measure_comes_from_the_row_column_or_table_title_never_the_workbooks_title():
+    """Finding 2: «العمل» of the workbook's title made two measures of one row interchangeable."""
+    v = checker(P5, period="الربع الثاني 2026")
+    swapped = v.element(spec({"kind": "kpi_row", "title": "المؤشرات الرئيسية لسوق العمل", "items": [
+        {"label": "معدل البطالة الإجمالي", "value": 67.2}, {"label": "معدل المشاركة في قوة العمل", "value": 3.0}],
+        "sources": ["P5"]}).sections[0])
+    assert swapped is None
+    right = v.element(spec({"kind": "kpi_row", "title": "المؤشرات الرئيسية لسوق العمل", "items": [
+        {"label": "معدل البطالة الإجمالي", "value": 3.0}, {"label": "معدل المشاركة في قوة العمل", "value": 67.2}],
+        "sources": ["P5"]}).sections[0])
+    assert [i.value for i in right.items] == [3.0, 67.2]
+    # A time series' rows name no measure: the table's own title does (sheet 3-1), as before.
+    assert checker(P2, period="الربع الثاني 2026").element(spec(GENDER).sections[0]).series[0].data == [83.6, 16.4]
+
+
+def test_a_categorys_year_must_match_its_source_rows_and_prose_carries_the_nearest_year():
+    """Finding 3: swapped years passed in prose and under a title naming a range of years."""
+    prose = {"kind": "chart", "type": "line", "title": "معدل المشاركة في القوى العاملة", "labels": ["2023", "2024"],
+             "series": [{"name": "معدل المشاركة", "data": [51.4, 50.2]}], "sources": ["P8"]}
+    assert checker(P8).element(spec(prose).sections[0]) is None
+    right = {**prose, "series": [{"name": "معدل المشاركة", "data": [50.2, 51.4]}]}
+    assert checker(P8).element(spec(right).sections[0]).series[0].data == [50.2, 51.4]
+    sheet = {"kind": "chart", "type": "line", "title": "معدل البطالة 2023-2024", "labels": ["2023", "2024"],
+             "series": [{"name": "الإجمالي", "data": [4.9, 5.1]}], "sources": ["P9"]}
+    assert checker(P9).element(spec(sheet).sections[0]) is None
+    right = {**sheet, "series": [{"name": "الإجمالي", "data": [5.1, 4.9]}]}
+    assert checker(P9).element(spec(right).sections[0]).series[0].data == [5.1, 4.9]
+
+
+def test_a_flattened_pdf_tables_values_carry_its_nearest_year():
+    """The consequence of finding 3's rule on a PDF table read as prose (Table 1 of the bulletin): the year
+    named nearest to Q2 2025's 3.2 is a header's 2026, so it is not taken for 2025 (a gap, never a wrong value);
+    the workbook's time series states it in its own row."""
+    chart = {**UNEMPLOYMENT, "labels": ["الربع الثاني 2025", "الربع الأول 2026"],
+             "series": [{"name": "جميع المقيمين", "data": [3.2, 3.1]}]}
+    assert checker(P1).element(spec(chart).sections[0]) is None  # one category left: no chart
+
+
+def test_prose_figures_are_checked_against_their_sections_cited_passages_with_their_qualifiers():
+    """Finding 4: «للسعوديات 4.8%» passed (4.8 is the Saudi men's), against any passage of the turn."""
+    v = checker(P5, P1, period="الربع الثاني 2026")
+    text = v.element(spec({"kind": "text", "markdown": (
+        "بلغ معدل البطالة للسعوديات 4.8%. وبلغ معدل البطالة للسعوديين الذكور 4.8%.\n"
+        "- بلغ معدل البطالة الإجمالي 3.0%.\n- وبلغ معدل البطالة للسعوديين 6.5%."), "sources": ["P5"]}).sections[0])
+    assert text.markdown == ("وبلغ معدل البطالة للسعوديين الذكور 4.8%.\n- بلغ معدل البطالة الإجمالي 3.0%.\n"
+                             "- وبلغ معدل البطالة للسعوديين 6.5%.")
+    assert v.result.removed == ["بلغ معدل البطالة للسعوديات 4.8%."]
+    # Only the section's own passages: 3.2 is in P1, which this callout does not cite.
+    callout = v.element(spec({"kind": "callout", "markdown": "كان معدل البطالة الإجمالي 3.2% قبل عام.",
+                              "sources": ["P5"]}).sections[0])
+    assert callout is None and len(v.result.removed) == 2
+    from app.artifacts.writer import shortfall
+
+    checked = v.spec(spec({"kind": "kpi_row", "items": [{"label": "معدل البطالة الإجمالي", "value": 3.0}],
+                           "sources": ["P5"]}))
+    assert "جملًا لم أجد أرقامها في المصادر: 2" in shortfall(checked, checked.spec, TEXT, edit=False)
+
+
+def test_number_words_on_the_page_are_checked_as_figures():
+    """Finding 5: «ثلاثون يوما» on the page passed unchecked; the source says 21."""
+    v = checker(P10)
+    table = v.element(spec({"kind": "table", "title": "إجازات العامل", "columns": ["الإجازة", "المدة"],
+                            "rows": [["الإجازة السنوية", "واحد وعشرون يوما"], ["الإجازة السنوية", "خمسة وعشرون يوما"]],
+                            "sources": ["P10"]}).sections[0])
+    assert [row[1] for row in table.rows] == ["واحد وعشرون يوما", MISSING]
+    text = v.element(spec({"kind": "text", "markdown": "مدة الإجازة السنوية خمسة وعشرون يوما.", "sources": ["P10"]}).sections[0])
+    assert text is None and v.result.removed == ["مدة الإجازة السنوية خمسة وعشرون يوما."]
+
+
+def test_a_table_of_names_its_passages_never_mention_keeps_nothing_and_counts_for_nothing_found():
+    """Finding 6: a digit-free table kept a sourced page alive (the Al Hilal case with a KB toggled)."""
+    v = checker(P1, P5)
+    checked = v.spec(spec(
+        {"kind": "table", "title": "أبرز لاعبي نادي الهلال", "columns": ["اللاعب", "المركز"],
+         "rows": [["سالم الدوسري", "جناح"], ["ياسين بونو", "حارس مرمى"]], "sources": ["P1"]},
+        {"kind": "text", "markdown": "نادي الهلال من أعرق الأندية."}))
+    assert checked.kept == 0 and "أبرز لاعبي نادي الهلال" in checked.dropped
+    named = checker(P5).element(spec({"kind": "table", "title": "مؤشرات سوق العمل", "columns": ["المؤشر", "الفئة"],
+                                      "rows": [["معدل البطالة", "السعوديين"], ["معدل المشاركة في قوة العمل", "الإجمالي"]],
+                                      "sources": ["P5"]}).sections[0])
+    assert named is not None and named.rows[0][0] == "معدل البطالة"
