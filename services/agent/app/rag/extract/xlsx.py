@@ -7,22 +7,26 @@ it (owner decision A3): the first row followed by a row of the same width, else 
 Version 3 (ADR-0413): a merged header cell names every column it spans (a merge as wide as the table, a
 title, stays in its first cell); the preamble ends with `[columns]`, each column's full label from its
 header rows («غير السعوديين › الإجمالي»); a numeric cell reads as the workbook displays it, through its
-number format (83.6, not 83.60299013). The workbook is opened in full, not read-only, for its merged
-ranges and formats.
+number format (83.6, not 83.60299013). Version 5 (ADR-0422): the workbook is streamed read-only, as
+before version 3; the merged ranges are read from each sheet's XML in one pass and filled only within the
+rows the sheet holds and the table's width, so memory stays near the sheet's text.
 The archive is checked first and openpyxl parses through defusedxml (owner decision R4)."""
 
+import bisect
 import io
 import os
 import re
 import unicodedata
-from decimal import ROUND_HALF_UP, Decimal
 import zipfile
+from decimal import ROUND_HALF_UP, Decimal
 
 os.environ["OPENPYXL_DEFUSEDXML"] = "True"  # read before openpyxl is imported (owner decision R4)
 
 import openpyxl.xml  # noqa: E402
 from defusedxml import DefusedXmlException  # noqa: E402
+from defusedxml.ElementTree import iterparse  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
+from openpyxl.utils.cell import range_boundaries  # noqa: E402
 from openpyxl.utils.exceptions import InvalidFileException  # noqa: E402
 
 if not openpyxl.xml.DEFUSEDXML:  # fail at import, never parse a workbook without it
@@ -72,22 +76,58 @@ def _cell(cell) -> str:
     return unicodedata.normalize("NFKC", str(value)).strip()
 
 
-def _filled(sheet) -> dict[tuple[int, int], object]:
-    """A merged range's value at each cell it spans (ADR-0413): «غير السعوديين» over three columns names
+def merged_ranges(sheet) -> list[tuple[int, int, int, int]]:
+    """A read-only sheet's merged ranges (min_col, min_row, max_col, max_row), read from its XML in one
+    streaming pass through defusedxml (ADR-0422): `<mergeCell ref="B2:D2"/>` follows the sheet's data, and
+    each element is cleared once read, so the pass holds no more than one element at a time."""
+    ranges: list[tuple[int, int, int, int]] = []
+    data = None
+    with sheet.parent._archive.open(sheet._worksheet_path) as source:
+        for event, element in iterparse(source, events=("start", "end")):
+            if event == "start":
+                if element.tag.endswith("}sheetData"):
+                    data = element
+                continue
+            if element.tag.endswith("}row") and data is not None:
+                # A row read is dropped from its parent, so the cells already read are not kept.
+                element.clear()
+                data.remove(element)
+            elif element.tag.endswith("}mergeCell"):
+                try:
+                    bounds = range_boundaries(element.get("ref") or "")
+                except ValueError:
+                    bounds = None
+                if bounds and None not in bounds:
+                    ranges.append(bounds)
+    return ranges
+
+
+def fill_merged(grid: dict[int, list[str]], ranges: list[tuple[int, int, int, int]]) -> None:
+    """A merged range's value in each cell it spans (ADR-0413): «غير السعوديين» over three columns names
     each of them. A range as wide as the table's value columns (a title, «الجنسية» over all of them) is
-    left in its first cell: it names the whole table, not a column."""
-    fill: dict[tuple[int, int], object] = {}
+    left in its first cell: it names the whole table, not a column. Only rows the sheet holds and columns
+    up to the table's width are filled (ADR-0422): a range declared over a million rows costs the rows
+    that exist. `grid` is each row's displayed cells by row number, changed in place."""
     # The table's width: its last column that holds a value (formatting alone widens max_column).
-    width = max((c.column for row in sheet.iter_rows() for c in row if c.value is not None), default=1)
-    for merged in sheet.merged_cells.ranges:
-        if merged.max_col - merged.min_col + 1 >= width - 1 and merged.min_row == merged.max_row:
+    width = max((len(cells) for cells in grid.values()), default=1)
+    numbers = sorted(grid)
+    for min_col, min_row, max_col, max_row in ranges:
+        if max_col - min_col + 1 >= width - 1 and min_row == max_row:
             continue
-        top = sheet.cell(row=merged.min_row, column=merged.min_col)
-        for row in range(merged.min_row, merged.max_row + 1):
-            for col in range(merged.min_col, merged.max_col + 1):
-                if (row, col) != (merged.min_row, merged.min_col):
-                    fill[(row, col)] = top
-    return fill
+        top_row = grid.get(min_row) or []
+        top = top_row[min_col - 1] if min_col - 1 < len(top_row) else ""
+        if not top:
+            continue
+        last = min(max_col, width)
+        for row in numbers[bisect.bisect_left(numbers, min_row) : bisect.bisect_right(numbers, max_row)]:
+            cells = grid[row]
+            for col in range(min_col, last + 1):
+                if (row, col) == (min_row, min_col):
+                    continue
+                if col > len(cells):
+                    cells.extend([""] * (col - len(cells)))
+                if not cells[col - 1]:
+                    cells[col - 1] = top
 
 
 def column_labels(header_rows: list[list[str]]) -> list[str]:
@@ -106,7 +146,7 @@ def column_labels(header_rows: list[list[str]]) -> list[str]:
 
 
 # Bumped when the text a sheet gives changes, so the seed re-indexes what an older version cut (ADR-0410).
-VERSION = "4"
+VERSION = "5"
 _NUMBER = re.compile(r"^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?$|^-?\d+(?:[.,]\d+)?%?$")
 
 
@@ -138,8 +178,9 @@ class XlsxExtractor:
     def extract(self, data: bytes, config: DocsConfig) -> ExtractedDocument:
         check_archive(data, config.archive)
         try:
-            # Not read-only: merged ranges and number formats are read with the cells (ADR-0413).
-            workbook = load_workbook(io.BytesIO(data), read_only=False, data_only=True)
+            # Streamed read-only (ADR-0422): a read-only cell carries its number format; merged ranges are
+            # read from the sheet's XML (merged_ranges).
+            workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         except DefusedXmlException as exc:
             raise ExtractionFailed("xml_unsafe", detail=type(exc).__name__) from exc
         except (InvalidFileException, zipfile.BadZipFile, KeyError, ValueError) as exc:
@@ -147,16 +188,19 @@ class XlsxExtractor:
         segments: list[Segment] = []
         try:
             for sheet in workbook.worksheets:
-                rows: list[list[str]] = []
-                fill = _filled(sheet)
-                for row in sheet.iter_rows():
-                    cells = [_cell(fill.get((c.row, c.column), c)) for c in row]
+                # The rows as the sheet holds them, not padded to a declared dimension (ADR-0422).
+                sheet.reset_dimensions()
+                grid: dict[int, list[str]] = {}
+                for number, row in enumerate(sheet.iter_rows(), start=1):
+                    cells = [_cell(c) for c in row]
                     while cells and not cells[-1]:
                         cells.pop()
                     if any(cells):
-                        rows.append(cells)
-                if not rows:
+                        grid[number] = cells
+                if not grid:
                     continue
+                fill_merged(grid, merged_ranges(sheet))
+                rows = [grid[number] for number in sorted(grid)]
                 start = first_data_row(rows)
                 if start:
                     # A preamble row whose filled cells all say the same is a title merged over part of the
@@ -181,6 +225,8 @@ class XlsxExtractor:
                 )
         except DefusedXmlException as exc:  # a sheet is parsed as it is read
             raise ExtractionFailed("xml_unsafe", detail=type(exc).__name__) from exc
+        except (KeyError, zipfile.BadZipFile) as exc:  # a sheet's XML missing from the archive
+            raise ExtractionFailed("corrupt_file", detail=type(exc).__name__) from exc
         finally:
             workbook.close()
         if not segments:

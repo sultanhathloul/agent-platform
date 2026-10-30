@@ -178,3 +178,24 @@ LEAVE_REGULATION = [
         "المادة السادسة: يعمل بهذه اللائحة اعتبارا من عام 2031.",
     ],
 ]
+
+
+def labour_rows_xlsx_bytes(rows: int) -> bytes:
+    """A GASTAT-shaped sheet: a title, a header merged over three columns, then `rows` rows of 8 cells."""
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "1"
+    sheet["A1"] = "سلسلة زمنية لمؤشرات سوق العمل"
+    sheet.append(["المؤشر", "السعوديين", None, None, "غير السعوديين", None, None, "الإجمالي"])
+    sheet.merge_cells("B2:D2")
+    sheet.merge_cells("E2:G2")
+    sheet.append(["", "الذكور", "الاناث", "الإجمالي", "الذكور", "الاناث", "الإجمالي", ""])
+    for r in range(rows):
+        sheet.append([f"صف {r}", r * 1.1, r * 2.2, r * 3.3, r * 4.4, r * 5.5, r * 6.6, r * 7.7])
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()

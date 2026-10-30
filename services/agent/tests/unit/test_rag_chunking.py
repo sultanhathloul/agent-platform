@@ -7,7 +7,7 @@ from app.rag.chunk import chunk_segments
 from app.rag.config import load_docs_config
 from app.rag.extract import extract
 from app.rag.types import Segment
-from tests.fixtures.documents import xlsx_bytes
+from tests.fixtures.documents import labour_rows_xlsx_bytes, xlsx_bytes
 
 import pytest
 
@@ -178,3 +178,61 @@ def test_a_title_merged_over_part_of_the_table_is_written_once(docs_config):
     [segment] = extract("xlsx", buffer.getvalue(), docs_config).segments
     assert segment.repeat.split("\n")[1] == " | معدل البطالة حسب الجنسية والجنس والمستوى التعليمي"
 
+
+
+def test_a_large_workbook_streams_within_the_sandbox_memory(docs_config):
+    """Review round 1 of PR #17, finding 8 (ADR-0422): a 120k-row workbook (6.3 MB) peaked at 370 MB of
+    Python heap opened in full, past what the sandbox's 640 MiB of address space leaves; streamed
+    read-only with its merges read from the sheet XML it stays near the sheet's text."""
+    import tracemalloc
+
+    from app.rag.extract.xlsx import XlsxExtractor
+
+    data = labour_rows_xlsx_bytes(120_000)
+    tracemalloc.start()
+    try:
+        document = XlsxExtractor().extract(data, docs_config)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    print(f"xlsx {len(data) / 1e6:.1f} MB, 120000 rows: peak heap {peak / 2**20:.0f} MiB")
+    assert peak < 160 * 2**20, peak
+    [segment] = document.segments
+    assert "[columns] المؤشر | السعوديين › الذكور" in segment.repeat
+    assert segment.text.count("\n") == 120_000 - 1
+
+
+def test_a_merge_declared_over_a_million_rows_fills_only_the_rows_the_sheet_holds(docs_config):
+    """A merged range costs the rows that exist, never its declared span (ADR-0422). The ranges are written
+    into the sheet XML directly: openpyxl itself would build a cell per merged position."""
+    import io
+    import time
+    import zipfile
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["المنطقة", "القيمة", "النسبة"])
+    sheet.append(["الرياض", 10, 2.5])
+    sheet.append([None, 11, 2.6])
+    plain = io.BytesIO()
+    book.save(plain)
+    merges = '<mergeCells count="2"><mergeCell ref="A2:A1000000"/><mergeCell ref="D1:XFD1048576"/></mergeCells>'
+    out = io.BytesIO()
+    with zipfile.ZipFile(plain) as source, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            body = source.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                body = body.replace(b"</sheetData>", b"</sheetData>" + merges.encode(), 1)
+            target.writestr(item, body)
+    started = time.monotonic()
+    [segment] = extract("xlsx", out.getvalue(), docs_config).segments
+    assert time.monotonic() - started < 5
+    assert segment.text.split("\n") == ["الرياض | 10 | 2.5", "الرياض | 11 | 2.6"]
+
+
+def test_the_xlsx_extractor_version_moves_so_the_seed_reindexes():
+    from app.rag.extract import extractor_version
+
+    assert extractor_version("xlsx") == "5"
