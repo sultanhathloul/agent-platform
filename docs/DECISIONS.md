@@ -3808,3 +3808,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
   5. Number words on the page (table cells, text) are folded to digits with the source side's `fold_number_words` before they are checked.
   6. A table's name cells (row labels, text cells) count as values: each is found only when one of the table's cited passages holds one of its words; a text cell not found shows «—». An element counts as kept only when something in it was found, so a table of names its passages never mention is dropped, and `NothingFound` (kept elements only) ends the Al Hilal case with a KB toggled with the nothing-found reply.
 - Consequences: The checks refuse more: a value is shown only when its sign, its row's measure and its year are those of its passage. A PDF table read as prose (the bulletin's Table 1) states its years in a header far from its values; the year named with or before a value there is a header's, so a time series drawn from such a table loses the values of other years to «—» (a gap, never a wrong value; tests/unit/test_report_spec.py `test_a_flattened_pdf_tables_values_carry_its_nearest_year`), while the workbook's sheets state each row's year. A sentence of prose that states a figure without citing a passage leaves the page.
+
+### ADR-0426: One before-merge run after review round 1 of PR #17, not three (owner decision)
+- Date: 2026-10-30
+- Phase: reports PR (review round 1)
+- Status: decided
+- Context: Review round 1 changed prompts (report.system 2.2.0, design-system.md 2.2.0), retrieval inputs (the PDF and workbook extractors, ADR-0421 and ADR-0422, and the re-index that follows) and the report checks (ADR-0425). Rule 13 asks for three passing make eval runs before merge when such inputs change.
+- Decision: The owner asks for one before-merge run, from a fresh stack (make clean, make models, make up): make test, make eval with all suites once, make smoke, make smoke-airgap, each recorded per rule 11 with its evidence. Every attempt is recorded, a failed one with its evidence, never silently rerun.
+- Consequences: PR #17's eval gate after round 1 is that single run. The rule 13 gate is unchanged for later PRs.
