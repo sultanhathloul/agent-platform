@@ -137,17 +137,36 @@ def reversed_numbers(pieces: list[tuple[float, float, str, float]]) -> list[tupl
     return found
 
 
+# A number's edges in pypdf's text: no digit or number mark before it, no digit after it, nor a mark that
+# carries on into another digit («15.6» holds no «5.6»; «6.5» is not the start of «6.52»).
+_DIGITS = "0-9٠-٩۰-۹"
+_NUMBER_START = rf"(?<![{_DIGITS}.,٫٬])"
+_NUMBER_END = rf"(?![{_DIGITS}]|[.,٫٬][{_DIGITS}])"
+
+
 def restore_numbers(raw: str, reversed_: list[tuple[list[str], str]]) -> str:
-    """`raw` (pypdf's text, in stream order) with each number drawn right to left in position order. Each is
-    found after the previous one, its pieces joined as pypdf joined them (spaces allowed between them)."""
-    out, at = [], 0
+    """`raw` (pypdf's text, in stream order) with each number drawn right to left in position order. A drawn
+    run is found only as a whole number, its pieces joined as pypdf joined them (spaces allowed between
+    them), so a number printed in the right order that shares its digits («15.6» beside a reversed «5.6») is
+    never touched. When the text holds that run more often than the page drew it reversed (the same digits
+    also printed in order), which one was reversed is ambiguous, and every one is left as extracted
+    (review round 1 of PR #17, ADR-0421)."""
+    runs: dict[tuple[str, ...], list[str]] = {}
     for pieces, number in reversed_:
-        pattern = re.compile(r"\s*".join(re.escape(p) for p in pieces))
-        match = pattern.search(raw, at)
-        if match is None:
+        runs.setdefault(tuple(pieces), []).append(number)
+    edits: list[tuple[int, int, str]] = []
+    for pieces, numbers in runs.items():
+        pattern = re.compile(_NUMBER_START + r"\s*".join(re.escape(p) for p in pieces) + _NUMBER_END)
+        matches = list(pattern.finditer(raw))
+        if len(matches) != len(numbers):
             continue
-        out += [raw[at : match.start()], number]
-        at = match.end()
+        edits += [(m.start(), m.end(), number) for m, number in zip(matches, numbers, strict=True)]
+    out, at = [], 0
+    for start, end, number in sorted(edits):
+        if start < at:  # two runs over the same text: the first kept, the other left as extracted
+            continue
+        out += [raw[at:start], number]
+        at = end
     out.append(raw[at:])
     return "".join(out)
 

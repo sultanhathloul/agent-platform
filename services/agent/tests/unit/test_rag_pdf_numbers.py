@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from app.rag.bidi import reversed_numbers
+from app.rag.bidi import restore_numbers, reversed_numbers
 from app.rag.config import load_docs_config
 from app.rag.extract import extract, extractor_version
 from tests.fixtures.documents import rtl_pieces_pdf_bytes
@@ -61,5 +61,30 @@ def test_pieces_far_apart_or_too_long_are_not_one_number():
     assert reversed_numbers(left_to_right) == []
 
 
+def test_a_number_printed_in_order_that_shares_the_digits_is_never_touched():
+    # The review's case (round 1 of PR #17): «15.6» drawn as one piece, then 6.5 drawn «5», «.», «6».
+    drawn = [(300.0, 700.0, "بلغ ", 10.0), (270.0, 700.0, "15.6", 10.0), (200.0, 700.0, " و ", 10.0),
+             (130.0, 700.0, "5", 10.0), (124.0, 700.0, ".", 10.0), (120.0, 700.0, "6", 10.0)]
+    assert restore_numbers("بلغ 15.6 و 5.6", reversed_numbers(drawn)) == "بلغ 15.6 و 6.5"
+    # The same digits after it, inside a longer number: still only the drawn run.
+    assert restore_numbers("و 5.6 من 5.62", [(["5", ".", "6"], "6.5")]) == "و 6.5 من 5.62"
+    # pypdf's own joining spaces between the pieces are allowed.
+    assert restore_numbers("عام 6 202 م", [(["6", "202"], "2026")]) == "عام 2026 م"
+
+
+def test_an_ambiguous_run_is_left_as_extracted():
+    # «5.6» printed in order and «5.6» read from a reversed 6.5: which is which cannot be told.
+    assert restore_numbers("بلغ 5.6 و 5.6", [(["5", ".", "6"], "6.5")]) == "بلغ 5.6 و 5.6"
+    # Two reversed draws of the same run, and the text holds exactly two: both restored in order.
+    assert restore_numbers("بلغ 5.6 و 5.6", [(["5", ".", "6"], "6.5"), (["5", ".", "6"], "6.5")]) == "بلغ 6.5 و 6.5"
+    # A run the text does not hold as a whole number is left alone.
+    assert restore_numbers("بلغ 15.62", [(["5", ".", "6"], "6.5")]) == "بلغ 15.62"
+
+
+def test_the_extractor_keeps_a_correct_number_beside_a_reversed_one(docs_config):
+    text = text_of([["بلغ المعدل", "|15.6", "وبلغ معدل البطالة للسعوديين", "6.5", "%"]], docs_config)
+    assert "15.6" in text and "6.5" in text and "16.5" not in text
+
+
 def test_the_pdf_extractor_version_moves_so_the_seed_reindexes():
-    assert extractor_version("pdf") == "2" and extractor_version("docx") == "1"
+    assert extractor_version("pdf") == "3" and extractor_version("docx") == "1"
