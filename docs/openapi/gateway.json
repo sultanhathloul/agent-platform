@@ -628,7 +628,7 @@
                 }
               }
             },
-            "description" : "The document, pending when it is re-indexed"
+            "description" : "The document, its reindexStatus reindexing when re-indexed"
           },
           "400" : {
             "content" : {
@@ -659,9 +659,19 @@
               }
             },
             "description" : "kb_not_found or kb_document_not_found"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "too_many_uploads: the caller's uploads in flight are at the limit"
           }
         },
-        "summary" : "Re-indexes a knowledge base document an older extractor cut (ADR-0410); one already current is returned unchanged",
+        "summary" : "Re-indexes a knowledge base document an older extractor cut (ADR-0410), or retries a re-index that failed; one already current is returned unchanged. The document stays indexed on its old chunks until the new ones replace them (ADR-0424)",
         "tags" : [ "admin-knowledge-bases" ]
       }
     },
@@ -3958,6 +3968,15 @@
           "reindex_due" : {
             "type" : "boolean",
             "description" : "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)"
+          },
+          "reindex_reason" : {
+            "type" : "string",
+            "description" : "Why the re-index failed (reindex_failed only)"
+          },
+          "reindex_status" : {
+            "type" : "string",
+            "description" : "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could not finish (the document stays indexed on its old chunks)",
+            "enum" : [ "reindexing", "reindex_failed" ]
           },
           "sha256" : {
             "type" : "string",

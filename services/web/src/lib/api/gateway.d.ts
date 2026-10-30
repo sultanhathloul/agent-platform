@@ -104,7 +104,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Re-indexes a knowledge base document an older extractor cut (ADR-0410); one already current is returned unchanged */
+        /** Re-indexes a knowledge base document an older extractor cut (ADR-0410), or retries a re-index that failed; one already current is returned unchanged. The document stays indexed on its old chunks until the new ones replace them (ADR-0424) */
         post: operations["reindex"];
         delete?: never;
         options?: never;
@@ -1092,6 +1092,13 @@ export interface components {
             reason?: string;
             /** @description Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410) */
             reindex_due?: boolean;
+            /** @description Why the re-index failed (reindex_failed only) */
+            reindex_reason?: string;
+            /**
+             * @description A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could not finish (the document stays indexed on its old chunks)
+             * @enum {string}
+             */
+            reindex_status?: "reindexing" | "reindex_failed";
             /** @description The file's SHA-256, computed by the gateway as it stored it (ADR-0392) */
             sha256?: string;
             /** Format: int64 */
@@ -2155,7 +2162,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The document, pending when it is re-indexed */
+            /** @description The document, its reindexStatus reindexing when re-indexed */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2184,6 +2191,15 @@ export interface operations {
             };
             /** @description kb_not_found or kb_document_not_found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description too_many_uploads: the caller's uploads in flight are at the limit */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

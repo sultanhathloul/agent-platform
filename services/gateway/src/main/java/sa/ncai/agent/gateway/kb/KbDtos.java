@@ -102,7 +102,12 @@ public final class KbDtos {
             @Schema(description = "Uploaded without its source metadata; cleared when an administrator corrects it")
             boolean metadataMissing,
             @Schema(description = "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)")
-            boolean reindexDue) {
+            boolean reindexDue,
+            @Schema(description = "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, "
+                    + "reindex_failed when it could not finish (the document stays indexed on its old chunks)",
+                    allowableValues = {"reindexing", "reindex_failed"})
+            String reindexStatus,
+            @Schema(description = "Why the re-index failed (reindex_failed only)") String reindexReason) {
         public KbDocumentView {
             warnings = warnings == null ? List.of() : List.copyOf(warnings);
         }

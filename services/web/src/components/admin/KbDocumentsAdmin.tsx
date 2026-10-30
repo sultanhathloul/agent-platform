@@ -6,7 +6,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import type { AttachmentLimits, KbDocumentView, KbView } from "@/lib/api/types";
 import { POLL_INTERVAL_MS, getLimits } from "@/lib/attachments";
 import { resolveErrorMessage, type ErrorInfo } from "@/lib/errors";
-import { GatewayError, getKb, listKbDocuments, updateKbMetadata, uploadKbDocument } from "@/lib/gateway";
+import { GatewayError, getKb, listKbDocuments, reindexKbDocument, updateKbMetadata, uploadKbDocument } from "@/lib/gateway";
 import {
   EMPTY_METADATA,
   type MetadataDraft,
@@ -90,6 +90,36 @@ export function MetadataFields({
  * status badge, its earlier and later versions, and a form to correct its metadata. Pending documents
  * are read again every 2 s. Arabic first, Western digits (ADR-0288), no code or JSON to type.
  */
+/** A re-index beside the indexed chunks (ADR-0424): the badge, or (with `onRetry`) the line under the title,
+ * which for a failed re-index says the document is still searchable, why it failed, and offers a retry. */
+export function ReindexState({ document, onRetry }: { document: KbDocumentView; onRetry?: () => void }) {
+  const t = useTranslations("kbs");
+  const tr = useTranslations();
+  const state = document.reindex_status;
+  if (!state) return null;
+  if (!onRetry) {
+    const tone = state === "reindexing" ? badge.pending : badge.failed;
+    return (
+      <span className={`rounded-full px-2 py-0.5 text-xs ring-1 ${tone}`} data-reindex={state}>
+        {t(state === "reindexing" ? "reindexing" : "reindexFailed")}
+      </span>
+    );
+  }
+  if (state === "reindexing") return <p className="mt-1 text-xs text-muted">{t("reindexingHint")}</p>;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <p className="text-xs text-error">
+        {t("reindexFailedHint", {
+          reason: document.reindex_reason ? tr(`attachments.reasons.${document.reindex_reason}`) : "—",
+        })}
+      </p>
+      <button type="button" className={quiet} onClick={onRetry}>
+        {t("reindexRetry")}
+      </button>
+    </div>
+  );
+}
+
 /** A seeded file uploaded without its sidecar (ADR-0392): the badge, or the line saying what to correct. */
 export function MetadataMissing({ hint = false }: { hint?: boolean }) {
   const t = useTranslations("kbs");
@@ -148,7 +178,7 @@ export function KbDocumentsAdmin({ slug }: { slug: string }) {
     })();
   }, [load, auth, config.gatewayUrl]);
 
-  const pending = (documents ?? []).some((d) => d.status === "pending");
+  const pending = (documents ?? []).some((d) => d.status === "pending" || d.reindex_status === "reindexing");
   useEffect(() => {
     if (!pending) return;
     const timer = window.setInterval(() => void load(), POLL_INTERVAL_MS);
@@ -186,6 +216,20 @@ export function KbDocumentsAdmin({ slug }: { slug: string }) {
       setError(failure(err));
     } finally {
       setProgress(null);
+    }
+  }
+
+  async function onReindex(d: KbDocumentView) {
+    setError(null);
+    setNotice(null);
+    try {
+      const token = await auth.getAccessToken();
+      if (!token) return;
+      await reindexKbDocument({ gatewayUrl: config.gatewayUrl, token, slug, id: d.id });
+      setNotice(t("reindexStarted", { title: d.metadata.title }));
+      await load();
+    } catch (err) {
+      setError(failure(err));
     }
   }
 
@@ -295,9 +339,11 @@ export function KbDocumentsAdmin({ slug }: { slug: string }) {
                     <span className={`rounded-full px-2 py-0.5 text-xs ring-1 ${badge[d.status] ?? ""}`} data-status={d.status}>
                       {tr(`attachments.status.${d.status}`)}
                     </span>
+                    <ReindexState document={d} />
                     {later && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{t("superseded")}</span>}
                     {d.metadata_missing && <MetadataMissing />}
                   </div>
+                  <ReindexState document={d} onRetry={() => void onReindex(d)} />
                   {d.metadata_missing && <MetadataMissing hint />}
                   <p className="mt-1 text-xs text-muted">
                     <bdi dir="auto">{d.metadata.publisher}</bdi>

@@ -5759,7 +5759,7 @@
           "knowledge-bases"
         ],
         "summary": "Reindex Document",
-        "description": "Re-indexes a document an older version of its kind's extractor cut (ADR-0410); one already current is\nreturned unchanged, so the call is idempotent. The document is pending until its new chunks replace the old.",
+        "description": "Re-indexes a document an older version of its kind's extractor cut (ADR-0410), or retries a re-index that\nfailed; one already current is returned unchanged, so the call is idempotent. The document stays indexed, on\nits old chunks, with reindex_status reindexing until its new chunks replace the old in one step; a re-index\nthat fails keeps the old chunks and reads reindex_failed (ADR-0424). Counted toward the caller's uploads in\nflight: too_many_uploads (429) past the limit.",
         "operationId": "reindex_document_v1_admin_kbs__slug__documents__document_id__reindex_post",
         "parameters": [
           {
@@ -5940,6 +5940,16 @@
           },
           "404": {
             "description": "kb_not_found or kb_document_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "too_many_uploads: the caller's uploads in flight are at the limit",
             "content": {
               "application/json": {
                 "schema": {
@@ -7826,6 +7836,34 @@
             "title": "Reindex Due",
             "description": "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410).",
             "default": false
+          },
+          "reindex_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "reindexing",
+                  "reindex_failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reindex Status",
+            "description": "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could not finish (the document stays indexed on its old chunks; retry with the reindex route)."
+          },
+          "reindex_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reindex Reason",
+            "description": "Why the re-index failed (reindex_failed only)."
           }
         },
         "type": "object",

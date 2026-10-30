@@ -792,6 +792,14 @@ class KbDocumentView(BaseModel):
     reindex_due: bool = Field(
         default=False, description="Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)."
     )
+    reindex_status: Literal["reindexing", "reindex_failed"] | None = Field(
+        default=None,
+        description=(
+            "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could "
+            "not finish (the document stays indexed on its old chunks; retry with the reindex route)."
+        ),
+    )
+    reindex_reason: str | None = Field(default=None, description="Why the re-index failed (reindex_failed only).")
 
 
 class KbDocumentList(BaseModel):

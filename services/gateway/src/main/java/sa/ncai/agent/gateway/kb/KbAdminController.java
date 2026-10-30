@@ -398,9 +398,13 @@ public class KbAdminController {
     }
 
     @PostMapping(path = BASE + "/{slug}/documents/{documentId}/reindex", produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Re-indexes a knowledge base document an older extractor cut (ADR-0410); one already current "
-            + "is returned unchanged", responses = {
-        @ApiResponse(responseCode = "200", description = "The document, pending when it is re-indexed"),
+    @Operation(summary = "Re-indexes a knowledge base document an older extractor cut (ADR-0410), or retries a "
+            + "re-index that failed; one already current is returned unchanged. The document stays indexed on its "
+            + "old chunks until the new ones replace them (ADR-0424)", responses = {
+        @ApiResponse(responseCode = "200", description = "The document, its reindexStatus reindexing when re-indexed"),
+        @ApiResponse(responseCode = "429", description = "too_many_uploads: the caller's uploads in flight are at the "
+                + "limit", content = @Content(
+                mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
         @ApiResponse(responseCode = "400", description = "invalid_request", content = @Content(
                 mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ApiErrorEnvelope.class))),
         @ApiResponse(responseCode = "403", description = "forbidden: not an admin", content = @Content(
@@ -424,7 +428,12 @@ public class KbAdminController {
         call.detail.put("document_id", documentId.toLowerCase(Locale.ROOT));
         return call.proxy(HttpMethod.POST,
                 BASE + "/" + slug + "/documents/" + documentId.toLowerCase(Locale.ROOT) + "/reindex", null,
-                KbDtos.KbDocumentView.class, 200, (detail, view) -> detail.put("status", view.status()));
+                KbDtos.KbDocumentView.class, 200, (detail, view) -> {
+                    detail.put("status", view.status());
+                    if (view.reindexStatus() != null) {
+                        detail.put("reindex_status", view.reindexStatus());
+                    }
+                });
     }
 
     // ------------------------------------------------------------------ shared steps

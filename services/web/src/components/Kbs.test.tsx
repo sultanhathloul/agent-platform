@@ -13,7 +13,7 @@ import {
 import { renderIn } from "@/test/render";
 import { CitationList } from "./AssistantMessageView";
 import { KbToggles } from "./KbToggles";
-import { MetadataFields, MetadataMissing } from "./admin/KbDocumentsAdmin";
+import { MetadataFields, MetadataMissing, ReindexState } from "./admin/KbDocumentsAdmin";
 
 // Test-only slugs: no web file names a knowledge base.
 const KBS: KbToggle[] = [
@@ -152,5 +152,32 @@ describe("a seeded document without its sidecar (ADR-0392)", () => {
     expect(text(renderIn("ar", <MetadataMissing />))).toBe("بيانات المصدر ناقصة");
     expect(text(renderIn("ar", <MetadataMissing hint />))).toContain("تعديل بيانات المصدر");
     expect(text(renderIn("en", <MetadataMissing />))).toBe("Metadata missing");
+  });
+});
+
+describe("a re-index beside the indexed chunks (ADR-0424)", () => {
+  it("shows no state when none runs", () => {
+    expect(renderIn("ar", <ReindexState document={doc("a")} />)).toBe("");
+  });
+
+  it("shows a running re-index as still searchable, in Arabic and English", () => {
+    const running: KbDocumentView = { ...doc("a"), status: "indexed", reindex_status: "reindexing" };
+    expect(text(renderIn("ar", <ReindexState document={running} />))).toBe("تُعاد فهرسته");
+    expect(text(renderIn("ar", <ReindexState document={running} onRetry={() => {}} />))).toContain("متاحًا للبحث");
+    expect(text(renderIn("en", <ReindexState document={running} />))).toBe("Re-indexing");
+  });
+
+  it("shows a failed re-index with its reason and a retry, the document still searchable", () => {
+    const failed: KbDocumentView = {
+      ...doc("a"), status: "indexed", reindex_status: "reindex_failed", reindex_reason: "extraction_aborted",
+    };
+    expect(text(renderIn("ar", <ReindexState document={failed} />))).toBe("فشلت إعادة الفهرسة");
+    const ar = renderIn("ar", <ReindexState document={failed} onRetry={() => {}} />);
+    expect(text(ar)).toContain("بنسخته السابقة");
+    expect(ar).toContain("<button");
+    expect(text(ar)).toContain("أعد المحاولة");
+    const en = text(renderIn("en", <ReindexState document={failed} onRetry={() => {}} />));
+    expect(en).toContain("still searchable");
+    expect(en).toContain("Retry");
   });
 });

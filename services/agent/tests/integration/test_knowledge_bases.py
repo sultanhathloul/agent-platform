@@ -485,3 +485,92 @@ async def test_a_registration_keeps_the_files_hash_and_a_missing_metadata_flag_u
     )
     assert corrected.status_code == 200 and corrected.json()["metadata_missing"] is False
     assert corrected.json()["sha256"] == digest
+
+
+# ------------------------------------------------------------------ re-index beside the indexed chunks (ADR-0424)
+
+
+async def _chunks(services, document_id: str) -> list[str]:
+    async with services.db.connection() as conn:
+        rows = await (await conn.execute(
+            "SELECT text FROM agent.rag_chunks WHERE kb_document_id = %s ORDER BY text", (document_id,))).fetchall()
+    return [row["text"] for row in rows]
+
+
+async def _older_extractor(services, document_id: str) -> None:
+    async with services.db.connection() as conn:
+        await conn.execute("UPDATE agent.kb_documents SET extractor = '0' WHERE id = %s", (document_id,))
+
+
+async def test_a_reindex_keeps_the_document_in_retrieval_until_its_new_chunks_replace_the_old(services, api):
+    """Review round 1 of PR #17, finding 9: a document being re-indexed stayed `pending` and left retrieval."""
+    slug = _slug()
+    await _create(api, slug)
+    document = await _document(services, api, slug, LABOR, title="نظام العمل")
+    reader = _reader(f"kb:{slug}:read")
+    old = await _chunks(services, document["id"])
+    await _older_extractor(services, document["id"])
+    started = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert started.status_code == 200, started.text
+    view = started.json()
+    assert (view["status"], view["reindex_status"], view["reindex_due"]) == ("indexed", "reindexing", False)
+    # While it runs: still found, on its old chunks, and still in the catalog retrieval and citations use.
+    found = await _search(services, reader, [slug], "مدة إجازة الأمومة")
+    assert [s["attachment_id"] for s in found.sources][:1] == [document["id"]]
+    assert document["id"] in await services.kbs.catalog("default", [slug])
+    assert await _chunks(services, document["id"]) == old
+    assert await ingestion(services).pipeline.run(f"kb:{document['id']}") == "indexed"
+    done = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+    assert (done["status"], done["reindex_status"], done["reindex_due"]) == ("indexed", None, False)
+    assert await _chunks(services, document["id"])
+    again = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert again.json()["reindex_status"] is None  # current: unchanged
+
+
+async def test_a_failed_reindex_keeps_the_old_chunks_reads_reindex_failed_and_can_be_retried(services, api):
+    slug = _slug()
+    await _create(api, slug)
+    document = await _document(services, api, slug, LABOR, title="نظام العمل")
+    reader = _reader(f"kb:{slug}:read")
+    old = await _chunks(services, document["id"])
+    async with services.db.connection() as conn:
+        row = await (await conn.execute(
+            "SELECT object_key FROM agent.kb_documents WHERE id = %s", (document["id"],))).fetchone()
+    original = await services.attachments.objects.get(row["object_key"])
+    await services.attachments.objects.put(row["object_key"], b"%PDF-1.7 not a pdf", "application/pdf")
+    await _older_extractor(services, document["id"])
+    await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert await ingestion(services).pipeline.run(f"kb:{document['id']}") == "failed"
+    failed = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+    assert (failed["status"], failed["reindex_status"]) == ("indexed", "reindex_failed")
+    assert failed["reindex_reason"] and failed["reason"] is None and failed["reindex_due"] is True
+    assert await _chunks(services, document["id"]) == old
+    found = await _search(services, reader, [slug], "مدة إجازة الأمومة")
+    assert [s["attachment_id"] for s in found.sources][:1] == [document["id"]]
+    # Retried, as the admin page and the seed do, once the file reads again.
+    await services.attachments.objects.put(row["object_key"], original, "application/pdf")
+    retried = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert retried.json()["reindex_status"] == "reindexing"
+    assert await ingestion(services).pipeline.run(f"kb:{document['id']}") == "indexed"
+    done = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+    assert (done["reindex_status"], done["reindex_reason"], done["reindex_due"]) == (None, None, False)
+
+
+async def test_a_reindex_counts_toward_the_callers_uploads_in_flight(services, api):
+    slug = _slug()
+    await _create(api, slug)
+    document = await _document(services, api, slug, LABOR, title="نظام العمل")
+    await _older_extractor(services, document["id"])
+    held = []
+    while not isinstance(slot := services.kbs.in_flight.try_acquire("default", "kb-admin"), str):
+        held.append(slot)
+    try:
+        refused = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+        assert refused.status_code == 429 and refused.json()["error"]["code"] == "too_many_uploads"
+        view = (await api.get(f"/v1/admin/kbs/{slug}/documents/{document['id']}", headers=_admin())).json()
+        assert (view["status"], view["reindex_status"], view["reindex_due"]) == ("indexed", None, True)
+    finally:
+        for slot in held:
+            slot.release()
+    accepted = await api.post(f"/v1/admin/kbs/{slug}/documents/{document['id']}/reindex", headers=_admin())
+    assert accepted.status_code == 200 and accepted.json()["reindex_status"] == "reindexing"

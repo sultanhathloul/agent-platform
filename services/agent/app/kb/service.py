@@ -275,16 +275,28 @@ class KbService:
             raise RegisterFailed(stored) from exc
 
     async def reindex(self, kb: KbRecord, document_id: str, actor: Actor) -> KbDocumentRecord | None:
-        """Re-indexes a document an older extractor cut (ADR-0410): back to pending and handed to the backend
-        again, whose job replaces its chunks. A document already current is returned unchanged (the seed
-        calls this for every document it holds that is due, so a second run does nothing)."""
+        """Re-indexes a document an older extractor cut (ADR-0410), or retries a re-index that failed: handed to
+        the backend again beside its indexed chunks, which stay in retrieval until the new ones replace them
+        (ADR-0424). A document already current is returned unchanged (the seed calls this for every document it
+        holds that is due, so a second run does nothing). Counted toward the caller's registrations in flight,
+        as an upload is: raises TooManyUploads past the limit."""
         record = await self.store.get_document(kb.tenant_id, kb.slug, document_id)
         if record is None or not record.reindex_due:
             return record
-        queued = await self.store.requeue(kb.tenant_id, kb.slug, document_id)
+        slot = self.in_flight.try_acquire(kb.tenant_id, actor.user_id) if self.in_flight is not None else None
+        if isinstance(slot, str):
+            raise TooManyUploads(slot)
+        try:
+            queued = await self.store.requeue(kb.tenant_id, kb.slug, document_id)
+        except BaseException:
+            if slot is not None:
+                slot.release()
+            raise
         if queued is None:
+            if slot is not None:
+                slot.release()
             return record
-        self._handover(queued, actor, None)
+        self._handover(queued, actor, slot)
         return queued
 
     async def documents(self, tenant_id: str, slug: str) -> list[KbDocumentRecord]:

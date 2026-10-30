@@ -141,6 +141,8 @@ def _document_view(record: KbDocumentRecord, superseded_by: str | None = None) -
         sha256=record.sha256,
         metadata_missing=record.metadata_missing,
         reindex_due=record.reindex_due,
+        reindex_status=record.reindex_status,
+        reindex_reason=record.reindex_reason if record.reindex == "failed" else None,
     )
 
 
@@ -317,17 +319,27 @@ async def update_metadata(slug: Slug, document_id: DocumentId, body: KbSourceMet
 @router.post(
     "/v1/admin/kbs/{slug}/documents/{document_id}/reindex",
     response_model=KbDocumentView,
-    responses={**_ADMIN_ERRORS, 404: {"model": ErrorEnvelope, "description": "kb_not_found or kb_document_not_found"}},
+    responses={
+        **_ADMIN_ERRORS,
+        404: {"model": ErrorEnvelope, "description": "kb_not_found or kb_document_not_found"},
+        429: {"model": ErrorEnvelope, "description": "too_many_uploads: the caller's uploads in flight are at the limit"},
+    },
 )
 async def reindex_document(slug: Slug, document_id: DocumentId, call: Admin):
-    """Re-indexes a document an older version of its kind's extractor cut (ADR-0410); one already current is
-    returned unchanged, so the call is idempotent. The document is pending until its new chunks replace the old."""
+    """Re-indexes a document an older version of its kind's extractor cut (ADR-0410), or retries a re-index that
+    failed; one already current is returned unchanged, so the call is idempotent. The document stays indexed, on
+    its old chunks, with reindex_status reindexing until its new chunks replace the old in one step; a re-index
+    that fails keeps the old chunks and reads reindex_failed (ADR-0424). Counted toward the caller's uploads in
+    flight: too_many_uploads (429) past the limit."""
     if isinstance(call, JSONResponse):
         return call
     kb = await call.services.kbs.store.get(call.tenant_id, slug)
     if kb is None:
         return call.error("kb_not_found", 404)
-    record = await call.services.kbs.reindex(kb, document_id, call.actor)
+    try:
+        record = await call.services.kbs.reindex(kb, document_id, call.actor)
+    except TooManyUploads:
+        return call.error("too_many_uploads", 429)
     if record is None:
         return call.error("kb_document_not_found", 404)
     return _document_view(record)

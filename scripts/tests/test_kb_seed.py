@@ -28,6 +28,7 @@ class FakeGateway:
         self.uploads: list[dict] = []
         self.reindexes: list[str] = []
         self.deleted: set[str] = set()
+        self.busy = 0
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -47,11 +48,16 @@ class FakeGateway:
         if path.endswith("/reindex"):
             # As the agent does (ADR-0410): a due document goes back to pending, then indexes with the new
             # extractor; one already current comes back unchanged.
+            # Since ADR-0424 the document stays indexed while it re-indexes beside its chunks, and a failed
+            # re-index is due again; the agent counts it with the caller's uploads in flight (429 past them).
+            if self.busy:
+                self.busy -= 1
+                return httpx.Response(429, json={"error": {"code": "too_many_uploads"}})
             doc = next(d for d in self.docs[slug] if d["id"] == parts[6])
             self.reindexes.append(doc["id"])
             if doc.get("reindex_due"):
-                doc.update(reindex_due=False)
-                return httpx.Response(200, json={"data": {**doc, "status": "pending"}})
+                doc.update(reindex_due=False, reindex_status=None, reindex_reason=None)
+                return httpx.Response(200, json={"data": {**doc, "status": "indexed", "reindex_status": "reindexing"}})
             return httpx.Response(200, json={"data": doc})
         if len(parts) == 5:
             return httpx.Response(200 if slug in self.kbs else 404, json={"data": self.kbs.get(slug)})
@@ -255,3 +261,25 @@ def test_main_goes_on_past_a_deleted_kb_and_exits_zero(tmp_path, monkeypatch):
     monkeypatch.setattr(kb_seed.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(fake.handle)))
     assert kb_seed.main(["--wait-s", "0"]) == 0
     assert seeded == ["fixture-stats", "fixture-kept"] and "fixture-kept" in fake.kbs
+
+
+def test_a_failed_reindex_is_retried_and_a_busy_agent_is_waited_for(tmp_path, monkeypatch):
+    """ADR-0424: a re-index that failed keeps the document indexed on its old chunks and is due again; the seed
+    retries it, waiting out a 429 too_many_uploads as an upload does."""
+    monkeypatch.setattr(kb_seed, "BUSY_WAIT_S", 0)
+    folder, fake = _folder(tmp_path), FakeGateway()
+    _run(fake, folder)
+    fake.docs["fixture-stats"][0].update(reindex_due=True, reindex_status="reindex_failed",
+                                         reindex_reason="extraction_aborted")
+    fake.busy = 2
+    totals, lines = _run(fake, folder)
+    assert totals["reindexed"] == 1 and totals["reindexed_ok"] == 1 and fake.busy == 0
+    assert any("reindex " in line and "retry after extraction_aborted" in line for line in lines)
+    again, _ = _run(fake, folder)
+    assert again["reindexed"] == 0
+
+
+def test_the_wait_reads_a_running_reindex_as_pending_and_a_failed_one_as_done():
+    assert kb_seed.progress({"status": "indexed", "reindex_status": "reindexing"}) == "pending"
+    assert kb_seed.progress({"status": "indexed", "reindex_status": "reindex_failed"}) == "reindex_failed"
+    assert kb_seed.progress({"status": "indexed", "reindex_status": None}) == "indexed"

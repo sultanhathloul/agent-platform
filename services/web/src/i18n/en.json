@@ -828,6 +828,12 @@
     "supersedesLine": "Supersedes: {title}",
     "supersededLine": "Superseded by: {title}",
     "editMetadata": "Edit source details",
+    "reindexing": "Re-indexing",
+    "reindexingHint": "The document stays searchable on its current version until the re-index completes.",
+    "reindexFailed": "Re-index failed",
+    "reindexFailedHint": "The document is still searchable on its previous version. Reason: {reason}",
+    "reindexRetry": "Retry",
+    "reindexStarted": "Re-indexing “{title}” started.",
     "save": "Save",
     "metadataSaved": "The details of “{title}” were saved."
   }

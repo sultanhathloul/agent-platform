@@ -828,6 +828,12 @@
     "supersedesLine": "تحل محل: {title}",
     "supersededLine": "حلّت محلها: {title}",
     "editMetadata": "تعديل بيانات المصدر",
+    "reindexing": "تُعاد فهرسته",
+    "reindexingHint": "يبقى المستند متاحًا للبحث بنسخته الحالية حتى تكتمل إعادة الفهرسة.",
+    "reindexFailed": "فشلت إعادة الفهرسة",
+    "reindexFailedHint": "ما زال المستند متاحًا للبحث بنسخته السابقة. السبب: {reason}",
+    "reindexRetry": "أعد المحاولة",
+    "reindexStarted": "بدأت إعادة فهرسة «{title}».",
     "save": "حفظ",
     "metadataSaved": "حُفظت بيانات «{title}»."
   }

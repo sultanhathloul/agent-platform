@@ -206,8 +206,14 @@ class Gateway:
         return answered.json()["data"]
 
     def reindex(self, slug: str, document_id: str) -> dict:
-        """Re-indexes a document an older extractor cut (ADR-0410); one already current comes back unchanged."""
-        answered = self.http.post(f"{self.base}/v1/admin/kbs/{slug}/documents/{document_id}/reindex", headers=self.headers)
+        """Re-indexes a document an older extractor cut (ADR-0410), or retries a failed re-index (ADR-0424); one
+        already current comes back unchanged. Counted with the uploads in flight: a 429 waits, as an upload does."""
+        for _ in range(BUSY_RETRIES):
+            answered = self.http.post(f"{self.base}/v1/admin/kbs/{slug}/documents/{document_id}/reindex",
+                                      headers=self.headers)
+            if answered.status_code != 429:
+                break
+            time.sleep(BUSY_WAIT_S)
         answered.raise_for_status()
         return answered.json()["data"]
 
@@ -241,21 +247,23 @@ def seed(gateway: Gateway, kb: SeedKb, *, wait_s: float, out=print) -> dict:
         uploaded[view["id"]] = doc
         flag = " (metadata missing: no sidecar)" if doc.metadata_missing else ""
         out(f"  upload  {doc.name}{flag}")
-    # A document an older version of its kind's extractor indexed is re-indexed once (ADR-0410): its new
-    # chunks replace the old; a second run finds nothing due.
+    # A document an older version of its kind's extractor indexed is re-indexed once (ADR-0410), beside its
+    # chunks, which stay in retrieval until the new ones replace them (ADR-0424); a re-index that failed is
+    # due again and retried here. A second run finds nothing due.
     reindexed: dict[str, SeedDocument] = {}
     for doc, found in work.held:
         if found["status"] == "failed":
             out(f"  failed  {doc.name}: in the KB, ingestion failed ({found.get('reason')}); not retried")
         elif found.get("reindex_due"):
+            retry = found.get("reindex_status") == "reindex_failed"
             try:
                 view = gateway.reindex(kb.slug, found["id"])
             except httpx.HTTPError as exc:
                 out(f"  FAIL    {doc.name}: re-index refused: {exc}")
                 continue
-            if view["status"] == "pending":
+            if view.get("reindex_status") == "reindexing":
                 reindexed[found["id"]] = doc
-                out(f"  reindex {doc.name}")
+                out(f"  reindex {doc.name}" + (f" (retry after {found.get('reindex_reason')})" if retry else ""))
     for gone in work.removed:
         out(f"  REMOVED {gone['name']} («{gone['metadata']['title']}»): in the KB but no longer in "
             f"kb-seed/{kb.slug}/; kept in the index (delete it on /admin/kbs/{kb.slug} if that is meant)")
@@ -270,12 +278,19 @@ def seed(gateway: Gateway, kb: SeedKb, *, wait_s: float, out=print) -> dict:
             "removed": len(work.removed), "failed_uploads": failed_uploads}
 
 
+def progress(document: dict) -> str:
+    """A document's state for the wait: a re-index running reads pending and a failed one reindex_failed, though
+    the document stays indexed on its old chunks meanwhile (ADR-0424)."""
+    return {"reindexing": "pending", "reindex_failed": "reindex_failed"}.get(
+        document.get("reindex_status") or "", document["status"])
+
+
 def wait(gateway: Gateway, slug: str, ids: set[str], wait_s: float) -> dict[str, str]:
     deadline = time.monotonic() + wait_s
     status: dict[str, str] = {}
     while True:
-        status = {d["id"]: d["status"] for d in gateway.documents(slug) if d["id"] in ids}
-        if all(status.get(i) in ("indexed", "failed") for i in ids) or time.monotonic() >= deadline:
+        status = {d["id"]: progress(d) for d in gateway.documents(slug) if d["id"] in ids}
+        if all(status.get(i) in ("indexed", "failed", "reindex_failed") for i in ids) or time.monotonic() >= deadline:
             return status
         time.sleep(2)
 

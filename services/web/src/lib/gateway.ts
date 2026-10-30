@@ -301,6 +301,18 @@ export async function updateKbMetadata({
   return required(await callJson<KbDocumentView>(url, token, { method: "PUT", body: JSON.stringify(metadata), signal }), 200);
 }
 
+/** Re-indexes a KB document, or retries a re-index that failed (ADR-0424); it stays searchable meanwhile. */
+export async function reindexKbDocument({
+  gatewayUrl,
+  token,
+  signal,
+  slug,
+  id,
+}: Authorized & { slug: string; id: string }): Promise<KbDocumentView> {
+  const url = `${gatewayUrl}${KBS}/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/reindex`;
+  return required(await callJson<KbDocumentView>(url, token, { method: "POST", signal }), 200);
+}
+
 /** A KB document's upload with its D3 metadata as form fields; the gateway checks it as an attachment (I2). */
 export function uploadKbDocument({
   gatewayUrl,
