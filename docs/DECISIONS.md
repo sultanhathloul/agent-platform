@@ -3816,3 +3816,11 @@ ADR numbers 0006–0010 follow the owner's decision numbering (decisions 6–10)
 - Context: Review round 1 changed prompts (report.system 2.2.0, design-system.md 2.2.0), retrieval inputs (the PDF and workbook extractors, ADR-0421 and ADR-0422, and the re-index that follows) and the report checks (ADR-0425). Rule 13 asks for three passing make eval runs before merge when such inputs change.
 - Decision: The owner asks for one before-merge run, from a fresh stack (make clean, make models, make up): make test, make eval with all suites once, make smoke, make smoke-airgap, each recorded per rule 11 with its evidence. Every attempt is recorded, a failed one with its evidence, never silently rerun.
 - Consequences: PR #17's eval gate after round 1 is that single run. The rule 13 gate is unchanged for later PRs.
+
+### ADR-0427: The before-merge run after review round 1 of PR #17 meets the merge gate (owner decision)
+- Date: 2026-11-01
+- Phase: reports PR (review round 1, the before-merge gate)
+- Status: decided
+- Context: ADR-0426 set one before-merge run from a fresh stack. That run at 03c01ec, make-eval-20261030T122309Z, passed every suite but reports (11/12, request_language 0.90): reports/file-en-budget, an English request over an Arabic attached file, got an Arabic page title. make test, make smoke (258/258) and make smoke-airgap (264/264) were green; make up exited 2 on one seed upload («Persons with Disability Statistics Report 2023 AR (1).pdf», `Connection reset by peer`) that succeeded on make kb-seed.
+- Decision: The owner accepts this run as PR #17's merge gate. The one miss is cosmetic (the page's title language, the page itself lang="en") and the same case passed in runs 4 to 6 (ADR-0420). The seed upload reset is recorded in docs/BACKLOG.md to investigate later.
+- Consequences: PR #17 is ready to merge on its tests, evals and smoke checks. The acceptance covers this PR only; rule 13's gate is unchanged for later PRs, and file-en-budget stays a gated case.

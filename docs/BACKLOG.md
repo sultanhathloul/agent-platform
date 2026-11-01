@@ -252,6 +252,7 @@ From phase 06 (make eval make-eval-20261024T190302Z, 2026-10-24; listed, not imp
 - **stats-gov's per-category year rule** (ADR-0393): read literally, it leaves out sub-categories whose newest year is older than their category's (for example health status 2025 under الصحة, 2026). If the owner wants every current series, change `select` in scripts/kb_fetch.py to per sub-category.
 - **Label density on dense pages** (ADR-0389): every figure carries its label, years included; a table of many figures carries many. A per-column or per-table label would need the owner's view of "exactly one label per figure".
 - **The API count `general`** (ADR-0389): renamed from `unverified` in API 2.7.0 before merge; clients of an unmerged branch only.
+- **The seed upload of «Persons with Disability Statistics Report 2023 AR (1).pdf» is reset on every fresh stack** (owner decision of 2026-11-01, ADR-0427; investigate later): on the fresh stacks of 2026-10-29 15:33Z and 2026-10-30 11:37Z, make up's seed upload of this file (stats-gov, 1,555,001 bytes) failed with `[Errno 54] Connection reset by peer` just after the gateway turned healthy, and make up exited 2; every other document indexed, and `make kb-seed` uploaded and indexed it on the first retry (docs/PROGRESS.md, review round 1 of PR #17, Results). Not investigated: whether the gateway or its proxy resets the connection while still starting, or something about this file's size or name.
 
 
 ## KB content quality (future track) — owner decision, 2026-10-29

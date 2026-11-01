@@ -2266,7 +2266,7 @@ Owner decision: on the OpenRouter development profile, OpenRouter may route each
 ## Interactive reports (standalone PR, owner decision)
 
 - Branch: `feat/reports`, from `main` at a102bc1 (PR #16, development provider routing, merged on 2026-10-28T00:47:18Z; phase 08 merged as PR #15 at 8bfc70f). The session prompt is kept verbatim in `docs/REPORTS-PROMPT.md`; it arrived whole (it ends with FINISH).
-- Status: **awaiting the owner's review; not marked done.** make test, make smoke and make smoke-airgap green from a clean stack; make eval (all suites, once) passed every suite but directions (unknown_or_ambiguous_handled 0.86, 6/7, one case the development model answered by asking for both places; directions is unchanged in this PR, and the same message listed the three candidates in two live turns). See Results below; the owner decides whether that meets the done-check.
+- Status (2026-11-01): **the owner accepts the before-merge run after review round 1 as the merge gate (ADR-0427); awaiting the owner's merge.** See "Review round 1 of PR #17" below. Earlier status, kept: make test, make smoke and make smoke-airgap green from a clean stack; make eval (all suites, once) passed every suite but directions (unknown_or_ambiguous_handled 0.86, 6/7, one case the development model answered by asking for both places; directions is unchanged in this PR, and the same message listed the three candidates in two live turns). See Results below; the owner decides whether that meets the done-check.
 - Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
 - Done when (the prompt; phase 11's artifact-output row, pulled forward for HTML reports): a report turn, chosen by keyword through the router or by the composer's output picker, writes a complete HTML page with the report_writer role on the heavy tier under its own deadline profile, streamed live to a side panel; the page uses only the platform's design kit, every figure it shows is either matched to the turn's findings or the user's message or visibly marked «غير موثق» / "Unverified", and it ends with a «المصادر» section from the citations; it is served sandboxed with CSP from its own path, stored per version in MinIO and the database, readable by the conversation's owner only (gateway AND agent), downloadable as one self-contained offline file; a follow-up edits the latest report into a new version; reports.jsonl gated; `make test`, `make eval` once (all suites), `make smoke` and `make smoke-airgap` green from `make clean && make models && make up`, recorded per rule 11.
 - Baseline on `main` (rule 11): main at a102bc1 carries the code of 59ecf68 plus ADR-0362 (infrastructure only); its last recorded runs are the ADR-0362 checks of 2026-10-28 (above):
@@ -2678,7 +2678,7 @@ Checklist
 - [x] 6. A table counts as kept only when its names appear in its cited passages; NothingFound counts verified elements only.
 - [x] PROGRESS claims: the PDF extractor in the changes outside report-only code; the requeue docstring and route description.
 - [x] BACKLOG: the edition/supersedes duplicate under "KB content quality (future track)".
-- [ ] (make test, make smoke, make smoke-airgap green; make eval once with reports 11/12, see Results) ADR: one before-merge run. Fresh stack: make test, make eval once, make smoke, make smoke-airgap; rule 11; push.
+- [x] (make test, make smoke, make smoke-airgap green; make eval once with reports 11/12, accepted by the owner, ADR-0427) ADR: one before-merge run. Fresh stack: make test, make eval once, make smoke, make smoke-airgap; rule 11; push.
 
 Commits
 - d4502ee finding 7 (ADR-0421, PDF extractor version 3); e5458b1 finding 8 (ADR-0422, workbook extractor version 5); 8b5acb6 finding 10 (ADR-0423); a3d312c finding 9 (ADR-0424, migration 0022; agent, gateway and web; `make openapi`); 9fbf3d7 findings 1 to 6 in one commit, as they share the element check and its tests (ADR-0425); 03c01ec the PROGRESS claim, the BACKLOG item and ADR-0426.
@@ -2716,8 +2716,10 @@ Results (rule 11; ADR-0426, one run; every attempt recorded)
   - kb 29/31: hit_at_8 1.00, citation_accuracy 0.87 (latest-inflation-ar, latest-growth-gulf, the known misses), latest_version 1.00, cross_kb_attribution 1.00, abstention 1.00; facts_kept 1.00 reported.
   - internal-comms 11/11; official_memo 8/8 (no_invented_fields 0.60 and facts_kept 0.80 reported).
   - Not rerun (rule 13; the owner asked for one run). The owner decides whether this run meets the gate.
+  - **Owner decision (2026-11-01, ADR-0427): this run meets PR #17's merge gate.** The one miss, reports/file-en-budget (an Arabic title on an English request over an Arabic file), is cosmetic and passed in runs 4 to 6 (ADR-0420). Not rerun.
 - make smoke 13:16:21Z–13:21:22Z: **258/258**, rc 0 (previous 256).
 - make smoke-airgap 13:21:22Z–13:29:18Z: **264/264**, rc 0 (previous 264).
+- The seed upload reset of make up (the Disability Statistics PDF, on every fresh stack, fine on retry) is in docs/BACKLOG.md under "Owner decisions A to D on the report branch", to investigate later (ADR-0427).
 - `docs/HANDOFF.md` untouched.
 
 Files for human review
