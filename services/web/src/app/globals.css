@@ -197,6 +197,26 @@
   --highlight: #5a4a1f;
 }
 
+
+/* The header logo for the theme (ADR-0428): the same rules as the tokens above, so it switches with them. */
+.brand-logo-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-logo-light {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .brand-logo-dark {
+    display: block;
+  }
+}
+:root[data-theme="dark"] .brand-logo-light {
+  display: none;
+}
+:root[data-theme="dark"] .brand-logo-dark {
+  display: block;
+}
+
 html,
 body {
   height: 100%;
