@@ -2727,6 +2727,24 @@ Files for human review
 - services/agent/app/db/migrations/0022_kb_document_reindex.sql.
 - On the next `make up` over an existing volume, the seed re-indexes stats-gov's 43 PDFs (extractor 3) and 32 workbooks (extractor 5) beside their chunks.
 
+## Logo version 3 (chore PR, owner request)
+
+- Branch: `chore/logo-v3`, from main at ba757d5 (PR #17 merged on 2026-11-01T10:14:18Z). ADR-0428. `docs/HANDOFF.md` untouched.
+- Done when: the owner's new brand set in services/web/public/brand/; the header shows logo-64.png in light mode and logo-dark-64.png in dark mode (2× from the 512 files), switching with the theme with no flash; favicon.ico, the PNG favicons and apple-touch-icon in the head; no reference to logo.svg; web tests green (make test-web only, owner's request); pushed, PR open.
+
+Checklist
+- [x] Brand files: the owner's PNGs and favicon.ico committed, logo.svg removed (.DS_Store ignored).
+- [x] `BrandLogo`: the light and dark images, switched by globals.css on the theme tokens' selectors.
+- [x] Head icons: favicon.ico (16, 32, 48, 64), favicon-32.png, favicon-16.png, apple-touch-icon.png (180).
+- [x] Tests: BrandLogo.test.tsx (3 tests). No web snapshot asserted the header before this PR; these tests are its assertions.
+- [x] make test-web.
+
+Results (rule 11; owner asked for make test (web) only, so no other layer, eval or smoke ran)
+- make test-web 10:29:20Z–10:29:32Z, rc 0: typecheck and lint clean; web 227 / 0 / 0 (20 files). Against the last recorded run (224 / 0 / 0, 19 files): +3, the new file.
+
+Files for human review
+- services/web/public/brand/ (the owner's assets), services/web/src/app/globals.css (the logo rules).
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

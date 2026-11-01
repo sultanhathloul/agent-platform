@@ -19,7 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: t("name"),
     description: t("description"),
-    // The brand's icons (ADR-0415): the .ico carries 16, 32 and 48 px; PNGs for browsers that prefer them.
+    // The brand's icons (ADR-0428): the .ico carries 16, 32, 48 and 64 px; PNGs for browsers that prefer them.
     icons: {
       icon: [
         { url: "/brand/favicon.ico", sizes: "any" },
