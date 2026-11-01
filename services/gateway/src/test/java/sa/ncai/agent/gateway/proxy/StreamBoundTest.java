@@ -199,6 +199,64 @@ class StreamBoundTest extends GatewayTestSupport {
                 + "(bound %d ms); another user's turn %d ms%n", heldMs, headersMs, other.millis());
     }
 
+    private static final long PROFILE_BOUND_MS = 4000; // turn-test.yaml profiles.report: 3 + 1
+
+    private static MockResponse declaring(String deadline) {
+        return new MockResponse().setHeader("Content-Type", "text/event-stream")
+                .setHeader(AgentClient.TURN_DEADLINE_HEADER, deadline);
+    }
+
+    @Test
+    void theBoundFollowsTheDeadlineTheAgentDeclaresCappedAtTheLongest() {
+        assertThat(agentClient.relayBound("3").toMillis()).isEqualTo(PROFILE_BOUND_MS);
+        assertThat(agentClient.relayBound("1").toMillis()).isEqualTo(BOUND_MS);
+        assertThat(agentClient.relayBound("300").toMillis()).isEqualTo(PROFILE_BOUND_MS); // capped
+        for (String unusable : new String[] {null, "", "abc", "-5", "0", "NaN", "Infinity"}) {
+            assertThat(agentClient.relayBound(unusable).toMillis()).as(unusable).isEqualTo(BOUND_MS);
+        }
+    }
+
+    @Test
+    void aStreamWhoseAgentDeclaresTheReportProfileIsNotCutAtTheDefaultBound() throws Exception {
+        // Ten events over about 3 s, then done: past the default 2 s bound, inside the profile's 4 s.
+        String body = tokens(10) + "event: done\nid: 99\ndata: {\"type\":\"done\",\"request_id\":\"r\","
+                + "\"turn_id\":\"t\",\"seq\":99,\"data\":{\"answer\":\"ك\",\"citations\":[],\"usage\":{\"tokens_in\":1,"
+                + "\"tokens_out\":1,\"cost_usd\":0.0},\"guard_events\":[],\"state_digest\":{\"output\":\"report\"},"
+                + "\"trace_id\":\"4bf92f3577b34da6a3ce929d0e0e4736\"}}\n\n";
+        AGENT.enqueue(declaring("3").setBody(body).throttleBody(body.length() / 10, 300, TimeUnit.MILLISECONDS));
+
+        Relayed relayed = chatTurn();
+
+        assertThat(relayed.millis()).isBetween(BOUND_MS, PROFILE_BOUND_MS);
+        assertThat(relayed.events().getLast().path("type").asText()).isEqualTo("done");
+        assertThat(relayed.events().stream().filter(e -> "token".equals(e.path("type").asText())).count())
+                .isEqualTo(10);
+        System.out.printf("ADR-0379 report profile: done at %d ms, past the default bound %d ms, inside %d ms%n",
+                relayed.millis(), BOUND_MS, PROFILE_BOUND_MS);
+    }
+
+    @Test
+    void aDeclaredDeadlineAboveTheLongestProfileIsCappedAtIt() throws Exception {
+        AGENT.enqueue(declaring("300").setBody(tokens(1)).setBodyDelay(30, TimeUnit.SECONDS));
+
+        Relayed relayed = chatTurn();
+
+        assertThat(relayed.millis()).isBetween(PROFILE_BOUND_MS, PROFILE_BOUND_MS + 1000);
+        assertThat(relayed.events().getLast().path("data").path("code").asText()).isEqualTo("turn_timeout");
+        System.out.printf("ADR-0379 declared 300 s: ended turn_timeout at %d ms (cap %d ms)%n",
+                relayed.millis(), PROFILE_BOUND_MS);
+    }
+
+    @Test
+    void aMissingOrUnparsableDeclarationKeepsTheDefaultBound() throws Exception {
+        AGENT.enqueue(declaring("soon").setBody(tokens(1)).setBodyDelay(30, TimeUnit.SECONDS));
+
+        Relayed relayed = chatTurn();
+
+        assertThat(relayed.millis()).isBetween(BOUND_MS, BOUND_MS + 1000);
+        assertThat(relayed.events().getLast().path("data").path("code").asText()).isEqualTo("turn_timeout");
+    }
+
     @Test
     void anyOtherAgentCallIsCutAtTheResponseTimeoutBodyIncluded() throws Exception {
         // The finding: the response timeout is not a header timeout. Headers at once, the body over 3 s.

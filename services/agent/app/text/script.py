@@ -81,3 +81,16 @@ def script_issues(text: str, policy: ScriptPolicy) -> list[str]:
         if len(scripts) > 1 and _trimmed(token) not in allowlisted:
             mixed = True
     return [code for code, found in ((DISALLOWED_SCRIPT, disallowed), (MIXED_SCRIPT_TOKEN, mixed)) if found]
+
+
+def script_tokens(text: str, policy: ScriptPolicy) -> list[str]:
+    """The words that fail the policy, each once, in order: what a retry's prompt names (ADR-0390)."""
+    allowed = set(policy.letters)
+    allowlisted = set(policy.mixed_token_allowlist)
+    found: list[str] = []
+    for token in text.split():
+        scripts = {script for char in token if (script := script_of(char))}
+        bad = scripts - allowed or (len(scripts) > 1 and _trimmed(token) not in allowlisted)
+        if bad and _trimmed(token) not in found:
+            found.append(_trimmed(token))
+    return found

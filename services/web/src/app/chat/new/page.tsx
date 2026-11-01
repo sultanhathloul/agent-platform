@@ -13,5 +13,5 @@ export default function NewChatPage() {
     router.replace(`/chat/${newUuid()}`);
   }, [router]);
 
-  return <p className="p-8 text-center text-sm text-slate-500">{t("starting")}</p>;
+  return <p className="p-8 text-center text-sm text-muted">{t("starting")}</p>;
 }

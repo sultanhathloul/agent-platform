@@ -7,6 +7,9 @@ from app.api.events import build_event, to_sse
 from app.api.export import events_schema
 
 EVENT_TYPES = {
+    "artifact_start",
+    "artifact_delta",
+    "artifact_done",
     "token",
     "tier",
     "guard",

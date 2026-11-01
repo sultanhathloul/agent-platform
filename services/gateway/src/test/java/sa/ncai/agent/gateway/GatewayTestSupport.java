@@ -143,7 +143,7 @@ public abstract class GatewayTestSupport {
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(now.plusSeconds(300)))
                 .claim("preferred_username", "analyst")
-                .claim("name", "سارة المحللة")
+                .claim("name", "سلطان الهذلول")
                 .claim("tenant_id", "tenant-a")
                 .claim("realm_access", Map.of("roles",
                         List.of("default-roles-agent", "user", "cap:general", "kb:moe:read", "offline_access")));

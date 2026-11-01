@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.events import Citation, ErrorData, SkillData, SkillLabel
+from app.api.events import ArtifactRef, Citation, ErrorData, SkillData, SkillLabel
 from app.identity import Locale, Principal
 from app.skills.contract import NAME_PATTERN
 
@@ -50,6 +50,12 @@ class TurnRequest(BaseModel):
         pattern=SKILL_SLUG_PATTERN,
         description="The skill the user picked in the composer (phase 06, ADR-0292): applied with no router "
         "decision on the skill, when it is available to the principal; else 403 skill_forbidden before any stream.",
+    )
+    output: Literal["text", "report"] | None = Field(
+        default=None,
+        description="The composer's output picker (reports PR, D3, ADR-0378): `report` writes the answer as an "
+        "interactive HTML report, `text` as text; absent, a report keyword or a conversation holding a report "
+        "lets the router decide.",
     )
 
 
@@ -448,11 +454,57 @@ class HistoryMessage(BaseModel):
     skill: SkillData | None = Field(
         default=None, description="The skill applied to a reply, when one was (phase 06, ADR-0301); additive."
     )
+    artifact: ArtifactRef | None = Field(
+        default=None, description="The report a reply wrote, for its card (reports PR, I5); additive."
+    )
 
 
 class ConversationMessages(BaseModel):
     conversation_id: str
     messages: list[HistoryMessage] = Field(description="Oldest first; a retracted exchange is left out.")
+
+
+# ------------------------------------------------------------------ reports (reports PR, I5, I6)
+
+
+class ReportVersionInfo(BaseModel):
+    version: int = Field(ge=1)
+    title: str
+    size: int = Field(description="Bytes of the stored page.")
+    locale: Literal["ar", "en"]
+    created_at: datetime
+    figures: int = Field(default=0, description="Figures the page shows.")
+    general: int = Field(default=0, description="Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).")
+
+
+class ReportView(BaseModel):
+    id: str
+    conversation_id: str
+    title: str = Field(description="The latest version's title.")
+    latest_version: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
+    versions: list[ReportVersionInfo] = Field(description="Oldest first; none is ever removed (D4).")
+
+
+class ReportList(BaseModel):
+    reports: list[ReportView] = Field(description="The conversation's reports, oldest first.")
+
+
+class ReportVersionView(BaseModel):
+    """One version for the panel: its metadata and its stored page (the code view), without the kit."""
+
+    id: str
+    conversation_id: str
+    version: int = Field(ge=1)
+    title: str
+    size: int
+    locale: Literal["ar", "en"]
+    created_at: datetime
+    figures: int = 0
+    general: int = 0
+    citations: list[Citation] = Field(default=[], description="The sources section's citations.")
+    html: str = Field(description="The stored page; the kit stands at its <!--report-kit--> marker.")
 
 
 # ------------------------------------------------------------------ admin: platform settings (ADR-0276)
@@ -623,6 +675,11 @@ class EffectiveLimits(BaseModel):
     deadline_s: float
     uploads_per_minute: int
     max_concurrent_uploads: int
+    profile_deadlines_s: dict[str, float] = Field(
+        default={},
+        description="Each deadline profile's deadline (config/turn.yaml profiles, e.g. report; ADR-0379): the "
+        "gateway's relay may last a profile's deadline plus its margin. Additive.",
+    )
 
 
 # ------------------------------------------------------------------ knowledge bases (phase 08)
@@ -703,6 +760,12 @@ class KbDocumentRegistration(BaseModel):
     size: int = Field(ge=0)
     object_key: str = Field(min_length=1, max_length=512)
     metadata: KbSourceMetadata
+    sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$", description="The file's SHA-256, computed by the gateway as it stored it."
+    )
+    metadata_missing: bool = Field(
+        default=False, description="The uploader had no source metadata for it (a seeded file without a sidecar)."
+    )
 
 
 class KbDocumentView(BaseModel):
@@ -722,6 +785,21 @@ class KbDocumentView(BaseModel):
     indexed_at: datetime | None = None
     uploaded_by_username: str | None = None
     uploaded_by_name: str | None = None
+    sha256: str | None = Field(default=None, description="The file's SHA-256 (ADR-0392); none before it was recorded.")
+    metadata_missing: bool = Field(
+        default=False, description="Uploaded without its source metadata; cleared when an administrator corrects it."
+    )
+    reindex_due: bool = Field(
+        default=False, description="Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)."
+    )
+    reindex_status: Literal["reindexing", "reindex_failed"] | None = Field(
+        default=None,
+        description=(
+            "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could "
+            "not finish (the document stays indexed on its old chunks; retry with the reindex route)."
+        ),
+    )
+    reindex_reason: str | None = Field(default=None, description="Why the re-index failed (reindex_failed only).")
 
 
 class KbDocumentList(BaseModel):

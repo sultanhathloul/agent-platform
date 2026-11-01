@@ -34,7 +34,7 @@ class MeEndpointTest extends GatewayTestSupport {
                 .andExpect(jsonPath("$.data.user_id").value("user-123"))
                 .andExpect(jsonPath("$.data.tenant_id").value("tenant-a"))
                 .andExpect(jsonPath("$.data.permissions", contains("cap:general", "kb:moe:read")))
-                .andExpect(jsonPath("$.data.display_name").value("سارة المحللة"))
+                .andExpect(jsonPath("$.data.display_name").value("سلطان الهذلول"))
                 .andExpect(jsonPath("$.data.is_admin").value(false))
                 .andExpect(jsonPath("$.error").doesNotExist());
     }

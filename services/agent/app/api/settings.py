@@ -455,6 +455,7 @@ async def effective_limits(
     return EffectiveLimits(
         version=snapshot.version,
         deadline_s=snapshot.turn.deadline_s,
+        profile_deadlines_s={name: p.deadline_s for name, p in snapshot.turn.profiles.items()},
         uploads_per_minute=snapshot.uploads_per_minute,
         max_concurrent_uploads=snapshot.upload.max_concurrent_uploads,
     )

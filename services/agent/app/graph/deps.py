@@ -81,6 +81,9 @@ class Services:
     kbs: Any = None
     # Background work start_services begins and stop_services cancels (e.g. owed KB purges).
     tasks: list = field(default_factory=list)
+    # Interactive reports (reports PR): app.artifacts.config.Artifacts and app.artifacts.store.ReportStore.
+    artifacts: Any = None
+    reports: Any = None
 
     def backend_name(self, slug: str) -> str | None:
         name = self.registry.get(slug).config.get("backend")
@@ -126,6 +129,12 @@ class TurnContext:
     # The answer's last token was sent (streaming: the answer node's end; buffered: release_answer):
     # from then on the turn never ends turn_timeout (ADR-0263).
     answer_sent: bool = False
+    # The turn's deadline profile, chosen at admission (config/turn.yaml profiles; reports PR, ADR-0379):
+    # "report" when the turn may write a report, None otherwise.
+    profile: str | None = None
+    # The model calls that produced the capabilities' findings this turn, (capability slug, ModelResult), in
+    # order: a development report's model strip names them (owner decision C, ADR-0391).
+    finding_calls: list[tuple[str, Any]] = field(default_factory=list)
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

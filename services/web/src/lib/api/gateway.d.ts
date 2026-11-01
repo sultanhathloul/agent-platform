@@ -95,6 +95,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/kbs/{slug}/documents/{documentId}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-indexes a knowledge base document an older extractor cut (ADR-0410), or retries a re-index that failed; one already current is returned unchanged. The document stays indexed on its old chunks until the new ones replace them (ADR-0424) */
+        post: operations["reindex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/policies": {
         parameters: {
             query?: never;
@@ -394,7 +411,7 @@ export interface paths {
             cookie?: never;
         };
         /** The caller's capabilities and the knowledge bases it may toggle */
-        get: operations["list_5"];
+        get: operations["list_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -486,7 +503,7 @@ export interface paths {
             cookie?: never;
         };
         /** Downloads one attachment's file (owner only) */
-        get: operations["download"];
+        get: operations["download_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -504,6 +521,23 @@ export interface paths {
         };
         /** A conversation's messages, oldest first */
         get: operations["messages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversationId}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A conversation's reports, oldest first */
+        get: operations["list_5"];
         put?: never;
         post?: never;
         delete?: never;
@@ -592,6 +626,80 @@ export interface paths {
         post?: never;
         /** Deletes one of the caller's memory items */
         delete: operations["delete_1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A report and its versions */
+        get: operations["report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reports/{reportId}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One version of a report: its metadata, citations and stored page (the panel's code view) */
+        get: operations["version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reports/{reportId}/versions/{version}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The version as one self-contained HTML file that opens offline
+         * @description The kit's stylesheet, scripts and fonts are inlined; the file fetches nothing. Served as an attachment under `Content-Security-Policy: sandbox`. Errors are JSON envelopes.
+         */
+        get: operations["download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reports/{reportId}/versions/{version}/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A short-lived link to the version's page, for the panel's sandboxed frame
+         * @description The link is valid for 60 seconds and for this caller and version only; the page it serves links the platform's report kit and runs in a frame sandboxed to scripts only (I4). Ask again for a new link when the frame is loaded again.
+         */
+        post: operations["view"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -748,6 +856,21 @@ export interface components {
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
+        ApiEnvelopeReportList: {
+            data?: components["schemas"]["ReportList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeReportVersionView: {
+            data?: components["schemas"]["ReportVersionView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeReportView: {
+            data?: components["schemas"]["ReportView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
         ApiEnvelopeSettingsPreview: {
             data?: components["schemas"]["SettingsPreview"];
             error?: components["schemas"]["ApiError"];
@@ -765,6 +888,11 @@ export interface components {
         };
         ApiEnvelopeSkillList: {
             data?: components["schemas"]["SkillList"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeViewLink: {
+            data?: components["schemas"]["ViewLink"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -846,6 +974,11 @@ export interface components {
              */
             locale: "ar" | "en";
             message: string;
+            /**
+             * @description The output form picked in the composer (reports PR, D3); absent: chosen automatically. `report` writes an interactive HTML report.
+             * @enum {string}
+             */
+            output?: "text" | "report";
             /** @default [] */
             selected_kbs: string[];
             /** @description The skill picked in the composer (phase 06, ADR-0292); absent: chosen automatically. A skill the caller holds no skill:{slug} role for is 403 skill_forbidden. */
@@ -877,6 +1010,15 @@ export interface components {
         HealthResponse: {
             status?: string;
         };
+        /** @description The report a reply wrote, for its card (reports PR, I5). */
+        HistoryArtifact: {
+            id: string;
+            /** @enum {string} */
+            kind: "report";
+            title: string;
+            /** Format: int32 */
+            version: number;
+        };
         HistoryAttachment: {
             id: string;
             name: string;
@@ -892,6 +1034,7 @@ export interface components {
             url?: string;
         };
         HistoryMessage: {
+            artifact?: components["schemas"]["HistoryArtifact"];
             attachments: components["schemas"]["HistoryAttachment"][];
             citations: components["schemas"]["HistoryCitation"][];
             /** @enum {string} */
@@ -941,10 +1084,23 @@ export interface components {
             /** @enum {string} */
             kind: "pdf" | "docx" | "xlsx" | "txt" | "md";
             metadata: components["schemas"]["SourceMetadata"];
+            /** @description Uploaded without its source metadata; cleared when an administrator corrects it */
+            metadata_missing?: boolean;
             name: string;
             /** Format: int32 */
             pages?: number;
             reason?: string;
+            /** @description Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410) */
+            reindex_due?: boolean;
+            /** @description Why the re-index failed (reindex_failed only) */
+            reindex_reason?: string;
+            /**
+             * @description A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could not finish (the document stays indexed on its old chunks)
+             * @enum {string}
+             */
+            reindex_status?: "reindexing" | "reindex_failed";
+            /** @description The file's SHA-256, computed by the gateway as it stored it (ADR-0392) */
+            sha256?: string;
             /** Format: int64 */
             size: number;
             /** @enum {string} */
@@ -957,6 +1113,10 @@ export interface components {
         };
         KbList: {
             kbs: components["schemas"]["KbView"][];
+        };
+        KbName: {
+            ar: string;
+            en: string;
         };
         /** @description Only the KBs the caller may read */
         KbToggle: {
@@ -1235,6 +1395,84 @@ export interface components {
             unit: "s" | "count" | "MiB" | "cpu_s";
             value: components["schemas"]["JsonNode"];
         };
+        ReportCitation: {
+            document_id?: string;
+            id: string;
+            kb?: string;
+            kb_name?: components["schemas"]["KbName"];
+            locator?: string;
+            pages: number[];
+            /** @description ISO 8601 date. */
+            published_on?: string;
+            publisher?: string;
+            source: string;
+            title: string;
+            url?: string;
+        };
+        ReportList: {
+            reports: components["schemas"]["ReportView"][];
+        };
+        ReportVersionInfo: {
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: int32
+             * @description Figures the page shows.
+             */
+            figures: number;
+            /**
+             * Format: int32
+             * @description Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).
+             */
+            general: number;
+            /** @enum {string} */
+            locale: "ar" | "en";
+            /**
+             * Format: int64
+             * @description Bytes of the stored page.
+             */
+            size: number;
+            title: string;
+            /** Format: int32 */
+            version: number;
+        };
+        ReportVersionView: {
+            citations: components["schemas"]["ReportCitation"][];
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int32 */
+            figures: number;
+            /** Format: int32 */
+            general: number;
+            /** @description The stored page; the kit stands at its <!--report-kit--> marker. */
+            html: string;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            locale: "ar" | "en";
+            /** Format: int64 */
+            size: number;
+            title: string;
+            /** Format: int32 */
+            version: number;
+        };
+        ReportView: {
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            latest_version: number;
+            /** @description The latest version's title. */
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            versions: components["schemas"]["ReportVersionInfo"][];
+        };
         ServerUsage: {
             /** Format: int32 */
             background_in_use: number;
@@ -1423,6 +1661,12 @@ export interface components {
              * @description The busiest user's turns in flight: a count, never who
              */
             top_user_in_flight: number;
+        };
+        ViewLink: {
+            /** Format: date-time */
+            expires_at: string;
+            /** @description The page, on the gateway's origin; valid until expires_at, for this version only. */
+            url: string;
         };
         Warning: {
             /** @enum {string} */
@@ -1683,6 +1927,8 @@ export interface operations {
                 published_on: string;
                 source_url?: string;
                 supersedes?: string;
+                /** @description The uploader has no source metadata for it: the admin page flags it (ADR-0392) */
+                metadata_missing?: boolean;
             };
             header?: never;
             path: {
@@ -1895,6 +2141,65 @@ export interface operations {
             };
             /** @description kb_supersedes_invalid */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    reindex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document, its reindexStatus reindexing when re-indexed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeKbDocumentView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description forbidden: not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description kb_not_found or kb_document_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description too_many_uploads: the caller's uploads in flight are at the limit */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2767,7 +3072,7 @@ export interface operations {
             };
         };
     };
-    list_5: {
+    list_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -3171,7 +3476,7 @@ export interface operations {
             };
         };
     };
-    download: {
+    download_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -3248,6 +3553,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelopeConversationMessages"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description conversation_forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_5: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation's reports */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeReportList"];
                 };
             };
             /** @description invalid_request */
@@ -3481,6 +3853,280 @@ export interface operations {
                 };
             };
             /** @description memory_not_found, also for another user's item */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, its versions oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeReportView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description report_not_found: none of the caller's */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reportId: string;
+                /** @description The version, from 1. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeReportVersionView"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description report_not_found: no such version of the caller's */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable or report_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reportId: string;
+                /** @description The version, from 1. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description report_not_found: no such version of the caller's */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable or report_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reportId: string;
+                /** @description The version, from 1. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link and when it expires */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeViewLink"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description report_not_found: no such version of the caller's */
             404: {
                 headers: {
                     [name: string]: unknown;

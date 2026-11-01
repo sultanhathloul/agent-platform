@@ -1,0 +1,13 @@
+{
+  "kb": "intl-economy",
+  "documents": [
+    {
+      "file": "worldbank-hormuz-oil.md",
+      "url": "https://blogs.worldbank.org/en/opendata/strait-of-hormuz-disruption-sends-oil-prices-surging",
+      "retrieved_at": "2026-10-26T12:32:47+00:00",
+      "retrieved_by": "make kb-poc (the page's visible text kept as Markdown)",
+      "bytes": 5572,
+      "sha256": "2e9c429596df41a574e8bef23b8c7d2a39e7762891f881ed2d4519eaa135478f"
+    }
+  ]
+}

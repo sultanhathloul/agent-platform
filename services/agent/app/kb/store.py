@@ -11,13 +11,14 @@ file (ADR-0166). The ingest service and the orphan sweeper use the methods below
 
 import re
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.db import Database
 from app.rag.collections import kb_collection
+from app.rag.extract import extractor_version
 from app.rag.types import AttachmentStatus, DocumentKind, FailureReason, Owner
 
 SLUG_PATTERN = r"^[a-z][a-z0-9_-]{0,62}$"
@@ -108,6 +109,27 @@ class KbDocumentRecord(BaseModel):
     updated_at: datetime
     indexed_at: datetime | None = None
     purged_at: datetime | None = None
+    # The file's SHA-256 as the gateway stored it, and whether its source metadata was missing at upload
+    # (ADR-0392); None for a document registered before migration 0018.
+    sha256: str | None = None
+    metadata_missing: bool = False
+    # The version of its kind's extractor that indexed it (ADR-0410).
+    extractor: str = "1"
+    # A re-index beside the indexed chunks (ADR-0424): 'pending' while it runs, 'failed' when it could not
+    # finish (the old chunks kept), with its reason; None otherwise.
+    reindex: Literal["pending", "failed"] | None = None
+    reindex_reason: FailureReason | None = None
+
+    @property
+    def reindex_due(self) -> bool:
+        """Indexed by an older version of its kind's extractor, and no re-index running: the seed re-indexes it
+        (ADR-0410), and a failed re-index is retried (ADR-0424)."""
+        return self.status == "indexed" and self.reindex != "pending" and self.extractor != extractor_version(self.kind)
+
+    @property
+    def reindex_status(self) -> Literal["reindexing", "reindex_failed"] | None:
+        """What administrators see of a re-index (ADR-0424)."""
+        return {"pending": "reindexing", "failed": "reindex_failed"}.get(self.reindex or "")
 
     @property
     def owner(self) -> Owner:
@@ -142,7 +164,7 @@ _DOC_COLUMNS = (
     "id::text AS id, kb_slug, tenant_id, name, mime, kind, size, object_key, collection, backend, status, "
     "reason, pages, chunks, warnings, attempts, title, publisher, source_url, published_on, "
     "supersedes::text AS supersedes, uploaded_by, uploaded_by_username, uploaded_by_name, created_at, "
-    "updated_at, indexed_at, purged_at"
+    "updated_at, indexed_at, purged_at, sha256, metadata_missing, extractor, reindex, reindex_reason"
 )
 
 
@@ -303,6 +325,8 @@ class KbStore:
         metadata: SourceMetadata,
         backend: str,
         actor: Actor,
+        sha256: str | None = None,
+        metadata_missing: bool = False,
     ) -> KbDocumentRecord:
         """A pending document of a live KB, with its D3 metadata; raises InvalidSupersedes."""
         async with self._db.connection() as conn, conn.transaction():
@@ -311,7 +335,8 @@ class KbStore:
             cursor = await conn.execute(
                 "INSERT INTO agent.kb_documents (kb_slug, tenant_id, name, mime, kind, size, object_key, collection, "
                 "backend, title, publisher, source_url, published_on, supersedes, uploaded_by, uploaded_by_username, "
-                "uploaded_by_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "uploaded_by_name, sha256, metadata_missing) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 f"RETURNING {_DOC_COLUMNS}",
                 (
                     kb.slug,
@@ -331,6 +356,8 @@ class KbStore:
                     actor.user_id,
                     actor.username,
                     actor.name,
+                    sha256,
+                    metadata_missing,
                 ),
             )
             return _doc(await cursor.fetchone())
@@ -346,7 +373,8 @@ class KbStore:
             await self._check_supersedes(conn, slug, document_id, metadata.supersedes)
             cursor = await conn.execute(
                 "UPDATE agent.kb_documents SET title = %s, publisher = %s, source_url = %s, published_on = %s, "
-                f"supersedes = %s, updated_at = now() WHERE id = %s RETURNING {_DOC_COLUMNS}",
+                # An administrator's correction is the metadata: the flag of a seeded file clears (ADR-0392).
+                f"supersedes = %s, metadata_missing = false, updated_at = now() WHERE id = %s RETURNING {_DOC_COLUMNS}",
                 (
                     metadata.title,
                     metadata.publisher,
@@ -451,11 +479,12 @@ class KbStore:
         return _doc(row) if row else None
 
     async def start_attempt(self, document_id: str) -> KbDocumentRecord | None:
-        """Counts an ingestion attempt of a pending document of a live KB; None otherwise."""
+        """Counts an ingestion attempt of a pending document, or of a re-index (ADR-0424), of a live KB; None
+        otherwise."""
         async with self._db.connection() as conn:
             cursor = await conn.execute(
                 "UPDATE agent.kb_documents SET attempts = attempts + 1, updated_at = now() "
-                "WHERE id = %s AND status = 'pending' AND purged_at IS NULL "
+                "WHERE id = %s AND (status = 'pending' OR reindex = 'pending') AND purged_at IS NULL "
                 f"RETURNING {_DOC_COLUMNS}",
                 (document_id,),
             )
@@ -465,18 +494,50 @@ class KbStore:
     async def mark_indexed(
         self, document_id: str, *, pages: int | None, chunks: int, conn, warnings: list[dict[str, Any]] | None = None
     ) -> bool:
-        """False when the document is no longer pending or its KB was deleted meanwhile: the job's
-        chunks are then rolled back with this transaction."""
+        """False when the document is no longer pending (nor re-indexing) or its KB was deleted meanwhile: the
+        job's chunks are then rolled back with this transaction. A re-index's new chunks replace the old in the
+        same transaction, so retrieval sees one set or the other, never none (ADR-0424)."""
+        cursor = await conn.execute(
+            "SELECT kind FROM agent.kb_documents WHERE id = %s", (document_id,)
+        )
+        row = await cursor.fetchone()
+        version = extractor_version(row["kind"]) if row else "1"
         cursor = await conn.execute(
             "UPDATE agent.kb_documents SET status = 'indexed', reason = NULL, pages = %s, chunks = %s, "
-            "warnings = %s, indexed_at = now(), updated_at = now() "
-            "WHERE id = %s AND status = 'pending' AND purged_at IS NULL",
-            (pages, chunks, Jsonb(warnings or []), document_id),
+            "warnings = %s, extractor = %s, reindex = NULL, reindex_reason = NULL, indexed_at = now(), "
+            "updated_at = now() WHERE id = %s AND (status = 'pending' OR reindex = 'pending') AND purged_at IS NULL",
+            (pages, chunks, Jsonb(warnings or []), version, document_id),
         )
         return cursor.rowcount == 1
 
-    async def mark_failed(self, document_id: str, reason: FailureReason, *, pages: int | None = None) -> bool:
+    async def requeue(self, tenant_id: str, slug: str, document_id: str) -> KbDocumentRecord | None:
+        """An indexed document of a live KB re-indexed beside its chunks (ADR-0410, ADR-0424): it stays indexed,
+        in retrieval on its old chunks, with `reindex` 'pending' and its attempts reset, until the new chunks
+        replace the old in one transaction (`mark_indexed`) or the re-index fails (`mark_failed`, the old
+        chunks kept). A failed re-index may be requeued again. None when there is no such document."""
         async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE agent.kb_documents d SET reindex = 'pending', reindex_reason = NULL, attempts = 0, "
+                "updated_at = now() "
+                "WHERE d.id = %s AND d.kb_slug = %s AND d.tenant_id = %s AND d.status = 'indexed' "
+                "AND d.reindex IS DISTINCT FROM 'pending' AND d.purged_at IS NULL AND d.backend = 'internal' "
+                f"RETURNING {_DOC_COLUMNS}",
+                (document_id, slug, tenant_id),
+            )
+            row = await cursor.fetchone()
+        return _doc(row) if row else None
+
+    async def mark_failed(self, document_id: str, reason: FailureReason, *, pages: int | None = None) -> bool:
+        """A pending document failed; a re-index that failed keeps the document indexed on its old chunks,
+        marked for administrators (ADR-0424)."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE agent.kb_documents SET reindex = 'failed', reindex_reason = %s, updated_at = now() "
+                "WHERE id = %s AND reindex = 'pending'",
+                (reason, document_id),
+            )
+            if cursor.rowcount == 1:
+                return True
             cursor = await conn.execute(
                 "UPDATE agent.kb_documents SET status = 'failed', reason = %s, pages = %s, updated_at = now() "
                 "WHERE id = %s AND status = 'pending'",
@@ -486,6 +547,15 @@ class KbStore:
 
     async def mark_register_failed(self, document_id: str) -> KbDocumentRecord | None:
         async with self._db.connection() as conn:
+            # A re-index the backend did not take keeps the indexed chunks (ADR-0424).
+            cursor = await conn.execute(
+                "UPDATE agent.kb_documents SET reindex = 'failed', reindex_reason = 'register_failed', "
+                f"updated_at = now() WHERE id = %s AND reindex = 'pending' RETURNING {_DOC_COLUMNS}",
+                (document_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return _doc(row)
             cursor = await conn.execute(
                 "UPDATE agent.kb_documents SET status = 'failed', reason = 'register_failed', updated_at = now() "
                 f"WHERE id = %s AND (status = 'pending' OR backend <> 'internal') RETURNING {_DOC_COLUMNS}",
@@ -495,11 +565,12 @@ class KbStore:
         return _doc(row) if row else None
 
     async def pending_ids(self) -> list[str]:
-        """The internal backend's pending documents of live KBs."""
+        """The internal backend's pending documents, and its re-indexes running (ADR-0424), of live KBs."""
         async with self._db.connection() as conn:
             cursor = await conn.execute(
                 "SELECT id::text AS id FROM agent.kb_documents "
-                "WHERE status = 'pending' AND backend = 'internal' AND purged_at IS NULL ORDER BY created_at"
+                "WHERE (status = 'pending' OR reindex = 'pending') AND backend = 'internal' AND purged_at IS NULL "
+                "ORDER BY created_at"
             )
             return [row["id"] for row in await cursor.fetchall()]
 

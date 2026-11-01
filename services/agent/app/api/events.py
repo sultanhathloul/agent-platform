@@ -178,6 +178,41 @@ class Citation(_Model):
     )
 
 
+class ArtifactStartData(_Model):
+    """A report page begins to stream (reports PR, I6, ADR-0374): the report's id (the same across its
+    versions, D4), its title so far and the version being written."""
+
+    id: str
+    title: str
+    version: int = Field(default=1, ge=1, description="The version being written (additive).")
+
+
+class ArtifactDeltaData(_Model):
+    """The next part of the page's HTML, already sanitized and checked by the guards (ADR-0383)."""
+
+    id: str
+    text: str
+
+
+class ArtifactDoneData(_Model):
+    """The page is stored: the panel reads this version from the report API, which may differ from the
+    streamed parts by what the whole-page pass changed and the sources section (ADR-0383)."""
+
+    id: str
+    version: int = Field(ge=1)
+    size: int = Field(ge=1, description="Bytes of the stored page.")
+    title: str | None = Field(default=None, description="The stored version's title (additive).")
+
+
+class ArtifactRef(_Model):
+    """The report a reply wrote (reports PR, I5): what the chat's report card shows."""
+
+    id: str
+    kind: Literal["report"] = "report"
+    title: str
+    version: int = Field(ge=1)
+
+
 class Usage(_Model):
     tokens_in: int = 0
     tokens_out: int = 0
@@ -190,6 +225,9 @@ class StateDigest(_Model):
     skill: str | None = Field(
         default=None, description="slug@version of the skill applied to the answer, if any (phase 06, G8)."
     )
+    output: Literal["text", "report"] = Field(
+        default="text", description="The answer's form (reports PR, D1, ADR-0378); additive."
+    )
 
 
 class DoneData(_Model):
@@ -201,6 +239,11 @@ class DoneData(_Model):
     tool_audit: list[ToolAuditData] = Field(default=[], description=_TOOL_AUDIT_DESCRIPTION)
     state_digest: StateDigest
     trace_id: str | None = None
+    artifact: ArtifactRef | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="The report this turn wrote (reports PR, I5); absent on a text turn. Additive.",
+    )
 
 
 class ErrorData(_Model):
@@ -293,6 +336,27 @@ class SkillEvent(_Envelope):
     data: SkillData
 
 
+class ArtifactStartEvent(_Envelope):
+    """A report page begins to stream (reports PR, I6)."""
+
+    type: Literal["artifact_start"]
+    data: ArtifactStartData
+
+
+class ArtifactDeltaEvent(_Envelope):
+    """The next part of the report page."""
+
+    type: Literal["artifact_delta"]
+    data: ArtifactDeltaData
+
+
+class ArtifactDoneEvent(_Envelope):
+    """The report page is stored as a version."""
+
+    type: Literal["artifact_done"]
+    data: ArtifactDoneData
+
+
 class ProgressEvent(_Envelope):
     """A capability reports how far it got (ADR-0047)."""
 
@@ -309,6 +373,9 @@ AgentEvent = Annotated[
     | CitationEvent
     | ProgressEvent
     | SkillEvent
+    | ArtifactStartEvent
+    | ArtifactDeltaEvent
+    | ArtifactDoneEvent
     | DoneEvent
     | ErrorEvent
     | RetractEvent,
@@ -326,13 +393,29 @@ _PAYLOADS: dict[str, type[_Model]] = {
     "citation": Citation,
     "progress": ProgressData,
     "skill": SkillData,
+    "artifact_start": ArtifactStartData,
+    "artifact_delta": ArtifactDeltaData,
+    "artifact_done": ArtifactDoneData,
     "done": DoneData,
     "error": ErrorData,
     "retract": RetractData,
 }
 
 EventType = Literal[
-    "token", "tier", "guard", "tool_start", "tool_end", "citation", "progress", "skill", "done", "error", "retract"
+    "token",
+    "tier",
+    "guard",
+    "tool_start",
+    "tool_end",
+    "citation",
+    "progress",
+    "skill",
+    "artifact_start",
+    "artifact_delta",
+    "artifact_done",
+    "done",
+    "error",
+    "retract",
 ]
 
 

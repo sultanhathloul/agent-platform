@@ -136,6 +136,7 @@ async def conversation_messages(
             ],
             citations=m.get("citations", []),
             skill=_skill_label(services, m.get("skill")),
+            artifact=m.get("artifact"),
         )
         for m in shown
     ]

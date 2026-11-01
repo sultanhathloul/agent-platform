@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.6.0"
+    "version" : "2.7.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -321,6 +321,15 @@
           "schema" : {
             "type" : "string"
           }
+        }, {
+          "description" : "The uploader has no source metadata for it: the admin page flags it (ADR-0392)",
+          "in" : "query",
+          "name" : "metadata_missing",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
         } ],
         "requestBody" : {
           "content" : {
@@ -589,6 +598,80 @@
           }
         },
         "summary" : "Corrects a knowledge base document's source metadata, its earlier version included",
+        "tags" : [ "admin-knowledge-bases" ]
+      }
+    },
+    "/v1/admin/kbs/{slug}/documents/{documentId}/reindex" : {
+      "post" : {
+        "operationId" : "reindex",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "documentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeKbDocumentView"
+                }
+              }
+            },
+            "description" : "The document, its reindexStatus reindexing when re-indexed"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "forbidden: not an admin"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "kb_not_found or kb_document_not_found"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "too_many_uploads: the caller's uploads in flight are at the limit"
+          }
+        },
+        "summary" : "Re-indexes a knowledge base document an older extractor cut (ADR-0410), or retries a re-index that failed; one already current is returned unchanged. The document stays indexed on its old chunks until the new ones replace them (ADR-0424)",
         "tags" : [ "admin-knowledge-bases" ]
       }
     },
@@ -1582,7 +1665,7 @@
     },
     "/v1/capabilities" : {
       "get" : {
-        "operationId" : "list_5",
+        "operationId" : "list_6",
         "responses" : {
           "200" : {
             "content" : {
@@ -2060,7 +2143,7 @@
     },
     "/v1/conversations/{conversationId}/attachments/{attachmentId}/content" : {
       "get" : {
-        "operationId" : "download",
+        "operationId" : "download_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "conversationId",
@@ -2208,6 +2291,84 @@
         },
         "summary" : "A conversation's messages, oldest first",
         "tags" : [ "conversations" ]
+      }
+    },
+    "/v1/conversations/{conversationId}/reports" : {
+      "get" : {
+        "operationId" : "list_5",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeReportList"
+                }
+              }
+            },
+            "description" : "The conversation's reports"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "A conversation's reports, oldest first",
+        "tags" : [ "reports" ]
       }
     },
     "/v1/health" : {
@@ -2435,6 +2596,350 @@
         },
         "summary" : "Deletes one of the caller's memory items",
         "tags" : [ "memory" ]
+      }
+    },
+    "/v1/reports/{reportId}" : {
+      "get" : {
+        "operationId" : "report",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "reportId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeReportView"
+                }
+              }
+            },
+            "description" : "The report, its versions oldest first"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "report_not_found: none of the caller's"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "A report and its versions",
+        "tags" : [ "reports" ]
+      }
+    },
+    "/v1/reports/{reportId}/versions/{version}" : {
+      "get" : {
+        "operationId" : "version",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "reportId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "description" : "The version, from 1.",
+          "in" : "path",
+          "name" : "version",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "maximum" : 100000,
+            "minimum" : 1
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeReportVersionView"
+                }
+              }
+            },
+            "description" : "The version"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "report_not_found: no such version of the caller's"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable or report_unavailable"
+          }
+        },
+        "summary" : "One version of a report: its metadata, citations and stored page (the panel's code view)",
+        "tags" : [ "reports" ]
+      }
+    },
+    "/v1/reports/{reportId}/versions/{version}/download" : {
+      "get" : {
+        "description" : "The kit's stylesheet, scripts and fonts are inlined; the file fetches nothing. Served as an attachment under `Content-Security-Policy: sandbox`. Errors are JSON envelopes.",
+        "operationId" : "download",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "reportId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "description" : "The version, from 1.",
+          "in" : "path",
+          "name" : "version",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "maximum" : 100000,
+            "minimum" : 1
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "text/html" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "The file"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "report_not_found: no such version of the caller's"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable or report_unavailable"
+          }
+        },
+        "summary" : "The version as one self-contained HTML file that opens offline",
+        "tags" : [ "reports" ]
+      }
+    },
+    "/v1/reports/{reportId}/versions/{version}/view" : {
+      "post" : {
+        "description" : "The link is valid for 60 seconds and for this caller and version only; the page it serves links the platform's report kit and runs in a frame sandboxed to scripts only (I4). Ask again for a new link when the frame is loaded again.",
+        "operationId" : "view",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "reportId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "description" : "The version, from 1.",
+          "in" : "path",
+          "name" : "version",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "maximum" : 100000,
+            "minimum" : 1
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeViewLink"
+                }
+              }
+            },
+            "description" : "The link and when it expires"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "report_not_found: no such version of the caller's"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "A short-lived link to the version's page, for the panel's sandboxed frame",
+        "tags" : [ "reports" ]
       }
     },
     "/v1/skills" : {
@@ -2843,6 +3348,48 @@
         },
         "required" : [ "request_id" ]
       },
+      "ApiEnvelopeReportList" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/ReportList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeReportVersionView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/ReportVersionView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeReportView" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/ReportView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
       "ApiEnvelopeSettingsPreview" : {
         "properties" : {
           "data" : {
@@ -2889,6 +3436,20 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/SkillList"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeViewLink" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/ViewLink"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -3100,6 +3661,12 @@
             "maxLength" : 8000,
             "minLength" : 0
           },
+          "output" : {
+            "type" : "string",
+            "description" : "The output form picked in the composer (reports PR, D3); absent: chosen automatically. `report` writes an interactive HTML report.",
+            "enum" : [ "text", "report" ],
+            "pattern" : "^(text|report)$"
+          },
           "selected_kbs" : {
             "type" : "array",
             "default" : [ ],
@@ -3185,6 +3752,27 @@
           }
         }
       },
+      "HistoryArtifact" : {
+        "description" : "The report a reply wrote, for its card (reports PR, I5).",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "report" ]
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          }
+        },
+        "required" : [ "id", "kind", "title", "version" ]
+      },
       "HistoryAttachment" : {
         "properties" : {
           "id" : {
@@ -3231,6 +3819,9 @@
       },
       "HistoryMessage" : {
         "properties" : {
+          "artifact" : {
+            "$ref" : "#/components/schemas/HistoryArtifact"
+          },
           "attachments" : {
             "type" : "array",
             "items" : {
@@ -3360,6 +3951,10 @@
           "metadata" : {
             "$ref" : "#/components/schemas/SourceMetadata"
           },
+          "metadata_missing" : {
+            "type" : "boolean",
+            "description" : "Uploaded without its source metadata; cleared when an administrator corrects it"
+          },
           "name" : {
             "type" : "string"
           },
@@ -3369,6 +3964,23 @@
           },
           "reason" : {
             "type" : "string"
+          },
+          "reindex_due" : {
+            "type" : "boolean",
+            "description" : "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410)"
+          },
+          "reindex_reason" : {
+            "type" : "string",
+            "description" : "Why the re-index failed (reindex_failed only)"
+          },
+          "reindex_status" : {
+            "type" : "string",
+            "description" : "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could not finish (the document stays indexed on its old chunks)",
+            "enum" : [ "reindexing", "reindex_failed" ]
+          },
+          "sha256" : {
+            "type" : "string",
+            "description" : "The file's SHA-256, computed by the gateway as it stored it (ADR-0392)"
           },
           "size" : {
             "type" : "integer",
@@ -3407,6 +4019,17 @@
           }
         },
         "required" : [ "kbs" ]
+      },
+      "KbName" : {
+        "properties" : {
+          "ar" : {
+            "type" : "string"
+          },
+          "en" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "ar", "en" ]
       },
       "KbToggle" : {
         "description" : "Only the KBs the caller may read",
@@ -4115,6 +4738,183 @@
         },
         "required" : [ "key", "source", "unit", "value" ]
       },
+      "ReportCitation" : {
+        "properties" : {
+          "document_id" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "kb" : {
+            "type" : "string"
+          },
+          "kb_name" : {
+            "$ref" : "#/components/schemas/KbName"
+          },
+          "locator" : {
+            "type" : "string"
+          },
+          "pages" : {
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int32"
+            }
+          },
+          "published_on" : {
+            "type" : "string",
+            "description" : "ISO 8601 date."
+          },
+          "publisher" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "id", "pages", "source", "title" ]
+      },
+      "ReportList" : {
+        "properties" : {
+          "reports" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ReportView"
+            }
+          }
+        },
+        "required" : [ "reports" ]
+      },
+      "ReportVersionInfo" : {
+        "properties" : {
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "figures" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Figures the page shows."
+          },
+          "general" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Of them, those labelled general knowledge: matched to no source (D2, ADR-0388)."
+          },
+          "locale" : {
+            "type" : "string",
+            "enum" : [ "ar", "en" ]
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64",
+            "description" : "Bytes of the stored page."
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          }
+        },
+        "required" : [ "created_at", "figures", "general", "locale", "size", "title", "version" ]
+      },
+      "ReportVersionView" : {
+        "properties" : {
+          "citations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ReportCitation"
+            }
+          },
+          "conversation_id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "figures" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "general" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "html" : {
+            "type" : "string",
+            "description" : "The stored page; the kit stands at its <!--report-kit--> marker."
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "locale" : {
+            "type" : "string",
+            "enum" : [ "ar", "en" ]
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          }
+        },
+        "required" : [ "citations", "conversation_id", "created_at", "figures", "general", "html", "id", "locale", "size", "title", "version" ]
+      },
+      "ReportView" : {
+        "properties" : {
+          "conversation_id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "latest_version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          },
+          "title" : {
+            "type" : "string",
+            "description" : "The latest version's title."
+          },
+          "updated_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "versions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ReportVersionInfo"
+            }
+          }
+        },
+        "required" : [ "conversation_id", "created_at", "id", "latest_version", "title", "updated_at", "versions" ]
+      },
       "ServerUsage" : {
         "properties" : {
           "background_in_use" : {
@@ -4581,6 +5381,19 @@
           }
         },
         "required" : [ "in_flight", "per_user_max", "tenants", "top_user_in_flight" ]
+      },
+      "ViewLink" : {
+        "properties" : {
+          "expires_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "url" : {
+            "type" : "string",
+            "description" : "The page, on the gateway's origin; valid until expires_at, for this version only."
+          }
+        },
+        "required" : [ "expires_at", "url" ]
       },
       "Warning" : {
         "properties" : {

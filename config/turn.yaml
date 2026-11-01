@@ -21,6 +21,19 @@ gateway_headers_s: 15   # the gateway waits this long for the agent's response h
 gateway_margin_s: 15    # the gateway's relay ends a stream at deadline_s + this (135 s), so the
                         # agent's own turn_timeout always reaches the user first
 
+# Deadline profiles (reports PR, I1, ADR-0369, ADR-0379). A turn that may write a report (the composer's
+# output picker chose it, a report keyword is in the message, or the conversation already holds a report)
+# runs under its profile's deadline instead of deadline_s, chosen at admission; the agent tells the
+# gateway in its response headers, and the gateway relays such a stream for at most deadline_s +
+# gateway_margin_s of the profile. `answer_s` is the answer's ceiling: the `role`'s call
+# (config/models.yaml timeouts.roles) is at most this, and this at most deadline_s − post_answer_reserve_s.
+# Every other value above applies to the profile's turns as it is.
+profiles:
+  report:
+    deadline_s: 300
+    answer_s: 270
+    role: report_writer
+
 # Turns in flight at once (refused at once past a limit: 429 too_many_turns). The platform's
 # capacity is LOCK_POOL_SIZE (.env, 20 in development), sized per deployment: production capacity
 # is a resource decision measured by the phase 12 load test (docs/BACKLOG.md).

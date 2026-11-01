@@ -49,6 +49,8 @@ export const KNOWN_ERROR_CODES = [
   "upload_timeout",
   "file_type_unsupported",
   "storage_unavailable",
+  "report_not_found",
+  "report_unavailable",
   "unknown",
 ] as const;
 

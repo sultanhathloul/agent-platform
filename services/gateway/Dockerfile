@@ -24,6 +24,11 @@ ENV GATEWAY_DOCS_CONFIG=/config/docs.yaml
 # The relay's bound on a turn stream comes from the repo's config/turn.yaml (ADR-0256).
 COPY --from=config turn.yaml /config/turn.yaml
 ENV GATEWAY_TURN_CONFIG=/config/turn.yaml
+# The report kit it serves and the list of its files come from the repo's config/artifacts (reports PR, I2).
+COPY --from=config artifacts/report.yaml /config/artifacts/report.yaml
+COPY --from=config artifacts/kit /config/artifacts/kit
+ENV GATEWAY_REPORTS_CONFIG=/config/artifacts/report.yaml
+ENV GATEWAY_REPORTS_KIT_DIR=/config/artifacts/kit
 # Gradle's build cache lives in the cache mount; without --no-build-cache `test` is restored FROM-CACHE (ADR-0043).
 # The JUnit XML totals are printed whether the tests pass or not (phase 03 rule G1).
 COPY junit-totals.sh ./

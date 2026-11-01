@@ -67,6 +67,8 @@ class ModelsConfig(_Strict):
     # The rerank alias (phase 04, ADR-0134); like an embedding, a rerank is not a chat call.
     rerank: dict[str, str] = {"alias": "rerank"}
     timeouts: Timeouts
+    # A role's output ceiling above its tier's max_output (reports PR, I1): report_writer 16k tokens.
+    role_max_output: dict[str, int] = {}
 
     @model_validator(mode="after")
     def _references_resolve(self) -> "ModelsConfig":
@@ -92,10 +94,21 @@ class ModelsConfig(_Strict):
             raise ValueError("timeouts.roles must name every role in `roles` exactly once (ADR-0257)")
         if sorted(self.timeouts.embedding) != ["ingest", "query"]:
             raise ValueError("timeouts.embedding must name query and ingest")
+        for role, value in self.role_max_output.items():
+            if role not in self.roles:
+                raise ValueError(f"role_max_output.{role}: unknown role")
+            if not 0 < value < self.tiers[self.roles[role]].window // 2:
+                raise ValueError(f"role_max_output.{role}: {value} must be positive and under half its tier's window")
         for role, value in self.temperature.items():
             if not 0.0 <= value <= 2.0:
                 raise ValueError(f"temperature.{role}: {value} is outside 0.0–2.0")
         return self
+
+    def spec_for(self, role: str, tier: str) -> TierSpec:
+        """A tier as one role's call uses it: its max_output raised to the role's own ceiling, if any."""
+        spec = self.tiers[tier]
+        own = self.role_max_output.get(role)
+        return spec.model_copy(update={"max_output": own}) if own else spec
 
     def rank(self, tier: str) -> int:
         return self.order.index(tier)

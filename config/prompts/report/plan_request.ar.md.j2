@@ -1,0 +1,18 @@
+---
+id: report.plan_request
+version: 1.0.0
+role: extractor
+locale: ar
+changelog:
+  - "1.0.0: first version (owner decision 2 on PR #17, ADR-0403): the request and, on an edit, the current report's headings, as data in the user role"
+---
+{% if headings %}
+<current_report_headings>
+{% for h in headings %}
+- {{ h | e }}
+{% endfor %}
+</current_report_headings>
+{% endif %}
+<user_message>
+{{ message | e }}
+</user_message>

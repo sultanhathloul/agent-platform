@@ -240,6 +240,8 @@ Loop behaviour (`reason → tool_decision → guard(PRE_TOOL) → execute → gu
 
 > **Amendment 2026-10-26 (phase 08, ADR-0332, ADR-0348).** A manifest rule `kbs_selected` selects a capability when the turn carries knowledge bases the user toggled, admitted as permitted and live; the kb capability has only that rule, so with none toggled it never runs. Keyword-free routing for every capability moves to phase 07 (the planner's route decision uses a model on every turn); phase 08 keeps keyword candidacy.
 
+> **Amendment 2026-10-28 (reports PR, ADR-0364, ADR-0378).** The route node also decides the answer's **form**: text or an interactive HTML report (§13 amendment). The composer's output picker decides alone; otherwise a turn is a report candidate when a keyword of config/artifacts/report.yaml is in the message or the conversation already holds a report, and the router model returns `output: report | text` (router.system 1.3.0, router.request 1.4.0; the candidacy and the current report's title enter the cache key). A report turn applies no skill; in a conversation that holds a report, a report turn writes the next version of it.
+
 ## 6. Gateway (Spring Boot)
 
 ### 6.1 Responsibilities
@@ -269,6 +271,7 @@ GET  /v1/health
 > **Amendment 2026-10-21 (fix session on the PR #12 review, ADR-0262, ADR-0265).** Agent and gateway API version 2.3.0, additive: `POST /v1/turns` (agent) and `POST /v1/chat/turns` (gateway) may answer 429 `too_many_turns` before any stream; the agent's attachment registration may answer 429 `too_many_uploads`, which the gateway's upload already documented. The events schema is unchanged.
 > **Amendment 2026-10-24 (phase 06, ADR-0301, ADR-0310, ADR-0313).** Agent and gateway API version 2.5.0, additive: the chat request's optional `skill` (403 `skill_forbidden` before any stream when the caller may not use it); `GET /v1/skills` (the caller's skills: slug, name, description); a history reply's optional `skill {slug, label}`; the `skill` event `{slug, label {ar, en}}` before the answer's tokens; the done event's `state_digest.skill` (`slug@version`). The gateway forwards `skill:*` roles as permissions beside `cap:*` and `kb:*:read`.
 > **Amendment 2026-10-26 (phase 08, ADR-0333, ADR-0349, ADR-0350).** Agent and gateway API version 2.6.0, additive: the admin-only `/v1/admin/kbs` (list, create, read, delete) and `/v1/admin/kbs/{slug}/documents` (list, upload with source metadata, read, `PUT …/metadata`), checked at the gateway and, through `X-User-Admin`, at the agent; `GET /v1/capabilities` (the caller's capabilities and the KBs it may read); the agent's `GET /v1/internal/kbs/live`, which the gateway asks on a turn that selects KBs; a turn selecting a KB the caller may not read, deleted or another tenant's is 403 `kb_forbidden` before any stream at both; citations gain `kb_name`, `publisher` and `published_on`, omitted when empty.
+> **Amendment 2026-10-28 (reports PR, ADR-0374, ADR-0379).** Agent and gateway API version 2.7.0, additive: the chat request's optional `output` (`text` | `report`); the events `artifact_start {id, title, version}`, `artifact_delta {id, text}` and `artifact_done {id, version, size, title}`, the done event's `artifact {id, kind, title, version}` and `state_digest.output`; a history reply's optional `artifact`; `GET /v1/reports/{id}`, `GET /v1/conversations/{id}/reports`, `GET /v1/reports/{id}/versions/{n}` (with the stored page), the gateway's `POST …/versions/{n}/view` (a 60 s view link), `GET /report-views/{ticket}` (the sandboxed page with its CSP headers), `GET …/versions/{n}/download` (one self-contained file) and the static kit at `/report-kit/v1/`; owner only, checked at the gateway and the agent, audited (`report.read`, `report.view`, `report.download`). The agent's turn stream carries `X-Turn-Deadline-S`, and its internal limits `profile_deadlines_s`; the gateway bounds a relay by them.
 
 ### 6.3 API standards
 
@@ -363,6 +366,8 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 - Retrieval merges results across selected KBs, keeps per-chunk `kb` attribution, and the answer cites `[KB name › document › section]`.
 
 > **Amendment 2026-10-26 (phase 08, ADR-0328 to ADR-0356).** KBs are filled ahead of time by an administrator's upload, never from the internet at question time (D2). A KB belongs to the tenant of the administrator who created it; its slug, and its role `kb:<slug>:read` created through the Keycloak Admin API first, are unique on the platform; deleting is soft (hidden, role kept, slug kept, its chunks purged from the internal index; an MCP server keeps its copy for operations to remove, since no MCP operation deletes, D6). Every document carries a title, publisher, optional source URL, publication date and optional `supersedes` (an earlier version of the same source in the same KB; one successor at most, no loop) (D3). Documents go through the phase 04 pipeline and the `DocumentBackend` of config/kb.yaml (I2); their records are `agent.kb_documents`, their chunks `agent.rag_chunks.kb_document_id`. The kb capability searches all toggled KBs in one hybrid search, each KB keeping its best 2 chunks in the top 8, prefers the latest version of a source before and after rerank (an older chunk stays beside its newer version only once, labelled), and its citations show KB › title, publisher, date and pages; the answer states a figure's source and date. The composer's toggles come from `GET /v1/capabilities`; the gateway and the agent each refuse a KB the caller may not read, a deleted one or another tenant's. Admin pages: `/admin/kbs` and `/admin/kbs/<slug>`. The proof-of-concept KB «الاقتصاد الدولي» is seeded in development by `make kb-poc` (D4).
+
+> **Amendment 2026-10-29 (report branch, owner decision B, ADR-0392, ADR-0393).** Development KBs are seeded from the repository: `kb-seed/<slug>/` holds kb.yaml (names, description, role `kb:<slug>:read` and the development users that hold it in the realm export), the documents, a `<file>.meta.yaml` sidecar per document and manifest.json (URL, retrieval date, SHA-256), all committed. `make up` runs `make kb-seed` after the stack is healthy: it creates a missing KB, uploads each document whose SHA-256 the KB does not hold (the gateway hashes every KB upload; `agent.kb_documents.sha256`) and skips the rest, offline and idempotent; a file without a sidecar is uploaded under its file name, flagged `metadata_missing` on its admin page until corrected; a document whose file left the folder is reported, never deleted. Two KBs are seeded: «الاقتصاد الدولي» (`intl-economy`, which replaces `make kb-poc`) and «إحصاءات الهيئة العامة للإحصاء» (`stats-gov`), fetched in development by `make kb-fetch` from stats.gov.sa's social statistics (ten categories, the newest edition of every publication series, PDF and Excel; ADR-0395).
 
 ### 9.5 General (UC5)
 
@@ -465,6 +470,20 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-10-26 (phase 08, ADR-0353).** The composer shows one toggle per KB the caller may read (`GET /v1/capabilities`), none on by default, kept per conversation in the browser; a KB citation shows «KB › title», the publisher and the date in Western digits. `/admin/kbs` and `/admin/kbs/<slug>` manage KBs and their documents, Arabic first and code-free.
 
+> **Amendment 2026-10-28 (reports PR, ADR-0375).** The composer offers an output picker («نص» / «تقرير تفاعلي»). A report opens a side panel like Claude's artifacts (chat on the right and panel on the left in RTL, mirrored in English): the page builds live in an `<iframe sandbox="allow-scripts">`, then the stored version loads from the gateway's view link; tabs «معاينة» / «الكود», download, full screen, copy code, a version switcher and close. A reply that wrote a report shows a report card that reopens the panel, in the live chat and in the history.
+
+> **Amendment 2026-10-29 (report branch, owner decisions A, C and D, ADR-0388 to ADR-0391).** Every figure a report shows carries one visible source label: «من: <KB name>» / "From: <KB name>", «من: <file title>», «من: <capability>», «من: طلبك» / "From: your request", or «من المعرفة العامة» / "General knowledge" (replacing «غير موثق»); chart points carry theirs in the tooltip and under the chart. A report's visible text and report-data pass the same allowed-script check as a text answer; a failure is written again once with the failure named, then the turn ends `validation_failed`. In development (`PLATFORM_PROFILE=development`, config/artifacts/report.yaml `show_model_info`) a report ends with a strip naming the model, provider, tier alias, time and tokens of the call that wrote it and of the calls behind its findings; it is never served in production.
+
+> **Amendment 2026-10-29 (report branch, owner decision on PR #17, ADR-0398 to ADR-0401).** A report draws from exactly one kind of source per turn, never mixed. With knowledge bases toggled or files attached, every figure, table, chart and statement of fact comes only from that turn's findings; a figure they do not hold reads «غير متوفر» / "Not available" in its place, and a figure counts as sourced only when its number and its row or column label are in the same passage. With nothing toggled and no files, the page is general knowledge only and every figure reads «من المعرفة العامة»; no KB or file label appears. Nothing of an earlier turn's findings, labels or sources is carried into a report, its figure check or its sources section, which lists this turn's citations only; a page that names a source this turn did not cite is written again once, then the turn fails. A follow-up edits the conversation's latest report only when the router's call judges that it asks to change that report; a request on another subject starts a new report at version 1. A report turn fetches 20 passages instead of 8, and an edit searches with the report's title and the request.
+
+> **Amendment 2026-10-29 (report branch, owner decisions 1 to 3 on PR #17, ADR-0402 to ADR-0405).** A report over knowledge bases or files first plans its sections, charts and tables (one fast-tier call) and searches once per planned chart or table beside the general search, keeping at most 40 passages. A version stores the passages behind its citations by reference; an edit with the knowledge base still toggled fetches them again from the knowledge base under its own turn's permissions. A workbook's precise figure matches the page's rounding to one or two decimals. A chart or table whose values are all «غير متوفر» is left out of the page; one with some gaps stays, gaps shown.
+
+> **Amendment 2026-10-29 (report branch, owner decisions A to D on PR #17, "option C", ADR-0406 to ADR-0409).** The report writer no longer writes HTML: it answers with a report spec, JSON matching the versioned config/artifacts/report-spec.schema.json (title, subtitle, period, language and ordered sections: kpi_row, chart, table, text, callout), each kpi_row, chart and table naming in `sources` the passages it used (P1, P2… as the context numbers them) or "general". The platform renders the spec to the stored page deterministically with the design kit, draws charts with Apache ECharts (vendored, pinned; Chart.js removed), and streams each section into the panel as it completes. Each value is checked against its element's cited passages, with a word of its position and of its measure (rounding to one or two decimals allowed); a value not found reads «—» and is listed as not available; an element with nothing found is dropped; with KB or file findings "general" is not allowed, and without them every element is general. No label sits beside any figure: a sourced report ends with «المصادر», one entry per document and under it the elements it supports with their pages or sheets; a general-knowledge report opens with «هذا التقرير من المعرفة العامة للنموذج، دون مصادر موثقة» and has no sources section. An edit changes the spec. The reports suite reads the stored spec (spec_valid, no_general, general_only, sourced figures, sources per element, request language).
+
+> **Amendment 2026-10-29 (owner decision 2 on PR #17, completed, ADR-0410).** Every chunk of a workbook sheet opens with the sheet's name, the table's title and number and all of its header rows (everything above the first data row), so a continuation chunk still names its table and columns. KB documents record the extractor version that indexed them; `make kb-seed` re-indexes, once, those an older extractor cut.
+
+> **Amendment 2026-10-29 (owner request on PR #17, ADR-0415).** The platform's identity: the logo (services/web/public/brand) beside «منصة الوكيل» / "Agent Platform" at the header's inline-start corner on every page, the brand favicon and touch icon; the logo's deep palm green and gold as design tokens in one place (services/web/src/app/globals.css), light and dark, with status colours, all at WCAG AA; IBM Plex Sans Arabic self-hosted; light/dark follows the system, and a header toggle chooses and remembers it without a flash. Report pages' palette follows the identity, chart series starting with the brand green and gold.
+
 ---
 
 ## 14. Docker Compose (v1 services)
@@ -490,6 +509,8 @@ Seed policies in `config/policies/`:
 - Provide `docker-compose.prod.md` notes for Kubernetes migration (Helm later, not v1).
 
 > **Amendment 2026-10-11 (ADR-0134, ADR-0141).** `rerank` runs `michaelf34/infinity:0.0.75` (amd64 and arm64) on CPU with `bge-reranker-v2-m3` from the volume `rerank-models`, which `make models` fills; nothing is downloaded at start. `litellm` is published on `127.0.0.1` only, behind its master key, so `make eval` can score Ragas metrics through the judge alias. MinIO credentials reach the agent and the gateway from `.env`. `make smoke-airgap` runs smoke with every container but `litellm` on a network without egress.
+
+> **Amendment 2026-10-28 (reports PR, ADR-0384).** `minio-init` also creates the bucket `artifacts` and the agent's own MinIO user (`MINIO_ARTIFACTS_ACCESS_KEY`), limited to it; `scripts/init_env.sh --add-missing` appends to an existing `.env` the variables compose requires with no default. The gateway mounts config/artifacts/report.yaml and config/artifacts/kit/ read-only and serves the kit at `/report-kit/v1/`.
 
 > **Amendment 2026-10-06 (ADR-0097, ADR-0087).** `presidio-analyzer` is pinned to `2.2.362` with one worker and loads only `infra/presidio/recognizers.yaml`; it takes about 740 MiB. The agent now uses Redis (policy cache, change notifications, judge verdicts) and waits for `redis` and `presidio-analyzer` to be healthy.
 
@@ -730,6 +751,8 @@ models.call(role="summarizer", ...)                                          # c
 
 Final tier = max(1–4) bounded by 5. Every decision is written to the trace as `model.tier_decision {requested, floor, escalations[], cap, final}` so cost reports can answer "why did 30 % of calls go to heavy?".
 
+> **Amendment 2026-10-29 (owner decision on PR #17, ADR-0394).** Step 1 is `max(the role's default tier, the floors of the capabilities the call runs for)`: a capability's floor, or its per-step override, only raises a tier, never lowers it. The tier event's reason names both (`role default <role>=<tier>; capability floor <slug>=<tier>; highest <tier>`). A step override below its role's default, such as §19.4's `sql` `fix_error: fast` under the `reasoning` role, has no effect; a step that should run on `fast` calls a role whose default is `fast`.
+
 ### 19.4 Rules of thumb baked into the seed config
 
 - Helper roles never leave `fast`. This alone removes most of the cost of a turn.
@@ -893,8 +916,63 @@ Rules:
 | `config/messages/errors.yaml` | `kb_forbidden`, `kb_not_found`, `kb_exists`, `kb_document_not_found`, `kb_supersedes_invalid` | The KB refusals in Arabic and English |
 | `evals/thresholds.yaml` | `kb`, `internal-comms.no_invented_url` | Gated KB metrics (ADR-0338); no link absent from the request (F3) |
 | `evals/golden/fixtures.yaml` (new) | `include` | routing.jsonl's kb cases use the kb suite's fixture KBs |
-| `scripts/kb_poc/` (new) | `sources.yaml`, `manifest.json` | The proof-of-concept KB's sources and what `make kb-poc` fetched (D4, ADR-0356) |
+| `scripts/kb_poc/` (new) | `sources.yaml`, `manifest.json` | The proof-of-concept KB's sources and what `make kb-poc` fetched (D4, ADR-0356); replaced by `kb-seed/intl-economy/` on 2026-10-29 (ADR-0392) |
 | `infra/keycloak/realm-export.json` | `kb:intl-economy:read`, `kb:eval-economy:read`, `kb:eval-labor:read`, `kb:smoke-deleted:read`; `cap:kb` for evaluator | The seed KB roles (§11 amendment) |
+
+### 20.9 Configuration keys added in the reports PR (owner decision D1 of phase 08, ADR-0364 onward)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/artifacts/report.yaml` (new) | `keywords.{ar,en}`, `max_bytes` (512 KB), `max_model_chars`, `current_max_tokens`, `stream.flush_chars`, `storage.{bucket, store_s}`, `kit.{version, path, stylesheet, scripts, fonts}`, `text.*` | Report candidacy keywords (D3), the version size cap (I4), the model output read before parsing, a follow-up's current version, streaming segments, MinIO storage and its bound, the kit's files, and the text the platform writes (sources section, the chat's line) in ar and en |
+| `config/artifacts/design-system.md` (new) | front-matter `id`, `version`; Markdown | The design kit's prompt part (I2), the report writer's `report_kit` block |
+| `config/artifacts/kit/` (new) | kit.css, kit.js, vendor/chart.umd.min.js (Chart.js 4.4.4), fonts/ (IBM Plex Sans Arabic woff2), SOURCE.md | The kit the gateway serves and a download inlines; third-party files pinned by SHA-256 |
+| `config/turn.yaml` | `profiles.report.{deadline_s, answer_s, role}` | The report deadline profile: 300 s, the answer's ceiling 270 s (I1, ADR-0379) |
+| `config/models.yaml` | `roles.report_writer` (heavy), `role_max_output.report_writer` (16000), `temperature.report_writer`, `timeouts.roles.report_writer` (270) | The report writer (I1, ADR-0369) |
+| `config/context.yaml` | `pipeline: report_kit, report_current`, `blocks.report_kit`, `blocks.report_current`, `nodes.report` | The report writer's context (ADR-0380) |
+| `config/prompts/` | `report.system` 1.1.0, `context.report_kit`, `context.report_current`, `router.system` 1.3.0, `router.request` 1.4.0 | The report writer's prompt, its blocks' wrappers, the router's `output` |
+| `config/messages/errors.yaml` | `report_not_found`, `report_unavailable`, `report_too_large`, `report_edit_too_large` | Report refusals and failures in Arabic and English |
+| `config/messages/settings.yaml` | `turn.report_deadline_s`, `turn.report_answer_s`, `models.report_writer_s` and the `profile-*` rule families | The report profile on /admin/settings |
+| `evals/outputs/reports/` (new) | `reports.jsonl`, `metrics.yaml`, `fixtures.yaml`, `judge.md` | The reports suite (I8) |
+| `evals/thresholds.yaml` | `reports` | Gated page metrics; visual_quality reported |
+| `.env` | `MINIO_ARTIFACTS_ACCESS_KEY`, `MINIO_ARTIFACTS_SECRET_KEY` | The agent's MinIO user for report pages (ADR-0384) |
+
+### 20.10 Configuration added by the owner's decisions on the report branch (2026-10-29, ADR-0388 to ADR-0393)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/artifacts/report.yaml` | `version` 1.1.0; `text.general_label`, `text.source_label`, `text.message_label`, `text.general_note` (was `unverified_note`), `text.no_sources` | A figure's source label (A, ADR-0389) |
+| `config/artifacts/report.yaml` | `show_model_info.{development, production}`, `text.model_info.*` | The development model strip, per deployment profile (C, ADR-0391) |
+| `config/artifacts/design-system.md` | 1.1.0 | The labels described to the model |
+| `config/prompts/report/` | `report.system` 1.4.0 | The labels (1.2.0); a script retry names the failure and the words (1.3.0, ADR-0390); the title, headings and labels in the request's language (1.4.0, ADR-0396) |
+| `config/artifacts/kit/` | kit.css `.kit-figure`, `.kit-model-info`; kit.js chart sources | The labels and the strip drawn by the kit |
+| `evals/outputs/reports/metrics.yaml`, `evals/thresholds.yaml` | `figures_labelled` (was `unverified_marked`), `sourced_figures`, `request_language` | The labels and the page's language gated |
+| `.env` | `PLATFORM_PROFILE` (development or production; production when unset) | The deployment profile (ADR-0391) |
+| `kb-seed/<slug>/` (new) | `kb.yaml` (`slug`, `name`, `description`, `role`, `users`, `default_publisher`), `<file>.meta.yaml`, `manifest.json`; `kb-seed/stats-gov/fetch.yaml` | Seeded KBs and what `make kb-fetch` takes (B, ADR-0392, ADR-0393) |
+| `infra/keycloak/realm-export.json` | `kb:stats-gov:read` for analyst and evaluator | The seeded KB's role |
+
+### 20.11 Configuration changed by the owner's decision on one kind of source per report turn (2026-10-29, ADR-0398 to ADR-0401)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/artifacts/report.yaml` | `version` 1.2.0; `text.unavailable_label` | «غير متوفر» / "Not available" in place of a figure a sourced turn's findings do not hold (ADR-0398) |
+| `config/artifacts/design-system.md`, `config/prompts/report/` | 1.2.0; `report.system` 1.5.0 | One kind of source per turn, no uncited source named, a revision rebuilt from this turn's evidence (ADR-0398) |
+| `config/prompts/router/` | `router.system` 1.4.0 | The router's `edit`: a change to the current report, or a new report (ADR-0400) |
+| `config/kb.yaml`, `config/docs.yaml` | `retrieval.report_top_k` (20) | Passages a capability fetches on a report turn (ADR-0401) |
+| `config/context.yaml` | `nodes.report.blocks.retrieval` (16,000 tokens, top 20) | The report writer's passages (ADR-0401) |
+| `config/artifacts/kit/kit.css` | `.kit-figure[data-kit-source="unavailable"]` | The «غير متوفر» mark |
+| `evals/outputs/reports/metrics.yaml` | `figures_labelled` | On a general-knowledge page every figure reads general knowledge, the request's included |
+| `config/kb.yaml`, `config/docs.yaml` | `retrieval.report_top_k` (12), `report_section_k` (4), `report_max_passages` (40) | A report turn's general search, each planned section's, and the cap (ADR-0403; supersedes 20 of ADR-0401) |
+| `config/context.yaml` | `nodes.report_plan`; `nodes.report.blocks.retrieval` (24,000 tokens, top 40) | The section plan's call and the writer's passages (ADR-0403) |
+| `config/prompts/report/` | `report.plan`, `report.plan_request` 1.0.0; `report.system` 1.7.0 | The section plan; charts and tables with no evidence left out (ADR-0403, ADR-0405) |
+| `services/agent/app/db/migrations/0019_report_passages.sql` | `report_versions.passages` | The passages an edit fetches again (ADR-0402) |
+| `config/artifacts/report-spec.schema.json` (new) | `report-spec/1.0.0` | The report spec, generated from app/artifacts/spec.py (ADR-0406) |
+| `config/artifacts/report.yaml` | `version` 2.0.0; `kit.scripts` [vendor/echarts.min.js, kit.js]; `text.general_banner`, `kinds`, `untitled_element`, `sheet`, `unavailable`, `change`, `chart_gaps` (the per-figure labels removed) | Option C's page and sources (ADR-0406, ADR-0408) |
+| `config/artifacts/design-system.md`, `config/prompts/report/`, `config/prompts/context/` | 2.0.0 (the spec guide); `report.system` 2.0.0; `report.plan` 1.1.0; `context.report_current` 2.0.0; `context.retrieval` 2.2.0 | The spec, passage ids, an edit of the spec (ADR-0406) |
+| `config/artifacts/kit/` | `vendor/echarts.min.js` (5.5.1), `ECHARTS-LICENSE.txt`, `ECHARTS-NOTICE.txt`; kit.js, kit.css | Charts with ECharts; no figure labels (ADR-0406, ADR-0408) |
+| `services/agent/app/db/migrations/0020_report_spec.sql` | `report_versions.spec` | The checked spec an edit changes (ADR-0406) |
+| `services/agent/app/db/migrations/0021_kb_document_extractor.sql` | `kb_documents.extractor` | The extractor version that indexed a KB document; the seed re-indexes what is due (ADR-0410) |
+| gateway and agent API | `POST /v1/admin/kbs/{slug}/documents/{id}/reindex`; `reindex_due` on a KB document | Re-indexes a document an older extractor cut, idempotently (ADR-0410) |
+| `evals/outputs/reports/metrics.yaml`, `evals/thresholds.yaml` | `spec_valid`, `no_general`, `general_only` (new); `figures_labelled` removed | The suite on the spec (ADR-0409) |
 
 ## 21. Getting started on a new machine
 

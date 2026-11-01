@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from langgraph.runtime import Runtime
 from opentelemetry import trace
 
+from app.artifacts.writer import write_report
 from app.context.package import BLOCK_NAMES, SKILL_BLOCK, AssemblyRequest, BlockName, SkillBlockRequest
 from app.errors import TurnError
 from app.graph.calls import call_model, prepare_call, tier_event
@@ -107,6 +108,10 @@ async def prepare_answer(state: AgentState, ctx: TurnContext, *, policy_hints: S
 
 @traced("answer")
 async def answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
+    if (state.get("output") or {}).get("form") == "report":
+        # A report is an output form (D1): the same findings, written as one HTML page (ADR-0380).
+        trace.get_current_span().set_attribute("answer.form", "report")
+        return await write_report(state, runtime)
     ctx = runtime.context
     services = ctx.services
     locale = state["locale"]

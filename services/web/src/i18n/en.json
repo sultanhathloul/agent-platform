@@ -10,7 +10,11 @@
     "switchLanguage": "Change language",
     "policies": "Guard policies",
     "settings": "Platform settings",
-    "kbs": "Knowledge bases"
+    "kbs": "Knowledge bases",
+    "logoAlt": "Agent Platform logo",
+    "themeToDark": "Dark mode",
+    "themeToLight": "Light mode",
+    "themeLabel": "Switch theme"
   },
   "locale": {
     "ar": "العربية",
@@ -60,14 +64,38 @@
     "kbToggles": "Knowledge bases",
     "kbToggleHint": "Use this knowledge base in the answer",
     "citationDate": "dated {date}",
-    "citationKb": "<kb></kb><sep>›</sep>"
+    "citationKb": "<kb></kb><sep>›</sep>",
+    "outputPicker": "Output",
+    "outputAuto": "Automatic",
+    "outputAutoHint": "The output is chosen automatically",
+    "outputText": "Text",
+    "outputReport": "Interactive report",
+    "skillOffForReport": "A skill does not apply to an interactive report"
+  },
+  "reports": {
+    "panel": "Report",
+    "building": "Building the report…",
+    "loading": "Loading the report…",
+    "tabs": "Report view",
+    "preview": "Preview",
+    "code": "Code",
+    "download": "Download the report",
+    "fullscreen": "Full screen",
+    "copy": "Copy code",
+    "copied": "Copied",
+    "close": "Close the panel",
+    "versions": "Version shown",
+    "version": "Version {version}",
+    "versionDated": "Version {version} · {date}",
+    "open": "Open the report “{title}”"
   },
   "chips": {
     "tier": "Model tier",
     "guard": "Guardrail",
     "tool": "Tool",
     "latency": "{ms} ms",
-    "skill": "Skill"
+    "skill": "Skill",
+    "count": "× {count}"
   },
   "guardActions": {
     "allow": "Allowed",
@@ -157,7 +185,9 @@
     "kb_not_found": "The knowledge base does not exist.",
     "kb_exists": "This identifier is used by an existing or deleted knowledge base; choose another one.",
     "kb_document_not_found": "The document is not in this knowledge base.",
-    "kb_supersedes_invalid": "The earlier version chosen is not valid: it must be another document of the same knowledge base that no other document supersedes, without making a loop."
+    "kb_supersedes_invalid": "The earlier version chosen is not valid: it must be another document of the same knowledge base that no other document supersedes, without making a loop.",
+    "report_not_found": "The report was not found.",
+    "report_unavailable": "The reports service is unavailable. Please try again shortly."
   },
   "policies": {
     "title": "Guard policies",
@@ -626,6 +656,18 @@
       "mcp_max_concurrency": {
         "label": "Concurrent requests to the tool server",
         "help": "How many requests are sent to it at once; it may be lowered, never raised above the file's value agreed with the server's owner. Example: 6."
+      },
+      "turn_report_deadline_s": {
+        "label": "Whole interactive-report question time limit",
+        "help": "The longest a question that writes an interactive report may take, from its arrival to the end of the report; then it is stopped. Example: 300."
+      },
+      "turn_report_answer_s": {
+        "label": "Interactive report writing ceiling",
+        "help": "The longest the report page may take to write, within its question's time limit. Example: 270."
+      },
+      "models_report_writer_s": {
+        "label": "Report-writing model's time limit",
+        "help": "The time limit of each report-writing call. Example: 270."
       }
     },
     "review": {
@@ -671,7 +713,10 @@
       "tool-in-capability": "The tool's time limit within its capability's",
       "facade-search-in-tool": "A file search within the tool's time limit",
       "document-server-in-tool": "A document server call within the tool's time limit",
-      "slot-and-attempt-in-broker": "A tool server's wait and attempt within the broker's limit"
+      "slot-and-attempt-in-broker": "A tool server's wait and attempt within the broker's limit",
+      "profile-turn-in-relay": "The interactive report question's time limit within the gateway's relay limit",
+      "profile-answer-in-turn": "The interactive report writing ceiling within its question's time limit",
+      "profile-role-in-answer": "The report-writing model's call within the interactive report writing ceiling"
     },
     "readOnly": {
       "source": "Source: {source}",
@@ -776,11 +821,19 @@
     "documentsTitle": "Documents",
     "noDocuments": "This knowledge base has no documents yet.",
     "superseded": "Older version",
+    "metadataMissing": "Metadata missing",
+    "metadataMissingHint": "Added from the kb-seed folder without its sidecar: the title is the file name, and the publisher and date are placeholders. Correct them with “Edit source details”.",
     "pages": "{pages} pages",
     "sourceLink": "Source",
     "supersedesLine": "Supersedes: {title}",
     "supersededLine": "Superseded by: {title}",
     "editMetadata": "Edit source details",
+    "reindexing": "Re-indexing",
+    "reindexingHint": "The document stays searchable on its current version until the re-index completes.",
+    "reindexFailed": "Re-index failed",
+    "reindexFailedHint": "The document is still searchable on its previous version. Reason: {reason}",
+    "reindexRetry": "Retry",
+    "reindexStarted": "Re-indexing “{title}” started.",
     "save": "Save",
     "metadataSaved": "The details of “{title}” were saved."
   }

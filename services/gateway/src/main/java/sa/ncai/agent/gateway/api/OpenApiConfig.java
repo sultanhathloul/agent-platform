@@ -17,7 +17,7 @@ import org.springframework.context.annotation.Configuration;
 class OpenApiConfig {
 
     /** Bump on any contract change; OpenApiExportTest fails when docs/openapi/gateway.json drifts (ADR-0044). */
-    static final String API_VERSION = "2.6.0";
+    static final String API_VERSION = "2.7.0";
 
     @Bean
     OpenAPI gatewayOpenApi() {

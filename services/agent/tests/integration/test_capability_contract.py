@@ -41,7 +41,8 @@ async def test_probe_uses_models_and_broker_and_streams_while_running(probe_serv
     tool_end = events[1].data
     assert (tool_end.tool, tool_end.capability, tool_end.status) == ("probe_lookup", "probe", "ok")
     step_call = events[2].data
-    assert (step_call.step, step_call.tier) == ("draft", "fast")  # step override below the standard floor
+    # The step override (fast) is below the reasoning role's default (standard): a floor never lowers a tier (ADR-0394).
+    assert (step_call.step, step_call.tier) == ("draft", "standard")
     assert types[-1] == "done", types
     done = events[-1].data
     assert done.state_digest.capabilities == ["probe"]

@@ -83,13 +83,17 @@ class TierResolver:
             raise KeyError(f"unknown model role {role!r}")
         requested = self.config.roles[role]
 
-        # 1. Floor. A call made on behalf of capabilities takes the highest of
-        #    their floors (per-step override first); the role default is only
-        #    provisional. Other calls use the role default.
+        # 1. Floor. A capability's floor only raises a tier, never lowers it (owner decision on PR #17,
+        #    ADR-0394): a call made on behalf of capabilities takes the highest of the role's default and
+        #    their floors (per-step override first). Other calls use the role default.
         floors = {c.slug: (c.steps.get(step, c.min_tier) if step else c.min_tier) for c in capabilities}
         if floors:
-            floor = self.config.highest(*floors.values())
-            reason = "capability floor " + ", ".join(f"{slug}={tier}" for slug, tier in floors.items())
+            floor = self.config.highest(requested, *floors.values())
+            reason = (
+                f"role default {role}={requested}; capability floor "
+                + ", ".join(f"{slug}={tier}" for slug, tier in floors.items())
+                + f"; highest {floor}"
+            )
         else:
             floor = requested
             reason = f"role default {role}={requested}"

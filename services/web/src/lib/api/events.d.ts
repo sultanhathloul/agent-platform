@@ -17,6 +17,9 @@ export type AgentEvent =
   | CitationEvent
   | ProgressEvent
   | SkillEvent
+  | ArtifactStartEvent
+  | ArtifactDeltaEvent
+  | ArtifactDoneEvent
   | DoneEvent
   | ErrorEvent
   | RetractEvent;
@@ -157,7 +160,46 @@ export type TurnId8 = string | null;
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
 export type Seq8 = number;
-export type Type8 = "done";
+export type Type8 = "artifact_start";
+export type Id1 = string;
+export type Title1 = string;
+/**
+ * The version being written (additive).
+ */
+export type Version = number;
+export type RequestId9 = string;
+export type TurnId9 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq9 = number;
+export type Type9 = "artifact_delta";
+export type Id2 = string;
+export type Text1 = string;
+export type RequestId10 = string;
+export type TurnId10 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq10 = number;
+export type Type10 = "artifact_done";
+export type Id3 = string;
+export type Version1 = number;
+/**
+ * Bytes of the stored page.
+ */
+export type Size = number;
+/**
+ * The stored version's title (additive).
+ */
+export type Title2 = string | null;
+export type RequestId11 = string;
+export type TurnId11 = string | null;
+/**
+ * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
+ */
+export type Seq11 = number;
+export type Type11 = "done";
 export type Answer = string;
 export type Citations = Citation[];
 export type TokensIn = number;
@@ -240,14 +282,22 @@ export type Capabilities = string[];
  * slug@version of the skill applied to the answer, if any (phase 06, G8).
  */
 export type Skill = string | null;
+/**
+ * The answer's form (reports PR, D1, ADR-0378); additive.
+ */
+export type Output = "text" | "report";
 export type TraceId = string | null;
-export type RequestId9 = string;
-export type TurnId9 = string | null;
+export type Id4 = string;
+export type Kind = "report";
+export type Title3 = string;
+export type Version2 = number;
+export type RequestId12 = string;
+export type TurnId12 = string | null;
 /**
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
-export type Seq9 = number;
-export type Type9 = "error";
+export type Seq12 = number;
+export type Type12 = "error";
 export type Code = string;
 export type MessageAr2 = string;
 export type MessageEn2 = string;
@@ -268,13 +318,13 @@ export type GuardAudit1 = GuardAuditData[];
  * Agent to gateway only (G8): every tool call of the turn, content-free, for the audit record. The gateway removes this field before relaying the event; a client never receives it.
  */
 export type ToolAudit1 = ToolAuditData[];
-export type RequestId10 = string;
-export type TurnId10 = string | null;
+export type RequestId13 = string;
+export type TurnId13 = string | null;
 /**
  * Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.
  */
-export type Seq10 = number;
-export type Type10 = "retract";
+export type Seq13 = number;
+export type Type13 = "retract";
 /**
  * Error code of the check that withdrew the streamed text (ADR-0039).
  */
@@ -423,11 +473,67 @@ export interface SkillLabel {
   ar: Ar2;
   en: En2;
 }
-export interface DoneEvent {
+/**
+ * A report page begins to stream (reports PR, I6).
+ */
+export interface ArtifactStartEvent {
   request_id: RequestId8;
   turn_id: TurnId8;
   seq: Seq8;
   type: Type8;
+  data: ArtifactStartData;
+}
+/**
+ * A report page begins to stream (reports PR, I6, ADR-0374): the report's id (the same across its
+ * versions, D4), its title so far and the version being written.
+ */
+export interface ArtifactStartData {
+  id: Id1;
+  title: Title1;
+  version?: Version;
+}
+/**
+ * The next part of the report page.
+ */
+export interface ArtifactDeltaEvent {
+  request_id: RequestId9;
+  turn_id: TurnId9;
+  seq: Seq9;
+  type: Type9;
+  data: ArtifactDeltaData;
+}
+/**
+ * The next part of the page's HTML, already sanitized and checked by the guards (ADR-0383).
+ */
+export interface ArtifactDeltaData {
+  id: Id2;
+  text: Text1;
+}
+/**
+ * The report page is stored as a version.
+ */
+export interface ArtifactDoneEvent {
+  request_id: RequestId10;
+  turn_id: TurnId10;
+  seq: Seq10;
+  type: Type10;
+  data: ArtifactDoneData;
+}
+/**
+ * The page is stored: the panel reads this version from the report API, which may differ from the
+ * streamed parts by what the whole-page pass changed and the sources section (ADR-0383).
+ */
+export interface ArtifactDoneData {
+  id: Id3;
+  version: Version1;
+  size: Size;
+  title?: Title2;
+}
+export interface DoneEvent {
+  request_id: RequestId11;
+  turn_id: TurnId11;
+  seq: Seq11;
+  type: Type11;
   data: DoneData;
 }
 export interface DoneData {
@@ -439,6 +545,10 @@ export interface DoneData {
   tool_audit?: ToolAudit;
   state_digest: StateDigest;
   trace_id?: TraceId;
+  /**
+   * The report this turn wrote (reports PR, I5); absent on a text turn. Additive.
+   */
+  artifact?: ArtifactRef | null;
 }
 export interface Usage {
   tokens_in?: TokensIn;
@@ -502,12 +612,22 @@ export interface StateDigest {
   turn: Turn;
   capabilities: Capabilities;
   skill?: Skill;
+  output?: Output;
+}
+/**
+ * The report a reply wrote (reports PR, I5): what the chat's report card shows.
+ */
+export interface ArtifactRef {
+  id: Id4;
+  kind?: Kind;
+  title: Title3;
+  version: Version2;
 }
 export interface ErrorEvent {
-  request_id: RequestId9;
-  turn_id: TurnId9;
-  seq: Seq9;
-  type: Type9;
+  request_id: RequestId12;
+  turn_id: TurnId12;
+  seq: Seq12;
+  type: Type12;
   data: ErrorData;
 }
 export interface ErrorData {
@@ -524,10 +644,10 @@ export interface ErrorData {
  * Withdraws every answer token streamed so far in this turn.
  */
 export interface RetractEvent {
-  request_id: RequestId10;
-  turn_id: TurnId10;
-  seq: Seq10;
-  type: Type10;
+  request_id: RequestId13;
+  turn_id: TurnId13;
+  seq: Seq13;
+  type: Type13;
   data: RetractData;
 }
 export interface RetractData {

@@ -4,6 +4,255 @@
   "title": "AgentEvent",
   "description": "One SSE event streamed by POST /v1/turns (agent) and POST /v1/chat/turns (gateway).",
   "$defs": {
+    "ArtifactDeltaData": {
+      "additionalProperties": false,
+      "description": "The next part of the page's HTML, already sanitized and checked by the guards (ADR-0383).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "ArtifactDeltaData",
+      "type": "object"
+    },
+    "ArtifactDeltaEvent": {
+      "additionalProperties": false,
+      "description": "The next part of the report page.",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "artifact_delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ArtifactDeltaData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ArtifactDeltaEvent",
+      "type": "object"
+    },
+    "ArtifactDoneData": {
+      "additionalProperties": false,
+      "description": "The page is stored: the panel reads this version from the report API, which may differ from the\nstreamed parts by what the whole-page pass changed and the sources section (ADR-0383).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "size": {
+          "description": "Bytes of the stored page.",
+          "minimum": 1,
+          "title": "Size",
+          "type": "integer"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The stored version's title (additive).",
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "size"
+      ],
+      "title": "ArtifactDoneData",
+      "type": "object"
+    },
+    "ArtifactDoneEvent": {
+      "additionalProperties": false,
+      "description": "The report page is stored as a version.",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "artifact_done",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ArtifactDoneData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ArtifactDoneEvent",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "The report a reply wrote (reports PR, I5): what the chat's report card shows.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "report",
+          "default": "report",
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "version"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ArtifactStartData": {
+      "additionalProperties": false,
+      "description": "A report page begins to stream (reports PR, I6, ADR-0374): the report's id (the same across its\nversions, D4), its title so far and the version being written.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "version": {
+          "default": 1,
+          "description": "The version being written (additive).",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "ArtifactStartData",
+      "type": "object"
+    },
+    "ArtifactStartEvent": {
+      "additionalProperties": false,
+      "description": "A report page begins to stream (reports PR, I6).",
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Turn Id"
+        },
+        "seq": {
+          "description": "Monotonic per turn, starting at 0. -1 marks an event injected by the gateway.",
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "artifact_start",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ArtifactStartData"
+        }
+      },
+      "required": [
+        "request_id",
+        "turn_id",
+        "seq",
+        "type",
+        "data"
+      ],
+      "title": "ArtifactStartEvent",
+      "type": "object"
+    },
     "Citation": {
       "additionalProperties": false,
       "properties": {
@@ -226,6 +475,18 @@
           ],
           "default": null,
           "title": "Trace Id"
+        },
+        "artifact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The report this turn wrote (reports PR, I5); absent on a text turn. Additive."
         }
       },
       "required": [
@@ -996,6 +1257,16 @@
           "default": null,
           "description": "slug@version of the skill applied to the answer, if any (phase 06, G8).",
           "title": "Skill"
+        },
+        "output": {
+          "default": "text",
+          "description": "The answer's form (reports PR, D1, ADR-0378); additive.",
+          "enum": [
+            "text",
+            "report"
+          ],
+          "title": "Output",
+          "type": "string"
         }
       },
       "required": [
@@ -1453,6 +1724,9 @@
   },
   "discriminator": {
     "mapping": {
+      "artifact_delta": "#/$defs/ArtifactDeltaEvent",
+      "artifact_done": "#/$defs/ArtifactDoneEvent",
+      "artifact_start": "#/$defs/ArtifactStartEvent",
       "citation": "#/$defs/CitationEvent",
       "done": "#/$defs/DoneEvent",
       "error": "#/$defs/ErrorEvent",
@@ -1491,6 +1765,15 @@
     },
     {
       "$ref": "#/$defs/SkillEvent"
+    },
+    {
+      "$ref": "#/$defs/ArtifactStartEvent"
+    },
+    {
+      "$ref": "#/$defs/ArtifactDeltaEvent"
+    },
+    {
+      "$ref": "#/$defs/ArtifactDoneEvent"
     },
     {
       "$ref": "#/$defs/DoneEvent"

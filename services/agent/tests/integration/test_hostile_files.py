@@ -97,3 +97,22 @@ def test_a_child_out_of_time_or_memory_ends_the_file_as_extraction_aborted(confi
         with pytest.raises(ExtractionFailed) as failure:
             run_sandboxed("xlsx", rows, tight)
         assert failure.value.reason == "extraction_aborted", sandbox
+
+
+def test_a_large_workbook_reaches_the_text_cap_not_the_memory_limit(config_dir):
+    """Review round 1 of PR #17, finding 8 (ADR-0422): a 120k-row workbook, merged headers included, is read
+    to its end in the sandbox child under config/docs.yaml's limits (640 MiB of address space, 60 s of CPU)
+    and ends on the text cap (`text_too_long`, 1,000,000 characters), as on main; opened in full it peaked
+    at 370 MB of heap and ended `extraction_aborted`."""
+    from tests.fixtures.documents import labour_rows_xlsx_bytes
+
+    with pytest.raises(ExtractionFailed) as failure:
+        run_sandboxed("xlsx", labour_rows_xlsx_bytes(120_000), load_docs_config(config_dir))
+    assert failure.value.reason == "text_too_long"
+
+
+def test_a_workbook_under_the_text_cap_with_merged_headers_parses_in_the_sandbox(config_dir):
+    from tests.fixtures.documents import labour_rows_xlsx_bytes
+
+    parsed = run_sandboxed("xlsx", labour_rows_xlsx_bytes(12_000), load_docs_config(config_dir))
+    assert parsed.chunks and "السعوديين › الذكور" in parsed.chunks[-1].text

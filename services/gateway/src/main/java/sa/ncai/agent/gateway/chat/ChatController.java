@@ -144,6 +144,9 @@ public class ChatController {
         if (body.skill() != null) {
             detail.put("skill_requested", body.skill());
         }
+        if (body.output() != null) {
+            detail.put("output_requested", body.output());
+        }
         AtomicBoolean audited = new AtomicBoolean();
         AuditStatus status = AuditStatus.ERROR;
         try {
@@ -182,8 +185,11 @@ public class ChatController {
             AgentTurnRequest turn = agentRequest(body, principal, maxTier);
             // Taken before the request leaves, so the agent client's own bound, which starts with
             // the request, is never earlier (ADR-0256).
-            long relayDeadline = System.nanoTime() + agent.relayBound().toNanos();
-            agent.streamTurn(turn, requestId, upstream -> {
+            long sent = System.nanoTime();
+            agent.streamTurn(turn, requestId, (upstream, turnDeadline) -> {
+                // The bound the agent client applies to this stream: the deadline the agent declared
+                // for this turn (a report's profile), capped at the longest in force, + the margin (ADR-0379).
+                long relayDeadline = sent + agent.relayBound(turnDeadline).toNanos();
                 openStream(response);
                 // The terminal event leaves only after this record is written (ADR-0042).
                 return relay.relay(upstream, response.getOutputStream(), requestId, relayDeadline, outcome -> {
@@ -245,7 +251,8 @@ public class ChatController {
                 body.attachmentIds(),
                 body.selectedKbs(),
                 body.locale(),
-                body.skill());
+                body.skill(),
+                body.output());
     }
 
     private static Map<String, Object> outcomeDetail(RelayOutcome outcome) {
@@ -267,6 +274,15 @@ public class ChatController {
                 JsonNode skill = data.path("state_digest").path("skill");
                 if (skill.isTextual()) {
                     detail.put("skill", skill.asText());
+                }
+                // The turn's output form and the report version it wrote, never its title (reports PR, I5).
+                JsonNode output = data.path("state_digest").path("output");
+                if (output.isTextual()) {
+                    detail.put("output", output.asText());
+                }
+                JsonNode artifact = data.path("artifact");
+                if (artifact.path("id").isTextual() && artifact.path("version").canConvertToInt()) {
+                    detail.put("artifact", artifact.get("id").asText() + "@v" + artifact.get("version").asInt());
                 }
                 detail.put("guard_events", data.path("guard_events").size());
                 detail.put("guard_policies", guardPolicies(auditedGuards(data)));

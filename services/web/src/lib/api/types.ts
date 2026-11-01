@@ -4,6 +4,7 @@ import type { components } from "./gateway";
 
 export type {
   AgentEvent as StreamEvent,
+  ArtifactRef,
   Citation,
   DoneData,
   ErrorData,
@@ -77,3 +78,11 @@ export type KbDeleted = Schemas["KbDeleted"];
 export type KbDocumentView = Schemas["KbDocumentView"];
 export type KbDocumentList = Schemas["KbDocumentList"];
 export type KbSourceMetadata = Schemas["SourceMetadata"];
+
+export type ReportOutput = NonNullable<ChatTurnRequest["output"]>;
+export type HistoryArtifact = Schemas["HistoryArtifact"];
+export type ReportView = Schemas["ReportView"];
+export type ReportList = Schemas["ReportList"];
+export type ReportVersionSummary = Schemas["ReportVersionInfo"];
+export type ReportVersionView = Schemas["ReportVersionView"];
+export type ReportViewLink = Schemas["ViewLink"];

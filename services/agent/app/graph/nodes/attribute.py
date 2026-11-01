@@ -32,6 +32,10 @@ def _supplied(citation: dict) -> dict:
 @traced("attribute_citations")
 async def attribute_citations(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     ctx = runtime.context
+    if state.get("report"):
+        # A report turn's citations come from its page's visible text (app/artifacts/writer.py); the chat's
+        # one line about the report cites nothing of its own.
+        return {}
     outputs = state.get("capability_outputs") or []
     sources = [s for output in outputs for s in output.get("sources", [])]
     citations = [_supplied(c) for output in outputs for c in output.get("citations", [])]

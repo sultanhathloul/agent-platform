@@ -1,5 +1,5 @@
 // Pure reducer from streamed agent events to the assistant message the UI renders.
-import type { Citation, StreamEvent, Usage } from "@/lib/api/types";
+import type { ArtifactRef, Citation, StreamEvent, Usage } from "@/lib/api/types";
 import type { ErrorInfo } from "./errors";
 
 export type Chip =
@@ -38,6 +38,8 @@ export type AssistantMessage = {
   chips: Chip[];
   citations: Citation[];
   skill?: AppliedSkill;
+  /** The report this turn wrote (reports PR): the chat's card reopens the panel at it. */
+  artifact?: ArtifactRef;
   usage?: Usage;
   traceId?: string;
   requestId?: string;
@@ -144,6 +146,7 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
         citations: mergeCitations(m.citations, event.data.citations ?? []),
         usage: event.data.usage,
         traceId: event.data.trace_id ?? undefined,
+        ...(event.data.artifact ? { artifact: event.data.artifact } : {}),
       };
     case "error":
       return failed(m, {
@@ -157,6 +160,7 @@ export function applyEvent(message: AssistantMessage, event: StreamEvent): Assis
       // A check failed after the text streamed (ADR-0039): stop showing it; the error that follows takes its place.
       return { ...m, text: "", receivedTokens: false };
     default:
+      // The artifact_* events drive the report panel, not the message (reports PR, I7).
       return message; // event types from a newer server (or `progress`, not rendered yet) are ignored
   }
 }

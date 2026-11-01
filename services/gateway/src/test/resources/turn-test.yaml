@@ -8,3 +8,9 @@ evidence_fetch_s: 0.2
 admission_s: 0.5
 gateway_headers_s: 1
 gateway_margin_s: 1
+# A report turn's profile (ADR-0379): when the agent declares it, the relay's bound is 3 + 1 = 4 s.
+profiles:
+  report:
+    deadline_s: 3
+    answer_s: 2.5
+    role: report_writer

@@ -32,8 +32,9 @@ import sa.ncai.agent.gateway.settings.PlatformLimits;
  * <p>Spring's JDK request factory applies its read timeout to the whole exchange: past it, the
  * response body is closed, wherever the reading is (established by test, ADR-0256). So a turn
  * stream has a client of its own with two bounds, the agent's response headers within
- * {@link TurnLimits#headers()} (15 s) and the whole stream within {@link TurnLimits#relayBound()}
- * (135 s) ({@link TurnStreamRequestFactory}, ADR-0264), and every other call keeps
+ * {@link TurnLimits#headers()} (15 s) and the whole stream within {@link #relayBound(String)}: 135 s,
+ * or a profile's deadline + the margin when the agent declares one (300 + 15 s for a report turn)
+ * ({@link TurnStreamRequestFactory}, ADR-0264, ADR-0379), and every other call keeps
  * {@code gateway.agent.response-timeout} (60 s). Closing the body at the bound closes the
  * connection to the agent, which ends the turn there.
  */
@@ -52,10 +53,13 @@ public class AgentClient {
     /** The caller's permissions, comma-separated, from the verified token (phase 06, GET /v1/skills). */
     public static final String USER_PERMISSIONS_HEADER = "X-User-Permissions";
 
-    /** Consumes the agent's SSE body; runs only after a 2xx response. */
+    /** The turn's deadline in seconds, chosen by the agent at admission (reports PR, ADR-0379). */
+    public static final String TURN_DEADLINE_HEADER = "X-Turn-Deadline-S";
+
+    /** Consumes the agent's SSE body; runs only after a 2xx response, with its {@link #TURN_DEADLINE_HEADER}. */
     @FunctionalInterface
     public interface StreamHandler<T> {
-        T handle(InputStream body) throws IOException;
+        T handle(InputStream body, String turnDeadline) throws IOException;
     }
 
     /** The gateway's own check of a turn's selected knowledge bases, request to body (phase 08, rule 12c). */
@@ -85,7 +89,7 @@ public class AgentClient {
         // The deadline in force is read per turn: a settings change applies to the next one (ADR-0283).
         this.streamClient = builder.clone()
                 .baseUrl(agent.baseUrl())
-                .requestFactory(new TurnStreamRequestFactory(http, limits.headers(), limits::relayBound))
+                .requestFactory(new TurnStreamRequestFactory(http, limits.headers(), this::relayBound))
                 .build();
         this.internalToken = agent.internalToken();
     }
@@ -103,6 +107,26 @@ public class AgentClient {
      */
     public Duration relayBound() {
         return limits.relayBound();
+    }
+
+    /**
+     * The total bound on a turn stream whose agent declared {@code turnDeadline} ({@link #TURN_DEADLINE_HEADER},
+     * seconds): that deadline, at most the longest in force, + gateway_margin_s; a missing or unparsable
+     * value: {@link #relayBound()} (ADR-0379).
+     */
+    public Duration relayBound(String turnDeadline) {
+        return limits.relayBound(declaredSeconds(turnDeadline));
+    }
+
+    static Double declaredSeconds(String value) {
+        if (value == null || value.isBlank() || value.length() > 16) {
+            return null;
+        }
+        try {
+            return Double.valueOf(value.strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
@@ -131,7 +155,7 @@ public class AgentClient {
                             throw new AgentUnavailableException(
                                     "agent answered " + response.getStatusCode().value());
                         }
-                        return handler.handle(response.getBody());
+                        return handler.handle(response.getBody(), response.getHeaders().getFirst(TURN_DEADLINE_HEADER));
                     });
         } catch (ResourceAccessException e) {
             throw new AgentUnavailableException("agent unreachable: " + e.getMessage(), e);

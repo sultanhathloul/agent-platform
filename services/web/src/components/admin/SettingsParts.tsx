@@ -30,13 +30,15 @@ import {
 } from "@/lib/settings";
 import { ActorName } from "./ActorName";
 
-export const card = "rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200";
+export const card = "rounded-2xl bg-surface p-4 shadow-sm ring-1 ring-line";
 export const button =
-  "rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50";
+  "rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50";
+export const danger =
+  "rounded-md bg-error-solid px-3 py-1.5 text-sm font-medium text-on-error hover:bg-error-solid-hover disabled:opacity-50";
 export const quiet =
-  "rounded-md px-3 py-1.5 text-sm text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50";
-const input = "w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm";
-const chip = "rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-600";
+  "rounded-md px-3 py-1.5 text-sm text-fg ring-1 ring-line-strong hover:bg-surface-2 disabled:opacity-50";
+const input = "w-28 rounded-md border border-line-strong px-2 py-1.5 text-sm";
+const chip = "rounded-full bg-surface-2 px-1.5 text-[11px] text-muted";
 // Latin identifiers only: a monospace face never holds Arabic text (ADR-0119).
 const code = `${chip} font-mono`;
 
@@ -71,7 +73,7 @@ export function SectionHeading({ group }: { group: string }) {
   return (
     <header className="mb-3">
       <h2 className="text-base font-semibold">{t(`groups.${group}`)}</h2>
-      <p className="mt-0.5 text-xs text-slate-500">{t(`groupHints.${group}`)}</p>
+      <p className="mt-0.5 text-xs text-muted">{t(`groupHints.${group}`)}</p>
     </header>
   );
 }
@@ -111,14 +113,14 @@ export function SettingFieldRow({
   const id = `setting-${field.key}`;
   const range = { minimum: f.number(field.minimum), maximum: f.number(field.maximum) };
   return (
-    <div className="border-t border-slate-100 py-3 first:border-t-0" data-field={field.key}>
+    <div className="border-t border-line py-3 first:border-t-0" data-field={field.key}>
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={id} className="text-sm font-medium">
           {t("fieldLabel", { label: t(`fields.${key}.label`), unit })}
         </label>
         {field.server && <Chip name="server">{field.server}</Chip>}
         {edited && (
-          <span className="rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-900" data-badge="overridden">
+          <span className="rounded-full bg-warning-bg px-1.5 text-[11px] text-warning" data-badge="overridden">
             {t("overridden")}
           </span>
         )}
@@ -138,14 +140,14 @@ export function SettingFieldRow({
             onChange={(e) => onText?.(e.target.value)}
           />
           {field.nullable && (
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
+            <label className="flex items-center gap-1.5 text-sm text-fg">
               <input type="checkbox" checked={value === null} onChange={(e) => onNoLimit?.(e.target.checked)} />
               {t("noLimit")}
             </label>
           )}
         </div>
       )}
-      <p className="mt-1 text-xs text-slate-600" data-default="">
+      <p className="mt-1 text-xs text-muted" data-default="">
         {field.per_tenant
           ? t("defaultTenants")
           : defaultValue === null
@@ -154,9 +156,9 @@ export function SettingFieldRow({
         {" · "}
         {field.group === "mcp" ? t("maximumFile", range) : t("maximum", range)}
       </p>
-      <p className="mt-0.5 text-xs text-slate-500">{t(`fields.${key}.help`)}</p>
+      <p className="mt-0.5 text-xs text-muted">{t(`fields.${key}.help`)}</p>
       {problem && (
-        <p role="alert" className="mt-1 text-xs text-red-700" data-problem={problem}>
+        <p role="alert" className="mt-1 text-xs text-error" data-problem={problem}>
           {t(`problems.${problem}`, range)}
         </p>
       )}
@@ -181,7 +183,7 @@ function TenantRows({
   const t = useTranslations("settings.tenants");
   return (
     <div className="mt-1.5 space-y-1.5" id={id}>
-      {rows.length === 0 && <p className="text-xs text-slate-500">{t("none")}</p>}
+      {rows.length === 0 && <p className="text-xs text-muted">{t("none")}</p>}
       {rows.map(([tenant, count], index) => (
         <div key={index} className="flex flex-wrap items-center gap-2" data-tenant-row="">
           <input
@@ -216,7 +218,7 @@ export function ReadOnlyList({ items }: { items: ReadOnlySetting[] }) {
   const t = useTranslations("settings");
   const valueText = useValueText();
   return (
-    <ul className="divide-y divide-slate-100" data-section="capacity">
+    <ul className="divide-y divide-line" data-section="capacity">
       {items.map((item) => (
         <li
           key={item.key}
@@ -229,7 +231,7 @@ export function ReadOnlyList({ items }: { items: ReadOnlySetting[] }) {
             <span className="font-medium" data-value="">
               {valueText(typeof item.value === "number" ? item.value : null, item.unit)}
             </span>
-            <span className="text-xs text-slate-500">{t("readOnly.redeploy")}</span>
+            <span className="text-xs text-muted">{t("readOnly.redeploy")}</span>
             <span title={t("readOnly.source", { source: item.source })}>
               <Chip name="source">{sourceChip(item.source)}</Chip>
             </span>
@@ -251,8 +253,8 @@ export function TimeoutTree({ pairs, previewing = false }: { pairs: TimeoutPair[
   const seconds = (v: number) => `${f.number(v)} ${t("units.s")}`;
   return (
     <div data-section="tree">
-      {previewing && <p className="mb-2 text-xs text-amber-800">{t("tree.previewing")}</p>}
-      <ul role="tree" className="divide-y divide-slate-100">
+      {previewing && <p className="mb-2 text-xs text-warning">{t("tree.previewing")}</p>}
+      <ul role="tree" className="divide-y divide-line">
         {treeRows(pairs).map(({ pair, depth, path, failsBelow }) => {
           const family = ruleFamily(pair.rule);
           const title = t.has(`rules.${pair.rule}`)
@@ -273,16 +275,16 @@ export function TimeoutTree({ pairs, previewing = false }: { pairs: TimeoutPair[
             >
               <span className="flex flex-wrap items-center gap-1.5">
                 {depth > 0 && (
-                  <span aria-hidden="true" className="mb-1.5 inline-block h-2.5 w-2.5 border-b border-s border-slate-300" />
+                  <span aria-hidden="true" className="mb-1.5 inline-block h-2.5 w-2.5 border-b border-s border-line-strong" />
                 )}
                 <span
-                  className={`rounded-full px-1.5 text-[11px] ${pair.holds ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}
+                  className={`rounded-full px-1.5 text-[11px] ${pair.holds ? "bg-success-bg text-success" : "bg-error-bg text-error"}`}
                   data-mark={pair.holds ? "holds" : "fails"}
                 >
                   {t(pair.holds ? "tree.holds" : "tree.fails")}
                 </span>
                 {failsBelow && (
-                  <span className="rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-900" data-mark="warning">
+                  <span className="rounded-full bg-warning-bg px-1.5 text-[11px] text-warning" data-mark="warning">
                     {t("tree.failsBelow")}
                   </span>
                 )}
@@ -291,7 +293,7 @@ export function TimeoutTree({ pairs, previewing = false }: { pairs: TimeoutPair[
                   <Chip key={id}>{id}</Chip>
                 ))}
               </span>
-              <span className="text-slate-700" title={`${pair.inner} · ${pair.outer}`}>
+              <span className="text-fg" title={`${pair.inner} · ${pair.outer}`}>
                 {t(pair.strict ? "tree.strict" : "tree.loose", {
                   inner: seconds(pair.inner_value),
                   outer: seconds(pair.outer_value),
@@ -309,11 +311,11 @@ export function TimeoutTree({ pairs, previewing = false }: { pairs: TimeoutPair[
 export function ProblemList({ problems }: { problems: SettingsProblem[] }) {
   const t = useTranslations("settings.review");
   const locale = useLocale();
-  if (problems.length === 0) return <p className="text-sm text-emerald-800">{t("valid")}</p>;
+  if (problems.length === 0) return <p className="text-sm text-primary">{t("valid")}</p>;
   return (
     <div role="alert" data-section="problems">
-      <p className="text-sm font-medium text-red-800">{t("invalid")}</p>
-      <ul className="mt-1 list-inside list-disc space-y-1 text-sm text-red-800">
+      <p className="text-sm font-medium text-error">{t("invalid")}</p>
+      <ul className="mt-1 list-inside list-disc space-y-1 text-sm text-error">
         {problems.map((problem, index) => (
           <li key={`${problem.rule}-${index}`} data-problem-rule={problem.rule}>
             {locale === "ar" ? problem.message_ar : problem.message_en}
@@ -338,7 +340,7 @@ export function ChangeList({
 }) {
   const t = useTranslations("settings");
   const valueText = useValueText();
-  if (changed.length === 0) return <p className="text-sm text-slate-600">{t("review.none")}</p>;
+  if (changed.length === 0) return <p className="text-sm text-muted">{t("review.none")}</p>;
   return (
     <ul className="space-y-1 text-sm" data-section="changes">
       {fields
@@ -368,31 +370,31 @@ export function UsagePanel({ usage, failed, updatedAt }: { usage: PlatformUsage 
     limit === null || limit === undefined ? t("noOwnLimit", { count: n(count) }) : t("ofLimit", { count: n(count), limit: n(limit) });
   return (
     <div data-section="usage" className="space-y-3 text-sm">
-      {failed && <p role="status" className="text-xs text-amber-800">{t("failed")}</p>}
+      {failed && <p role="status" className="text-xs text-warning">{t("failed")}</p>}
       {usage && (
         <>
           <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
-              <dt className="text-slate-500">{t("turns")}</dt>
+              <dt className="text-muted">{t("turns")}</dt>
               <dd className="font-medium" data-usage="turns">{of(usage.turns.in_flight, usage.turns.capacity)}</dd>
             </div>
             <div>
-              <dt className="text-slate-500">{t("topUser")}</dt>
+              <dt className="text-muted">{t("topUser")}</dt>
               <dd className="font-medium" data-usage="top-user">{of(usage.turns.top_user_in_flight, usage.turns.per_user_max)}</dd>
             </div>
             <div>
-              <dt className="text-slate-500">{t("registrations")}</dt>
+              <dt className="text-muted">{t("registrations")}</dt>
               <dd className="font-medium" data-usage="registrations">{n(usage.registrations_in_background)}</dd>
             </div>
             <div>
-              <dt className="text-slate-500">{t("abandoned")}</dt>
+              <dt className="text-muted">{t("abandoned")}</dt>
               <dd className="font-medium" data-usage="abandoned">{n(usage.tasks_abandoned)}</dd>
             </div>
           </dl>
           <div>
-            <p className="text-slate-500">{t("perTenant")}</p>
+            <p className="text-muted">{t("perTenant")}</p>
             {usage.turns.tenants.length === 0 ? (
-              <p className="text-xs text-slate-500">{t("noTenants")}</p>
+              <p className="text-xs text-muted">{t("noTenants")}</p>
             ) : (
               <ul className="mt-1 space-y-1">
                 {usage.turns.tenants.map((tenant) => (
@@ -405,7 +407,7 @@ export function UsagePanel({ usage, failed, updatedAt }: { usage: PlatformUsage 
             )}
           </div>
           {usage.mcp.length === 0 ? (
-            <p className="text-xs text-slate-500">{t("noServers")}</p>
+            <p className="text-xs text-muted">{t("noServers")}</p>
           ) : (
             <ul className="space-y-2">
               {usage.mcp.map((server) => (
@@ -431,7 +433,7 @@ export function UsagePanel({ usage, failed, updatedAt }: { usage: PlatformUsage 
               ))}
             </ul>
           )}
-          {updatedAt && <p className="text-xs text-slate-400">{t("updated", { time: f.time(updatedAt) })}</p>}
+          {updatedAt && <p className="text-xs text-subtle">{t("updated", { time: f.time(updatedAt) })}</p>}
         </>
       )}
     </div>
@@ -458,9 +460,9 @@ export function VersionHistory({
 }) {
   const t = useTranslations("settings.history");
   const f = usePageFormat();
-  if (versions.length === 0) return <p className="text-sm text-slate-600">{t("empty")}</p>;
+  if (versions.length === 0) return <p className="text-sm text-muted">{t("empty")}</p>;
   return (
-    <ol className="divide-y divide-slate-100" data-section="history">
+    <ol className="divide-y divide-line" data-section="history">
       {versions.map((v) => {
         const overrides = Object.keys(v.overrides ?? {});
         return (
@@ -468,7 +470,7 @@ export function VersionHistory({
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{t("version", { version: f.number(v.version) })}</span>
               {v.version === current && (
-                <span className="rounded-full bg-emerald-100 px-1.5 text-[11px] text-emerald-900">{t("current")}</span>
+                <span className="rounded-full bg-success-bg px-1.5 text-[11px] text-success">{t("current")}</span>
               )}
               <span>
                 {v.change === "revert"
@@ -481,10 +483,10 @@ export function VersionHistory({
               ) : (
                 <ActorName id={v.created_by} username={v.created_by_username} name={v.created_by_name} />
               )}
-              <span className="text-xs text-slate-500">{f.time(v.created_at)}</span>
+              <span className="text-xs text-muted">{f.time(v.created_at)}</span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1">
-              <span className="text-xs text-slate-600">{t("overrides", { count: f.number(overrides.length) })}</span>
+              <span className="text-xs text-muted">{t("overrides", { count: f.number(overrides.length) })}</span>
               {overrides.map((key) => (
                 <Chip key={key}>{key}</Chip>
               ))}

@@ -61,6 +61,58 @@ def render_skill(prompts: PromptLibrary, skill: SkillBlockRequest, locale: str) 
     return wrapped.text, [f"{skill.slug}@{skill.version}", wrapped.ref]
 
 
+class ReportKit(Step):
+    """The design kit's prompt part (config/artifacts/design-system.md, I2) in the system role, inside
+    `<design_kit id= version=>`, for the report writer only. Reviewed developer text; never cut (its size is
+    checked at startup against blocks.report_kit.max_tokens, ADR-0380)."""
+
+    name = "report_kit"
+    block = "report_kit"
+
+    async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
+        req = package.request
+        if req.report is None:
+            return package
+        prompt = self.deps.prompts.render(
+            "context.report_kit", req.locale, id=req.report.kit_id, version=req.report.kit_version,
+            text=req.report.kit_text,
+        )
+        ref = f"{req.report.kit_id}@{req.report.kit_version}"
+        package.blocks.append(self.make_block("report_kit", "system", prompt.text, prompt=prompt.ref, kit=ref))
+        package.prompt_refs.extend([ref, prompt.ref])
+        return package
+
+
+class ReportCurrent(Step):
+    """The latest version of the report a follow-up revises (D4), as data in the user role. Never cut:
+    a revision of half a page would lose the other half, so a version over its block budget ends the
+    turn `report_edit_too_large` (ADR-0380)."""
+
+    name = "report_current"
+    block = "report_current"
+
+    async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
+        req = package.request
+        if req.report is None or req.report.current_spec is None:
+            return package
+        prompt = self.deps.prompts.render(
+            "context.report_current", req.locale, title=req.report.current_title or "",
+            version=req.report.current_version or 0, spec=req.report.current_spec,
+        )
+        block = self.make_block("report_current", "user", prompt.text, prompt=prompt.ref)
+        if block.tokens > self.budget_for(package).max_tokens:
+            raise ReportTooLargeToEdit(block.tokens)
+        package.blocks.append(block)
+        package.prompt_refs.append(prompt.ref)
+        return package
+
+
+class ReportTooLargeToEdit(RuntimeError):
+    def __init__(self, tokens: int):
+        super().__init__(f"the current report version is {tokens} tokens")
+        self.tokens = tokens
+
+
 class StateDigest(Step):
     name = "state_digest"
     block = "state_digest"
@@ -231,6 +283,7 @@ class SemanticRetrieval(Step):
                 publisher=chunk.get("publisher"),
                 published_on=chunk.get("published_on"),
                 superseded_by=chunk.get("superseded_by"),
+                pid=chunk.get("pid"),
                 text=kept,
             )
             # Untrusted data travels in the user role, with the question, never as system

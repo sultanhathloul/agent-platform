@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -20,7 +21,26 @@ public record GatewayProperties(
         @Valid @NotNull Storage storage,
         @Valid @NotNull Docs docs,
         @Valid @NotNull Turn turn,
-        @Valid Settings settings) {
+        @Valid Settings settings,
+        @Valid @NotNull Reports reports) {
+
+    /**
+     * Interactive reports (reports PR, I2, I4).
+     *
+     * @param config           path of config/artifacts/report.yaml, whose {@code kit} lists the files served
+     * @param kitDir           the kit's directory (config/artifacts/kit), mounted read-only
+     * @param gatewayPublicUrl the gateway's browser-facing origin (GATEWAY_PUBLIC_URL): a report page's
+     *                         view link and its kit path are on it
+     * @param webPublicUrl     the web's origin (WEB_PUBLIC_URL), the only one that may frame a report page
+     */
+    public record Reports(
+            @NotBlank String config,
+            @NotBlank String kitDir,
+            @NotBlank @Pattern(regexp = ORIGIN) String gatewayPublicUrl,
+            @NotBlank @Pattern(regexp = ORIGIN) String webPublicUrl) {}
+
+    /** Scheme, host and optional port, without a path: what a CSP source and the agent's kit_base accept. */
+    static final String ORIGIN = "^https?://[A-Za-z0-9.\\-]+(:[0-9]{1,5})?/?$";
 
     /**
      * @param refresh how often the values the gateway enforces are read from the agent (ADR-0283);

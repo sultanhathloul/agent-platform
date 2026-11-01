@@ -35,6 +35,10 @@ public enum ErrorCode {
     KB_DOCUMENT_NOT_FOUND("kb_document_not_found", 404),
     /** The earlier version a KB document names is not valid (D3). */
     KB_SUPERSEDES_INVALID("kb_supersedes_invalid", 409),
+    /** No such report of the caller's: another owner's is the same answer, so an id reveals nothing (reports PR, I5). */
+    REPORT_NOT_FOUND("report_not_found", 404),
+    /** The report store did not answer in time (reports PR, I5). */
+    REPORT_UNAVAILABLE("report_unavailable", 503),
     TURN_IN_FLIGHT("turn_in_flight", 409),
     /** The caller's or its tenant's turns in flight at their limit (config/turn.yaml; ADR-0262). */
     TOO_MANY_TURNS("too_many_turns", 429),

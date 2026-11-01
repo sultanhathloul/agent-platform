@@ -24,6 +24,9 @@ async def persist_state(state: AgentState, runtime: Runtime[TurnContext]) -> dic
         assistant["shown_answer"] = shown
     if state.get("citations"):
         assistant["citations"] = list(state["citations"])
+    if state.get("report"):
+        # The report this reply wrote, {id, kind, title, version}, for the history's report card (I5).
+        assistant["artifact"] = dict(state["report"])
     if state.get("skill"):
         # The skill the reply was written with, {slug, version}, for the history's chip (ADR-0301).
         assistant["skill"] = dict(state["skill"])

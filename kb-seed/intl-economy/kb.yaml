@@ -1,0 +1,12 @@
+# The phase 08 proof-of-concept knowledge base (D4, ADR-0331), seeded from this folder since owner decision
+# B on the report branch (ADR-0392). Read by `make kb-seed`, which `make up` runs.
+slug: intl-economy
+name: {ar: "الاقتصاد الدولي", en: "International economy"}
+description:
+  ar: "تقارير وأخبار عامة منشورة عن الاقتصاد الصيني والخليجي وأسواق الطاقة."
+  en: "Public reports and news on the Chinese and Gulf economies and energy markets."
+# The realm role that reads it, and the development users that hold it in infra/keycloak/realm-export.json.
+role: kb:intl-economy:read
+users: [analyst, evaluator]
+# The publisher a file dropped here without a sidecar is uploaded with (flagged "metadata missing").
+default_publisher: "غير محدد"

@@ -31,6 +31,35 @@ def _names(attachments: list[dict], status: str) -> list[str]:
     return [str(a.get("name") or "") for a in attachments if a.get("status") == status]
 
 
+
+def _searches(request: CapabilityInput, retrieval: dict) -> tuple[list[tuple[str, int]], int]:
+    """(query, k) of each search and the cap on the turn's passages. A text answer: the message at top_k.
+    A report (ADR-0401, ADR-0403): the message at report_top_k, on an edit the report's title, then one
+    search per planned chart or table at report_section_k."""
+    if request.output != "report":
+        return [(request.message, int(retrieval.get("top_k", 8)))], int(retrieval.get("top_k", 8))
+    section = int(retrieval.get("report_section_k", 4))
+    searches = [(request.message, int(retrieval.get("report_top_k", 12)))]
+    if request.report_title:
+        searches.append((request.report_title, section))
+    searches += [(query, section) for query in request.report_queries]
+    return searches, int(retrieval.get("report_max_passages", 40))
+
+
+def _cited(request: CapabilityInput) -> list[Source]:
+    """On an edit, the passages the current version cited that are this capability's kind (ADR-0402): the
+    core fetches their text again from the backend under this turn's scope, or drops them."""
+    cited: list[Source] = []
+    for item in request.report_sources:
+        if item.get("kind") != "doc":
+            continue
+        try:
+            cited.append(Source.model_validate(item))
+        except ValueError:
+            continue
+    return cited
+
+
 async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     rt = runtime.context
     request = state["input"]
@@ -40,9 +69,18 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     unavailable = False
     if indexed:
         # The number of passages comes from the capability's own configuration (C3).
-        k = int((rt.config.get("retrieval") or {}).get("top_k", 8))
-        result = await rt.broker.execute("docs_search", {"query": request.message, "k": k})
-        unavailable = result.status != "ok"
+        retrieval = rt.config.get("retrieval") or {}
+        searches, budget = _searches(request, retrieval)
+        hits: dict[str, dict] = {}
+        failures = 0
+        for query, size in searches:
+            result = await rt.broker.execute("docs_search", {"query": query[:8000], "k": size})
+            if result.status != "ok":
+                failures += 1
+                continue
+            for hit in result.sources:
+                hits.setdefault(hit["id"], hit)
+        unavailable = failures == len(searches)
         if not unavailable:
             sources = [
                 Source(
@@ -57,8 +95,11 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
                     backend=hit.get("backend"),
                     collection=hit.get("collection"),
                 )
-                for hit in result.sources
+                for hit in hits.values()
             ]
+            cited = _cited(request)
+            seen = {s.id for s in cited}
+            sources = (cited + [s for s in sources if s.id not in seen])[:budget]
     pending, failed = _names(attachments, "pending"), _names(attachments, "failed")
     findings = ""
     if sources or pending or failed or unavailable:

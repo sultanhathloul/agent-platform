@@ -1,0 +1,11 @@
+# «إحصاءات الهيئة العامة للإحصاء» (owner decision B4 on the report branch, ADR-0392, ADR-0393): GASTAT's
+# social statistics publications, fetched by `make kb-fetch` (development only) into this folder and
+# committed; `make kb-seed`, which `make up` runs, uploads them. fetch.yaml says what is fetched.
+slug: stats-gov
+name: {ar: "إحصاءات الهيئة العامة للإحصاء", en: "GASTAT statistics"}
+description:
+  ar: "نشرات الإحصاءات الاجتماعية للهيئة العامة للإحصاء: سوق العمل والصحة والنوع الاجتماعي والسكان وأساليب الحياة والأحوال المعيشية والرياضة والمساكن والتعليم والخدمات الاجتماعية، أحدث إصدار من كل سلسلة."
+  en: "GASTAT's social statistics publications: labour market, health, gender, population, lifestyle, living conditions, sport, housing, education and social services, the newest edition of each series."
+role: kb:stats-gov:read
+users: [analyst, evaluator]
+default_publisher: "الهيئة العامة للإحصاء"

@@ -85,6 +85,16 @@ gateway:
     # The platform settings the gateway enforces (a turn's deadline, upload caps) are read from the
     # agent this often, so an administrator's change reaches the gateway within 10 s (ADR-0283).
     refresh: 5s
+  reports:
+    # Interactive reports (reports PR, I2, I4): the kit files report.yaml lists are served from kit-dir
+    # at its kit.path; compose mounts both read-only and sets GATEWAY_REPORTS_CONFIG and
+    # GATEWAY_REPORTS_KIT_DIR.
+    config: ../../config/artifacts/report.yaml
+    kit-dir: ../../config/artifacts/kit
+    # The browser-facing origins: a report page's view link and kit are on the gateway's, and only the
+    # web's may frame the page (CSP frame-ancestors).
+    gateway-public-url: ${GATEWAY_PUBLIC_URL:http://localhost:8080}
+    web-public-url: ${WEB_PUBLIC_URL:http://localhost:3000}
   storage:
     # MinIO on the compose network (ADR-0129); GATEWAY_STORAGE_* in compose.
     endpoint: http://localhost:9000

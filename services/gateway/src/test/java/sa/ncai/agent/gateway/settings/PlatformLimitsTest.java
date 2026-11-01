@@ -61,7 +61,7 @@ class PlatformLimitsTest {
         GatewayProperties properties = new GatewayProperties(null,
                 new GatewayProperties.Agent("http://" + agent.getHostName() + ":" + agent.getPort(),
                         "test-internal-token", Duration.ofSeconds(2), Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                null, null, null, null, null, new GatewayProperties.Settings(refresh));
+                null, null, null, null, null, new GatewayProperties.Settings(refresh), null);
         DocsLimits docs = DocsLimits.load(Path.of(System.getenv().getOrDefault("GATEWAY_DOCS_CONFIG", "../../config/docs.yaml")));
         return new PlatformLimits(properties, TurnLimits.load(TURN), docs);
     }
@@ -91,6 +91,32 @@ class PlatformLimitsTest {
         answer.set(limits(8, 0, 5, 1));  // not usable: kept out
         assertThat(limits.refresh()).isFalse();
         assertThat(limits.limits().version()).isEqualTo(7);
+    }
+
+    @Test
+    void theProfileDeadlinesComeFromTheAgentAndOtherwiseFromTheFile() {
+        PlatformLimits limits = platform(Duration.ZERO);
+        TurnLimits file = TurnLimits.load(TURN);
+        // turn-test.yaml: deadline 1 s, profile report 3 s, margin 1 s
+        assertThat(limits.longestDeadline()).isEqualTo(Duration.ofSeconds(3));
+        assertThat(limits.streamCeiling()).isEqualTo(Duration.ofSeconds(3).plus(file.gatewayMargin()));
+        assertThat(limits.relayBound(300.0)).isEqualTo(Duration.ofSeconds(4));
+        answer.set("{\"version\":3,\"deadline_s\":120,\"uploads_per_minute\":20,\"max_concurrent_uploads\":2,"
+                + "\"profile_deadlines_s\":{\"report\":300.0}}");
+        assertThat(limits.refresh()).isTrue();
+        assertThat(limits.relayBound(300.0)).isEqualTo(Duration.ofSeconds(301));
+        assertThat(limits.relayBound(900.0)).isEqualTo(Duration.ofSeconds(301));
+        assertThat(limits.relayBound((Double) null)).isEqualTo(Duration.ofSeconds(121));
+        // An agent from before the profiles: the file's stay in force.
+        answer.set(limits(4, 120, 20, 2));
+        assertThat(limits.refresh()).isTrue();
+        assertThat(limits.longestDeadline()).isEqualTo(Duration.ofSeconds(120));
+        assertThat(limits.limits().profileDeadlinesS()).containsEntry("report", 3.0);
+        // A profile without a usable deadline: the whole answer is kept out.
+        answer.set("{\"version\":5,\"deadline_s\":120,\"uploads_per_minute\":20,\"max_concurrent_uploads\":2,"
+                + "\"profile_deadlines_s\":{\"report\":0}}");
+        assertThat(limits.refresh()).isFalse();
+        assertThat(limits.limits().version()).isEqualTo(4);
     }
 
     @Test

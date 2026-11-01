@@ -184,7 +184,7 @@ def test_xlsx_repeats_the_header_row_in_every_chunk(docs_config):
     assert [s.section for s in document.segments] == ["أرصدة الإجازات"]
     chunks = chunk_segments(document.segments, default_counter(), max_tokens=200, overlap_tokens=30)
     assert len(chunks) > 3
-    assert all(c.text.startswith("الاسم | الإدارة | الرصيد") for c in chunks)
+    assert all(c.text.startswith("[أرصدة الإجازات]\nالاسم | الإدارة | الرصيد") for c in chunks)
     assert all(c.section == "أرصدة الإجازات" for c in chunks)
     assert all(c.tokens <= 200 for c in chunks)
 

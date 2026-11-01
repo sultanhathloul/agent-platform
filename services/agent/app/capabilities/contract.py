@@ -361,6 +361,16 @@ class CapabilityInput(_Strict):
     cap_state: dict[str, Any]  # a copy of this capability's own namespace
     attachments: list[dict[str, Any]] = []
     locale: str
+    # The answer's form (reports PR, ADR-0401): "report" lets a retrieving capability read deeper; on an
+    # edit, `report_title` is the report being changed, so its search keeps the report's subject.
+    output: Literal["text", "report"] = "text"
+    report_title: str | None = None
+    # A report turn's section plan, one search query per planned chart or table (ADR-0403).
+    report_queries: list[str] = []
+    # On an edit, the passages the current version cited, as source references without text (ADR-0402): a
+    # retrieving capability returns those of its own kind, and the core fetches them again from the
+    # backend under this turn's scope, so a knowledge base no longer toggled yields nothing.
+    report_sources: list[dict[str, Any]] = []
 
 
 class CapabilityOutput(_Strict):

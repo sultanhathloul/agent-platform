@@ -1,0 +1,54 @@
+# The reports suite (reports PR, I8, ADR-0376, ADR-0385). Each case's `expect.kind` selects its metrics:
+#   general   a report from the model's general knowledge (no KB, no file)
+#   sourced   a report over a knowledge base or an attached file, with figures to find in it
+#   edit      a follow-up that revises the conversation's report into its next version (D4)
+#   text      a message that names a report word but asks for a text answer: no page is written
+# Every page check reads the stored version through the gateway, as its owner (evals/pages.py).
+case_kind: expect.kind
+metrics:
+  form_chosen:            # the turn wrote a page, or text, as the case expects (the picker or the router)
+    general: [{scorer: field_equals, field: form, expected: expect.form}]
+    sourced: [{scorer: field_equals, field: form, expected: expect.form}]
+    edit:    [{scorer: field_equals, field: form, expected: expect.form}]
+    text:    [{scorer: field_equals, field: form, expected: expect.form}]
+  html_parses:            # one complete document, every element closed, every JSON block parses
+    general: [{scorer: page, check: parses}]
+    sourced: [{scorer: page, check: parses}]
+    edit:    [{scorer: page, check: parses}]
+  spec_valid:             # the stored spec matches config/artifacts/report-spec.schema.json (option C, ADR-0406)
+    general: [{scorer: page, check: spec_valid}]
+    sourced: [{scorer: page, check: spec_valid}]
+    edit:    [{scorer: page, check: spec_valid}]
+  direction:              # dir="rtl" lang="ar" for Arabic, dir="ltr" lang="en" for English
+    general: [{scorer: page, check: direction}]
+    sourced: [{scorer: page, check: direction}]
+    edit:    [{scorer: page, check: direction}]
+  request_language:       # title and labels in the request's language, whatever the sources' (ADR-0396)
+    general: [{scorer: page, check: request_language}]
+    sourced: [{scorer: page, check: request_language}]
+    edit:    [{scorer: page, check: request_language}]
+  kit_only:               # no external URL in the page or its download; no script but its JSON blocks
+    general: [{scorer: page, check: kit_only}]
+    sourced: [{scorer: page, check: kit_only}]
+    edit:    [{scorer: page, check: kit_only}]
+  sourced_figures:        # each expected figure kept as a value of a sourced element, so found with its label in a cited passage (ADR-0407)
+    sourced: [{scorer: page, check: figures_sourced, expected: expect.figures}]
+    edit:    [{scorer: page, check: figures_sourced, expected: expect.figures}]
+  no_general:             # with knowledge bases or files: no element cites "general", no general-knowledge line (ADR-0398)
+    sourced: [{scorer: page, check: no_general}]
+    edit:    [{scorer: page, check: no_general}]
+  general_only:           # without them: the general-knowledge line, no sources section, every element "general" (ADR-0408)
+    general: [{scorer: page, check: general_only}]
+  sources_section:        # «المصادر» lists each element under its document (ADR-0408)
+    sourced: [{scorer: page, check: sources}]
+    edit:    [{scorer: page, check: sources}]
+  size_cap:               # the stored page within config/artifacts/report.yaml max_bytes
+    general: [{scorer: page, check: size}]
+    sourced: [{scorer: page, check: size}]
+    edit:    [{scorer: page, check: size}]
+  version:                # a follow-up made the next version of the same report
+    edit: [{scorer: page, check: version, expected: expect.version}]
+  visual_quality:         # reported: the judge alias rates the design 4 or 5 of 5
+    general: [{scorer: page_judge, rubric: evals/outputs/reports/judge.md, min: 4}]
+    sourced: [{scorer: page_judge, rubric: evals/outputs/reports/judge.md, min: 4}]
+    edit:    [{scorer: page_judge, rubric: evals/outputs/reports/judge.md, min: 4}]

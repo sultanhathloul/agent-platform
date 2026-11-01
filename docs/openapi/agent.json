@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.6.0"
+    "version": "2.7.0"
   },
   "paths": {
     "/v1/health": {
@@ -5753,6 +5753,214 @@
         }
       }
     },
+    "/v1/admin/kbs/{slug}/documents/{document_id}/reindex": {
+      "post": {
+        "tags": [
+          "knowledge-bases"
+        ],
+        "summary": "Reindex Document",
+        "description": "Re-indexes a document an older version of its kind's extractor cut (ADR-0410), or retries a re-index that\nfailed; one already current is returned unchanged, so the call is idempotent. The document stays indexed, on\nits old chunks, with reindex_status reindexing until its new chunks replace the old in one step; a re-index\nthat fails keeps the old chunks and reads reindex_failed (ADR-0424). Counted toward the caller's uploads in\nflight: too_many_uploads (429) past the limit.",
+        "operationId": "reindex_document_v1_admin_kbs__slug__documents__document_id__reindex_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,62}$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin making the call.",
+              "title": "X-User-Id"
+            },
+            "description": "The admin making the call."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The admin's tenant.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The admin's tenant."
+          },
+          {
+            "name": "x-user-admin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`true` when the gateway verified the caller's admin role (ADR-0284).",
+              "title": "X-User-Admin"
+            },
+            "description": "`true` when the gateway verified the caller's admin role (ADR-0284)."
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's username, percent-encoded UTF-8.",
+              "title": "X-User-Name"
+            },
+            "description": "The admin's username, percent-encoded UTF-8."
+          },
+          {
+            "name": "x-user-display-name",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The admin's display name, percent-encoded UTF-8.",
+              "title": "X-User-Display-Name"
+            },
+            "description": "The admin's display name, percent-encoded UTF-8."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "forbidden: the caller is not an admin (X-User-Admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "kb_not_found or kb_document_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "too_many_uploads: the caller's uploads in flight are at the limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/capabilities": {
       "get": {
         "tags": [
@@ -5973,6 +6181,514 @@
         }
       }
     },
+    "/v1/reports/{report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Report",
+        "operationId": "get_report_v1_reports__report_id__get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "report_not_found: no such report of the caller's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "report_unavailable: the page store did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conversations/{conversation_id}/reports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Reports",
+        "operationId": "list_reports_v1_conversations__conversation_id__reports_get",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportList"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "report_not_found: no such report of the caller's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "report_unavailable: the page store did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}/versions/{version}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Version",
+        "operationId": "get_version_v1_reports__report_id__versions__version__get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Version"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportVersionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "report_not_found: no such report of the caller's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "report_unavailable: the page store did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}/versions/{version}/page": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Page",
+        "operationId": "get_page_v1_reports__report_id__versions__version__page_get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Version"
+            }
+          },
+          {
+            "name": "form",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "view",
+                "download"
+              ],
+              "type": "string",
+              "default": "view",
+              "title": "Form"
+            }
+          },
+          {
+            "name": "kit_base",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300,
+              "pattern": "^$|^https?://[A-Za-z0-9.\\-]+(:[0-9]{1,5})?/report-kit/v[0-9]+/$",
+              "default": "",
+              "title": "Kit Base"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "report_not_found: no such report of the caller's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "report_unavailable: the page store did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/internal/settings/limits": {
       "get": {
         "tags": [
@@ -6079,6 +6795,38 @@
           "message_en"
         ],
         "title": "ApiError"
+      },
+      "ArtifactRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "report",
+            "title": "Kind",
+            "default": "report"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "version"
+        ],
+        "title": "ArtifactRef",
+        "description": "The report a reply wrote (reports PR, I5): what the chat's report card shows."
       },
       "AttachmentList": {
         "properties": {
@@ -6597,6 +7345,15 @@
           "max_concurrent_uploads": {
             "type": "integer",
             "title": "Max Concurrent Uploads"
+          },
+          "profile_deadlines_s": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Profile Deadlines S",
+            "description": "Each deadline profile's deadline (config/turn.yaml profiles, e.g. report; ADR-0379): the gateway's relay may last a profile's deadline plus its margin. Additive.",
+            "default": {}
           }
         },
         "type": "object",
@@ -6729,6 +7486,17 @@
               }
             ],
             "description": "The skill applied to a reply, when one was (phase 06, ADR-0301); additive."
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The report a reply wrote, for its card (reports PR, I5); additive."
           }
         },
         "type": "object",
@@ -6878,6 +7646,25 @@
           },
           "metadata": {
             "$ref": "#/components/schemas/KbSourceMetadata"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256",
+            "description": "The file's SHA-256, computed by the gateway as it stored it."
+          },
+          "metadata_missing": {
+            "type": "boolean",
+            "title": "Metadata Missing",
+            "description": "The uploader had no source metadata for it (a seeded file without a sidecar).",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -7025,6 +7812,58 @@
               }
             ],
             "title": "Uploaded By Name"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256",
+            "description": "The file's SHA-256 (ADR-0392); none before it was recorded."
+          },
+          "metadata_missing": {
+            "type": "boolean",
+            "title": "Metadata Missing",
+            "description": "Uploaded without its source metadata; cleared when an administrator corrects it.",
+            "default": false
+          },
+          "reindex_due": {
+            "type": "boolean",
+            "title": "Reindex Due",
+            "description": "Indexed by an older version of its kind's extractor; the seed re-indexes it (ADR-0410).",
+            "default": false
+          },
+          "reindex_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "reindexing",
+                  "reindex_failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reindex Status",
+            "description": "A re-index beside the indexed chunks (ADR-0424): reindexing while it runs, reindex_failed when it could not finish (the document stays indexed on its old chunks; retry with the reindex route)."
+          },
+          "reindex_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reindex Reason",
+            "description": "Why the re-index failed (reindex_failed only)."
           }
         },
         "type": "object",
@@ -8463,6 +9302,201 @@
         ],
         "title": "RecordedContext"
       },
+      "ReportList": {
+        "properties": {
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/ReportView"
+            },
+            "type": "array",
+            "title": "Reports",
+            "description": "The conversation's reports, oldest first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "reports"
+        ],
+        "title": "ReportList"
+      },
+      "ReportVersionInfo": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size",
+            "description": "Bytes of the stored page."
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "ar",
+              "en"
+            ],
+            "title": "Locale"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "figures": {
+            "type": "integer",
+            "title": "Figures",
+            "description": "Figures the page shows.",
+            "default": 0
+          },
+          "general": {
+            "type": "integer",
+            "title": "General",
+            "description": "Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "title",
+          "size",
+          "locale",
+          "created_at"
+        ],
+        "title": "ReportVersionInfo"
+      },
+      "ReportVersionView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "conversation_id": {
+            "type": "string",
+            "title": "Conversation Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "ar",
+              "en"
+            ],
+            "title": "Locale"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "figures": {
+            "type": "integer",
+            "title": "Figures",
+            "default": 0
+          },
+          "general": {
+            "type": "integer",
+            "title": "General",
+            "default": 0
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations",
+            "description": "The sources section's citations.",
+            "default": []
+          },
+          "html": {
+            "type": "string",
+            "title": "Html",
+            "description": "The stored page; the kit stands at its <!--report-kit--> marker."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "conversation_id",
+          "version",
+          "title",
+          "size",
+          "locale",
+          "created_at",
+          "html"
+        ],
+        "title": "ReportVersionView",
+        "description": "One version for the panel: its metadata and its stored page (the code view), without the kit."
+      },
+      "ReportView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "conversation_id": {
+            "type": "string",
+            "title": "Conversation Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "The latest version's title."
+          },
+          "latest_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Latest Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/ReportVersionInfo"
+            },
+            "type": "array",
+            "title": "Versions",
+            "description": "Oldest first; none is ever removed (D4)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "conversation_id",
+          "title",
+          "latest_version",
+          "created_at",
+          "updated_at",
+          "versions"
+        ],
+        "title": "ReportView"
+      },
       "RetractRequest": {
         "properties": {
           "principal": {
@@ -9345,6 +10379,22 @@
             ],
             "title": "Skill",
             "description": "The skill the user picked in the composer (phase 06, ADR-0292): applied with no router decision on the skill, when it is available to the principal; else 403 skill_forbidden before any stream."
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "report"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output",
+            "description": "The composer's output picker (reports PR, D3, ADR-0378): `report` writes the answer as an interactive HTML report, `text` as text; absent, a report keyword or a conversation holding a report lets the router decide."
           }
         },
         "additionalProperties": false,

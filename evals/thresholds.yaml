@@ -42,3 +42,18 @@ kb:
   latest_version: 0.90        # the latest version's figure is the answer; a superseded one never comes first (D3)
   cross_kb_attribution: 0.80  # with two KBs selected, each fact's document cited under its own KB
   abstention: 0.90            # nothing in the selected KBs: said so, no source line
+# Interactive reports (reports PR, I8, ADR-0376, ADR-0385): the page's mechanism is gated; visual_quality
+# (the judge alias's rating of the design) is reported, not gated.
+reports:
+  form_chosen: 0.90        # a page when one is asked for (picker or router), text otherwise
+  html_parses: 1.00        # one complete document, every element closed, every JSON block parses
+  spec_valid: 1.00         # the stored spec matches the schema (option C, ADR-0406)
+  direction: 1.00          # dir="rtl" for Arabic, dir="ltr" for English
+  request_language: 1.00   # title and labels in the request's language (owner decision 4 on PR #17, ADR-0396)
+  kit_only: 1.00           # no external URL in the page or its download; no script but its JSON blocks
+  sourced_figures: 0.80    # each expected figure kept in a sourced element, found with its label in a cited passage (ADR-0407)
+  no_general: 1.00         # with knowledge bases or files, no "general" anywhere (ADR-0398)
+  general_only: 1.00       # without them, general knowledge only, said once at the top (ADR-0408)
+  sources_section: 1.00    # each element listed under its document (ADR-0408)
+  size_cap: 1.00           # within config/artifacts/report.yaml max_bytes
+  version: 1.00            # a follow-up made the next version of the same report (D4)

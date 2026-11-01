@@ -53,6 +53,9 @@ class AgentState(TypedDict, total=False):
     intent: dict  # {capabilities, complexity, risk, decided_by}
     requested_skill: str | None  # addition (phase 06): the skill picked in the composer for this turn
     skill: dict | None  # addition (phase 06, ADR-0301): {slug, version} of the turn's skill; the answer reads it
+    requested_output: str | None  # addition (reports PR, D3): the composer's output picker, "text" or "report"
+    output: dict | None  # addition (reports PR, D1): {form: text | report, decided_by}; the answer node reads it
+    report: dict | None  # addition (reports PR): {id, kind, title, version} of the report this turn wrote
     plan: list[str] | None
     iteration: int
     tool_calls: list[ToolCall]
