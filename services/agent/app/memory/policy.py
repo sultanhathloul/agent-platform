@@ -1,7 +1,8 @@
 """What is worth remembering (README §8, ADR-0058, ADR-0064). The extractor's JSON
 becomes candidates, kept only for the configured kinds, above the confidence floor,
 naming the user, in the locale's writing scripts, grounded in the user's own
-message, up to a bounded number per turn. A turn a guard flagged writes nothing. Deduplication and
+message, a fact about the user only when that message speaks of the user (ADR-0435),
+up to a bounded number per turn. A turn a guard flagged writes nothing. Deduplication and
 storage are the writer's."""
 
 import json
@@ -40,6 +41,17 @@ def grounding(text: str, source: str, ignore: Collection[str] = ()) -> float:
     return sum(any(stem in haystack for stem in light_stems(w)) for w in words) / len(words)
 
 
+def _speaks_of_self(source: str, words: Collection[str]) -> bool:
+    """The user's message speaks of the user: one of `words` («أنا»، «أعمل»، "I"…) is one of its words, after
+    Arabic normalization, a leading و or ف stripped."""
+    found = set()
+    for word in re.findall(r"[\w']+", normalize(source)):
+        found.add(word)
+        if len(word) > 3 and word[0] in "وف":
+            found.add(word[1:])
+    return any(normalize(w) in found for w in words)
+
+
 def parse_candidates(
     output: str, config: MemoryConfig, *, source: str, scripts: ScriptPolicy | None = None
 ) -> list[Candidate]:
@@ -73,6 +85,8 @@ def parse_candidates(
             continue
         if grounding(text, source, config.grounding_ignore) < config.min_grounding:
             continue
+        if candidate.kind in config.self_kinds and not _speaks_of_self(source, config.self_words):
+            continue  # the user named it, but never said it is theirs (ADR-0435)
         seen.add(text)
         kept.append(candidate.model_copy(update={"text": text}))
     return kept[: config.max_items_per_turn]

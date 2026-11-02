@@ -1,9 +1,13 @@
 ---
 id: memory.extract_request
-version: 1.0.0
+version: 1.1.0
 role: extractor
 locale: en
 changelog:
   - "1.0.0: first version (phase 02)"
+  - "1.1.0: the user's message alone, delimited as data in the request; the assistant's reply never reaches the extractor (report library PR, owner decision 6, ADR-0435)"
 ---
-Extract from the exchange above what is worth remembering about the user, and answer with a JSON array only.
+<user_message>
+{{ message | e }}
+</user_message>
+Extract from the user's message above what is worth remembering about the user, and answer with a JSON array only.

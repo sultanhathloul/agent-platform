@@ -156,3 +156,41 @@ def test_the_writer_reads_the_post_guard_content_of_this_turn_only():
         {"role": "assistant", "content": "الرقم المسجل [REDACTED:phone]"},
     ]
     assert _exchange({"messages": history, "turn_id": "turn-2"}) is None  # this turn persisted nothing
+
+
+# ------------------------------------------------------------------ owner decision 6 (ADR-0435)
+
+SELF = CONFIG.model_copy(update={"self_kinds": ["fact_about_user"], "self_words": ["أعمل", "اعمل", "أنا", "انا", "i", "my"]})
+DEPARTMENT = _output({"kind": "fact_about_user", "text": "المستخدم يعمل في إدارة التخطيط.", "confidence": 0.9})
+
+
+def test_a_memo_naming_a_department_is_not_a_fact_about_the_user():
+    # The words are the user's, but the user asked for a memo from that department: never stored.
+    assert parse_candidates(DEPARTMENT, SELF, source="اكتب مذكرة داخلية من إدارة التخطيط إلى الموارد البشرية") == []
+
+
+def test_the_users_own_statement_about_where_they_work_is_still_kept():
+    [kept] = parse_candidates(DEPARTMENT, SELF, source="وأعمل في إدارة التخطيط. ما عاصمة سلطنة عمان؟")
+    assert kept.text == "المستخدم يعمل في إدارة التخطيط."
+
+
+def test_a_preference_needs_no_first_person_word():
+    preference = _output({"kind": "preference", "text": "المستخدم يريد الإجابات مختصرة", "confidence": 0.9})
+    assert parse_candidates(preference, SELF, source="اجعل الإجابات مختصرة دائمًا")
+
+
+def test_the_extractor_reads_the_users_message_alone_never_the_reply():
+    import inspect
+
+    from app.graph.nodes import memory
+
+    source = inspect.getsource(memory._write)
+    # The request carries the user's message as a prompt variable and no window: the reply cannot reach it.
+    assert 'prompt_vars={"message": message}' in source and "window_messages" not in source
+
+
+def test_the_memory_writer_node_asks_for_no_history_block(config_dir):
+    from app.context.config import load_context_config
+
+    node = load_context_config(config_dir).nodes["memory_writer"]
+    assert node.needs == ["system", "user_message"]

@@ -1,9 +1,13 @@
 ---
 id: memory.extract_request
-version: 1.0.0
+version: 1.1.0
 role: extractor
 locale: ar
 changelog:
   - "1.0.0: first version (phase 02)"
+  - "1.1.0: the user's message alone, delimited as data in the request; the assistant's reply never reaches the extractor (report library PR, owner decision 6, ADR-0435)"
 ---
-استخرج من التبادل أعلاه ما يستحق أن يُتذكَّر عن المستخدم، وأجب بمصفوفة JSON فحسب.
+<user_message>
+{{ message | e }}
+</user_message>
+استخرج من رسالة المستخدم أعلاه ما يستحق أن يُتذكَّر عنه، وأجب بمصفوفة JSON فحسب.

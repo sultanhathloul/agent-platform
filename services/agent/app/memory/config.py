@@ -23,6 +23,11 @@ class MemoryConfig(BaseModel):
     min_grounding: float = Field(ge=0, le=1)
     grounding_ignore: list[str] = []
     subject_words: list[str] = []
+    # A fact about the user is kept only when the user's own message speaks of themselves with one of
+    # these words (report library PR, owner decision 6, ADR-0435): a department named in a memo the user
+    # asks for is not where they work.
+    self_kinds: list[str] = []
+    self_words: list[str] = []
 
     @model_validator(mode="after")
     def _known_kinds(self) -> "MemoryConfig":
