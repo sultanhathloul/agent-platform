@@ -12,6 +12,7 @@ import type {
   KbSourceMetadata,
   KbView,
   ConversationMessages,
+  LibraryPage,
   MeResponse,
   MemoryList,
   MemorySettings,
@@ -204,6 +205,15 @@ export async function listConversationReports({
 }: Authorized & { conversationId: string }): Promise<ReportList> {
   const url = `${gatewayUrl}/v1/conversations/${encodeURIComponent(conversationId)}/reports`;
   return required(await callJson<ReportList>(url, token, { method: "GET", signal }), 200);
+}
+
+/**
+ * The caller's report library (report library PR): every report of theirs, newest first or searched.
+ * `query` is built by `libraryQuery` in lib/library.ts.
+ */
+export async function listLibrary({ gatewayUrl, token, signal, query }: Authorized & { query: string }): Promise<LibraryPage> {
+  const url = `${gatewayUrl}/v1/reports${query ? `?${query}` : ""}`;
+  return required(await callJson<LibraryPage>(url, token, { method: "GET", signal }), 200);
 }
 
 function versionPath(gatewayUrl: string, id: string, version: number): string {

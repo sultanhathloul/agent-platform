@@ -31,6 +31,9 @@ export function Header() {
             <Link href="/settings/memory" className="rounded-md px-2.5 py-1.5 text-fg hover:bg-surface-2">
               {t("header.memory")}
             </Link>
+            <Link href="/reports" className="rounded-md px-2.5 py-1.5 text-fg hover:bg-surface-2">
+              {t("header.reports")}
+            </Link>
             {admin && (
               <Link href="/admin/policies" className="rounded-md px-2.5 py-1.5 text-fg hover:bg-surface-2">
                 {t("header.policies")}
