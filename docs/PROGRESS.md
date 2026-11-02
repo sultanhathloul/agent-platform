@@ -2749,7 +2749,7 @@ Files for human review
 
 - Branch: `feat/report-library`, from main at d559ae5 (PR #18, logo version 3, merged on 2026-11-01T10:35:48Z). The session prompt is kept verbatim in `docs/REPORT-LIBRARY-PROMPT.md`; it arrived whole (it ends with FINISH). Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
 - ADR numbers: main ends at ADR-0428; ADR-0429 is taken by the open PR #19 (`chore/logo-v4`), so this PR's ADRs start at ADR-0430.
-- Status: in progress.
+- Status: done; awaiting the owner's review and merge. make test, make eval (routing, reports, memory, long_conversation) and make smoke green on the final build, recorded below.
 - Baseline (the last recorded runs on main): make test at 03c01ec (PR #17): agent 1261 / 0 / 0, gateway 215 / 0 / 0, gateway-db 5 / 0 / 0, web 224 / 0 / 0, evals harness 40 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 36 / 0 / 0; web 227 / 0 / 0 after logo version 3 (d559ae5); make smoke 258/258; make eval make-eval-20261030T122309Z (reports 11/12, accepted by ADR-0427; routing 112/113).
 - Evidence read before planning (conversation 14d0ebf8-1ad3-4f85-a31c-15992ceb5f76, analyst, 26 messages, no summary yet):
   - A report reply is stored as one line, «أُنشئ التقرير «…» (الإصدار n).» / «حُدّث التقرير …», with `artifact {id, title, version}` beside it; nothing of the report's content reaches a later model call. Turns 20 to 23 («وش التقارير اللي اشتغلنا عليها»، «تقدر تبحث في لوحة المعلومات») answered that no report existed.
@@ -2758,18 +2758,180 @@ Files for human review
 - Done when (the prompt): every turn's context carries a bounded index of the conversation's reports and the history marker carries the version's digest; `report_read`, `report_search` and `conversation_recall` run through the broker, owner-scoped and size-capped, with negative tests at the gateway and the agent; a question about a report is a text answer citing «من التقرير: <title> (الإصدار n)»; every version is indexed (a backfill for existing ones); a new version of a library report is made in the current conversation from its spec, the original untouched; the web page «تقاريري» / "My reports" (list, search, filter by date and source, open in the side panel, download; both themes); summaries keep named entities and pasted tables or lists; memory stores only what the user stated; every conversation-length limit listed and a 60-turn conversation measured, anything growing without bound fixed; the `long_conversation` scenario run as analyst with a step table; make test, make eval (routing, reports, memory, long_conversation) once, make smoke green; recorded per rule 11; pushed, MR open.
 
 Checklist
-- [ ] ADRs for decisions 1 to 7 and the implementation choices.
-- [ ] 1. Report index block on every turn of a conversation with reports (budgeted, user role, never in the summary); the history marker carries the version's digest.
-- [ ] 2. `report_read(report_id, version?)`: the spec as readable text, size-capped, owner-only; a question about a report routes to text, not an edit (router prompt); citation «من التقرير: <title> (الإصدار n)».
-- [ ] 3. Library index table, written with every version; backfill of existing versions; `report_search(query)` owner-only at the agent; gateway list/search endpoint checking ownership; a new version of a library report in the current conversation from its spec (`based_on`), the original untouched.
-- [ ] 4. Web page `/reports` «تقاريري»: list, search, date and source filters, side panel, download; i18n ar/en; both themes; web tests.
-- [ ] 5. `conversation_recall(query)` over the conversation's stored history, verbatim, bounded; summarizer prompt keeps named entities and pasted tables or lists.
-- [ ] 6. Memory: the extractor reads only the user's message; tests (a memo naming a department stores nothing; a user's own statement still does); the «إدارة التخطيط» item removed; smoke deletes the memory its own turn stores.
-- [ ] 7. Conversation-length limits listed; a 60-turn measurement (context tokens per turn, latency at turns 10, 30, 60, checkpoint size); fixes for what grows without bound.
-- [ ] Rule 12 for the new tools: bounds, owner scope, size caps; RESILIENCE rows; negative tests (no tool returns another user's reports or conversation).
-- [ ] API version bump (additive), `make openapi`, gateway tests.
-- [ ] Eval suites `memory` and `long_conversation` (scenario as analyst, transcript saved, step table with evidence).
-- [ ] make test; make eval (routing, reports, memory, long_conversation) once; make smoke; rule 11; pages for the owner's visual check; push; MR.
+- [x] ADRs for decisions 1 to 7 and the implementation choices.
+- [x] 1. Report index block on every turn of a conversation with reports (budgeted, user role, never in the summary); the history marker carries the version's digest.
+- [x] 2. `report_read(report_id, version?)`: the spec as readable text, size-capped, owner-only; a question about a report routes to text, not an edit (router prompt); citation «من التقرير: <title> (الإصدار n)».
+- [x] 3. Library index table, written with every version; backfill of existing versions; `report_search(query)` owner-only at the agent; gateway list/search endpoint checking ownership; a new version of a library report in the current conversation from its spec (`based_on`), the original untouched.
+- [x] 4. Web page `/reports` «تقاريري»: list, search, date and source filters, side panel, download; i18n ar/en; both themes; web tests.
+- [x] 5. `conversation_recall(query)` over the conversation's stored history, verbatim, bounded; summarizer prompt keeps named entities and pasted tables or lists.
+- [x] 6. Memory: the extractor reads only the user's message; tests (a memo naming a department stores nothing; a user's own statement still does); the «إدارة التخطيط» item removed; smoke deletes the memory its own turn stores.
+- [x] 7. Conversation-length limits listed; a 60-turn measurement (context tokens per turn, latency at turns 10, 30, 60, checkpoint size); fixes for what grows without bound.
+- [x] Rule 12 for the new tools: bounds, owner scope, size caps; RESILIENCE rows; negative tests (no tool returns another user's reports or conversation).
+- [x] API version bump (additive), `make openapi`, gateway tests.
+- [x] Eval suites `memory` and `long_conversation` (scenario as analyst, transcript saved, step table with evidence).
+- [x] make test; make eval (routing, reports, memory, long_conversation) once; make smoke; rule 11; pages for the owner's visual check; push; MR.
+
+Commits
+- e870b87 the prompt and this section; 8c9b195 the agent (index block and marker, recall capability and its tools, library store and backfill, based-on reports, router 1.6.0, summarizer 1.1.0, checkpoint prune; ADR-0430 to ADR-0434, ADR-0437); 80dd3c8 memory (ADR-0435); a5b0758 gateway `GET /v1/reports` (2.8.0); 023775a web page `/reports`; 9db857a the paged history reply; 74ecfb5 scenario suites; 06513b0 ADRs, RESILIENCE, README; e1ca938 the first scenario run's fixes (ADR-0439); 721517f the memory scenario starts empty; then this record.
+
+What was found (evidence)
+- Report awareness: a report reply was one line in history; nothing of its content reached a later call (conversation 14d0ebf8…, turns 20 to 23).
+- «منهم أساطير كرة القدم المذكورين في التقرير السابق» (turn 8c99f8d9…): routed as an edit (`edit=True decided_by=model`), the writer's spec invalid twice: `validation_failed: report: invalid_spec`.
+- «إدارة التخطيط»: memory item 153fd002-dc46-… (analyst) came from scripts/smoke.sh's phase 03 check (conversation 128a991e…, «رقم جوالي … وأعمل في إدارة التخطيط»), a user message smoke sent, not a memo. Deleted through the analyst's own API (DELETE 204, audited `memory.delete` ok, 2026-11-02 12:45Z); smoke now deletes the items its own turns store (`smoke's memory items are deleted again`, ok). Two other items smoke wrote earlier for analyst («يعمل محللًا للبيانات في وزارة التعليم»، «يفضّل أن تكون الإجابات مختصرة») were stated in smoke's messages too and are left for the owner; smoke's deletion step covers future runs.
+- Not in scope, seen in the evidence logs: `guard events not recorded for turn 42a8993c…: InvalidSqlStatementName` (agent, 2026-11-02 11:52:34Z). Not investigated; listed here for the owner.
+
+Conversation-length limits (decision 7, ADR-0437)
+| Limit | Value | Where | Grows with the conversation? |
+|---|---|---|---|
+| Sliding window | 6 messages, 8000 tokens | config/context.yaml `window_messages`, `blocks.window` | No |
+| Rolling summary | folds past 8000 tokens of history; block 1200 tokens; fold window 24 000 tokens; 300 words | config/context.yaml `summary`, `blocks.summary`, `nodes.summarizer`; `summarizer.system` 1.1.0 | No |
+| Router's window | 2 messages, 1500 tokens | config/routing.yaml, config/context.yaml `nodes.router` | No |
+| Report index | 8 reports, 900 chars each, 1500 tokens | config/library.yaml `index`, `blocks.reports` | No |
+| One message | 8000 characters | TurnRequest (app/api/schemas.py) | No |
+| conversation_recall | 2000 messages, 600 000 characters scanned, 4 results, 12 000 characters | config/library.yaml `recall` | No (capped) |
+| Checkpoints per thread | was unbounded (18 a turn, blobs quadratic); now the newest 40 | config/library.yaml `history.keep_checkpoints`; app/graph/prune.py | Fixed: linear |
+| Checkpoint write per turn | the whole `messages` list once (LangGraph); 10 s bound | `persist_s` (config/turn.yaml) | Linear (kept, measured) |
+| History reply and chat rendering | were every message; now the newest 400 and `omitted` | config/library.yaml `history.page_messages`; app/api/conversations.py; Chat.tsx | Fixed: bounded |
+| Conversation list | 30 a page, 100 at most | app/api/conversations.py | No |
+
+Measured, 60 turns on the mock models (tests/integration/test_long_conversation.py, `pytest -s`), before → after the prune:
+| Turn | Answer context (tokens) | Platform time (s) | Checkpoints | Checkpoint blobs (bytes) | `messages` blob (bytes) |
+|---|---|---|---|---|---|
+| 10 | 1183 | 0.058 → 0.084 | 180 → 40 | 178 317 → 85 701 | 20 974 |
+| 30 | 1183 | 0.068 → 0.092 | 540 → 40 | 1 200 992 → 267 856 | 66 054 |
+| 60 | 1240 | 0.088 → 0.081 | 1080 → 40 | 4 477 802 → 542 006 | 133 674 |
+(Platform time is the turn's wall time minus the mock model calls; noise of ±0.02 s between runs.)
+
+Measured, the real scenario (long_conversation run 2, make-eval-20261102T131559Z, development provider), conversation A:
+| Turn | Wall time (s) | Answer context (tokens) | Checkpoints | Blobs (bytes) | `messages` blob (bytes) | Summary |
+|---|---|---|---|---|---|---|
+| 1 | 2.50 | 100 | 18 | 5 302 | 505 | none |
+| 10 | 8.16 (a report turn, nothing found) | 12 058 | 40 | 111 408 | 14 207 | none |
+| 30 | 8.79 | 1 478 | 40 | 273 578 | 66 187 | none |
+| 53 | 10.41 | 7 056 (KB passages) | — | — | — | 1937 chars, cursor 100 |
+| 60 | 6.59 | 1 626 | 40 | 558 154 | 131 750 | 987 chars, cursor 114 |
+Wall time is the model's, mostly; the context stays bounded after 60 turns.
+
+Results (rule 11, final build e1ca938 + 721517f, stack rebuilt by make up at 13:15Z)
+- make test 13:15:59Z–13:30:42Z, rc 0:
+
+  | Layer | Passed / failed / skipped |
+  |---|---|
+  | agent | 1294 / 0 / 0 |
+  | gateway | 217 / 0 / 0 |
+  | gateway-db | 5 / 0 / 0 |
+  | web | 253 / 0 / 0 (22 files) |
+  | evals harness | 40 / 0 / 0 |
+  | timeout budget | 43 / 0 / 0 (self-test 43 / 0 / 0) |
+  | scripts/tests | 37 / 0 / 0 |
+
+  Against the baseline (03c01ec, logo v3 for web): agent +33, gateway +2, web +26 (+3 files), timeout budget +4 (the recall tools' rules), scripts +1.
+- make eval, once per suite on the final build (rule 13; every attempt recorded):
+  - long_conversation, make-eval-20261102T131559Z (13:15:59Z start): **70/70 steps (1.00), negative 5/5 (1.00), PASS**; transcript evals/scenarios/long_conversation/transcripts/make-eval-20261102T131559Z-long_conversation.json.
+  - routing, make-eval-20261102T132547Z: **113/113 (1.00), PASS**, 0 provider retries, 0 lost.
+  - reports, make-eval-20261102T132547Z: **12/12, PASS**: form_chosen 1.00 (12), html_parses 1.00, spec_valid 1.00, direction 1.00, request_language 1.00 (10), kit_only 1.00, sourced_figures 1.00 (6), no_general 1.00 (6), general_only 1.00 (4), sources_section 1.00 (6), size_cap 1.00, version 1.00 (1); visual_quality 0.70 reported.
+  - memory, make-eval-20261102T134019Z: **13/13 (1.00), negative 3/3, PASS**. Stored, all stated by the user: «المستخدم تعمل مهندسة في هيئة المساحة الجيولوجية.», «المستخدم يفضل أن تكون الإجابات في نقاط مرقمة.», "The user works as a nurse at King Faisal Specialist Hospital."; nothing from the memos, the report or the answers.
+  - Earlier attempts, not counted:
+    - long_conversation run 1, make-eval-20261102T130525Z (before e1ca938): 66/70, negative 5/5, the gate passed, but the transcript showed the defects of ADR-0439 (general answers framed around the reports, a library report read for a pasted table, a10 `validation_failed: report: invalid_spec`, no summary reached); fixed and run again. Transcript kept beside run 2's.
+    - memory, make-eval-20261102T130425Z (before e1ca938): 13/13. memory, make-eval-20261102T132547Z (on the final build): 12/13: `stated-check` found no new item, because the first run's identical items were still stored and deduplicated them (agent.memory_items, created 13:05:06Z–13:05:08Z); the scenario now clears the evaluator's memory first (721517f) and passed 13/13.
+- make smoke 13:41:08Z–13:46:05Z: **257/257**, rc 0 (the last record was 258/258; this PR adds one check, so one check of the earlier count no longer prints; not traced).
+
+The long_conversation step table (run 2; «…» is the answer's start; ctx is the answer's context tokens):
+
+| Step | User | What | Result | Evidence |
+|---|---|---|---|---|
+| a01 | analyst | ما عاصمة اليابان؟ | pass | text; 2.5 s; ctx 100; no tool; «عاصمة اليابان هي طوكيو.» |
+| a02 | analyst | احفظ هذا الجدول عن مبيعات فروعنا في الربع الأول: الفرع المبي | pass | text; 2.55 s; ctx 323; conversation_recall; «لم يُعثر في تقارير المستخدم ولا في رسائل هذه المحادثة السابقة على ما ي» |
+| a03 | analyst | كم معدل البطالة للسعوديين في آخر نشرة لسوق العمل؟ [stats-gov] | pass | text; 2.6 s; ctx 6378; kb_search; «بلغ معدل البطالة للسعوديين 6.5% خلال الربع الثاني من عام 2026، وفقًا ل» |
+| a04 | analyst | اشرح باختصار ما هو التضخم. | pass | text; 1.78 s; ctx 277; no tool; «التضخم هو الارتفاع المستمر في المستوى العام للأسعار، مما يؤدي إلى انخف» |
+| a05 | analyst | سوّ لي داشبورد عن إحصاءات سوق العمل في السعودية [stats-gov] | pass | report v1; 10.68 s; ctx 11230; kb_search; «أُنشئ التقرير «إحصاءات سوق العمل – الربع الثاني 2026» (الإصدار 1). لم » |
+| a06 | analyst | أضف للوحة رسمًا لمعدل البطالة حسب الجنس [stats-gov] | pass | report v2; 9.59 s; ctx 12934; kb_search; «حُدّث التقرير «إحصاءات سوق العمل – الربع الثاني 2026» (الإصدار 2). أضف» |
+| a07 | analyst | عدّل اللوحة: أضف جدولًا للمشاركة في قوة العمل حسب الجنسية [stats-gov] | pass | report v3; 7.23 s; ctx 11774; kb_search; «حُدّث التقرير «إحصاءات سوق العمل – الربع الثاني 2026» (الإصدار 3). أضف» |
+| a08 | analyst | ابحث في اللوحة عن معدل البطالة للإناث | pass | text; 3.74 s; ctx 1956; conversation_recall,report_read,report_search; «من التقرير: إحصاءات سوق العمل – الربع الثاني 2026 (الإصدار 3)، لا توجد» |
+| a09 | analyst | سوّ لي تقرير تفاعلي عن تاريخ بطولة كأس العالم لكرة القدم وأب | pass | report v1; 5.56 s; ctx 2343; no tool; «أُنشئ التقرير «تاريخ بطولة كأس العالم لكرة القدم وأبرز الفائزين» (الإص» |
+| a10 | analyst | سوّ لي داشبورد عن أسعار النفط العالمية خلال العقد الأخير [stats-gov] | pass | text; 8.16 s; ctx 12058; kb_search; «لا تحوي المصادر المختارة (إحصاءات الهيئة العامة للإحصاء) بيانات عن هذا» |
+| a11 | analyst | وش التقارير اللي اشتغلنا عليها؟ | pass | text; 3.01 s; ctx 2092; conversation_recall,report_read,report_search; «التقارير التي أنشأناها في هذه المحادثة هي: 1. تاريخ بطولة كأس العالم ل» |
+| a12 | analyst | منهم أبطال كأس العالم المذكورين في التقرير السابق؟ | pass | text; 2.91 s; ctx 2487; conversation_recall,report_read,report_search; «من التقرير: تاريخ بطولة كأس العالم لكرة القدم وأبرز الفائزين (الإصدار » |
+| a13 | analyst | للعلم أنا أعمل في إدارة الإحصاءات الاجتماعية. ما هو مؤشر جين | pass | text; 4.21 s; ctx 856; no tool; «مؤشر جيني (Gini Index) هو مقياس إحصائي يُستخدم لقياس مستوى عدم المساوا» |
+| a14 | analyst | ما الفرق بين الناتج المحلي الإجمالي والناتج القومي؟ اشرح بال | pass | text; 5.94 s; ctx 952; no tool; «يتمثل الفرق الجوهري بين الناتج المحلي الإجمالي (GDP) والناتج القومي ال» |
+| a15 | analyst | ما عدد سكان المملكة حسب آخر تعداد؟ [stats-gov] | pass | text; 4.06 s; ctx 6895; kb_search; «لم ترد بيانات عن آخر تعداد سكاني في المصادر المقدمة، بل وردت تقديرات س» |
+| a16 | analyst | اشرح مفهوم الاقتصاد الدائري بأمثلة؟ اشرح بالتفصيل في ثلاث فق | pass | text; 7.15 s; ctx 1274; no tool; «الاقتصاد الدائري هو نموذج اقتصادي يهدف إلى القضاء على الهدر والاستخدام» |
+| a17 | analyst | كم نسبة السعوديين في القوى العاملة؟ [stats-gov] | pass | text; 3.98 s; ctx 7489; kb_search; «وفقاً لإحصاءات سوق العمل للربع الثاني 2026 الصادرة عن الهيئة العامة لل» |
+| a18 | analyst | ما أهم أهداف رؤية المملكة 2030 في قطاع السياحة؟ اشرح بالتفصي | pass | text; 6.55 s; ctx 1228; no tool; «تهدف رؤية المملكة 2030 في قطاع السياحة إلى تحويل المملكة إلى وجهة سياح» |
+| a19 | analyst | ما معدل المشاركة في قوة العمل للنساء السعوديات؟ [stats-gov] | pass | text; 3.39 s; ctx 7246; kb_search; «بلغ معدل المشاركة في قوة العمل للنساء السعوديات 33.7% في الربع الثاني » |
+| a20 | analyst | اشرح الفرق بين البطالة الهيكلية والبطالة الدورية؟ اشرح بالتف | pass | text; 8.23 s; ctx 1180; no tool; «البطالة الهيكلية هي نوع من البطالة طويلة الأمد ينشأ عن عدم التطابق بين» |
+| a21 | analyst | ما أبرز مؤشرات الصحة في المملكة؟ [stats-gov] | pass | text; 8.76 s; ctx 7211; kb_search; «تُظهر إحصاءات الحالة الصحية لعام 2025 الصادرة عن الهيئة العامة للإحصاء» |
+| a22 | analyst | كيف يُحسب معدل التضخم؟ اشرح بالتفصيل في ثلاث فقرات. | pass | text; 8.37 s; ctx 1547; no tool; «يُحسب معدل التضخم عادةً باستخدام مؤشر أسعار المستهلكين (CPI)، الذي يقي» |
+| a23 | analyst | ما متوسط حجم الأسرة السعودية؟ [stats-gov] | pass | text; 3.96 s; ctx 7124; kb_search; «لم يتم ذكر قيمة رقمية محددة لمتوسط حجم الأسرة السعودية في المصادر المق» |
+| a24 | analyst | ما هي أكبر خمس دول من حيث المساحة؟ اشرح بالتفصيل في ثلاث فقر | pass | text; 7.87 s; ctx 1577; no tool; «تُعد روسيا أكبر دولة في العالم من حيث المساحة، حيث تمتد عبر قارتي أورو» |
+| a25 | analyst | ما نسبة الأمية في المملكة؟ [stats-gov] | pass | text; 5.95 s; ctx 6076; kb_search; «تُظهر البيانات المتاحة من الهيئة العامة للإحصاء معدلات الأمية لفئات عم» |
+| a26 | analyst | اشرح ما هي السياسة النقدية؟ اشرح بالتفصيل في ثلاث فقرات. | pass | text; 8.08 s; ctx 1428; no tool; «السياسة النقدية هي مجموعة الأدوات والإجراءات التي تتخذها البنك المركزي» |
+| a27 | analyst | كم عدد الطلاب في التعليم العام؟ [stats-gov] | pass | text; 3.7 s; ctx 7986; kb_search; «لا تتوفر بيانات حول عدد الطلاب في التعليم العام في المصادر المقدمة، حي» |
+| a28 | analyst | ما الفرق بين الإحصاء الوصفي والاستدلالي؟ اشرح بالتفصيل في ثل | pass | text; 7.81 s; ctx 1363; no tool; «الإحصاء الوصفي هو الفرع الذي يهتم بجمع البيانات وتنظيمها وعرضها وتلخيص» |
+| a29 | analyst | ما نسبة ذوي الإعاقة في المملكة؟ [stats-gov] | pass | text; 6.01 s; ctx 7206; kb_search; «بلغت نسبة انتشار الإعاقة (بما في ذلك درجة الكثير من الصعوبة أو عدم الق» |
+| a30 | analyst | اشرح معنى الانحراف المعياري بمثال بسيط؟ اشرح بالتفصيل في ثلا | pass | text; 8.79 s; ctx 1478; no tool; «الانحراف المعياري هو مقياس إحصائي يوضح مدى تشتت أو انتشار مجموعة من ال» |
+| a31 | analyst | ما توزيع السكان حسب الفئات العمرية؟ [stats-gov] | pass | text; 5.67 s; ctx 8053; kb_search; «وفقاً لتقرير التقديرات السكانية لعام 2024 الصادر عن الهيئة العامة للإح» |
+| a32 | analyst | ما هي أهم مصادر الطاقة المتجددة؟ اشرح بالتفصيل في ثلاث فقرات | pass | text; 8.0 s; ctx 1648; no tool; «تُعد الطاقة الشمسية وطاقة الرياح المصدرين الرئيسيين والأكثر انتشاراً ل» |
+| a33 | analyst | ما معدل البطالة لغير السعوديين؟ [stats-gov] | pass | text; 3.52 s; ctx 7954; kb_search; «بلغ معدل البطالة لغير السعوديين 1.3% خلال الربع الثاني من عام 2026، وف» |
+| a34 | analyst | اشرح مفهوم العينة العشوائية الطبقية؟ اشرح بالتفصيل في ثلاث ف | pass | text; 7.22 s; ctx 1399; no tool; «العينة العشوائية الطبقية هي أسلوب إحصائي لاختيار عينة من مجتمع إحصائي » |
+| a35 | analyst | كم عدد العاملين في القطاع الخاص؟ [stats-gov] | pass | text; 3.79 s; ctx 6828; kb_search; «لا تتوفر في المصادر المقدمة بيانات محددة عن العدد الإجمالي للعاملين في» |
+| a36 | analyst | ما الفرق بين المتوسط والوسيط؟ اشرح بالتفصيل في ثلاث فقرات. | pass | text; 13.84 s; ctx 1215; no tool; «المتوسط الحسابي هو مقياس للمركز المركزي يُحسب بجمع جميع القيم في مجموع» |
+| a37 | analyst | ما نسبة المدخنين في المملكة؟ [stats-gov] | pass | text; 8.41 s; ctx 7789; kb_search; «بلغت نسبة البالغين (15 سنة فأكثر) المدخنين لأي نوع من أنواع التبغ في ا» |
+| a38 | analyst | اشرح ما هو مؤشر أسعار المستهلك؟ اشرح بالتفصيل في ثلاث فقرات. | pass | text; 12.47 s; ctx 1652; no tool; «مؤشر أسعار المستهلك هو مقياس إحصائي يقيس التغير في متوسط مستوى أسعار س» |
+| a39 | analyst | ما نسبة المتعطلين الحاصلين على شهادة جامعية؟ [stats-gov] | pass | text; 8.63 s; ctx 7822; kb_search; «لا تتوفر في المصادر المقدمة نسبة المتعطلين الحاصلين على شهادة جامعية (» |
+| a40 | analyst | ما هي عاصمة البرازيل وما أكبر مدنها؟ اشرح بالتفصيل في ثلاث ف | pass | text; 12.52 s; ctx 1805; no tool; «عاصمة البرازيل هي برازيليا، وهي مدينة مخططة تم بناؤها خصيصاً لتكون الع» |
+| a41 | analyst | كم عدد الزوار القادمين للسياحة؟ [stats-gov] | pass | text; 7.99 s; ctx 8299; kb_search; «لا تتوفر في المصادر المقدمة بيانات حول عدد الزوار القادمين للسياحة، حي» |
+| a42 | analyst | اشرح الفرق بين الارتباط والسببية؟ اشرح بالتفصيل في ثلاث فقرا | pass | text; 12.71 s; ctx 1917; no tool; «الارتباط الإحصائي يشير إلى وجود علاقة أو نمط مشترك بين متغيرين، حيث يت» |
+| a43 | analyst | ما متوسط ساعات العمل الأسبوعية؟ [stats-gov] | pass | text; 9.22 s; ctx 7765; kb_search; «لا تتوفر في المصادر المقدمة بيانات حول متوسط ساعات العمل الأسبوعية للع» |
+| a44 | analyst | ما أهم مراحل إعداد الميزانية العامة؟ اشرح بالتفصيل في ثلاث ف | pass | text; 10.51 s; ctx 1907; no tool; «تبدأ مرحلة إعداد الميزانية العامة بوضع التقديرات الأولية للإيرادات وال» |
+| a45 | analyst | ما نسبة الأسر التي تملك مسكنًا؟ [stats-gov] | pass | text; 8.62 s; ctx 7858; kb_search; «بلغت نسبة المساكن المملوكة المشغولة بأسر سعودية والتي تقيم بها أثناء ز» |
+| a46 | analyst | اشرح ما المقصود بالتضخم الركودي؟ اشرح بالتفصيل في ثلاث فقرات | pass | text; 11.81 s; ctx 1871; no tool; «التضخم الركودي، المعروف أيضًا بـ "ال Stagflation"، هو حالة اقتصادية غي» |
+| a47 | analyst | ما توزيع المشتغلين حسب المهنة؟ [stats-gov] | pass | text; 8.17 s; ctx 7640; kb_search; «لا تتوفر بيانات محددة عن توزيع المشتغلين حسب المهنة في المصادر المتاحة» |
+| a48 | analyst | ما هي فوائد التحول الرقمي في الجهات الحكومية؟ اشرح بالتفصيل  | pass | text; 10.43 s; ctx 1831; no tool; «يُعد تحسين كفاءة الخدمات الحكومية وتسريع إنجاز المعاملات من أبرز فوائد» |
+| a49 | analyst | ما الفرق بين النمو الاقتصادي والتنمية الاقتصادية؟ اشرح بالتف | pass | text; 11.1 s; ctx 2161; no tool; «يُعرف النمو الاقتصادي بأنه زيادة كمية في الناتج المحلي الإجمالي أو الن» |
+| a50 | analyst | ما معدل البطالة حسب المنطقة الإدارية؟ [stats-gov] | pass | text; 10.49 s; ctx 7829; kb_search; «وفقاً لإحصاءات سوق العمل للربع الثاني 2026 الصادرة عن الهيئة العامة لل» |
+| a51 | analyst | اشرح باختصار ما هي سلاسل الإمداد؟ اشرح بالتفصيل في ثلاث فقرا | pass | text; 13.45 s; ctx 2226; no tool; «سلاسل الإمداد هي شبكات معقدة ومترابطة من الأفراد والمنظمات والموارد وا» |
+| a52 | analyst | ما أبرز التحديات أمام سوق العمل عالميًا؟ اشرح بالتفصيل في ثل | pass | text; 15.21 s; ctx 2246; no tool; «تواجه سوق العمل العالمي تحدياً جوهرياً يتمثل في الفجوة المتزايدة بين ا» |
+| a53 | analyst | كم نسبة الشباب من إجمالي السكان؟ [stats-gov] | pass | text; 10.41 s; ctx 7056; kb_search; «وفقاً لتقرير «إحصاءات الشباب السعودي 2023» الصادر عن الهيئة العامة للإ» |
+| a54 | analyst | وش كانت مبيعات فرع جدة في الجدول اللي أرسلته لك في بداية الم | pass | text; 7.53 s; ctx 3723; conversation_recall; «بناءً على الجدول الذي أرسلته في بداية المحادثة، بلغت مبيعات فرع جدة 98» |
+| a55 | analyst | وكم عدد عملاء فرع أبها في ذاك الجدول؟ | pass | text; 10.37 s; ctx 3237; conversation_recall; «بناءً على الجدول الذي أرسلته في بداية المحادثة، بلغ عدد عملاء فرع أبها» |
+| a56 | analyst | كم كان معدل البطالة للسعوديين اللي ذكرته لي في بداية المحادث | pass | text; 7.73 s; ctx 1968; conversation_recall; «لم أذكر معدل البطالة للسعوديين في بداية المحادثة، بل ورد ذكره في رسالة» |
+| a57 | analyst | ابحث في لوحة سوق العمل عن نسبة المشاركة في قوة العمل | pass | text; 7.3 s; ctx 2451; conversation_recall,report_read,report_search; «من التقرير: إحصاءات سوق العمل – الربع الثاني 2026 (الإصدار 3)، لا توجد» |
+| a58 | analyst | وش التقارير اللي سويناها في هذي المحادثة؟ | pass | text; 6.19 s; ctx 2429; conversation_recall,report_read,report_search; «التقارير التي أنشأناها في هذه المحادثة هي: 1. تاريخ بطولة كأس العالم ل» |
+| a59 | analyst | ما أكبر محيط في العالم؟ | pass | text; 5.56 s; ctx 1273; no tool; «أكبر محيط في العالم هو المحيط الهادئ.» |
+| a60 | analyst | أي فرع في الجدول الذي أرسلته كان الأقل مبيعات؟ | pass | text; 6.59 s; ctx 1626; conversation_recall; «بناءً على الجدول الذي أرسلته في بداية المحادثة، كان فرع **تبوك** هو ال» |
+| a61 | analyst | شكرًا، لخص لي في جملتين ما تحدثنا عنه اليوم. | pass | text; 6.42 s; ctx 1192; no tool; «تناولنا تحليل بيانات سوق العمل والإحصاءات الرسمية، مع التركيز على معدل» |
+| b01 | analyst | التقرير اللي سويته عن سوق العمل، وش نسبة البطالة فيه؟ | pass | text; 1.94 s; ctx 1487; conversation_recall,report_read,report_search; «من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 2)، » |
+| b02 | analyst | سوّ لي نسخة جديدة منه وأضف رسمًا للمشاركة في قوة العمل [stats-gov] | pass | report v1; 10.62 s; ctx 13283; kb_search; «أُنشئ التقرير «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار » |
+| b03 | analyst | check report | pass | status 200, latest_version 3 |
+| v01 | viewer | check library | pass | status 200, listed 0 |
+| v02 | viewer | check report | pass | status 404 |
+| v03 | viewer | وش التقارير اللي سويتها عن سوق العمل؟ وش نسبة البطالة فيها؟ | pass | text; 1.73 s; ctx 257; conversation_recall,report_search; «لم يُعثر في تقارير المستخدم ولا في رسائل هذه المحادثة السابقة على ما ي» |
+| v04 | viewer | وش كانت مبيعات فرع جدة في الجدول اللي أرسلته في بداية المحاد | pass | text; 3.22 s; ctx 313; conversation_recall; «لم يرد في المحادثة السابقة أي جدول أو بيانات تتعلق بمبيعات فرع جدة.» |
+| o01 | analyst | check library | pass | status 200, listed 5 |
+| m01 | analyst | check memory | pass | added: المستخدم يريد الشرح بالتفصيل في ثلاث فقرات.; المستخدم لديه جدول عن مبيعات فروعنا في الربع الأول. |
+
+Notes on run 2, for the owner (passing steps whose answers are weaker than the checks):
+- a02 (the pasted table): recall was chosen (the word «جدول») and the reply said nothing related was found, instead of acknowledging the table. The table was recalled correctly later (a54, a55, a60).
+- a05 to a07: the dashboard over stats-gov left out elements whose values the passages do not hold, and said so (ADR-0416).
+- b01: «التقرير اللي سويته عن سوق العمل» matched the analyst's older labour-market report of 2026-11-01 (version 2, conversation 14d0ebf8…) rather than this run's; b02's new version is based on that one. The library holds several reports on the subject; the best match wins.
+- v03: the reply quoted part of the findings' instruction («… فقل ذلك، ولا تختلق محتوى…»); `recall.findings` wording to tighten.
+- a13's «أنا أعمل في إدارة الإحصاءات الاجتماعية» was not stored (the extractor kept nothing); m01 lists what was stored, both stated by the user.
+- With knowledge bases toggled, recall is not a router candidate (the kb rule decides, ADR-0431); the report index still carries the reports' digests.
+
+Pages for the owner's visual check (both themes, ar and en)
+- `/reports` «تقاريري»: list, search, date and source filters, a row's open, download and «فتح المحادثة», the side panel beside the list.
+- The header's «تقاريري» link.
+- `/chat/<id>` of a conversation over 400 messages: the «لا تظهر هنا n رسالة أقدم…» line (none of the development conversations is that long yet).
+
+Files for human review
+- config/library.yaml, config/recall.yaml, config/memory.yaml (`self_kinds`, `self_words`), config/context.yaml (`report_index`, `blocks.reports`, `nodes.memory_writer`).
+- Prompts: config/prompts/context/report_index.*, report_marker.*; config/prompts/router/system.* 1.6.0; config/prompts/summarizer/system.* 1.1.0; config/prompts/memory/* 1.1.0; services/agent/app/capabilities/recall/prompts/findings.*.
+- config/artifacts/report.yaml 2.4.0 (`text.created_from`).
+- infra/keycloak/realm-export.json (`cap:recall`, a composite of `user`). On a Keycloak volume older than this PR, add it once: `docker compose exec keycloak /opt/keycloak/bin/kcadm.sh …` (create role `cap:recall` in realm `agent`, then `add-roles --rname user --rolename cap:recall`); done on this development stack during this session.
+- services/agent/app/db/migrations/0023_report_library.sql; the checkpoint prune (services/agent/app/graph/prune.py).
+- `docs/HANDOFF.md` untouched.
+
 
 ## Phase 07: Planner
 

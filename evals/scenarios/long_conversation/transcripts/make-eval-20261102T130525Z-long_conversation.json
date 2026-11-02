@@ -1,0 +1,2292 @@
+{
+  "suite": "long_conversation",
+  "scenario": "evals/scenarios/long_conversation/scenario.yaml",
+  "scores": {
+    "steps": 0.9428571428571428,
+    "negative": 1.0
+  },
+  "measures": [
+    {
+      "id": "a01",
+      "conversation": "A",
+      "turn": 1,
+      "seconds": 1.64,
+      "context_tokens": 100,
+      "usage": {
+        "tokens_in": 752,
+        "tokens_out": 6,
+        "cost_usd": 0.0
+      },
+      "checkpoint": {
+        "blob_bytes": 5269,
+        "blobs": 30,
+        "messages_blob_bytes": 472,
+        "checkpoints": 18
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 2
+      }
+    },
+    {
+      "id": "a10",
+      "conversation": "A",
+      "turn": 10,
+      "seconds": 8.23,
+      "context_tokens": null,
+      "usage": null,
+      "checkpoint": {
+        "blob_bytes": 87661,
+        "blobs": 86,
+        "messages_blob_bytes": 13302,
+        "checkpoints": 40
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 18
+      }
+    },
+    {
+      "id": "a30",
+      "conversation": "A",
+      "turn": 30,
+      "seconds": 2.77,
+      "context_tokens": 1064,
+      "usage": {
+        "tokens_in": 2794,
+        "tokens_out": 75,
+        "cost_usd": 0.0
+      },
+      "checkpoint": {
+        "blob_bytes": 182959,
+        "blobs": 81,
+        "messages_blob_bytes": 40278,
+        "checkpoints": 40
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 58
+      }
+    },
+    {
+      "id": "a53",
+      "conversation": "A",
+      "turn": 53,
+      "seconds": 4.96,
+      "context_tokens": 5844,
+      "usage": {
+        "tokens_in": 7692,
+        "tokens_out": 106,
+        "cost_usd": 0.0
+      },
+      "checkpoint": null,
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 104
+      }
+    },
+    {
+      "id": "a54",
+      "conversation": "A",
+      "turn": 54,
+      "seconds": 2.41,
+      "context_tokens": 1185,
+      "usage": {
+        "tokens_in": 2982,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "checkpoint": null,
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 106
+      }
+    },
+    {
+      "id": "a60",
+      "conversation": "A",
+      "turn": 60,
+      "seconds": 2.68,
+      "context_tokens": 1391,
+      "usage": {
+        "tokens_in": 3140,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "checkpoint": {
+        "blob_bytes": 314250,
+        "blobs": 79,
+        "messages_blob_bytes": 71716,
+        "checkpoints": 40
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 118
+      }
+    },
+    {
+      "id": "b01",
+      "conversation": "B",
+      "turn": 1,
+      "seconds": 3.22,
+      "context_tokens": 1400,
+      "usage": {
+        "tokens_in": 2631,
+        "tokens_out": 69,
+        "cost_usd": 0.0
+      },
+      "checkpoint": {
+        "blob_bytes": 19508,
+        "blobs": 30,
+        "messages_blob_bytes": 776,
+        "checkpoints": 18
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 2
+      }
+    },
+    {
+      "id": "v03",
+      "conversation": "V",
+      "turn": 1,
+      "seconds": 2.66,
+      "context_tokens": 257,
+      "usage": {
+        "tokens_in": 1399,
+        "tokens_out": 64,
+        "cost_usd": 0.0
+      },
+      "checkpoint": {
+        "blob_bytes": 13100,
+        "blobs": 30,
+        "messages_blob_bytes": 765,
+        "checkpoints": 18
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 2
+      }
+    }
+  ],
+  "steps": [
+    {
+      "id": "a01",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 1,
+      "message": "ما عاصمة اليابان؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "طوكيو",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 1.64,
+      "usage": {
+        "tokens_in": 752,
+        "tokens_out": 6,
+        "cost_usd": 0.0
+      },
+      "trace_id": "fba625ce727ec8fb7d040040bd749804",
+      "context_tokens": 100,
+      "checkpoint": {
+        "blob_bytes": 5269,
+        "blobs": 30,
+        "messages_blob_bytes": 472,
+        "checkpoints": 18
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 2
+      },
+      "problems": []
+    },
+    {
+      "id": "a02",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 2,
+      "message": "احفظ هذا الجدول عن مبيعات فروعنا في الربع الأول:\nالفرع\tالمبيعات (ألف ريال)\tعدد العملاء\nالرياض\t1250\t340\nجدة\t980\t275\nالدمام\t760\t190\nأبها\t430\t120\nتبوك\t310\t95",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا توجد معلومات عن عاصمة اليابان في التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 2).",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 2.6,
+      "usage": {
+        "tokens_in": 2922,
+        "tokens_out": 53,
+        "cost_usd": 0.0
+      },
+      "trace_id": "7a27388c0f69dd26d3e165daa3808a63",
+      "context_tokens": 1483,
+      "problems": []
+    },
+    {
+      "id": "a03",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 3,
+      "message": "كم معدل البطالة للسعوديين في آخر نشرة لسوق العمل؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "بلغ معدل البطالة للسعوديين 6.5% خلال الربع الثاني من عام 2026، وفقًا لإحصاءات سوق العمل للربع الثاني 2026 الصادرة عن الهيئة العامة للإحصاء بتاريخ 2026-09-30.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.91,
+      "usage": {
+        "tokens_in": 8436,
+        "tokens_out": 97,
+        "cost_usd": 0.0
+      },
+      "trace_id": "79b10cf16fa76b6ac5fcf5c4f51f6aed",
+      "context_tokens": 6376,
+      "problems": []
+    },
+    {
+      "id": "a04",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 4,
+      "message": "اشرح باختصار ما هو التضخم.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "التضخم هو الارتفاع المستمر في المستوى العام للأسعار، مما يؤدي إلى انخفاض القوة الشرائية للعملة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.19,
+      "usage": {
+        "tokens_in": 2071,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "trace_id": "0bcf380bff363e48a81ad9fd5a0145c3",
+      "context_tokens": 275,
+      "problems": []
+    },
+    {
+      "id": "a05",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 5,
+      "message": "سوّ لي داشبورد عن إحصاءات سوق العمل في السعودية",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "أُنشئ التقرير «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار 1) نسخةً جديدة من «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار 2)، ويبقى الأصل كما هو. أضفت ما أمكن. وبعض القيم غير متوفرة في المصادر فظهرت «—».",
+      "form": "report",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": {
+        "id": "1e7171e2-23bd-4ba3-b25d-870591ff2fe4",
+        "kind": "report",
+        "title": "إحصاءات سوق العمل – المملكة العربية السعودية",
+        "version": 1
+      },
+      "tools": [
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search"
+      ],
+      "seconds": 10.19,
+      "usage": {
+        "tokens_in": 16621,
+        "tokens_out": 1777,
+        "cost_usd": 0.0
+      },
+      "trace_id": "983f4b54d674e919c4329b8ac8e5dbe2",
+      "context_tokens": 12643,
+      "problems": []
+    },
+    {
+      "id": "a06",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 6,
+      "message": "أضف للوحة رسمًا لمعدل البطالة حسب الجنس",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "حُدّث التقرير «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار 2). أضفت ما أمكن. وبعض القيم غير متوفرة في المصادر فظهرت «—».",
+      "form": "report",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": {
+        "id": "1e7171e2-23bd-4ba3-b25d-870591ff2fe4",
+        "kind": "report",
+        "title": "إحصاءات سوق العمل – المملكة العربية السعودية",
+        "version": 2
+      },
+      "tools": [
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search"
+      ],
+      "seconds": 11.69,
+      "usage": {
+        "tokens_in": 17807,
+        "tokens_out": 1776,
+        "cost_usd": 0.0
+      },
+      "trace_id": "d7a2ae345716f21f6f100ad8888aaead",
+      "context_tokens": 13508,
+      "problems": []
+    },
+    {
+      "id": "a07",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 7,
+      "message": "عدّل اللوحة: أضف جدولًا للمشاركة في قوة العمل حسب الجنسية",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "حُدّث التقرير «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار 3). أضفت ما أمكن. لم أجد في المصادر بيانات «معدل المشاركة في القوى العاملة حسب الجنسية والفئة العمرية»، فتركت ذلك خارج التقرير. وبعض القيم غير متوفرة في المصادر فظهرت «—».",
+      "form": "report",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": {
+        "id": "1e7171e2-23bd-4ba3-b25d-870591ff2fe4",
+        "kind": "report",
+        "title": "إحصاءات سوق العمل – المملكة العربية السعودية",
+        "version": 3
+      },
+      "tools": [
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search"
+      ],
+      "seconds": 12.24,
+      "usage": {
+        "tokens_in": 18023,
+        "tokens_out": 1965,
+        "cost_usd": 0.0
+      },
+      "trace_id": "5bf9cca5debe257ddbfeaa3a31ec2b00",
+      "context_tokens": 13534,
+      "problems": []
+    },
+    {
+      "id": "a08",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 8,
+      "message": "ابحث في اللوحة عن معدل البطالة للإناث",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)\n\nيبلغ معدل البطالة للإناث 7.6%، وذلك حسب الرسم الخاص بـ «معدل البطالة حسب الجنس» في التقرير.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 3.5,
+      "usage": {
+        "tokens_in": 5094,
+        "tokens_out": 94,
+        "cost_usd": 0.0
+      },
+      "trace_id": "926fdb80736ed403674ca66c6de50a4c",
+      "context_tokens": 2876,
+      "problems": []
+    },
+    {
+      "id": "a09",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 9,
+      "message": "سوّ لي تقرير تفاعلي عن تاريخ بطولة كأس العالم لكرة القدم وأبرز الفائزين بها",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "أُنشئ التقرير «تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين» (الإصدار 1). وبعض القيم غير متوفرة في المصادر فظهرت «—».",
+      "form": "report",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": {
+        "id": "fb82c16f-c927-4601-8c56-af5c527d5034",
+        "kind": "report",
+        "title": "تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين",
+        "version": 1
+      },
+      "tools": [],
+      "seconds": 10.23,
+      "usage": {
+        "tokens_in": 4831,
+        "tokens_out": 1302,
+        "cost_usd": 0.0
+      },
+      "trace_id": "332c6c53417a45a9602dda198bd4955a",
+      "context_tokens": 2659,
+      "problems": []
+    },
+    {
+      "id": "a10",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 10,
+      "message": "سوّ لي داشبورد عن أسعار النفط العالمية خلال العقد الأخير",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "error",
+      "error": "validation_failed",
+      "answer": "",
+      "form": null,
+      "capabilities": null,
+      "artifact": null,
+      "tools": [
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search"
+      ],
+      "seconds": 8.23,
+      "usage": null,
+      "trace_id": null,
+      "context_tokens": null,
+      "checkpoint": {
+        "blob_bytes": 87661,
+        "blobs": 86,
+        "messages_blob_bytes": 13302,
+        "checkpoints": 40
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 18
+      },
+      "problems": [
+        "ended error validation_failed"
+      ]
+    },
+    {
+      "id": "a11",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 11,
+      "message": "وش التقارير اللي اشتغلنا عليها؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين (الإصدار 1)\n\nالتقارير التي تم العمل عليها في هذه المحادثة هي:\n1. تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين (الإصدار 1)\n2. إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 3.83,
+      "usage": {
+        "tokens_in": 4858,
+        "tokens_out": 109,
+        "cost_usd": 0.0
+      },
+      "trace_id": "4202a79d2d7289d7ad5e656add270d27",
+      "context_tokens": 2771,
+      "problems": []
+    },
+    {
+      "id": "a12",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 12,
+      "message": "منهم أبطال كأس العالم المذكورين في التقرير السابق؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين (الإصدار 1)\n\nلا توجد معلومات عن «منهم» في التقرير، حيث لم يرد ذكر أسماء لاعبين أو فرق محددة في سؤالك الحالي.\n\nويذكر التقرير الدول الفائزة بكأس العالم (1930–2022) وهي: الأوروغواي، إيطاليا، ألمانيا (وألمانيا الغربية)، البرازيل، إنجلترا، الأرجنتين، فرنسا، وإسبانيا.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 4.24,
+      "usage": {
+        "tokens_in": 4652,
+        "tokens_out": 144,
+        "cost_usd": 0.0
+      },
+      "trace_id": "f89933eb29e393aded6ea31ea04708bb",
+      "context_tokens": 2789,
+      "problems": []
+    },
+    {
+      "id": "a13",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 13,
+      "message": "للعلم أنا أعمل في إدارة الإحصاءات الاجتماعية. ما هو مؤشر جيني؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين (الإصدار 1)\n\nلا يحتوي هذا التقرير على معلومات عن «مؤشر جيني»، فهو يركز على إحصائيات وأرقام بطولة كأس العالم لكرة القدم (1930–2022) مثل عدد النسخ والدول الفائزة.\n\nوبشكل عام، مؤشر جيني هو مقياس إحصائي يُستخدم لقياس مستوى التفاوت في توزيع الدخل أو الثروة داخل مجتمع ما، حيث تتراوح قيمته بين 0 (مساواة تامة) و1 (تفاوت تام).",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 4.54,
+      "usage": {
+        "tokens_in": 3033,
+        "tokens_out": 195,
+        "cost_usd": 0.0
+      },
+      "trace_id": "5f7f701dfca4e2d25a922d2306384867",
+      "context_tokens": 1300,
+      "problems": []
+    },
+    {
+      "id": "a14",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 14,
+      "message": "ما الفرق بين الناتج المحلي الإجمالي والناتج القومي؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات حول الفرق بين الناتج المحلي الإجمالي والناتج القومي.\n\nوبشكل عام:\n- **الناتج المحلي الإجمالي (GDP):** يقيس قيمة السلع والخدمات المنتجة داخل حدود الدولة، بغض النظر عن جنسية المنتجين.\n- **الناتج القومي الإجمالي (GNI):** يقيس قيمة السلع والخدمات المنتجة بواسطة مواطني الدولة، سواء كانوا داخلها أو خارجها.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 4.13,
+      "usage": {
+        "tokens_in": 2894,
+        "tokens_out": 148,
+        "cost_usd": 0.0
+      },
+      "trace_id": "0afe14d14f2acd1128e726917cc2f192",
+      "context_tokens": 1146,
+      "problems": []
+    },
+    {
+      "id": "a15",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 15,
+      "message": "ما عدد سكان المملكة حسب آخر تعداد؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات عن عدد سكان المملكة حسب آخر تعداد.\n\nوبحسب نشرة التقديرات السكانية لعام 2024 م الصادرة عن الهيئة العامة للإحصاء بتاريخ 2025-06-17، يقدر إجمالي عدد السكان في المملكة بـ 35.3 مليون نسمة في منتصف عام 2024 م.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.79,
+      "usage": {
+        "tokens_in": 9588,
+        "tokens_out": 137,
+        "cost_usd": 0.0
+      },
+      "trace_id": "e684677c2a987dd44ab89717d5de8cff",
+      "context_tokens": 6810,
+      "problems": []
+    },
+    {
+      "id": "a16",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 16,
+      "message": "اشرح مفهوم الاقتصاد الدائري بأمثلة.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات عن «الاقتصاد الدائري».\n\nوبشكل عام، الاقتصاد الدائري هو نموذج اقتصادي يهدف إلى الاستمرار في استخدام الموارد لأطول فترة ممكنة، وتقليل الهدر إلى الحد الأدنى من خلال إعادة الاستخدام، والإصلاح، وإعادة التدوير، بدلاً من النموذج الخطي التقليدي (استخراج، تصنيع، استخدام، التخلص).\n\nأمثلة عليه:\n1. **إعادة التدوير:** تحويل النفايات البلاستيكية إلى مواد خام لصنع منتجات جديدة.\n2. **الاقتصاد التشاركي:** مشاركة الأصول (مثل السيارات أو الأدوات) بدلاً من امتلاكها فردياً، مما يطيل عمرها الافتراضي ويقلل الحاجة للإنتاج الجديد.\n3. **التصميم من أجل المتانة:** تصميم المنتجات لتكون قابلة للإصلاح والتحديث بسهولة بدلاً من الاستبدال السريع.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 5.58,
+      "usage": {
+        "tokens_in": 2879,
+        "tokens_out": 232,
+        "cost_usd": 0.0
+      },
+      "trace_id": "943adeee2df0d9a403da778c206ede66",
+      "context_tokens": 1166,
+      "problems": []
+    },
+    {
+      "id": "a17",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 17,
+      "message": "كم نسبة السعوديين في القوى العاملة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، بلغ معدل المشاركة في القوى العاملة للسعوديين 48.7% في الربع الثاني من عام 2026.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.37,
+      "usage": {
+        "tokens_in": 9426,
+        "tokens_out": 83,
+        "cost_usd": 0.0
+      },
+      "trace_id": "0f0bd878a6a540391bc49b165f0cdfb7",
+      "context_tokens": 7234,
+      "problems": []
+    },
+    {
+      "id": "a18",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 18,
+      "message": "ما أهم أهداف رؤية المملكة 2030 في قطاع السياحة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات عن أهداف رؤية المملكة 2030 في قطاع السياحة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.93,
+      "usage": {
+        "tokens_in": 2842,
+        "tokens_out": 80,
+        "cost_usd": 0.0
+      },
+      "trace_id": "599a48a21f41585147a2f27f652524c6",
+      "context_tokens": 1170,
+      "problems": []
+    },
+    {
+      "id": "a19",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 19,
+      "message": "ما معدل المشاركة في قوة العمل للنساء السعوديات؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، بلغ معدل المشاركة في القوى العاملة للسعوديات 33.7% في الربع الثاني من عام 2026.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.72,
+      "usage": {
+        "tokens_in": 8949,
+        "tokens_out": 84,
+        "cost_usd": 0.0
+      },
+      "trace_id": "36f637970a36a3539c9d9d7406d39354",
+      "context_tokens": 6894,
+      "problems": []
+    },
+    {
+      "id": "a20",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 20,
+      "message": "اشرح الفرق بين البطالة الهيكلية والبطالة الدورية.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على تعريف أو شرح للفرق بين البطالة الهيكلية والبطالة الدورية.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.48,
+      "usage": {
+        "tokens_in": 2627,
+        "tokens_out": 84,
+        "cost_usd": 0.0
+      },
+      "trace_id": "a977d044afa54fa9602d1365020e23ad",
+      "context_tokens": 965,
+      "problems": []
+    },
+    {
+      "id": "a21",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 21,
+      "message": "ما أبرز مؤشرات الصحة في المملكة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "تتضمن أبرز مؤشرات الصحة في المملكة ما يلي:\n\nمن التقرير: إحصاءات الحالة الصحية 2025، الهيئة العامة للإحصاء، بتاريخ 2025-11-26، بلغت نسبة البالغين (15 سنة فأكثر) الذين قيّموا حالتهم الصحية بشكل جيد وأعلى 99.2%، بينما بلغت نسبة من يعانون من اكتئاب شديد 0.1%، ونسبة من يعانون من قلق شديد 0.2%. كما أجرت نسبة 39.3% من البالغين فحوصات دورية للتأكد من صحتهم، حيث بلغت هذه النسبة 44.2% لدى السعوديين و35% لدى غير السعوديين.\n\nمن التقرير: مسح صحة الأسرة 2018، الهيئة العامة للإحصاء، بتاريخ 2024-12-25، بلغت نسبة المصابين بالأمراض المزمنة (المشخصة) بين سكان المملكة (15 سنة فأكثر) 15.9%، وتزداد هذه النسبة مع العمر لتصل إلى 70.8% لدى فئة العمر (65 سنة فأكثر). كما حصل 38.6% من السكان على تأمين صحي.\n\nمن التقرير: إحصاءات الرعاية الصحية 2025، الهيئة العامة للإحصاء، بتاريخ 2025-12-07، بلغت نسبة استخدام الإنترنت للحصول على معلومات صحية 30.8%، ونسبة استخدام خدمة الاستشارات عن بعد 5.7%، ونسبة الوصول إلى الملف الطبي الإلكتروني عبر الإنترنت 30.9%.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 7.58,
+      "usage": {
+        "tokens_in": 8593,
+        "tokens_out": 377,
+        "cost_usd": 0.0
+      },
+      "trace_id": "c0c8648e65fe36e9fbdf6c4c1aea2a16",
+      "context_tokens": 6682,
+      "problems": []
+    },
+    {
+      "id": "a22",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 22,
+      "message": "كيف يُحسب معدل التضخم؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات حول كيفية حساب معدل التضخم.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 3.43,
+      "usage": {
+        "tokens_in": 3224,
+        "tokens_out": 69,
+        "cost_usd": 0.0
+      },
+      "trace_id": "4cc37c73d7c5da874766707c74cdace6",
+      "context_tokens": 1230,
+      "problems": []
+    },
+    {
+      "id": "a23",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 23,
+      "message": "ما متوسط حجم الأسرة السعودية؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على قيمة لمتوسط حجم الأسرة السعودية، رغم أن نشرة المساكن لمنتصف عام 2019 تذكر معادلة احتسابه وهي: إجمالي عدد الأفراد السعوديين مقسوماً على إجمالي عدد الأسر السعودية.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.69,
+      "usage": {
+        "tokens_in": 8665,
+        "tokens_out": 108,
+        "cost_usd": 0.0
+      },
+      "trace_id": "d68d43815cff18a6ef0ecc6aee708338",
+      "context_tokens": 6466,
+      "problems": []
+    },
+    {
+      "id": "a24",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 24,
+      "message": "ما هي أكبر خمس دول من حيث المساحة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات حول أكبر خمس دول من حيث المساحة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.34,
+      "usage": {
+        "tokens_in": 2936,
+        "tokens_out": 71,
+        "cost_usd": 0.0
+      },
+      "trace_id": "9a1e5aa0bf66c011d1de9eaf6bc5527c",
+      "context_tokens": 1240,
+      "problems": []
+    },
+    {
+      "id": "a25",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 25,
+      "message": "ما نسبة الأمية في المملكة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على نسبة الأمية الإجمالية في المملكة، رغم أن المصادر الأخرى تشير إلى أن معدل الأمية للسكان السعوديين (15 سنة فأكثر) بلغ 2.7% للذكور و8.7% للإناث عام 2017.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.46,
+      "usage": {
+        "tokens_in": 7179,
+        "tokens_out": 115,
+        "cost_usd": 0.0
+      },
+      "trace_id": "2c043ce1c4ec086341d911d207612bf6",
+      "context_tokens": 5443,
+      "problems": []
+    },
+    {
+      "id": "a26",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 26,
+      "message": "اشرح ما هي السياسة النقدية.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على تعريف أو شرح للسياسة النقدية.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.58,
+      "usage": {
+        "tokens_in": 2681,
+        "tokens_out": 69,
+        "cost_usd": 0.0
+      },
+      "trace_id": "ff82a5f3d55e76b19bba435e4d95408f",
+      "context_tokens": 1004,
+      "problems": []
+    },
+    {
+      "id": "a27",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 27,
+      "message": "كم عدد الطلاب في التعليم العام؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي المصادر المقدمة على إحصاءات لعدد الطلاب في التعليم العام، بل تقتصر على بيانات التعليم العالي (مثل عدد الطلاب في الدبلوم قصير الأمد، والبكالوريوس، والماجستير، والدكتوراه) لعام 2022 وفقاً لتقرير إحصاءات النوع الاجتماعي 2023 الصادر عن الهيئة العامة للإحصاء بتاريخ 2026-08-20.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 4.13,
+      "usage": {
+        "tokens_in": 9900,
+        "tokens_out": 125,
+        "cost_usd": 0.0
+      },
+      "trace_id": "a4904fe8e09a75a5e09c89cdadf1dad2",
+      "context_tokens": 7221,
+      "problems": []
+    },
+    {
+      "id": "a28",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 28,
+      "message": "ما الفرق بين الإحصاء الوصفي والاستدلالي؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على شرح للفرق بين الإحصاء الوصفي والاستدلالي.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 3.14,
+      "usage": {
+        "tokens_in": 2722,
+        "tokens_out": 81,
+        "cost_usd": 0.0
+      },
+      "trace_id": "aeb0e52331ec8bb6d686abe5f02ff739",
+      "context_tokens": 1019,
+      "problems": []
+    },
+    {
+      "id": "a29",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 29,
+      "message": "ما نسبة ذوي الإعاقة في المملكة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "بلغت نسبة انتشار الإعاقة (ما بين درجة الكثير من الصعوبة أو درجة لا يستطيع) بين إجمالي سكان المملكة للفئة العمرية 5 سنوات فأكثر 1.9%، بينما بلغت نسبة انتشار الإعاقة/الصعوبة (ما بين درجة بعض الصعوبة أو درجة الكثير من الصعوبة أو درجة لا يستطيع) 5.3%، وذلك وفقاً لإحصاءات الإعاقة لعام 2025 الصادرة عن الهيئة العامة للإحصاء بتاريخ 2026-06-30.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 4.27,
+      "usage": {
+        "tokens_in": 8584,
+        "tokens_out": 151,
+        "cost_usd": 0.0
+      },
+      "trace_id": "56c781d5fead9a2cfe4b38e32f513036",
+      "context_tokens": 6589,
+      "problems": []
+    },
+    {
+      "id": "a30",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 30,
+      "message": "اشرح معنى الانحراف المعياري بمثال بسيط.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على شرح لمعنى الانحراف المعياري أو أمثلة عليه.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.77,
+      "usage": {
+        "tokens_in": 2794,
+        "tokens_out": 75,
+        "cost_usd": 0.0
+      },
+      "trace_id": "3acfdc6ad60f6edad2b9ef2f2ce8f3ab",
+      "context_tokens": 1064,
+      "checkpoint": {
+        "blob_bytes": 182959,
+        "blobs": 81,
+        "messages_blob_bytes": 40278,
+        "checkpoints": 40
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 58
+      },
+      "problems": []
+    },
+    {
+      "id": "a31",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 31,
+      "message": "ما توزيع السكان حسب الفئات العمرية؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "وفقاً لإحصاءات التقديرات السكانية لعام 2024 الصادرة عن الهيئة العامة للإحصاء بتاريخ 2025-06-17، تبلغ نسبة السكان السعوديين في الفئة العمرية (0-14) سنة 33.5%، بينما تبلغ نسبة السكان غير السعوديين في هذه الفئة 8.6%. أما بالنسبة للفئة العمرية في سن العمل (15-64) سنة، فتبلغ نسبة السكان غير السعوديين 89.9%، بينما تبلغ نسبة السكان السعوديين 62.7%.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 6.09,
+      "usage": {
+        "tokens_in": 9440,
+        "tokens_out": 158,
+        "cost_usd": 0.0
+      },
+      "trace_id": "a0276cffde5e5166a8e53da6d6885919",
+      "context_tokens": 7147,
+      "problems": []
+    },
+    {
+      "id": "a32",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 32,
+      "message": "ما هي أهم مصادر الطاقة المتجددة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات حول مصادر الطاقة المتجددة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 3.22,
+      "usage": {
+        "tokens_in": 2829,
+        "tokens_out": 69,
+        "cost_usd": 0.0
+      },
+      "trace_id": "718f00cb793badb26bfbd11cad26967f",
+      "context_tokens": 1085,
+      "problems": []
+    },
+    {
+      "id": "a33",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 33,
+      "message": "ما معدل البطالة لغير السعوديين؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "بلغ معدل البطالة لغير السعوديين 1.3% خلال الربع الثاني من عام 2026، وفقاً لإحصاءات سوق العمل الصادرة عن الهيئة العامة للإحصاء بتاريخ 2026-09-30.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 5.92,
+      "usage": {
+        "tokens_in": 9062,
+        "tokens_out": 90,
+        "cost_usd": 0.0
+      },
+      "trace_id": "b46dc6e5b1ef205569b8aa05c79a8f14",
+      "context_tokens": 7134,
+      "problems": []
+    },
+    {
+      "id": "a34",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 34,
+      "message": "اشرح مفهوم العينة العشوائية الطبقية.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة (تاريخ بطولة كأس العالم، وإحصاءات سوق العمل) على معلومات حول مفهوم العينة العشوائية الطبقية.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.95,
+      "usage": {
+        "tokens_in": 2690,
+        "tokens_out": 72,
+        "cost_usd": 0.0
+      },
+      "trace_id": "2208f4d120ab993c53857848916793a1",
+      "context_tokens": 1018,
+      "problems": []
+    },
+    {
+      "id": "a35",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 35,
+      "message": "كم عدد العاملين في القطاع الخاص؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة أو المصادر المقدمة على معلومات حول العدد الإجمالي للعاملين في القطاع الخاص، حيث تركز البيانات المتاحة على معدلات البطالة، والتوزيع النسبي للمشتغلين، وإحصاءات الصحة والسلامة في العمل، وعدد الأسرة في المستشفيات والمساكن.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.4,
+      "usage": {
+        "tokens_in": 8456,
+        "tokens_out": 100,
+        "cost_usd": 0.0
+      },
+      "trace_id": "82845972ec4e587f3e5ee8fd231e1021",
+      "context_tokens": 6175,
+      "problems": []
+    },
+    {
+      "id": "a36",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 36,
+      "message": "ما الفرق بين المتوسط والوسيط؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول الفرق بين المتوسط والوسيط.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.3,
+      "usage": {
+        "tokens_in": 2641,
+        "tokens_out": 61,
+        "cost_usd": 0.0
+      },
+      "trace_id": "00d86828708297c0318b78092cbdedf8",
+      "context_tokens": 979,
+      "problems": []
+    },
+    {
+      "id": "a37",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 37,
+      "message": "ما نسبة المدخنين في المملكة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "بلغت نسبة البالغين (15 سنة فأكثر) المدخنين لأي نوع من أنواع التبغ 12.4%، وفقاً لإحصاءات المحددات الصحية لعام 2024 الصادرة عن الهيئة العامة للإحصاء بتاريخ 2024-12-13.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.69,
+      "usage": {
+        "tokens_in": 8676,
+        "tokens_out": 102,
+        "cost_usd": 0.0
+      },
+      "trace_id": "35bc2be1b46a78fc52084bda147bc07d",
+      "context_tokens": 6850,
+      "problems": []
+    },
+    {
+      "id": "a38",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 38,
+      "message": "اشرح ما هو مؤشر أسعار المستهلك.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول مؤشر أسعار المستهلك.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.33,
+      "usage": {
+        "tokens_in": 2697,
+        "tokens_out": 53,
+        "cost_usd": 0.0
+      },
+      "trace_id": "fe18a9e9cf2bb35ed1dedcb937bfbefa",
+      "context_tokens": 1036,
+      "problems": []
+    },
+    {
+      "id": "a39",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 39,
+      "message": "ما نسبة المتعطلين الحاصلين على شهادة جامعية؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول نسبة المتعطلين الحاصلين على شهادة جامعية.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 2.73,
+      "usage": {
+        "tokens_in": 8639,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "trace_id": "5bf7d70bd951705c082d3bab9e45c84c",
+      "context_tokens": 6719,
+      "problems": []
+    },
+    {
+      "id": "a40",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 40,
+      "message": "ما هي عاصمة البرازيل وما أكبر مدنها؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول عاصمة البرازيل أو أكبر مدنها.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.5,
+      "usage": {
+        "tokens_in": 2571,
+        "tokens_out": 59,
+        "cost_usd": 0.0
+      },
+      "trace_id": "996f8855054e47f02f57049b9ee7ec63",
+      "context_tokens": 940,
+      "problems": []
+    },
+    {
+      "id": "a41",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 41,
+      "message": "كم عدد الزوار القادمين للسياحة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول عدد الزوار القادمين للسياحة.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 2.98,
+      "usage": {
+        "tokens_in": 9391,
+        "tokens_out": 58,
+        "cost_usd": 0.0
+      },
+      "trace_id": "6cf264cd9c972a1b76ba36c302cf0d1e",
+      "context_tokens": 7034,
+      "problems": []
+    },
+    {
+      "id": "a42",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 42,
+      "message": "اشرح الفرق بين الارتباط والسببية.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول الفرق بين الارتباط والسببية.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.76,
+      "usage": {
+        "tokens_in": 2524,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "trace_id": "4261e43552c13dd78412a214598df7cc",
+      "context_tokens": 914,
+      "problems": []
+    },
+    {
+      "id": "a43",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 43,
+      "message": "ما متوسط ساعات العمل الأسبوعية؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول متوسط ساعات العمل الأسبوعية.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 3.49,
+      "usage": {
+        "tokens_in": 8366,
+        "tokens_out": 61,
+        "cost_usd": 0.0
+      },
+      "trace_id": "7aad2440a5c138af3c4e6c90d8cf20e6",
+      "context_tokens": 6447,
+      "problems": []
+    },
+    {
+      "id": "a44",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 44,
+      "message": "ما أهم مراحل إعداد الميزانية العامة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول مراحل إعداد الميزانية العامة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 4.39,
+      "usage": {
+        "tokens_in": 2501,
+        "tokens_out": 61,
+        "cost_usd": 0.0
+      },
+      "trace_id": "0c0a220f062f7572c56eb93d7ce95147",
+      "context_tokens": 893,
+      "problems": []
+    },
+    {
+      "id": "a45",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 45,
+      "message": "ما نسبة الأسر التي تملك مسكنًا؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، لا توجد معلومات حول نسبة الأسر المالكة للمساكن.\n\nأما من نشرة إحصاءات المساكن لعام 2025، الهيئة العامة للإحصاء، بتاريخ 2026-05-21، فلا تُذكر نسبة الملكية مباشرة، بل تُذكر نسبة المساكن المشغولة بأسر سعودية من إجمالي المساكن المشغولة بأسر وهي 50.3%.\n\nومن نشرة المساكن لمنتصف عام 2019، الهيئة العامة للإحصاء، بتاريخ 2024-12-13، بلغت نسبة المساكن المملوكة المشغولة بأسر سعودية والتي تقيم بها الأسرة أثناء زيارة الباحث (ولا تشمل ما تملكه الأسرة في أماكن أخرى) 62.08% من إجمالي المساكن المشغولة بأسر سعودية.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 7.43,
+      "usage": {
+        "tokens_in": 8531,
+        "tokens_out": 233,
+        "cost_usd": 0.0
+      },
+      "trace_id": "5b1f50a4741205ac074cdda48ad5f3c1",
+      "context_tokens": 6586,
+      "problems": []
+    },
+    {
+      "id": "a46",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 46,
+      "message": "اشرح ما المقصود بالتضخم الركودي.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تحتوي التقارير المذكورة في المحادثة على معلومات حول التضخم الركودي.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.82,
+      "usage": {
+        "tokens_in": 2876,
+        "tokens_out": 54,
+        "cost_usd": 0.0
+      },
+      "trace_id": "9878acd19bfc13c5ecf77e117e41ddc0",
+      "context_tokens": 1052,
+      "problems": []
+    },
+    {
+      "id": "a47",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 47,
+      "message": "ما توزيع المشتغلين حسب المهنة؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، لا توجد بيانات عن توزيع المشتغلين حسب المهنة في المؤشرات الرئيسية المذكورة.\n\nأما من إحصاءات الهيئة العامة للإحصاء › الإحصاءات السجليَّة لسوق العمل للربع الثاني لعام 2026، الهيئة العامة للإحصاء، بتاريخ 2026-09-30، فيُظهر الجدول (3-7) توزيع المشتركين على رأس العمل الخاضعين لأنظمة التأمينات الاجتماعية حسب المجموعات الرئيسة للمهن والفئات العمرية، حيث يُعد فئة \"المهن الأولية\" الأكبر عددياً في الفئات العمرية المتوسطة (مثل 25-29 سنة بـ 1,509,152 مشتركاً)، تليها فئة \"الاختصاصيون\" و\"مشغلو المصانع والآلات وعاملو التجميع\".\n\nكما يُظهر الجدول (3-6) من نفس المصدر توزيع هؤلاء المشتركين حسب المنطقة الإدارية والمهنة، حيث تتركز أعداد كبيرة في منطقة الرياض، خاصة في مهن \"الاختصاصيين\" (1,033,602) و\"المهن الأولية\" (3,351,643).\n\nومن مسح التوظف والأجور من عام 2017، الهيئة العامة للإحصاء، بتاريخ 2024-12-24، كان أكبر تجمع للمشتغلين في \"مهن الخدمات\" بـ 2,946,792 مشتغلاً، تليها \"المهن الهندسية الأساسية المساعدة\" بـ 1,829,414 مشتغلاً.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 9.04,
+      "usage": {
+        "tokens_in": 9093,
+        "tokens_out": 400,
+        "cost_usd": 0.0
+      },
+      "trace_id": "4a911a315cb0e2d0b4f693f619eea498",
+      "context_tokens": 6604,
+      "problems": []
+    },
+    {
+      "id": "a48",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 48,
+      "message": "ما هي فوائد التحول الرقمي في الجهات الحكومية؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا توجد معلومات حول فوائد التحول الرقمي في الجهات الحكومية في التقارير المتاحة في هذه المحادثة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.2,
+      "usage": {
+        "tokens_in": 3407,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "trace_id": "c293a7e4d5c3b74f7d589cb9fe71694b",
+      "context_tokens": 1370,
+      "problems": []
+    },
+    {
+      "id": "a49",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 49,
+      "message": "ما الفرق بين النمو الاقتصادي والتنمية الاقتصادية؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا توجد معلومات حول الفرق بين النمو الاقتصادي والتنمية الاقتصادية في التقارير المتاحة في هذه المحادثة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.41,
+      "usage": {
+        "tokens_in": 2866,
+        "tokens_out": 61,
+        "cost_usd": 0.0
+      },
+      "trace_id": "53c549116460b7332bd7f071258d2391",
+      "context_tokens": 1207,
+      "problems": []
+    },
+    {
+      "id": "a50",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 50,
+      "message": "ما معدل البطالة حسب المنطقة الإدارية؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، يُظهر الجدول (2-4) من إحصاءات سوق العمل للربع الثاني 2026، الهيئة العامة للإحصاء، بتاريخ 2026-09-30، معدل البطالة الإجمالي حسب المنطقة الإدارية كالتالي:\n\n- الحدود الشمالية: 4.5%\n- جازان: 4.7%\n- المدينة المنورة: 4.1%\n- مكة المكرمة: 4.0%\n- نجران: 4.0%\n- الباحة: 3.9%\n- القصيم: 3.8%\n- تبوك: 3.8%\n- حائل: 3.2%\n- عسير: 3.2%\n- الجوف: 3.2%\n- المنطقة الشرقية: 2.2%\n- الرياض: 1.9%\n\nويبلغ معدل البطالة الإجمالي على مستوى المملكة 3.0%.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 6.19,
+      "usage": {
+        "tokens_in": 8972,
+        "tokens_out": 261,
+        "cost_usd": 0.0
+      },
+      "trace_id": "2410ebdff2833d8b176923979b9c1c8d",
+      "context_tokens": 7055,
+      "problems": []
+    },
+    {
+      "id": "a51",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 51,
+      "message": "اشرح باختصار ما هي سلاسل الإمداد.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا توجد معلومات حول سلاسل الإمداد في التقارير المتاحة في هذه المحادثة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.61,
+      "usage": {
+        "tokens_in": 2930,
+        "tokens_out": 61,
+        "cost_usd": 0.0
+      },
+      "trace_id": "6fde4235b0acddfdd565ee423fa6ec51",
+      "context_tokens": 1084,
+      "problems": []
+    },
+    {
+      "id": "a52",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 52,
+      "message": "ما أبرز التحديات أمام سوق العمل عالميًا؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا توجد معلومات حول أبرز التحديات أمام سوق العمل عالميًا في التقارير المتاحة في هذه المحادثة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.56,
+      "usage": {
+        "tokens_in": 2716,
+        "tokens_out": 57,
+        "cost_usd": 0.0
+      },
+      "trace_id": "c8292697681fdbd30687f0568833a135",
+      "context_tokens": 1082,
+      "problems": []
+    },
+    {
+      "id": "a53",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 53,
+      "message": "كم نسبة الشباب من إجمالي السكان؟",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات الشباب السعودي 2023 (الإصدار 1)، تشير بيانات تعداد 2022 وتقديرات منتصف عام 2023 إلى أن السكان السعوديين في الفئة العمرية أقل من 35 سنة يمثلون ما يقارب 71% من إجمالي السكان السعوديين.",
+      "form": "text",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": null,
+      "tools": [
+        "kb_search"
+      ],
+      "seconds": 4.96,
+      "usage": {
+        "tokens_in": 7692,
+        "tokens_out": 106,
+        "cost_usd": 0.0
+      },
+      "trace_id": "bd2300f788fb723e34df65ed31e2c422",
+      "context_tokens": 5844,
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 104
+      },
+      "problems": [
+        "summary present: False"
+      ]
+    },
+    {
+      "id": "a54",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 54,
+      "message": "وش كانت مبيعات فرع جدة في الجدول اللي أرسلته لك في بداية المحادثة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من الرسالة السابقة في المحادثة، كانت مبيعات فرع جدة 980 ألف ريال.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "conversation_recall"
+      ],
+      "seconds": 2.41,
+      "usage": {
+        "tokens_in": 2982,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "trace_id": "b7e1fdf4e874fe7a05b59c628cafa399",
+      "context_tokens": 1185,
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 106
+      },
+      "problems": [
+        "summary present: False"
+      ]
+    },
+    {
+      "id": "a55",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 55,
+      "message": "وكم عدد عملاء فرع أبها في ذاك الجدول؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من الرسالة السابقة في المحادثة، كان عدد عملاء فرع أبها 120 عميلًا.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 2.76,
+      "usage": {
+        "tokens_in": 4157,
+        "tokens_out": 65,
+        "cost_usd": 0.0
+      },
+      "trace_id": "99d52e0e0522a75bf8fd426326ad8f5d",
+      "context_tokens": 2319,
+      "problems": []
+    },
+    {
+      "id": "a56",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 56,
+      "message": "كم كان معدل البطالة للسعوديين اللي ذكرته لي في بداية المحادثة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، بلغ معدل البطالة للسعوديين 6.5% خلال الربع الثاني من عام 2026.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 3.59,
+      "usage": {
+        "tokens_in": 4307,
+        "tokens_out": 85,
+        "cost_usd": 0.0
+      },
+      "trace_id": "fd57af54d669c6ddd00fc28efabc84a7",
+      "context_tokens": 2460,
+      "problems": []
+    },
+    {
+      "id": "a57",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 57,
+      "message": "ابحث في لوحة سوق العمل عن نسبة المشاركة في قوة العمل",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، بلغ معدل المشاركة في القوى العاملة الإجمالي 67.2% خلال الربع الثاني من عام 2026.\n\nوبتفصيل حسب الجنسية والجنس:\n- السعوديون الذكور: 63.9%\n- السعوديات: 33.7%\n- غير السعوديين الذكور: 94.6%\n- غير السعوديات: 34.7%",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 4.94,
+      "usage": {
+        "tokens_in": 4340,
+        "tokens_out": 143,
+        "cost_usd": 0.0
+      },
+      "trace_id": "4f69c6a7c0dddf6d042025d7315c7c43",
+      "context_tokens": 2494,
+      "problems": []
+    },
+    {
+      "id": "a58",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 58,
+      "message": "وش التقارير اللي سويناها في هذي المحادثة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "التقارير التي تم إنشاؤها في هذه المحادثة هي:\n1. تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين (الإصدار 1)\n2. إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 2.95,
+      "usage": {
+        "tokens_in": 4308,
+        "tokens_out": 90,
+        "cost_usd": 0.0
+      },
+      "trace_id": "b9804e2c5d52ff5d1f0c46714cd1c0e7",
+      "context_tokens": 2407,
+      "problems": []
+    },
+    {
+      "id": "a59",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 59,
+      "message": "ما أكبر محيط في العالم؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لا تتوفر هذه المعلومة في التقارير المرفقة في المحادثة.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 2.45,
+      "usage": {
+        "tokens_in": 2691,
+        "tokens_out": 52,
+        "cost_usd": 0.0
+      },
+      "trace_id": "6a5a3db198d43d569d26b11b9476aedf",
+      "context_tokens": 1031,
+      "problems": [
+        "none of ['الهادئ', 'الهادي']"
+      ]
+    },
+    {
+      "id": "a60",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 60,
+      "message": "أي فرع في الجدول الذي أرسلته كان الأقل مبيعات؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من الرسالة السابقة في المحادثة، كان فرع تبوك هو الأقل مبيعات بـ 310 ألف ريال.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "conversation_recall"
+      ],
+      "seconds": 2.68,
+      "usage": {
+        "tokens_in": 3140,
+        "tokens_out": 62,
+        "cost_usd": 0.0
+      },
+      "trace_id": "724c90919e3b1e923bab2b1cbaed9dc6",
+      "context_tokens": 1391,
+      "checkpoint": {
+        "blob_bytes": 314250,
+        "blobs": 79,
+        "messages_blob_bytes": 71716,
+        "checkpoints": 40
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 118
+      },
+      "problems": []
+    },
+    {
+      "id": "a61",
+      "user": "analyst",
+      "conversation": "A",
+      "turn": 61,
+      "message": "شكرًا، لخص لي في جملتين ما تحدثنا عنه اليوم.",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: تاريخ بطولة كأس العالم لكرة القدم – أبرز الفائزين (الإصدار 1)، ناقشنا إحصائيات البطولة وأبرز الدول الفائزة.\nمن التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 3)، استعرضنا مؤشرات سوق العمل في الربع الثاني من عام 2026.",
+      "form": "text",
+      "capabilities": [
+        "general"
+      ],
+      "artifact": null,
+      "tools": [],
+      "seconds": 4.89,
+      "usage": {
+        "tokens_in": 2626,
+        "tokens_out": 108,
+        "cost_usd": 0.0
+      },
+      "trace_id": "1ff0585d2dd367391dcaf218cb8e0954",
+      "context_tokens": 994,
+      "problems": []
+    },
+    {
+      "id": "b01",
+      "user": "analyst",
+      "conversation": "B",
+      "turn": 1,
+      "message": "التقرير اللي سويته عن سوق العمل، وش نسبة البطالة فيه؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "من التقرير: إحصاءات سوق العمل – المملكة العربية السعودية (الإصدار 2)، بلغت نسبة البطالة الإجمالي 3%، بينما بلغ معدل البطالة للسعوديين 6.5%.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_search",
+        "report_read",
+        "conversation_recall"
+      ],
+      "seconds": 3.22,
+      "usage": {
+        "tokens_in": 2631,
+        "tokens_out": 69,
+        "cost_usd": 0.0
+      },
+      "trace_id": "dba545dd2969bec26804cecb39792ee4",
+      "context_tokens": 1400,
+      "checkpoint": {
+        "blob_bytes": 19508,
+        "blobs": 30,
+        "messages_blob_bytes": 776,
+        "checkpoints": 18
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 2
+      },
+      "problems": []
+    },
+    {
+      "id": "b02",
+      "user": "analyst",
+      "conversation": "B",
+      "turn": 2,
+      "message": "سوّ لي نسخة جديدة منه وأضف رسمًا للمشاركة في قوة العمل",
+      "selected_kbs": [
+        "stats-gov"
+      ],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "أُنشئ التقرير «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار 1) نسخةً جديدة من «إحصاءات سوق العمل – المملكة العربية السعودية» (الإصدار 2)، ويبقى الأصل كما هو.",
+      "form": "report",
+      "capabilities": [
+        "kb"
+      ],
+      "artifact": {
+        "id": "12458444-18e8-4291-b630-59fa0be751d4",
+        "kind": "report",
+        "title": "إحصاءات سوق العمل – المملكة العربية السعودية",
+        "version": 1
+      },
+      "tools": [
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search",
+        "kb_search"
+      ],
+      "seconds": 12.49,
+      "usage": {
+        "tokens_in": 17197,
+        "tokens_out": 1824,
+        "cost_usd": 0.0
+      },
+      "trace_id": "fec0fa09a46ea7b75858da8517777a9f",
+      "context_tokens": 13268,
+      "problems": []
+    },
+    {
+      "id": "b03",
+      "user": "analyst",
+      "check": "report",
+      "problems": [],
+      "status": 200,
+      "latest_version": 3
+    },
+    {
+      "id": "v01",
+      "user": "viewer",
+      "check": "library",
+      "problems": [],
+      "status": 200,
+      "listed": 0
+    },
+    {
+      "id": "v02",
+      "user": "viewer",
+      "check": "report",
+      "problems": [],
+      "status": 404
+    },
+    {
+      "id": "v03",
+      "user": "viewer",
+      "conversation": "V",
+      "turn": 1,
+      "message": "وش التقارير اللي سويتها عن سوق العمل؟ وش نسبة البطالة فيها؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لم يُعثر في تقارير المستخدم ولا في رسائل هذه المحادثة السابقة على ما يتعلق بالسؤال؛ فقل ذلك، ولا تختلق محتوى تقرير أو رسالة.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "report_search",
+        "conversation_recall"
+      ],
+      "seconds": 2.66,
+      "usage": {
+        "tokens_in": 1399,
+        "tokens_out": 64,
+        "cost_usd": 0.0
+      },
+      "trace_id": "5daf5a0cd07247f9e0a2d1932c158849",
+      "context_tokens": 257,
+      "checkpoint": {
+        "blob_bytes": 13100,
+        "blobs": 30,
+        "messages_blob_bytes": 765,
+        "checkpoints": 18
+      },
+      "state": {
+        "summary_chars": 0,
+        "summary_cursor": 0,
+        "messages": 2
+      },
+      "problems": []
+    },
+    {
+      "id": "v04",
+      "user": "viewer",
+      "conversation": "V",
+      "turn": 2,
+      "message": "وش كانت مبيعات فرع جدة في الجدول اللي أرسلته في بداية المحادثة؟",
+      "selected_kbs": [],
+      "output_picked": null,
+      "end": "done",
+      "error": null,
+      "answer": "لم يرد في المحادثة السابقة أي جدول أو بيانات تتعلق بمبيعات فرع جدة، لذا لا يمكنني الإجابة عن هذا السؤال.",
+      "form": "text",
+      "capabilities": [
+        "recall"
+      ],
+      "artifact": null,
+      "tools": [
+        "report_search",
+        "report_search",
+        "conversation_recall"
+      ],
+      "seconds": 2.22,
+      "usage": {
+        "tokens_in": 1538,
+        "tokens_out": 54,
+        "cost_usd": 0.0
+      },
+      "trace_id": "a54c5cb8853cfe64ec5b5797c7bf2b05",
+      "context_tokens": 313,
+      "problems": []
+    },
+    {
+      "id": "o01",
+      "user": "analyst",
+      "check": "library",
+      "problems": [],
+      "status": 200,
+      "listed": 3
+    },
+    {
+      "id": "m01",
+      "user": "analyst",
+      "check": "memory",
+      "problems": [],
+      "added": [
+        {
+          "kind": "fact_about_user",
+          "text": "المستخدم يعمل في إدارة الإحصاءات الاجتماعية."
+        }
+      ]
+    }
+  ]
+}
