@@ -10,7 +10,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,6 +30,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import sa.ncai.agent.gateway.GatewayProperties;
 import sa.ncai.agent.gateway.api.ApiEnvelope;
@@ -62,6 +66,7 @@ import sa.ncai.agent.gateway.proxy.AgentUnavailableException;
 public class ReportController {
 
     static final String LIST = "report.list";
+    static final String LIBRARY = "report.library";
     static final String READ = "report.read";
     static final String VIEW_LINK = "report.view_link";
     static final String DOWNLOAD = "report.download";
@@ -95,6 +100,140 @@ public class ReportController {
     /** An origin without its trailing slash. */
     static String origin(String url) {
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
+    private static final Pattern SOURCE_PATTERN = Pattern.compile("^(general|file|kb:[a-z0-9][a-z0-9-]{0,62})$");
+    static final int MAX_QUERY_CHARS = 500;
+
+    @GetMapping(path = "/v1/reports", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            summary = "The caller's report library: newest first, or searched; filtered by date and source",
+            description = "Every report of the caller's, in any of their conversations (report library PR, owner "
+                    + "decisions 3 and 4). Checked twice: the agent searches the caller's own reports only, and the "
+                    + "gateway drops any report whose conversation is not the caller's in its conversations table. "
+                    + "Audited as report.library with the filters and the count, never the query's text.",
+            responses = {
+                @ApiResponse(responseCode = "200", description = "A page of the caller's reports"),
+                @ApiResponse(responseCode = "400", description = "invalid_request", content = @Content(
+                        mediaType = MediaType.APPLICATION_JSON_VALUE,
+                        schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "401", description = "unauthorized", content = @Content(
+                        mediaType = MediaType.APPLICATION_JSON_VALUE,
+                        schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "502", description = "agent_unavailable", content = @Content(
+                        mediaType = MediaType.APPLICATION_JSON_VALUE,
+                        schema = @Schema(implementation = ApiErrorEnvelope.class))),
+                @ApiResponse(responseCode = "503", description = "audit_unavailable", content = @Content(
+                        mediaType = MediaType.APPLICATION_JSON_VALUE,
+                        schema = @Schema(implementation = ApiErrorEnvelope.class)))
+            })
+    public ResponseEntity<ApiEnvelope<ReportDtos.LibraryPage>> library(
+            @Parameter(description = "Words to search for; empty lists the newest.")
+            @RequestParam(name = "q", required = false) String q,
+            @Parameter(description = "Changed on or after this time (ISO 8601).", schema = @Schema(format = "date-time"))
+            @RequestParam(name = "since", required = false) String since,
+            @Parameter(description = "Changed before this time (ISO 8601).", schema = @Schema(format = "date-time"))
+            @RequestParam(name = "until", required = false) String until,
+            @Parameter(description = "general, file, or kb:<slug>.")
+            @RequestParam(name = "source", required = false) String source,
+            @Parameter(description = "`next_before` of the previous page.", schema = @Schema(format = "date-time"))
+            @RequestParam(name = "before", required = false) String before,
+            @Parameter(schema = @Schema(type = "integer", minimum = "1", maximum = "100"))
+            @RequestParam(name = "limit", required = false) String limit,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        long started = System.nanoTime();
+        GatewayPrincipal caller = GatewayPrincipal.from(jwt);
+        String query = q == null ? "" : q.strip();
+        Integer size = limit == null ? Integer.valueOf(30) : pageSize(limit);
+        if (query.length() > MAX_QUERY_CHARS || size == null || !instant(since) || !instant(until) || !instant(before)
+                || (source != null && !SOURCE_PATTERN.matcher(source).matches())) {
+            // Rejected by validation, so not audited (ADR-0013).
+            return failed(request, response, ErrorCode.INVALID_REQUEST);
+        }
+        if (!audit.reachable()) {
+            return failed(request, response, ErrorCode.AUDIT_UNAVAILABLE);
+        }
+        Call call = new Call(request, response, caller, LIBRARY, started);
+        // Content-free (G8): whether a query was given and its length, the filters, never its text.
+        call.detail.put("query_chars", query.length());
+        if (source != null) {
+            call.detail.put("source", source);
+        }
+        if (since != null || until != null) {
+            call.detail.put("dated", true);
+        }
+        // A template filled with the values, each encoded whole by the client (never by hand).
+        StringBuilder uri = new StringBuilder("/v1/reports?limit={limit}");
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("limit", size);
+        appendParam(uri, values, "q", query.isEmpty() ? null : query);
+        appendParam(uri, values, "since", since);
+        appendParam(uri, values, "until", until);
+        appendParam(uri, values, "source", source);
+        appendParam(uri, values, "before", before);
+        AgentReply reply = call.agent(uri.toString(), values);
+        if (reply == null) {
+            return null;
+        }
+        if (reply.status() != 200) {
+            log.warn("agent answered {} to a library read", reply.status());
+            return call.refuse(ErrorCode.AGENT_UNAVAILABLE, AuditStatus.ERROR);
+        }
+        ReportDtos.LibraryPage page = mapper.readValue(reply.body(), ReportDtos.LibraryPage.class);
+        // The gateway's own check (I5): only reports whose conversation the caller owns here.
+        List<String> ids = page.reports().stream()
+                .map(r -> r.conversationId() == null ? "" : r.conversationId().toLowerCase(Locale.ROOT))
+                .filter(id -> UUID_PATTERN.matcher(id).matches())
+                .distinct()
+                .toList();
+        Set<String> owned = conversations.ownedBy(ids, caller.userId(), caller.tenantId());
+        List<ReportDtos.LibraryItem> kept = page.reports().stream()
+                .filter(r -> r.conversationId() != null && owned.contains(r.conversationId().toLowerCase(Locale.ROOT)))
+                .toList();
+        if (kept.size() < page.reports().size()) {
+            log.warn("the agent listed {} report(s) of conversations the caller does not own here",
+                    page.reports().size() - kept.size());
+            call.detail.put("dropped", page.reports().size() - kept.size());
+        }
+        call.detail.put("reports", kept.size());
+        return call.ok(new ReportDtos.LibraryPage(kept, page.nextBefore()));
+    }
+
+    private static void appendParam(StringBuilder uri, Map<String, Object> values, String name, String value) {
+        if (value != null && !value.isEmpty()) {
+            uri.append('&').append(name).append("={").append(name).append('}');
+            values.put(name, value);
+        }
+    }
+
+    /** Null, or an ISO 8601 date-time with an offset. */
+    private static boolean instant(String value) {
+        if (value == null) {
+            return true;
+        }
+        if (value.length() > 40) {
+            return false;
+        }
+        try {
+            OffsetDateTime.parse(value);
+            return true;
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private static Integer pageSize(String value) {
+        if (value.length() > 3) {
+            return null;
+        }
+        try {
+            int number = Integer.parseInt(value);
+            return number >= 1 && number <= 100 ? number : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @GetMapping(path = "/v1/reports/{reportId}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -438,8 +577,12 @@ public class ReportController {
 
         /** The agent's reply, or null when it was unreachable and the refusal is written. */
         AgentReply agent(String uri) throws IOException {
+            return agent(uri, Map.of());
+        }
+
+        AgentReply agent(String uri, Map<String, ?> values) throws IOException {
             try {
-                return ReportController.this.agent.exchange(HttpMethod.GET, uri, null, caller, requestId());
+                return ReportController.this.agent.exchange(HttpMethod.GET, uri, values, null, caller, requestId());
             } catch (AgentUnavailableException e) {
                 log.warn("{}", e.getMessage());
                 refuse(ErrorCode.AGENT_UNAVAILABLE, AuditStatus.ERROR);

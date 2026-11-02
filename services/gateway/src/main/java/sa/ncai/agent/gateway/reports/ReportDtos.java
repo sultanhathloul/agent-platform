@@ -33,6 +33,34 @@ public final class ReportDtos {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String updatedAt,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<ReportVersionInfo> versions) {}
 
+    /** One report of the caller's library (report library PR, owner decisions 3 and 4, ADR-0436). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record LibraryItem(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid") String id,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid") String conversationId,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The latest version's title.")
+            String title,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int latestVersion,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1",
+                    description = "The version the search matched best; the latest without a query.") int matchedVersion,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The spec's subtitle and period.")
+            String subject,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Section titles, in order.")
+            List<String> sections,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The names of the sources it cites.")
+            List<String> sources,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
+                    description = "general, file, or kb:<slug>: the source filter's values.") List<String> sourceKinds,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String createdAt,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") String updatedAt) {}
+
+    /** A page of the caller's library: best match first with a query, newest first without. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record LibraryPage(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<LibraryItem> reports,
+            @Schema(format = "date-time", description = "`before` of the next page; absent on the last.")
+            String nextBefore) {}
+
     /** A conversation's reports, oldest first. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReportList(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<ReportView> reports) {}

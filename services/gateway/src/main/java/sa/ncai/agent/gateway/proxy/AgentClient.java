@@ -265,7 +265,17 @@ public class AgentClient {
      * @throws AgentUnavailableException if the agent is unreachable
      */
     public AgentReply exchange(HttpMethod method, String uri, Object body, GatewayPrincipal caller, String requestId) {
-        RestClient.RequestBodySpec spec = client.method(method).uri(uri);
+        return exchange(method, uri, java.util.Map.of(), body, caller, requestId);
+    }
+
+    /**
+     * As {@link #exchange(HttpMethod, String, Object, GatewayPrincipal, String)}, with {@code uri} a template whose
+     * {@code {name}} variables are filled from {@code variables}, each value encoded whole (report library PR):
+     * a client's search text can never add a parameter or a path.
+     */
+    public AgentReply exchange(HttpMethod method, String uri, java.util.Map<String, ?> variables, Object body,
+            GatewayPrincipal caller, String requestId) {
+        RestClient.RequestBodySpec spec = client.method(method).uri(uri, variables);
         if (body != null) {
             spec = spec.contentType(MediaType.APPLICATION_JSON).body(body);
         }
