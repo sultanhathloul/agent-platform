@@ -91,6 +91,8 @@ class ReportText(_Strict):
     page: Localized
     created: Localized
     updated: Localized
+    # A new report made from one of the user's earlier reports (report library PR, ADR-0433).
+    created_from: Localized
     untitled: Localized
     partial: Localized
     missing_elements: Localized

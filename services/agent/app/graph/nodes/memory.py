@@ -1,8 +1,9 @@
 """write_memory (README §8, ADR-0058): runs after persist_state. The `extractor` role
-reads this turn's exchange as persisted — the post-guard `content` of the user
-message and the reply, never `shown_answer` (ADR-0048) — and the kept candidates
-are stored for the turn's (tenant, user). Nothing is written when that user's
-memory is off or a guard flagged the turn.
+reads this turn's user message as persisted — its post-guard `content` (ADR-0048), and
+never the reply: memory holds only what the user stated, never what the assistant wrote,
+a memo, a report or an answer (report library PR, owner decision 6, ADR-0435) — and the
+kept candidates are stored for the turn's (tenant, user). Nothing is written when that
+user's memory is off or a guard flagged the turn.
 
 Every kept candidate goes through DATA with target `memory_candidate` before it is
 stored (phase 03, B1): a candidate a policy blocks is dropped without a message to
@@ -37,7 +38,8 @@ log = logging.getLogger(__name__)
 
 def _exchange(state: AgentState) -> list[dict] | None:
     """The two messages persist_state appended for this turn, reduced to role and
-    content, the post-guard text every later model call reads."""
+    content, the post-guard text every later model call reads. Only the first, the
+    user's, reaches the extractor (ADR-0435)."""
     messages = state.get("messages") or []
     if len(messages) < 2:
         return None
@@ -62,20 +64,23 @@ async def _write(state: AgentState, ctx: TurnContext) -> tuple[str, int, int]:
         return "no_exchange", 0, 0
 
     node = ctx.services.assembler.node("memory_writer")
+    message = exchange[0]["content"]
+    # The user's message alone, as delimited data in the request (ADR-0435): the reply never reaches
+    # the extractor, so nothing the assistant wrote can become a fact about the user.
     request = AssemblyRequest(
         node="memory_writer",
         needs=node.needs,
         system_prompt=node.system_prompt,
         user_prompt=node.request_prompt,
         locale=state["locale"],
-        state={"messages": exchange},
-        window_messages=len(exchange),
+        state={},
+        prompt_vars={"message": message},
     )
     result = await call_model(ctx, await prepare_call(ctx, request, role="extractor"))
     candidates = parse_candidates(
         result.text,
         memory.config,
-        source=exchange[0]["content"],
+        source=message,
         scripts=ctx.services.validation.scripts_for(state["locale"]),
     )
     guarded = await _guarded(state, ctx, candidates)

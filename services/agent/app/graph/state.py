@@ -56,6 +56,7 @@ class AgentState(TypedDict, total=False):
     requested_output: str | None  # addition (reports PR, D3): the composer's output picker, "text" or "report"
     output: dict | None  # addition (reports PR, D1): {form: text | report, decided_by}; the answer node reads it
     report: dict | None  # addition (reports PR): {id, kind, title, version} of the report this turn wrote
+    report_digest: str | None  # addition (report library PR, ADR-0430): that version's digest, the history marker
     plan: list[str] | None
     iteration: int
     tool_calls: list[ToolCall]

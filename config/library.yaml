@@ -1,0 +1,69 @@
+# The report library and long-conversation recall (report library PR, owner decisions 1, 2, 3 and 5;
+# ADR-0430 to ADR-0437). Read by the agent (app/artifacts/library.py, app/context/recall.py). Every bound
+# here is a size cap on what leaves the database or the checkpoint toward a model call (CLAUDE.md rule 12d).
+version: 1.0.0
+
+# Decision 1: the compact index of the conversation's reports in every turn's context (block `reports`,
+# budget in config/context.yaml blocks.reports). Per report: title, latest version, section titles, KPI
+# labels and values, table headers; a report's digest is cut to `digest_chars`, and at most `max_reports`
+# reports are listed, the latest first.
+index:
+  max_reports: 8
+  digest_chars: 900
+  # The history marker of a report reply (the window): the version's digest, shorter.
+  marker_chars: 500
+
+# Decision 2: report_read returns a version's spec as readable text, cut to `max_chars` with a marker.
+read:
+  max_chars: 16000
+  max_table_rows: 60
+
+# Decision 3: report_search over the caller's own versions (agent.report_library).
+search:
+  max_results: 5
+  max_query_terms: 24
+  # Conversational words that carry no subject: a search ignores them («التقرير اللي سويته عن سوق العمل»
+  # searches «سوق العمل»). Matched as search stems (app/text/arabic.py search_stem).
+  stopwords:
+    ar: [التقرير, تقرير, التقارير, تقاريري, اللوحه, لوحه, لوحة, اللوحة, داشبورد, الداشبورد, اللي, الذي, التي,
+         سويته, سويتها, سويت, عملته, عملناه, اشتغلنا, عليها, عليه, عليهم, فيه, فيها, وش, ايش, ماذا, كم, هل,
+         عن, على, في, من, الى, إلى, مع, هذا, هذه, ذلك, تلك, لي, لنا, ممكن, تقدر, ابغى, ابي, ابيك, عطني,
+         اعطني, سابق, السابق, السابقه, قبل, نسخه, نسخة, جديده, جديدة, منه, منها, وأضف, اضف, أضف, ابحث]
+    en: [the, a, an, report, reports, dashboard, about, of, in, "on", for, what, which, is, was, did, we, i,
+         you, me, my, that, this, made, built, earlier, previous, new, version, from, it]
+  # The web page's list (GET /v1/reports): a page of the caller's reports, newest first.
+  page_size: 30
+
+# Decision 5: conversation_recall over the conversation's stored history. Linear and capped: at most
+# `max_messages` messages (the newest) and `max_scan_chars` characters are read, at most `max_results`
+# messages return, each cut to `message_chars`, all of them to `max_chars`.
+recall:
+  max_messages: 2000
+  max_scan_chars: 600000
+  max_results: 4
+  message_chars: 6000
+  max_chars: 12000
+  # The messages already in the turn's window (config/context.yaml window_messages) are not recalled.
+  skip_recent: 6
+  # A query naming a table or a list also ranks the messages that hold one; a query naming the start of
+  # the conversation ranks earlier messages first among equals.
+  table_words: [جدول, الجدول, جداول, الجداول, table, tables]
+  list_words: [قائمه, القائمه, قائمة, القائمة, list]
+  early_words: [البدايه, البداية, بدايه, بداية, اول, أول, اوائل, first, beginning, start, earlier]
+  stopwords:
+    ar: [اللي, الذي, التي, وش, ايش, ماذا, كم, هل, عن, على, في, من, الى, إلى, مع, هذا, هذه, ذلك, تلك,
+         لي, لك, لنا, ممكن, تقدر, ابغى, ابي, عطني, اعطني, ذكرت, ذكرتها, ذكرته, قلت, قلتها, قلته, ارسلت,
+         ارسلته, أرسلت, أرسلته, لصقت, كتبت, المحادثه, المحادثة, محادثه, محادثة, كان, كانت, اول, أول,
+         البدايه, البداية, بدايه, بداية, جدول, الجدول]
+    en: [the, a, an, of, in, "on", for, what, which, is, was, did, i, you, me, my, that, this, earlier,
+         mentioned, said, sent, pasted, conversation, chat, table, list, first, beginning]
+
+# Owner decision 7 (ADR-0437): the checkpointer writes the whole message history once per turn and keeps every
+# checkpoint, so a conversation's stored checkpoints grew with the square of its length (4.5 MB after 60 mock
+# turns). After each turn, still under the conversation's turn lock, the thread keeps only its newest
+# `keep_checkpoints` checkpoints (about two turns), their writes and the blobs they name; the latest state, and
+# so the whole history, is untouched. Bounded by `prune_s`; a prune that fails or runs out is logged, the turn
+# is already done, and the next turn's prune takes what is left.
+history:
+  keep_checkpoints: 40
+  prune_s: 3

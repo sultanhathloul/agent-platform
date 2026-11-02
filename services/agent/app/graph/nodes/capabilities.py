@@ -241,6 +241,9 @@ def _broker_for(ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentSta
             context=guard_context(state, ctx, tools=()),
             on_guard=on_guard,
             on_audit=ctx.tool_audit.append,
+            # The turn's own checkpointed history (admission checked its owner); the broker hands it only to
+            # a capability declaring `conversation_history` (ADR-0434).
+            history=state.get("messages") or [],
         )
 
     return _Broker(execute=execute)
@@ -385,6 +388,12 @@ async def _report_retrieval(state: AgentState, ctx: TurnContext) -> _ReportRetri
     latest = page = None
     if form.get("edit") and services.reports is not None:
         latest = await services.reports.latest_in(principal.tenant_id, principal.user_id, state["conversation_id"])
+        based = form.get("based_on")
+        if latest is None and isinstance(based, dict):
+            # A new version of one of the user's earlier reports (ADR-0433): its title, plan and cited passages.
+            latest = await services.reports.version(
+                principal.tenant_id, principal.user_id, str(based.get("report_id")), int(based.get("version") or 0)
+            )
         if latest is not None:
             try:
                 page = (await services.reports.page(latest, services.artifacts.report.storage.store_s)).decode("utf-8")

@@ -35,3 +35,19 @@ def visible(messages: Sequence[Any]) -> list[tuple[str, str] | None]:
         if i and _fields(message)[2] and parsed[i - 1] is not None and parsed[i - 1][0] == "user":
             parsed[i - 1] = None
     return parsed
+
+
+def report_reply(message: Any) -> dict | None:
+    """The report a reply wrote, {title, version, digest}, as persist_state stored it beside the reply
+    (report library PR, ADR-0430); None for any other message. A reply stored before the digest existed
+    has an empty one."""
+    kwargs = message if isinstance(message, dict) else (getattr(message, "additional_kwargs", None) or {})
+    artifact = kwargs.get("artifact")
+    if not isinstance(artifact, dict) or artifact.get("kind") != "report" or not isinstance(artifact.get("title"), str):
+        return None
+    digest = kwargs.get("artifact_digest")
+    return {
+        "title": artifact["title"],
+        "version": artifact.get("version") if isinstance(artifact.get("version"), int) else 1,
+        "digest": digest if isinstance(digest, str) else "",
+    }

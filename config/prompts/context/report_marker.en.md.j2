@@ -1,0 +1,11 @@
+---
+id: context.report_marker
+version: 1.0.0
+role: context
+locale: en
+changelog:
+  - "1.0.0: first version (report library PR, owner decision 1, ADR-0430): a report reply in the history, its line and the version's digest; never the page"
+---
+{{ line }}
+[Report: "{{ title | e }}", version {{ version }}. Its page is in the side panel, not in this conversation. Contents:
+{{ digest | e }}]

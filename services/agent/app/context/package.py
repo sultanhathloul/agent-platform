@@ -13,6 +13,7 @@ BlockName = Literal[
     "state_digest",
     "window",
     "summary",
+    "reports",
     "memory",
     "retrieval",
     "tool_results",
@@ -32,7 +33,7 @@ SKILL_BLOCK = "skill"
 # The blocks that form the current user message; only these merge (ADR-0076). The evidence
 # blocks are data in the user role and travel with the question (owner decision S2).
 CURRENT_MESSAGE_BLOCKS: frozenset[str] = frozenset(
-    {"summary", "memory", "retrieval", "tool_results", "findings", "report_current", "user_message"}
+    {"summary", "reports", "memory", "retrieval", "tool_results", "findings", "report_current", "user_message"}
 )
 # A report turn's blocks (reports PR, ADR-0380): the design kit's prompt part (system role, reviewed
 # text) and, on a follow-up, the latest version being revised (user role, data). Only the report writer
@@ -120,6 +121,11 @@ class AssemblyRequest(BaseModel):
     )
     report: ReportBlockRequest | None = Field(
         default=None, description="A report turn's kit and current version (reports PR, ADR-0380)."
+    )
+    reports: list[dict[str, Any]] = Field(
+        default=[],
+        description="The conversation's reports at their latest versions, {report_id, title, version, digest}, "
+        "the `reports` block (report library PR, decision 1, ADR-0430).",
     )
     prompt_vars: dict[str, Any] = Field(
         default={}, description="Extra variables for the node's system and request prompts (guard judge)."

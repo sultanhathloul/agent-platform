@@ -21,6 +21,7 @@ BUDGETED_BLOCKS: tuple[BlockName, ...] = (
     "report_current",
     "state_digest",
     "summary",
+    "reports",
     "window",
     "memory",
     "retrieval",

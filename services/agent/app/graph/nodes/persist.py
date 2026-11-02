@@ -27,6 +27,9 @@ async def persist_state(state: AgentState, runtime: Runtime[TurnContext]) -> dic
     if state.get("report"):
         # The report this reply wrote, {id, kind, title, version}, for the history's report card (I5).
         assistant["artifact"] = dict(state["report"])
+        if state.get("report_digest"):
+            # The version's digest, the history marker's content (ADR-0430); never the page.
+            assistant["artifact_digest"] = state["report_digest"]
     if state.get("skill"):
         # The skill the reply was written with, {slug, version}, for the history's chip (ADR-0301).
         assistant["skill"] = dict(state["skill"])

@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform Agent API (internal)",
     "description": "Internal API called only by the gateway (README §6.2).",
-    "version": "2.7.0"
+    "version": "2.8.0"
   },
   "paths": {
     "/v1/health": {
@@ -6181,6 +6181,211 @@
         }
       }
     },
+    "/v1/reports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Library",
+        "description": "The caller's own reports only (owner in the store's every WHERE, ADR-0432); the gateway checks each\nreturned conversation's owner again.",
+        "operationId": "library_v1_reports_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "Words to search for; empty lists the newest.",
+              "default": "",
+              "title": "Q"
+            },
+            "description": "Words to search for; empty lists the newest."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Changed on or after this time.",
+              "title": "Since"
+            },
+            "description": "Changed on or after this time."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Changed before this time.",
+              "title": "Until"
+            },
+            "description": "Changed before this time."
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(general|file|kb:[a-z0-9][a-z0-9-]{0,62})$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_before` of the previous page.",
+              "title": "Before"
+            },
+            "description": "`next_before` of the previous page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's user id.",
+              "title": "X-User-Id"
+            },
+            "description": "The caller's user id."
+          },
+          {
+            "name": "x-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The caller's tenant id.",
+              "title": "X-Tenant-Id"
+            },
+            "description": "The caller's tenant id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "report_not_found: no such report of the caller's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "report_unavailable: the page store did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/reports/{report_id}": {
       "get": {
         "tags": [
@@ -8092,6 +8297,119 @@
         ],
         "title": "KbView"
       },
+      "LibraryItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "conversation_id": {
+            "type": "string",
+            "title": "Conversation Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "The latest version's title."
+          },
+          "latest_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Latest Version"
+          },
+          "matched_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Matched Version",
+            "description": "The version the search matched best (the latest without a query)."
+          },
+          "subject": {
+            "type": "string",
+            "title": "Subject",
+            "description": "The spec's subtitle and period.",
+            "default": ""
+          },
+          "sections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sections",
+            "description": "Section titles, in order.",
+            "default": []
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources",
+            "description": "The names of the sources it cites.",
+            "default": []
+          },
+          "source_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Kinds",
+            "description": "general, file, or kb:<slug>, for the source filter.",
+            "default": []
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "conversation_id",
+          "title",
+          "latest_version",
+          "matched_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LibraryItem",
+        "description": "One report of the caller's library (report library PR, owner decisions 3 and 4, ADR-0432, ADR-0436)."
+      },
+      "LibraryPage": {
+        "properties": {
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryItem"
+            },
+            "type": "array",
+            "title": "Reports",
+            "description": "Best match first with a query; otherwise newest first."
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before",
+            "description": "`before` of the next page, if any."
+          }
+        },
+        "type": "object",
+        "required": [
+          "reports"
+        ],
+        "title": "LibraryPage"
+      },
       "LiveKbs": {
         "properties": {
           "live": {
@@ -9302,6 +9620,25 @@
         ],
         "title": "RecordedContext"
       },
+      "ReportBase": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "title": "Report Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_id",
+          "version"
+        ],
+        "title": "ReportBase"
+      },
       "ReportList": {
         "properties": {
           "reports": {
@@ -9483,6 +9820,17 @@
             "type": "array",
             "title": "Versions",
             "description": "Oldest first; none is ever removed (D4)."
+          },
+          "based_on": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportBase"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The earlier report of the caller's this one was made from (ADR-0433)."
           }
         },
         "type": "object",

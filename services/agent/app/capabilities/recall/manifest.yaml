@@ -1,0 +1,38 @@
+slug: recall
+version: 1.0.0
+name: {ar: "التقارير والرسائل السابقة", en: "Earlier reports and messages"}
+description:
+  ar: "يجيب عن أسئلة عن تقارير المستخدم ولوحاته التي أنشأها في هذه المحادثة أو في محادثة سابقة، وعمّا قيل أو أُرسل قبل ذلك في هذه المحادثة."
+  en: "Answers questions about the user's reports and dashboards from this or an earlier conversation, and about what was said or sent earlier in this conversation."
+icon: "history"
+enabled_by_default: true
+permission: "cap:recall"            # a composite child of `user`: every user reads only their own (ADR-0431)
+risk: read
+ui:
+  mode: auto                        # chosen by the router; no toggle
+  order: 30
+routing_hints:
+  description:
+    ar: "أسئلة عن تقرير أو لوحة مؤشرات أنشأها المستخدم من قبل (ما فيها من أرقام أو أسماء أو أقسام، أو قائمة تقاريره)، في هذه المحادثة أو في محادثة سابقة، أو عن شيء ذكره المستخدم أو أرسله في وقت سابق من هذه المحادثة (جدول أو رقم أو اسم). ليست لإنشاء تقرير جديد ولا لتعديله."
+    en: "Questions about a report or dashboard the user made earlier (its figures, names or sections, or the list of their reports), in this or an earlier conversation, or about something the user said or sent earlier in this conversation (a table, a figure, a name). Not for making or changing a report."
+  # Candidacy only (ADR-0216): a keyword makes recall a router candidate; the router model decides.
+  keywords:
+    ar: [تقرير, تقارير, لوحه, لوحات, داشبورد, الجدول, جدول, جداول, ذكرت, ذكرتها, ذكرته, قلت لك, قلتلك, قلت لي,
+         ارسلت, ارسلته, لصقت, اشتغلنا, سويته, سويتها, سويناه, سابق, بدايه المحادثه, اول المحادثه, قبل قليل]
+    en: [report, dashboard, earlier, previous, mentioned, you said, i said, i pasted, i sent, the table,
+         beginning of]
+  rules:
+    - when: keyword_candidate
+model:
+  min_tier: standard                # the answer synthesizes from the report's text (README §19.4)
+  steps: {}
+  on_overflow: compress
+context:
+  needs: [state_digest, summary, reports, window, memory, findings]
+  max_input_tokens: 16000
+tools: [report_search, report_read, conversation_recall]
+access: [report_library, conversation_history]   # the caller's own reports; this conversation's history (ADR-0431)
+limits:
+  max_iterations: 1
+  timeout_s: 30
+state_namespace: "cap.recall"

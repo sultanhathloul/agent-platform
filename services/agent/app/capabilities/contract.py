@@ -244,6 +244,10 @@ class Manifest(_Strict):
     # The tools this capability may call; the broker refuses any other (S1, ADR-0160).
     tools: list[str] = []
     documents: DocumentsSpec = DocumentsSpec()
+    # What else this capability's tools may read (report library PR, ADR-0431), each bound by the broker to
+    # the verified principal and the turn: `report_library`, the caller's own reports; `conversation_history`,
+    # the turn's conversation's stored messages. [] reaches neither.
+    access: list[Literal["report_library", "conversation_history"]] = []
     # A declarative capability (I12): no graph.py; the core runner builds its subgraph.
     declarative: DeclarativeSpec | None = None
 

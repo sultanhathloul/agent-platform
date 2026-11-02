@@ -1,0 +1,11 @@
+---
+id: context.report_marker
+version: 1.0.0
+role: context
+locale: ar
+changelog:
+  - "1.0.0: first version (report library PR, owner decision 1, ADR-0430): a report reply in the history, its line and the version's digest; never the page"
+---
+{{ line }}
+[تقرير: «{{ title | e }}»، الإصدار {{ version }}. صفحته في اللوحة الجانبية لا في هذه المحادثة. محتواه:
+{{ digest | e }}]

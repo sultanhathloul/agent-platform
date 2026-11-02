@@ -84,6 +84,9 @@ class Services:
     # Interactive reports (reports PR): app.artifacts.config.Artifacts and app.artifacts.store.ReportStore.
     artifacts: Any = None
     reports: Any = None
+    # The report library and recall bounds (config/library.yaml; report library PR, ADR-0430 onward):
+    # app.artifacts.library.LibraryConfig.
+    library: Any = None
 
     def backend_name(self, slug: str) -> str | None:
         name = self.registry.get(slug).config.get("backend")
@@ -135,6 +138,8 @@ class TurnContext:
     # The model calls that produced the capabilities' findings this turn, (capability slug, ModelResult), in
     # order: a development report's model strip names them (owner decision C, ADR-0391).
     finding_calls: list[tuple[str, Any]] = field(default_factory=list)
+    # The conversation's report index, read once per turn (report library PR, ADR-0430); None until read.
+    report_index: list[dict] | None = None
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

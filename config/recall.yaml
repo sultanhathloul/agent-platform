@@ -1,0 +1,5 @@
+# The recall capability's own configuration (report library PR, ADR-0431; README §18.3 C3: config/<slug>.yaml).
+# How many reports one turn reads in full (each cut to config/library.yaml read.max_chars).
+max_reads: 1
+# A message naming a report reads this conversation's latest report when its words matched none.
+report_words: [تقرير, تقارير, لوحه, لوحات, داشبورد, report, dashboard]

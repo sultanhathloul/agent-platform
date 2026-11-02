@@ -4,7 +4,7 @@ records what it cut; the budget guard enforces the tier budget afterwards."""
 
 from app.context.budget import Budget
 from app.context.compress import extractive, extractive_delimited, truncate
-from app.context.messages import visible
+from app.context.messages import report_reply, visible
 from app.context.package import ContextPackage, SkillBlockRequest
 from app.context.selectors.base import Step
 from app.models.prompts import PromptLibrary
@@ -191,13 +191,60 @@ class SlidingWindow(Step):
             size = req.window_messages
         else:
             size = config.compress.window_messages if req.compress else config.window_messages
-        recent = history[-size:] if size else []
-        blocks = [self.make_block("window", parsed[0], parsed[1]) for parsed in recent if parsed]
+        messages = (req.state.get("messages") or [])[req.state.get("summary_cursor") or 0 :]
+        pairs = list(zip(messages, history, strict=True))
+        recent = pairs[-size:] if size else []
+        blocks = [
+            self.make_block("window", parsed[0], self._text(package, message, parsed))
+            for message, parsed in recent
+            if parsed
+        ]
         limit = self.budget_for(package).max_tokens
         while blocks and sum(b.tokens for b in blocks) > limit:
             oldest = blocks.pop(0)
             self.drop(package, "window", oldest.tokens, "block_budget")
         package.blocks.extend(blocks)
+        return package
+
+    def _text(self, package: ContextPackage, message, parsed: tuple[str, str]) -> str:
+        """A report reply carries the report's marker (decision 1, ADR-0430): its line, then the version's
+        title, number and digest as stored with the reply; never the page, so there is nothing to imitate."""
+        role, text = parsed
+        report = report_reply(message) if role == "assistant" else None
+        if report is None:
+            return text
+        return self.deps.prompts.render(
+            "context.report_marker", package.locale, line=text, title=report["title"], version=report["version"],
+            digest=report["digest"],
+        ).text
+
+
+class ReportIndex(Step):
+    """The conversation's reports, each at its latest version, as digests (report library PR, decision 1,
+    ADR-0430): title, version, section titles, KPI labels and values, table headers. User-role data, like the
+    summary (ADR-0068). Within its block budget the most recently changed reports stay; the oldest leave
+    first, each drop recorded. Never folded into the summary: it is rebuilt from the store on every turn."""
+
+    name = "report_index"
+    block = "reports"
+
+    async def apply(self, package: ContextPackage, budget: Budget) -> ContextPackage:
+        req, counter = package.request, self.deps.counter
+        reports = list(req.reports)
+        if not reports:
+            return package
+        limit = self.budget_for(package).max_tokens
+        while reports:
+            prompt = self.deps.prompts.render("context.report_index", req.locale, reports=reports)
+            if counter.count(prompt.text) <= limit:
+                break
+            oldest = reports.pop()  # listed newest first
+            self.drop(package, "reports", counter.count(oldest.get("digest") or ""), "block_budget")
+        if not reports:
+            return package
+        ids = [r.get("report_id") for r in reports]
+        package.blocks.append(self.make_block("reports", "user", prompt.text, prompt=prompt.ref, reports=ids))
+        package.prompt_refs.append(prompt.ref)
         return package
 
 
