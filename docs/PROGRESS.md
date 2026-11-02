@@ -2745,6 +2745,32 @@ Results (rule 11; owner asked for make test (web) only, so no other layer, eval 
 Files for human review
 - services/web/public/brand/ (the owner's assets), services/web/src/app/globals.css (the logo rules).
 
+## Report library, long-conversation recall and a memory fix (standalone PR, owner decision)
+
+- Branch: `feat/report-library`, from main at d559ae5 (PR #18, logo version 3, merged on 2026-11-01T10:35:48Z). The session prompt is kept verbatim in `docs/REPORT-LIBRARY-PROMPT.md`; it arrived whole (it ends with FINISH). Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- ADR numbers: main ends at ADR-0428; ADR-0429 is taken by the open PR #19 (`chore/logo-v4`), so this PR's ADRs start at ADR-0430.
+- Status: in progress.
+- Baseline (the last recorded runs on main): make test at 03c01ec (PR #17): agent 1261 / 0 / 0, gateway 215 / 0 / 0, gateway-db 5 / 0 / 0, web 224 / 0 / 0, evals harness 40 / 0 / 0, timeout budget 39 / 0 / 0, scripts/tests 36 / 0 / 0; web 227 / 0 / 0 after logo version 3 (d559ae5); make smoke 258/258; make eval make-eval-20261030T122309Z (reports 11/12, accepted by ADR-0427; routing 112/113).
+- Evidence read before planning (conversation 14d0ebf8-1ad3-4f85-a31c-15992ceb5f76, analyst, 26 messages, no summary yet):
+  - A report reply is stored as one line, «أُنشئ التقرير «…» (الإصدار n).» / «حُدّث التقرير …», with `artifact {id, title, version}` beside it; nothing of the report's content reaches a later model call. Turns 20 to 23 («وش التقارير اللي اشتغلنا عليها»، «تقدر تبحث في لوحة المعلومات») answered that no report existed.
+  - «منهم أساطير كرة القدم المذكورين في التقرير السابق» (turn 8c99f8d9…, 2026-11-02 11:53:26Z): the router judged it an edit of the Al Hilal report (`route report … edit=True decided_by=model`); the writer's spec failed twice and the turn ended `validation_failed: report: invalid_spec`. A question about a report was treated as a change to it.
+  - The memory item «المستخدم يعمل في إدارة التخطيط.» (153fd002…, analyst) has source turn 66bb126e…, conversation 128a991e…, whose only question is scripts/smoke.sh's phase 03 memory check sent as analyst: «رقم جوالي 0559876543 وأعمل في إدارة التخطيط. …». So that item was stated in a user message, by smoke, not invented in a memo. It is still removed (decision 6), and smoke now deletes what its own turn stores.
+- Done when (the prompt): every turn's context carries a bounded index of the conversation's reports and the history marker carries the version's digest; `report_read`, `report_search` and `conversation_recall` run through the broker, owner-scoped and size-capped, with negative tests at the gateway and the agent; a question about a report is a text answer citing «من التقرير: <title> (الإصدار n)»; every version is indexed (a backfill for existing ones); a new version of a library report is made in the current conversation from its spec, the original untouched; the web page «تقاريري» / "My reports" (list, search, filter by date and source, open in the side panel, download; both themes); summaries keep named entities and pasted tables or lists; memory stores only what the user stated; every conversation-length limit listed and a 60-turn conversation measured, anything growing without bound fixed; the `long_conversation` scenario run as analyst with a step table; make test, make eval (routing, reports, memory, long_conversation) once, make smoke green; recorded per rule 11; pushed, MR open.
+
+Checklist
+- [ ] ADRs for decisions 1 to 7 and the implementation choices.
+- [ ] 1. Report index block on every turn of a conversation with reports (budgeted, user role, never in the summary); the history marker carries the version's digest.
+- [ ] 2. `report_read(report_id, version?)`: the spec as readable text, size-capped, owner-only; a question about a report routes to text, not an edit (router prompt); citation «من التقرير: <title> (الإصدار n)».
+- [ ] 3. Library index table, written with every version; backfill of existing versions; `report_search(query)` owner-only at the agent; gateway list/search endpoint checking ownership; a new version of a library report in the current conversation from its spec (`based_on`), the original untouched.
+- [ ] 4. Web page `/reports` «تقاريري»: list, search, date and source filters, side panel, download; i18n ar/en; both themes; web tests.
+- [ ] 5. `conversation_recall(query)` over the conversation's stored history, verbatim, bounded; summarizer prompt keeps named entities and pasted tables or lists.
+- [ ] 6. Memory: the extractor reads only the user's message; tests (a memo naming a department stores nothing; a user's own statement still does); the «إدارة التخطيط» item removed; smoke deletes the memory its own turn stores.
+- [ ] 7. Conversation-length limits listed; a 60-turn measurement (context tokens per turn, latency at turns 10, 30, 60, checkpoint size); fixes for what grows without bound.
+- [ ] Rule 12 for the new tools: bounds, owner scope, size caps; RESILIENCE rows; negative tests (no tool returns another user's reports or conversation).
+- [ ] API version bump (additive), `make openapi`, gateway tests.
+- [ ] Eval suites `memory` and `long_conversation` (scenario as analyst, transcript saved, step table with evidence).
+- [ ] make test; make eval (routing, reports, memory, long_conversation) once; make smoke; rule 11; pages for the owner's visual check; push; MR.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
