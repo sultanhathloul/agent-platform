@@ -2950,6 +2950,17 @@ Files for human review
 - services/agent/app/db/migrations/0023_report_library.sql; the checkpoint prune (services/agent/app/graph/prune.py).
 - `docs/HANDOFF.md` untouched.
 
+### Writing-script check: an Arabic prefix on a Latin word (ADR-0440, owner request)
+
+- Why: «عطني فكرة عن السيرة الذاتية المرفقة» on an attached CV ended «لم تجتز الإجابة التحقق، فلم تُعرض.» every time: 7 turns in 30 minutes `validation_failed: mixed_script_token`; turn dfff0ff2 (Langfuse trace d90e2616) refused a correct answer for `وSQL` and `وDeepLearning.AI`.
+- Done: `config/validation.yaml` `prefixes` for `ar`; `app/text/script.py` passes a listed prefix (optionally with a tatweel) followed by a word of one other script; tests in tests/unit/test_validate.py (the CV answer, 6 passing shapes, 5 still-failing shapes, a disallowed script after a prefix, the rule off without prefixes). Rule 13: a guard change, so make test and make smoke, no eval.
+
+Results (rule 11)
+- make test 15:05:23Z–15:19:55Z, rc 0: agent 1307 / 0 / 0; gateway 217 / 0 / 0; gateway-db 5 / 0 / 0; web 254 / 0 / 0 (22 files); evals tests 40 / 0 / 0; timeout budget 43 / 0 / 0; scripts tests 37 / 0 / 0.
+- make up 15:19:55Z–15:20:05Z, rc 0 (the agent rebuilt with the fix).
+- make smoke 15:20:05Z–15:20:33Z, rc 2: 48 checks passed, 1 failed, then stopped (the checks after phase 03 did not run). Failed: `pii-redact-output redacted the answer`. Evidence: agent.guard_policy_heads has all 11 policies `enabled = false`; the owner disabled them on this development stack at 14:41Z (updated_by 957f376d…), so no redaction can happen. Not a defect of this change; smoke is not green until the seeded policies are enabled again and it is rerun.
+
+
 
 ## Phase 07: Planner
 

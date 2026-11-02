@@ -13,6 +13,7 @@ from app.text.script import (
     load_validation_config,
     script_issues,
     script_of,
+    script_tokens,
 )
 
 SOURCES = [{"id": "s1"}]
@@ -69,11 +70,59 @@ def test_script_failures_in_arabic_answers(arabic, answer, expected):
 
 
 def test_a_mixed_token_passes_only_when_allowlisted(arabic):
-    answer = "يمكنك استخدام (الـAPI) مباشرة."
+    answer = "يمكنك استخدام (APIات) مباشرة."
     assert script_issues(answer, arabic) == [MIXED_SCRIPT_TOKEN]
-    allowlisted = arabic.model_copy(update={"mixed_token_allowlist": ["الـAPI"]})
+    allowlisted = arabic.model_copy(update={"mixed_token_allowlist": ["APIات"]})
     assert script_issues(answer, allowlisted) == []  # compared after trimming the parentheses
-    assert script_issues("يمكنك استخدام الـAPIs.", allowlisted) == [MIXED_SCRIPT_TOKEN]
+    assert script_issues("يمكنك استخدام APIsات.", allowlisted) == [MIXED_SCRIPT_TOKEN]
+
+
+# The answer of turn dfff0ff2 (a CV question, 2026-11-02) that failed on `وSQL` and
+# `وDeepLearning.AI` (ADR-0440).
+CV_ANSWER = "يمتلك مهارات تقنية تشمل Python، Java، C++، وSQL، بالإضافة إلى شهادات من Google وDeepLearning.AI."
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        CV_ANSWER,
+        "يكتب بـPython ويستخدم الـAPI مباشرة.",
+        "ثم انتقل إلى للـCloud ثم فـLinux.",
+        "عمل في بالـDevOps وكـTeam Lead.",
+        "شهادة من و«Google» و(AWS).",
+        "يعمل مع وC++ و.NET.",
+    ],
+    ids=["cv-answer", "ba-tatweel-al", "lil-fa", "bal-ka", "quoted", "symbols"],
+)
+def test_an_arabic_prefix_on_a_latin_word_passes(arabic, answer):
+    assert script_issues(answer, arabic) == []
+    assert script_tokens(answer, arabic) == []
+    assert validation_issues(answer, [], [], scripts=arabic) == []
+
+
+@pytest.mark.parametrize(
+    ("answer", "token"),
+    [
+        ("هي الريyal السعودي.", "الريyal"),  # no prefix: `الري` is a word, not a prefix
+        ("عاصمة البرتugal.", "البرتugal"),
+        ("استخدم وSQLات هنا.", "وSQLات"),  # Arabic again after the Latin word
+        ("هذه APIات جديدة.", "APIات"),  # Latin first: a suffix is not a prefix
+        ("في وMoсква.", "وMoсква"),  # the word after the prefix mixes two scripts
+    ],
+    ids=["riyal", "portugal", "arabic-after", "latin-first", "mixed-tail"],
+)
+def test_a_mixed_token_without_a_prefix_still_fails(arabic, answer, token):
+    assert MIXED_SCRIPT_TOKEN in script_issues(answer, arabic)
+    assert token in script_tokens(answer, arabic)
+
+
+def test_a_prefix_before_another_disallowed_script_still_fails(arabic):
+    assert script_issues("عاصمة روسيا وМосква.", arabic) == [DISALLOWED_SCRIPT]
+
+
+def test_without_prefixes_a_prefixed_word_fails(arabic):
+    bare = arabic.model_copy(update={"prefixes": []})
+    assert script_issues("يعرف وSQL.", bare) == [MIXED_SCRIPT_TOKEN]
 
 
 def test_script_of_classifies_letters_and_leaves_the_rest_neutral():

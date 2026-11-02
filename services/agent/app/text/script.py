@@ -3,7 +3,9 @@
 For a locale with a script policy (config/validation.yaml), letters may come only
 from the allowed Unicode scripts, and a whitespace-delimited token may not mix
 letters of two scripts: `الريyal` fails, `الرياض (Riyadh)` passes, and a Cyrillic
-or CJK letter fails anywhere. Digits, punctuation, symbols, whitespace and
+or CJK letter fails anywhere. A word that is one of the locale's `prefixes` (with or
+without a tatweel) followed by a word of one other allowed script passes: `وSQL`,
+`بـPython`, `الـAPI` (ADR-0440). Digits, punctuation, symbols, whitespace and
 combining or modifier marks carry no script, nor do the parts of an emoji sequence:
 variation selectors (🏖️ and ⚙️ end in U+FE0F, a mark), skin-tone modifiers, the
 zero-width joiner, keycaps, regional indicators and tags (F1, ADR-0340). Deterministic and model-free;
@@ -29,6 +31,10 @@ class _Strict(BaseModel):
 class ScriptPolicy(_Strict):
     letters: list[str] = Field(min_length=1, description="Unicode script names, e.g. ARABIC, LATIN.")
     mixed_token_allowlist: list[str] = []
+    prefixes: list[str] = Field(
+        default=[],
+        description="Prefixes (Arabic و، ب، ال) that may precede a word of another script (ADR-0440).",
+    )
 
 
 class RetryPolicy(_Strict):
@@ -70,15 +76,41 @@ def _trimmed(token: str) -> str:
     return token[start:end]
 
 
+_TATWEEL = "\u0640"
+
+
+def _prefixed(word: str, policy: ScriptPolicy) -> bool:
+    """True when `word` is one of the policy's prefixes, optionally followed by a
+    tatweel or punctuation, then a word whose letters are all of one other script:
+    `وSQL`, `بـPython`, `و«Google»` (ADR-0440). `الريyal` is not: `الري` is no prefix."""
+    if not policy.prefixes or not word:
+        return False
+    first = script_of(word[0])
+    split = next((i for i, char in enumerate(word) if (s := script_of(char)) and s != first), None)
+    if split is None:
+        return False
+    head = word[:split]
+    while head and (head[-1] == _TATWEEL or script_of(head[-1]) is None):
+        head = head[:-1]
+    tail_scripts = {script for char in word[split:] if (script := script_of(char))}
+    return head in policy.prefixes and len(tail_scripts) == 1 and first not in tail_scripts
+
+
+def _mixed(token: str, scripts: set[str], policy: ScriptPolicy) -> bool:
+    if len(scripts) < 2:
+        return False
+    word = _trimmed(token)
+    return word not in policy.mixed_token_allowlist and not _prefixed(word, policy)
+
+
 def script_issues(text: str, policy: ScriptPolicy) -> list[str]:
     allowed = set(policy.letters)
-    allowlisted = set(policy.mixed_token_allowlist)
     disallowed = mixed = False
     for token in text.split():
         scripts = {script for char in token if (script := script_of(char))}
         if scripts - allowed:
             disallowed = True
-        if len(scripts) > 1 and _trimmed(token) not in allowlisted:
+        if _mixed(token, scripts, policy):
             mixed = True
     return [code for code, found in ((DISALLOWED_SCRIPT, disallowed), (MIXED_SCRIPT_TOKEN, mixed)) if found]
 
@@ -86,11 +118,10 @@ def script_issues(text: str, policy: ScriptPolicy) -> list[str]:
 def script_tokens(text: str, policy: ScriptPolicy) -> list[str]:
     """The words that fail the policy, each once, in order: what a retry's prompt names (ADR-0390)."""
     allowed = set(policy.letters)
-    allowlisted = set(policy.mixed_token_allowlist)
     found: list[str] = []
     for token in text.split():
         scripts = {script for char in token if (script := script_of(char))}
-        bad = scripts - allowed or (len(scripts) > 1 and _trimmed(token) not in allowlisted)
+        bad = scripts - allowed or _mixed(token, scripts, policy)
         if bad and _trimmed(token) not in found:
             found.append(_trimmed(token))
     return found
