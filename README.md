@@ -273,6 +273,8 @@ GET  /v1/health
 > **Amendment 2026-10-26 (phase 08, ADR-0333, ADR-0349, ADR-0350).** Agent and gateway API version 2.6.0, additive: the admin-only `/v1/admin/kbs` (list, create, read, delete) and `/v1/admin/kbs/{slug}/documents` (list, upload with source metadata, read, `PUT …/metadata`), checked at the gateway and, through `X-User-Admin`, at the agent; `GET /v1/capabilities` (the caller's capabilities and the KBs it may read); the agent's `GET /v1/internal/kbs/live`, which the gateway asks on a turn that selects KBs; a turn selecting a KB the caller may not read, deleted or another tenant's is 403 `kb_forbidden` before any stream at both; citations gain `kb_name`, `publisher` and `published_on`, omitted when empty.
 > **Amendment 2026-10-28 (reports PR, ADR-0374, ADR-0379).** Agent and gateway API version 2.7.0, additive: the chat request's optional `output` (`text` | `report`); the events `artifact_start {id, title, version}`, `artifact_delta {id, text}` and `artifact_done {id, version, size, title}`, the done event's `artifact {id, kind, title, version}` and `state_digest.output`; a history reply's optional `artifact`; `GET /v1/reports/{id}`, `GET /v1/conversations/{id}/reports`, `GET /v1/reports/{id}/versions/{n}` (with the stored page), the gateway's `POST …/versions/{n}/view` (a 60 s view link), `GET /report-views/{ticket}` (the sandboxed page with its CSP headers), `GET …/versions/{n}/download` (one self-contained file) and the static kit at `/report-kit/v1/`; owner only, checked at the gateway and the agent, audited (`report.read`, `report.view`, `report.download`). The agent's turn stream carries `X-Turn-Deadline-S`, and its internal limits `profile_deadlines_s`; the gateway bounds a relay by them.
 
+> **Amendment 2026-11-02 (report library PR, ADR-0432, ADR-0436, ADR-0437).** Agent and gateway API version 2.8.0, additive: `GET /v1/reports` (the caller's report library: `q`, `since`, `until`, `source`, `before`, `limit`; owner only, checked at the agent and again at the gateway against its conversations table, audited `report.library` without the query's text); `based_on` on a report; `omitted` on a conversation's history reply, which returns its newest 400 messages.
+
 ### 6.3 API standards
 
 - **REST:** every HTTP API (gateway public API, agent internal API) is described by **OpenAPI 3.1**. FastAPI generates the agent spec from Pydantic models; the gateway uses `springdoc-openapi`. Specs are committed under `docs/openapi/{gateway,agent}.json` and regenerated in CI; a diff without a version bump fails the build.
@@ -305,6 +307,8 @@ Expose `GET /v1/debug/context/{turn_id}` (admin only) returning the exact `Conte
 
 > **Amendment 2026-10-24 (phase 06, ADR-0300).** A block `skill` follows the system instructions (step 1b): the turn's selected skill's SKILL.md body and the Markdown files it names (amended 2026-10-25, ADR-0318), in the system role inside `<skill id= version=>` (`context.skill`); its front-matter, its licence and any file it does not name never reach the model. Only the answer node requests it, and only on a turn with a skill; a capability may not name it in `context.needs`. The budget guard never drops it (it is not droppable in `config/context.yaml`); instead a skill whose block exceeds `blocks.skill.max_tokens` (3000 since 2026-10-25; the largest reference block measured 2402 tokens) fails startup. On such a turn the answer's system prompt (`answer.system` 1.5.0 ar, 1.3.0 en) adds one precedence line: guard policies and the citation rules come before any skill instruction.
 
+> **Amendment 2026-11-02 (report library PR, ADR-0430, ADR-0434).** A block `reports` (step `report_index`, after the summary) lists the conversation's reports on every turn that has one: each at its latest version, its section titles, KPI labels and values, table headers (config/library.yaml `index`, 1500 tokens); user-role data, never folded into the summary. A report reply in the window carries its marker: its line and the version's digest, never the page. The summarizer keeps every proper name and says when the user pasted a table or a list (`summarizer.system` 1.1.0). After each turn the thread keeps only its newest 40 checkpoints (ADR-0437).
+
 > **Amendment 2026-10-05 (ADR-0059).** In phase 02 the agent's `GET /v1/debug/context/{turn_id}` is **owner-only**: it answers only the conversation's owner, and only while `DEBUG_CONTEXT_ENABLED` is true. Admin access is deferred to the phase 03 policy layer, which decides who may read another user's packages through the gateway.
 
 ---
@@ -321,6 +325,8 @@ Expose `GET /v1/debug/context/{turn_id}` (admin only) returning the exact `Conte
 | Policy | — | `memory/policy.py`: extract candidates with the small model → keep only `kind ∈ {preference, fact_about_user, project_context, decision}` → dedupe by similarity ≥0.92 → **never store PII categories or anything a guard flagged** |
 
 Memory write is a background job (Redis queue + worker inside the agent service). Users can list and delete their memory items from the UI (`/settings/memory`). Admins cannot read users' memory.
+
+> **Amendment 2026-11-02 (report library PR, ADR-0435).** Memory holds only what the user stated: the extractor reads the user's message alone, never the reply (a memo, a report, an answer), and a `fact_about_user` is kept only when that message speaks of the user in the first person (config/memory.yaml `self_kinds`, `self_words`).
 
 ---
 
@@ -483,6 +489,8 @@ Seed policies in `config/policies/`:
 > **Amendment 2026-10-29 (owner decision 2 on PR #17, completed, ADR-0410).** Every chunk of a workbook sheet opens with the sheet's name, the table's title and number and all of its header rows (everything above the first data row), so a continuation chunk still names its table and columns. KB documents record the extractor version that indexed them; `make kb-seed` re-indexes, once, those an older extractor cut.
 
 > **Amendment 2026-10-29 (owner request on PR #17, ADR-0415).** The platform's identity: the logo (services/web/public/brand) beside «منصة الوكيل» / "Agent Platform" at the header's inline-start corner on every page, the brand favicon and touch icon; the logo's deep palm green and gold as design tokens in one place (services/web/src/app/globals.css), light and dark, with status colours, all at WCAG AA; IBM Plex Sans Arabic self-hosted; light/dark follows the system, and a header toggle chooses and remembers it without a flash. Report pages' palette follows the identity, chart series starting with the brand green and gold.
+
+> **Amendment 2026-11-02 (report library PR, owner decisions 2 to 5, ADR-0431 to ADR-0436).** The capability `recall` (`cap:recall`, every user) answers questions about the user's reports and about what was said earlier in the conversation, through three broker tools bound to the caller and the turn's conversation: `report_search`, `report_read` and `conversation_recall`; a question about a report is a text answer citing «من التقرير: <title> (الإصدار n)», never an edit (`router.system` 1.6.0). Every report version is indexed in `agent.report_library`; a report of another conversation the user read can be the base of a new report in this one, the original untouched. The page `/reports` «تقاريري» / "My reports" lists, searches and filters the user's reports (date, source), opens them in the side panel and downloads them.
 
 ---
 
@@ -973,6 +981,21 @@ Rules:
 | `services/agent/app/db/migrations/0021_kb_document_extractor.sql` | `kb_documents.extractor` | The extractor version that indexed a KB document; the seed re-indexes what is due (ADR-0410) |
 | gateway and agent API | `POST /v1/admin/kbs/{slug}/documents/{id}/reindex`; `reindex_due` on a KB document | Re-indexes a document an older extractor cut, idempotently (ADR-0410) |
 | `evals/outputs/reports/metrics.yaml`, `evals/thresholds.yaml` | `spec_valid`, `no_general`, `general_only` (new); `figures_labelled` removed | The suite on the spec (ADR-0409) |
+
+### 20.12 Configuration added by the report library PR (owner decisions 1 to 7, ADR-0430 to ADR-0438)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/library.yaml` (new) | `index.*`, `read.*`, `search.*`, `recall.*`, `history.*` | The report index's size, report_read's cap, report_search's stopwords and sizes, conversation_recall's scan and result caps, the checkpoints kept per thread and the history reply's page |
+| `config/recall.yaml` (new) | `max_reads`, `report_words` | The recall capability's own configuration |
+| `capabilities/recall/` (new) | manifest (`access: [report_library, conversation_history]`), tools, `recall.findings` 1.0.0 | The recall capability (ADR-0431) |
+| `config/context.yaml` | `pipeline: report_index`, `blocks.reports` (1500), `nodes.answer/report.needs: reports`, `nodes.memory_writer.needs: [system, user_message]` | The report index block; the extractor without a window |
+| `config/prompts/` | `context.report_index`, `context.report_marker` 1.0.0; `router.system` 1.6.0; `summarizer.system` 1.1.0; `memory.extractor`, `memory.extract_request` 1.1.0 | ADR-0430, ADR-0431, ADR-0434, ADR-0435 |
+| `config/memory.yaml` | `self_kinds`, `self_words` | A fact about the user needs a first-person statement (ADR-0435) |
+| `config/artifacts/report.yaml` | `version` 2.4.0; `text.created_from` | A new report from an earlier one (ADR-0433) |
+| `services/agent/app/db/migrations/0023_report_library.sql` | `report_library`, `report_references`, `reports.based_on_*` | The library index and references (ADR-0432, ADR-0433) |
+| `infra/keycloak/realm-export.json` | `cap:recall`, a composite of `user` | Every user may use recall on their own data |
+| `evals/scenarios/` (new) | `memory/scenario.yaml`, `long_conversation/scenario.yaml`; `evals/thresholds.yaml` `memory`, `long_conversation` | The scenario suites (ADR-0438) |
 
 ## 21. Getting started on a new machine
 
