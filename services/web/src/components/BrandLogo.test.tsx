@@ -1,8 +1,13 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderIn } from "@/test/render";
+import { AuthGate } from "./AuthGate";
 import { BrandLogo } from "./BrandLogo";
+
+// The sign-in screen, as an anonymous visitor sees it.
+vi.mock("./AuthProvider", () => ({ useAuth: () => ({ status: "anonymous", ready: true, login: async () => {} }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/chat/new" }));
 
 const WEB = join(__dirname, "..", "..");
 const CSS = readFileSync(join(WEB, "src", "app", "globals.css"), "utf8").replace(/\s+/g, " ");
@@ -16,7 +21,7 @@ function sources(dir: string): string[] {
   });
 }
 
-describe("the header logo (ADR-0428)", () => {
+describe("the logo (ADR-0428, ADR-0429)", () => {
   it("has a light and a dark image, each with its 512 px file as the 2x source, named in Arabic and English", () => {
     for (const [locale, alt] of [["ar", "شعار منصة الوكيل"], ["en", "Agent Platform logo"]] as const) {
       const html = renderIn(locale, <BrandLogo />);
@@ -24,15 +29,29 @@ describe("the header logo (ADR-0428)", () => {
       expect(images).toHaveLength(2);
       expect(images[0]).toContain('src="/brand/logo-64.png"');
       expect(images[0]).toContain('srcSet="/brand/logo-64.png 1x, /brand/logo-512.png 2x"');
-      expect(images[0]).toContain("brand-logo-light");
+      expect(images[0]).toContain("brand-logo-light h-8 w-8");
       expect(images[1]).toContain('src="/brand/logo-dark-64.png"');
       expect(images[1]).toContain('srcSet="/brand/logo-dark-64.png 1x, /brand/logo-dark-512.png 2x"');
-      expect(images[1]).toContain("brand-logo-dark");
+      expect(images[1]).toContain("brand-logo-dark h-8 w-8");
       for (const image of images) {
         expect(image).toContain(`alt="${alt}"`);
         expect(image).toContain('width="32"');
         expect(image).toContain('height="32"');
       }
+    }
+  });
+
+  it("the sign-in screen shows the same light and dark logos, at 64 px, before its title", () => {
+    for (const locale of ["ar", "en"] as const) {
+      const html = renderIn(locale, <AuthGate>{null}</AuthGate>);
+      const images = [...html.matchAll(/<img [^>]*>/g)].map((m) => m[0]);
+      expect(images).toHaveLength(2);
+      expect(images[0]).toContain('srcSet="/brand/logo-64.png 1x, /brand/logo-512.png 2x"');
+      expect(images[0]).toContain("brand-logo-light h-16 w-16");
+      expect(images[1]).toContain('srcSet="/brand/logo-dark-64.png 1x, /brand/logo-dark-512.png 2x"');
+      expect(images[1]).toContain("brand-logo-dark h-16 w-16");
+      for (const image of images) expect(image).toContain('width="64"');
+      expect(html.indexOf("<img")).toBeLessThan(html.indexOf("<h1"));
     }
   });
 
