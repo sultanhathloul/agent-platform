@@ -67,3 +67,7 @@ recall:
 history:
   keep_checkpoints: 40
   prune_s: 3
+  # The conversation's history as the chat reopens it (GET /v1/conversations/{id}/messages): the newest
+  # `page_messages` shown messages, and how many older ones were left out; the model's context and recall read
+  # the whole stored history, never this page.
+  page_messages: 400

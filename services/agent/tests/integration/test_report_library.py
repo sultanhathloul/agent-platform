@@ -227,3 +227,19 @@ async def test_the_backfill_indexes_versions_written_before_the_library(library)
     [hit] = await services.reports.search(principal.tenant_id, principal.user_id, ["اساطير"], limit=5)
     assert hit.report_id == report_id
     assert await services.reports.backfill(50) == 0  # idempotent: nothing left
+
+
+async def test_the_history_reply_is_the_newest_page_and_says_how_many_it_left_out(services):
+    from app.main import create_app
+
+    history = services.library.history.model_copy(update={"page_messages": 20})
+    paged = dataclasses.replace(services, library=services.library.model_copy(update={"history": history}))
+    principal = _principal(("cap:general",))
+    conversation = str(uuid.uuid4())
+    for i in range(12):
+        await _turn(paged, principal, f"السؤال رقم {i}", conversation=conversation, output="text")
+    app = create_app(start_background=False, services=paged)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as http:
+        body = (await http.get(f"/v1/conversations/{conversation}/messages", headers=identity(principal.user_id))).json()
+    assert body["omitted"] == 4 and len(body["messages"]) == 20
+    assert body["messages"][0]["text"] == "السؤال رقم 2"  # the oldest kept is a question: pairs stay whole

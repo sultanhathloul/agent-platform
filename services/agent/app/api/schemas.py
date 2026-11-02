@@ -462,6 +462,11 @@ class HistoryMessage(BaseModel):
 class ConversationMessages(BaseModel):
     conversation_id: str
     messages: list[HistoryMessage] = Field(description="Oldest first; a retracted exchange is left out.")
+    omitted: int = Field(
+        default=0, ge=0,
+        description="Older shown messages left out of this reply: the newest config/library.yaml "
+        "history.page_messages are returned (report library PR, ADR-0437).",
+    )
 
 
 # ------------------------------------------------------------------ reports (reports PR, I5, I6)

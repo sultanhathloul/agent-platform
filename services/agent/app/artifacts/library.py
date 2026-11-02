@@ -72,6 +72,7 @@ class RecallConfig(_Strict):
 class HistoryConfig(_Strict):
     keep_checkpoints: int = Field(ge=20, le=10000)
     prune_s: float = Field(gt=0, le=30)
+    page_messages: int = Field(default=400, ge=20, le=5000)
 
 
 class LibraryConfig(_Strict):

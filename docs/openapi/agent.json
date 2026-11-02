@@ -7471,6 +7471,13 @@
             "type": "array",
             "title": "Messages",
             "description": "Oldest first; a retracted exchange is left out."
+          },
+          "omitted": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Omitted",
+            "description": "Older shown messages left out of this reply: the newest config/library.yaml history.page_messages are returned (report library PR, ADR-0437).",
+            "default": 0
           }
         },
         "type": "object",

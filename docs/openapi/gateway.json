@@ -3838,9 +3838,15 @@
             "items" : {
               "$ref" : "#/components/schemas/HistoryMessage"
             }
+          },
+          "omitted" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Older messages left out: the newest page of the history is returned (ADR-0437).",
+            "minimum" : 0
           }
         },
-        "required" : [ "conversation_id", "messages" ]
+        "required" : [ "conversation_id", "messages", "omitted" ]
       },
       "ConversationSummary" : {
         "properties" : {

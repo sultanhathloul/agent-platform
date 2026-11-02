@@ -119,6 +119,10 @@ async def conversation_messages(
         return _error(request, request_id, "conversation_forbidden", 403)
     snapshot = await services.graph.aget_state(_thread(conversation_id))
     shown = history((snapshot.values or {}).get("messages") or [])
+    # Bounded (ADR-0437): the newest page of the history, and how many older messages it leaves out.
+    page = services.library.history.page_messages if services.library is not None else len(shown)
+    omitted = max(len(shown) - page, 0)
+    shown = shown[omitted:]
     names: dict[str, str] = {}
     if any(m.get("attachment_ids") for m in shown):
         records = await services.attachments.store.list_for(
@@ -140,4 +144,4 @@ async def conversation_messages(
         )
         for m in shown
     ]
-    return ConversationMessages(conversation_id=conversation_id, messages=messages)
+    return ConversationMessages(conversation_id=conversation_id, messages=messages, omitted=omitted)

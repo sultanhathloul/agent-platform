@@ -1020,6 +1020,11 @@ export interface components {
         ConversationMessages: {
             conversation_id: string;
             messages: components["schemas"]["HistoryMessage"][];
+            /**
+             * Format: int32
+             * @description Older messages left out: the newest page of the history is returned (ADR-0437).
+             */
+            omitted: number;
         };
         ConversationSummary: {
             id: string;

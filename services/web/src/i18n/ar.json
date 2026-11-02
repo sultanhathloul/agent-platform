@@ -59,6 +59,7 @@
     "citationPageMany": "الصفحات {pages}",
     "historyLoading": "جارٍ تحميل المحادثة…",
     "historyFailed": "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
+    "historyOmitted": "لا تظهر هنا {count} رسالة أقدم من هذه المحادثة؛ ما زال المساعد يرجع إليها عند الحاجة.",
     "skillPicker": "المهارة",
     "skillAuto": "تلقائي",
     "skillAutoHint": "تُختار المهارة تلقائيًا عند الحاجة",

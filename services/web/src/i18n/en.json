@@ -59,6 +59,7 @@
     "citationPageMany": "pages {pages}",
     "historyLoading": "Loading the conversation…",
     "historyFailed": "The earlier messages of this conversation could not be loaded.",
+    "historyOmitted": "{count} older messages of this conversation are not shown here; the assistant can still recall them.",
     "skillPicker": "Skill",
     "skillAuto": "Automatic",
     "skillAutoHint": "The skill is chosen automatically when needed",
