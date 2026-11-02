@@ -243,3 +243,15 @@ async def test_the_history_reply_is_the_newest_page_and_says_how_many_it_left_ou
         body = (await http.get(f"/v1/conversations/{conversation}/messages", headers=identity(principal.user_id))).json()
     assert body["omitted"] == 4 and len(body["messages"]) == 20
     assert body["messages"][0]["text"] == "السؤال رقم 2"  # the oldest kept is a question: pairs stay whole
+
+
+async def test_a_sourced_report_whose_writer_returns_no_spec_twice_says_nothing_was_found(library, monkeypatch):
+    # The long_conversation run's a10 (ADR-0439): on a sourced turn with nothing on the subject the writer
+    # answered with no section, twice; the turn ended validation_failed. It now says plainly nothing was found.
+    import app.artifacts.writer as writer
+
+    monkeypatch.setattr(writer, "sourced_turn", lambda state, sources: True)
+    services, _ = library({"report_writer": '{"title": "أسعار النفط", "language": "ar", "sections": []}'})
+    events, _ = await _turn(services, _principal(), "سوّ لي داشبورد عن أسعار النفط", output="report")
+    final = events[-1].data
+    assert final.artifact is None and "لا تحوي المصادر المختارة" in final.answer

@@ -24,10 +24,15 @@ steps:
   message: "احفظ هذا الجدول عن مبيعات فروعنا في الربع الأول:\nالفرع\tالمبيعات (ألف ريال)\tعدد العملاء\nالرياض\t1250\t340\nجدة\t980\t275\nالدمام\t760\t190\nأبها\t430\t120\nتبوك\t310\t95"
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a03
   conversation: A
   message: كم معدل البطالة للسعوديين في آخر نشرة لسوق العمل؟
-  selected_kbs: &id001
+  selected_kbs:
   - stats-gov
   expect:
     form: text
@@ -44,7 +49,8 @@ steps:
 - id: a05
   conversation: A
   message: سوّ لي داشبورد عن إحصاءات سوق العمل في السعودية
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: report
     version: 1
@@ -52,7 +58,8 @@ steps:
 - id: a06
   conversation: A
   message: أضف للوحة رسمًا لمعدل البطالة حسب الجنس
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: report
     version: 2
@@ -60,7 +67,8 @@ steps:
 - id: a07
   conversation: A
   message: 'عدّل اللوحة: أضف جدولًا للمشاركة في قوة العمل حسب الجنسية'
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: report
     version: 3
@@ -84,7 +92,8 @@ steps:
 - id: a10
   conversation: A
   message: سوّ لي داشبورد عن أسعار النفط العالمية خلال العقد الأخير
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     nothing_found: true
     no_artifact: true
@@ -114,223 +123,442 @@ steps:
     form: text
 - id: a14
   conversation: A
-  message: ما الفرق بين الناتج المحلي الإجمالي والناتج القومي؟
+  message: ما الفرق بين الناتج المحلي الإجمالي والناتج القومي؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a15
   conversation: A
   message: ما عدد سكان المملكة حسب آخر تعداد؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a16
   conversation: A
-  message: اشرح مفهوم الاقتصاد الدائري بأمثلة.
+  message: اشرح مفهوم الاقتصاد الدائري بأمثلة؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a17
   conversation: A
   message: كم نسبة السعوديين في القوى العاملة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a18
   conversation: A
-  message: ما أهم أهداف رؤية المملكة 2030 في قطاع السياحة؟
+  message: ما أهم أهداف رؤية المملكة 2030 في قطاع السياحة؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a19
   conversation: A
   message: ما معدل المشاركة في قوة العمل للنساء السعوديات؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a20
   conversation: A
-  message: اشرح الفرق بين البطالة الهيكلية والبطالة الدورية.
+  message: اشرح الفرق بين البطالة الهيكلية والبطالة الدورية؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a21
   conversation: A
   message: ما أبرز مؤشرات الصحة في المملكة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a22
   conversation: A
-  message: كيف يُحسب معدل التضخم؟
+  message: كيف يُحسب معدل التضخم؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a23
   conversation: A
   message: ما متوسط حجم الأسرة السعودية؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a24
   conversation: A
-  message: ما هي أكبر خمس دول من حيث المساحة؟
+  message: ما هي أكبر خمس دول من حيث المساحة؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a25
   conversation: A
   message: ما نسبة الأمية في المملكة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a26
   conversation: A
-  message: اشرح ما هي السياسة النقدية.
+  message: اشرح ما هي السياسة النقدية؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a27
   conversation: A
   message: كم عدد الطلاب في التعليم العام؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a28
   conversation: A
-  message: ما الفرق بين الإحصاء الوصفي والاستدلالي؟
+  message: ما الفرق بين الإحصاء الوصفي والاستدلالي؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a29
   conversation: A
   message: ما نسبة ذوي الإعاقة في المملكة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a30
   conversation: A
-  message: اشرح معنى الانحراف المعياري بمثال بسيط.
+  message: اشرح معنى الانحراف المعياري بمثال بسيط؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a31
   conversation: A
   message: ما توزيع السكان حسب الفئات العمرية؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a32
   conversation: A
-  message: ما هي أهم مصادر الطاقة المتجددة؟
+  message: ما هي أهم مصادر الطاقة المتجددة؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a33
   conversation: A
   message: ما معدل البطالة لغير السعوديين؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a34
   conversation: A
-  message: اشرح مفهوم العينة العشوائية الطبقية.
+  message: اشرح مفهوم العينة العشوائية الطبقية؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a35
   conversation: A
   message: كم عدد العاملين في القطاع الخاص؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a36
   conversation: A
-  message: ما الفرق بين المتوسط والوسيط؟
+  message: ما الفرق بين المتوسط والوسيط؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a37
   conversation: A
   message: ما نسبة المدخنين في المملكة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a38
   conversation: A
-  message: اشرح ما هو مؤشر أسعار المستهلك.
+  message: اشرح ما هو مؤشر أسعار المستهلك؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a39
   conversation: A
   message: ما نسبة المتعطلين الحاصلين على شهادة جامعية؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a40
   conversation: A
-  message: ما هي عاصمة البرازيل وما أكبر مدنها؟
+  message: ما هي عاصمة البرازيل وما أكبر مدنها؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a41
   conversation: A
   message: كم عدد الزوار القادمين للسياحة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a42
   conversation: A
-  message: اشرح الفرق بين الارتباط والسببية.
+  message: اشرح الفرق بين الارتباط والسببية؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a43
   conversation: A
   message: ما متوسط ساعات العمل الأسبوعية؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a44
   conversation: A
-  message: ما أهم مراحل إعداد الميزانية العامة؟
+  message: ما أهم مراحل إعداد الميزانية العامة؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a45
   conversation: A
   message: ما نسبة الأسر التي تملك مسكنًا؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a46
   conversation: A
-  message: اشرح ما المقصود بالتضخم الركودي.
+  message: اشرح ما المقصود بالتضخم الركودي؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a47
   conversation: A
   message: ما توزيع المشتغلين حسب المهنة؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a48
   conversation: A
-  message: ما هي فوائد التحول الرقمي في الجهات الحكومية؟
+  message: ما هي فوائد التحول الرقمي في الجهات الحكومية؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a49
   conversation: A
-  message: ما الفرق بين النمو الاقتصادي والتنمية الاقتصادية؟
+  message: ما الفرق بين النمو الاقتصادي والتنمية الاقتصادية؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a50
   conversation: A
   message: ما معدل البطالة حسب المنطقة الإدارية؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a51
   conversation: A
-  message: اشرح باختصار ما هي سلاسل الإمداد.
+  message: اشرح باختصار ما هي سلاسل الإمداد؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a52
   conversation: A
-  message: ما أبرز التحديات أمام سوق العمل عالميًا؟
+  message: ما أبرز التحديات أمام سوق العمل عالميًا؟ اشرح بالتفصيل في ثلاث فقرات.
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a53
   conversation: A
   message: كم نسبة الشباب من إجمالي السكان؟
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: text
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
     summary: true
 - id: a54
   conversation: A
@@ -382,6 +610,11 @@ steps:
     answer_any:
     - الهادئ
     - الهادي
+    answer_none:
+    - التقارير المذكوره
+    - لا تحتوي التقارير
+    - في التقارير المتاحه
+    - من التقرير
 - id: a60
   conversation: A
   message: أي فرع في الجدول الذي أرسلته كان الأقل مبيعات؟
@@ -408,7 +641,8 @@ steps:
 - id: b02
   conversation: B
   message: سوّ لي نسخة جديدة منه وأضف رسمًا للمشاركة في قوة العمل
-  selected_kbs: *id001
+  selected_kbs:
+  - stats-gov
   expect:
     form: report
     version: 1

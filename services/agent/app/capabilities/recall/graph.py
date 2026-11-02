@@ -2,8 +2,8 @@
 user's reports and about what was said earlier in this conversation.
 
 No model call, like kb: three broker calls decide what the answer reads.
-1. `report_search` in this conversation, then in the caller's whole library, with the message as the query
-   (conversational words removed by the store's stopwords).
+1. When the message names a report: `report_search` in this conversation, then in the caller's whole library,
+   with the message as the query (conversational words removed by the store's stopwords).
 2. `report_read` of the report the question is about: the best match in this conversation, else the best
    match of another conversation of the caller's (which the next report turn here may make a new version
    of, ADR-0433), else this conversation's latest report; at most config/recall.yaml `max_reads`.
@@ -61,11 +61,11 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
     config = rt.config or {}
     reads = int(config.get("max_reads", 1))
     message = request.message
-    conversation = await _search(rt, message, "conversation")
-    library = await _search(rt, message, "library")
-    # This conversation's latest report is read only for a message that names a report («اللوحة», «التقرير»)
-    # and matched none by its words: a question about a pasted table reads no report.
+    # Reports are searched and read only for a message that names one («اللوحة», «التقرير»): a question about
+    # a pasted table, or one that only shares words with an old report, reads none (ADR-0439).
     names_report = any(contains_keyword(message, w) for w in config.get("report_words") or [])
+    conversation = await _search(rt, message, "conversation") if names_report else []
+    library = await _search(rt, message, "library") if names_report else []
     latest = []
     if names_report and not any(h.get("matched") for h in conversation):
         latest = await _search(rt, "", "conversation")

@@ -330,7 +330,15 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             tokens_out += result.tokens_out
             spec = invalid = None
             try:
-                spec = await stream.close()
+                try:
+                    spec = await stream.close()
+                except SpecError:
+                    # On a sourced turn whose passages hold nothing on the subject the writer may answer with
+                    # no section at all, which is no spec; the second time, that is "nothing found", said
+                    # plainly, never validation_failed (report library PR, ADR-0439).
+                    if attempt == 2 and sourced and not verifier.result.kept:
+                        raise NothingFound() from None
+                    raise
             except NothingFound:
                 # The toggled sources hold nothing on the subject (ADR-0416): said plainly, no page saved.
                 span.set_attribute("report.nothing_found", True)
