@@ -2745,6 +2745,24 @@ Results (rule 11; owner asked for make test (web) only, so no other layer, eval 
 Files for human review
 - services/web/public/brand/ (the owner's assets), services/web/src/app/globals.css (the logo rules).
 
+## Logo version 4 (chore PR, owner request)
+
+- Branch: `chore/logo-v4`, from main at d559ae5 (PR #18, logo version 3, merged on 2026-11-01T10:35:48Z). ADR-0429. `docs/HANDOFF.md` untouched.
+- Done when: the owner's version 4 set in services/web/public/brand/; the header and the sign-in screen show the green logo-64.png in light mode and the white logo-dark-64.png in dark mode (2× from the 512 files), switching with the theme with no flash; favicon.ico, the PNG favicons and apple-touch-icon in the head; no reference to logo.svg; web tests green (make test-web only, owner's request); pushed, PR open.
+
+Checklist
+- [x] Brand files: the owner's version 4 PNGs and favicon.ico (same names as version 3).
+- [x] The sign-in screen: `BrandLogo` at 64 px above its title; `BrandLogo` takes a size (32, 64).
+- [x] Head icons unchanged in name; no logo.svg reference (tested).
+- [x] Tests: BrandLogo.test.tsx, the sign-in screen's logo added (4 tests). No snapshot test asserts the header; these tests are its assertions.
+- [x] make test-web.
+
+Results (rule 11; owner asked for make test (web) only, so no other layer, eval or smoke ran)
+- make test-web 09:51:42Z–09:51:52Z, rc 0: typecheck and lint clean; web 228 / 0 / 0 (20 files). Against logo version 3 (227 / 0 / 0, 20 files): +1, the sign-in screen's test.
+
+Files for human review
+- services/web/public/brand/ (the owner's assets).
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`

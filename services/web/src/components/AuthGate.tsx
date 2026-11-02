@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
+import { BrandLogo } from "./BrandLogo";
 
 /** Renders children only for a signed-in user; otherwise a sign-in screen. */
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -19,6 +20,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <section className="w-full max-w-md rounded-2xl bg-surface p-8 text-center shadow-sm ring-1 ring-line">
+          {/* The logo for the theme, as in the header (ADR-0429). */}
+          <div className="mb-4 flex justify-center">
+            <BrandLogo size={64} />
+          </div>
           <h1 className="text-xl font-semibold">{t("title")}</h1>
           <p className="mt-2 text-sm leading-6 text-muted">{t("description")}</p>
           <button
