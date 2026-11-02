@@ -3,7 +3,7 @@
 # new conversation. `negative` steps: nothing the user did not state is stored.
 user: evaluator
 steps:
-  - {id: memory-on, check: memory_on, enabled: true}
+  - {id: memory-on, check: memory_on, enabled: true, clear: true}
   - id: memo
     conversation: memo
     message: "اكتب مذكرة داخلية من إدارة التخطيط إلى إدارة الموارد البشرية بشأن مواعيد الدوام في رمضان."

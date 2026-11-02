@@ -306,6 +306,14 @@ class Runner:
                 if latest != expect["latest_version"]:
                     record["problems"].append(f"latest_version {latest} != {expect['latest_version']}")
         elif kind == "memory_on":
+            if step.get("clear"):
+                # A run starts from an empty memory: an earlier run's items would deduplicate this run's
+                # candidates (dedupe_similarity), so nothing would count as added.
+                headers = {"Authorization": f"Bearer {self.token(user)}"}
+                for item in self.memory(user):
+                    self.http.delete(f"{self.gateway}/v1/memory/{item['id']}", headers=headers)
+                self.memory_before[user] = {i["id"] for i in self.memory(user)}
+                record["cleared"] = True
             response = self.http.put(f"{self.gateway}/v1/memory/settings", json={"enabled": bool(step.get("enabled"))},
                                      headers={"Authorization": f"Bearer {self.token(user)}"})
             record.update(status=response.status_code)
