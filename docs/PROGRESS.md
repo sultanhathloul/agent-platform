@@ -2972,6 +2972,29 @@ Results (rule 11; a UI change, so make test (web) and smoke, no eval)
 
 
 
+## My files: a personal file library and cross-conversation file search on request (standalone PR, owner decision)
+
+- Branch: `feat/my-files`, from main at 8c16222 (PR #20, the report library, merged on 2026-11-03). The session prompt is kept verbatim in `docs/MY-FILES-PROMPT.md`; it arrived whole (it ends with FINISH). Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
+- ADR numbers: main ends at ADR-0441, so this PR's ADRs start at ADR-0442.
+- Status: in progress.
+- Baseline (the last recorded runs on main): make test 2026-11-02 15:05Z (ADR-0440): agent 1307 / 0 / 0, gateway 217 / 0 / 0, gateway-db 5 / 0 / 0, evals harness 40 / 0 / 0, timeout budget 43 / 0 / 0, scripts/tests 37 / 0 / 0; web 258 / 0 / 0 (23 files) after ADR-0441; make smoke 257/257 (2026-11-02 13:41Z), then 48 passed, 1 failed at `pii-redact-output redacted the answer` (15:20Z) because the owner disabled every guard policy on the development stack (still 0 of 11 enabled on 2026-11-03); make eval: routing 113/113 (make-eval-20261102T132547Z), rag 51/53 and rag@mcp 51/53 (make-eval-20261030T122309Z).
+- Done when (the prompt): the page «ملفاتي» / "My files" lists every file the user uploaded in any conversation (KB uploads excluded) with its conversation title and date, a link back to the conversation at the upload, type, size and status, with search, filter, download and delete (a delete removes the file from every index and every conversation, audited); `file_search(query)` and `file_read(file_id, pages?)` search and read the caller's own files across conversations through the broker, checked at the gateway and the agent, on the phase 04 index and citations, only when the user's message refers to an earlier file, and the answer cites «من ملفك: <title> (محادثة <date>)»; automatic use of earlier files is a BACKLOG item; DATA policies apply to a file's content in every conversation as in its own, and nothing from a file reaches long-term memory; retention unchanged; rule 12 for the new tools; negative tests (no path returns another user's files; an earlier file is never used unless the message refers to it); an eval suite (Arabic, Gulf, English; a lab report uploaded in one conversation and asked about in another, cited; an unrelated question in a new conversation uses no earlier file); make test, make eval (routing, rag, the new suite) once, make smoke; recorded per rule 11; pages listed for the owner; pushed, MR open.
+
+Checklist
+- [ ] ADRs for decisions 1 to 5 and the implementation choices (including the core change for a capability reaching the caller's files of every conversation, rule 3).
+- [ ] Agent: the caller's file library (owner-only list with conversation title and date, search by name, filters by type, status and date; paged, bounded); owner-only delete (record, chunks, stored object, recorded context packages; audited at the gateway); the history drops a deleted file's chip and citations.
+- [ ] Agent: the capability `files` (`cap:files`, every user) with `file_search(query)` and `file_read(file_id, pages?)` through the broker, owner-scoped across the caller's conversations, size-capped, bounded; sources reuse the phase 04 evidence and citation path; findings cite «من ملفك: <title> (محادثة <date>)».
+- [ ] On request only: keyword candidacy (upload and earlier-file words) and a deterministic check in the capability that the message refers to an earlier file; the router decides between them; no candidate, no router call.
+- [ ] Sensitive files: POST_TOOL and DATA policies of the file's own capability scope (`tool:docs`) also apply when `files` reads it; no memory is written from a `files` turn.
+- [ ] Gateway: `GET /v1/files` (owner checked again against its conversations table, audited `file.library` without the query text) and `DELETE /v1/conversations/{id}/attachments/{attachment}` (audited `attachment.delete`); API version 2.9.0 (agent and gateway), `make openapi`.
+- [ ] Web: `/files` «ملفاتي» (list, search, type, status and date filters, download, delete with confirmation, «فتح المحادثة» at the upload); the header link; the chat scrolls to the message that carried the file; i18n ar/en; both themes; web tests.
+- [ ] Rule 12 for the new tools and endpoints: bounds, owner scope, size caps; RESILIENCE rows; timeout-budget rules.
+- [ ] Negative tests at the gateway and the agent: no path (list, search, read, download, delete, the tools, the evidence fetch) returns another user's file; an earlier file is never used unless the message refers to it.
+- [ ] docs/BACKLOG.md: automatic use of earlier files (opt-in per file; the answer names the file it used).
+- [ ] Eval suite `files` (Arabic, Gulf, English; the lab report across conversations, cited; an unrelated question in a new conversation uses none); realm role `cap:files`.
+- [ ] smoke checks for My files and the cross-conversation search.
+- [ ] make test; make eval (routing, rag, files) once; make smoke; rule 11; pages for the owner's visual check; push; MR.
+
 ## Phase 07: Planner
 
 - Branch: `phase/07-planner`
