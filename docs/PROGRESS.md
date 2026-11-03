@@ -2960,6 +2960,16 @@ Results (rule 11)
 - make up 15:19:55Z–15:20:05Z, rc 0 (the agent rebuilt with the fix).
 - make smoke 15:20:05Z–15:20:33Z, rc 2: 48 checks passed, 1 failed, then stopped (the checks after phase 03 did not run). Failed: `pii-redact-output redacted the answer`. Evidence: agent.guard_policy_heads has all 11 policies `enabled = false`; the owner disabled them on this development stack at 14:41Z (updated_by 957f376d…), so no redaction can happen. Not a defect of this change; smoke is not green until the seeded policies are enabled again and it is rerun.
 
+### Signed out, the logo minted a new conversation URL on every click (ADR-0441, owner report)
+
+- Why: the header's brand linked to /chat/new, which replaced itself with /chat/<new uuid> before the sign-in check; signed out, each click changed the URL.
+- Done: the brand is a link only when signed in; /chat/new is wrapped in `AuthGate`, so the id is minted only after sign-in. Tests: services/web/src/components/Header.test.tsx (4, Arabic and English).
+
+Results (rule 11; a UI change, so make test (web) and smoke, no eval)
+- make test-web 08:26:38Z–08:26:48Z (2026-11-03), rc 0: typecheck and lint clean; web 258 / 0 / 0 (23 files). Against the last run (254 / 0 / 0, 22 files): +4, the new file.
+- web rebuilt (`docker compose up -d --build --wait web`), healthy; /chat/new answers 200.
+- make smoke not rerun: it stops at `pii-redact-output` while the owner's guardrail policies stay disabled (above).
+
 
 
 ## Phase 07: Planner
