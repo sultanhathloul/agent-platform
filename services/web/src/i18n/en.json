@@ -15,7 +15,8 @@
     "logoAlt": "Agent Platform logo",
     "themeToDark": "Dark mode",
     "themeToLight": "Light mode",
-    "themeLabel": "Switch theme"
+    "themeLabel": "Switch theme",
+    "files": "My files"
   },
   "locale": {
     "ar": "العربية",
@@ -866,5 +867,38 @@
     "reindexStarted": "Re-indexing “{title}” started.",
     "save": "Save",
     "metadataSaved": "The details of “{title}” were saved."
+  },
+  "files": {
+    "title": "My files",
+    "description": "Every file you uploaded in any conversation: search them, filter by type, status and upload date, download or delete them, and open the conversation they were uploaded in. Your files are used in another conversation only when your question refers to them.",
+    "filters": "Filter files",
+    "search": "Search files",
+    "searchPlaceholder": "Search by file name or conversation title…",
+    "kind": "Type",
+    "kindAll": "All types",
+    "statusLabel": "Status",
+    "statusAll": "All statuses",
+    "status": {
+      "indexed": "Ready to search",
+      "pending": "Processing",
+      "failed": "Could not be processed"
+    },
+    "failedReason": "Reason: {reason}",
+    "loading": "Loading files…",
+    "empty": "No files yet. Upload a file in any conversation and it will appear here.",
+    "noMatch": "No files match the search or filters.",
+    "uploaded": "Uploaded {date}",
+    "conversation": "Conversation:",
+    "untitled": "Untitled conversation",
+    "download": "Download",
+    "downloadLabel": "Download “{name}”",
+    "delete": "Delete",
+    "deleteLabel": "Delete “{name}”",
+    "confirmText": "“{name}” will be deleted from every conversation and from search, and cannot be restored. The conversation itself stays.",
+    "confirm": "Confirm delete",
+    "cancel": "Cancel",
+    "deleting": "Deleting…",
+    "openChat": "Open conversation",
+    "list": "Files"
   }
 }

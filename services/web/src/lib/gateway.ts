@@ -12,6 +12,7 @@ import type {
   KbSourceMetadata,
   KbView,
   ConversationMessages,
+  FilePage,
   LibraryPage,
   MeResponse,
   MemoryList,
@@ -265,6 +266,53 @@ export async function downloadReport({
   }
   if (!res.ok) throw await errorFromResponse(res);
   return res.blob();
+}
+
+// ------------------------------------------------------------------ my files (my-files PR, ADR-0442, ADR-0444)
+
+/** The caller's uploaded files of every conversation; `query` is built by `filesQuery` in lib/files.ts. */
+export async function listFiles({ gatewayUrl, token, signal, query }: Authorized & { query: string }): Promise<FilePage> {
+  const url = `${gatewayUrl}/v1/files${query ? `?${query}` : ""}`;
+  return required(await callJson<FilePage>(url, token, { method: "GET", signal }), 200);
+}
+
+function attachmentPath(gatewayUrl: string, conversationId: string, id: string): string {
+  return `${gatewayUrl}/v1/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(id)}`;
+}
+
+/** The file's bytes, fetched with the token (a plain link could not carry it). */
+export async function downloadAttachment({
+  gatewayUrl,
+  token,
+  signal,
+  conversationId,
+  id,
+}: Authorized & { conversationId: string; id: string }): Promise<Blob> {
+  let res: Response;
+  try {
+    res = await fetch(`${attachmentPath(gatewayUrl, conversationId, id)}/content`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new GatewayError(0, { code: "network_error" });
+  }
+  if (!res.ok) throw await errorFromResponse(res);
+  return res.blob();
+}
+
+/** Deletes one of the caller's files from every index and every conversation (owner decision 1). */
+export async function deleteAttachment({
+  gatewayUrl,
+  token,
+  signal,
+  conversationId,
+  id,
+}: Authorized & { conversationId: string; id: string }): Promise<void> {
+  await callJson(attachmentPath(gatewayUrl, conversationId, id), token, { method: "DELETE", signal });
 }
 
 // ------------------------------------------------------------------ admin: knowledge bases (phase 08, I5)
