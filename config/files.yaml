@@ -25,3 +25,12 @@ refer:
     en: [summarize, summarise, summary, whole, entire, all of it]
 # Passages one file_search returns (≤ config/file_library.yaml search.max_k).
 top_k: 8
+# The search query is the message without the words that only say a file was sent before (every `refer` list
+# but `whole_words`) and these conversational words, so «رفعت لك تقرير المختبر في محادثة ثانية، كم الهيموجلوبين؟»
+# searches «تقرير المختبر … الهيموجلوبين» and the passage that answers outranks the file's heading (ADR-0447). A
+# message left with nothing is searched whole.
+query_stopwords:
+  ar: [لك, لي, في, فيه, فيها, عن, من, على, الى, اللي, الذي, التي, هذا, هذه, ذاك, ذلك, وش, ايش, كم, كان, كانت, هل, ممكن,
+       تقدر, ابغى, ابي, عطني, قل, قولي, طلعت, محادثه, المحادثه, ثانيه, الثانيه, اخرى, الاخرى]
+  en: [i, my, me, you, the, a, an, in, "on", of, to, for, about, what, was, is, did, does, it, this, that, which,
+       how, much, many, there, conversation, another, other, please, tell, say]

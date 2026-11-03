@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from app.capabilities.contract import Manifest
-from app.capabilities.files.graph import has_any, named_pages, refers_to_earlier_file
+from app.capabilities.files.graph import has_any, named_pages, refers_to_earlier_file, search_query
 from app.capabilities.files.tools import title_of
 
 MANIFEST = Manifest.model_validate(
@@ -80,3 +80,17 @@ def test_the_manifest_reads_the_callers_files_guarded_as_docs():
     assert MANIFEST.access == ["user_files"] and MANIFEST.guard_as == ["docs"]
     assert MANIFEST.tools == ["file_search", "file_read"]
     assert [rule.when for rule in MANIFEST.routing_hints.rules] == ["keyword_candidate"]
+
+
+def test_the_search_query_keeps_the_subject_and_drops_the_reference(config):
+    assert search_query("رفعت لك تقرير المختبر في محادثة ثانية، كم كانت نسبة الهيموجلوبين؟", config) == (
+        "تقرير المختبر نسبه الهيموجلوبين"
+    )
+    assert search_query("الملف اللي أرسلته لك قبل عن التحاليل، وش طلعت نتيجة السكر التراكمي فيه؟", config) == (
+        "التحاليل نتيجه السكر التراكمي"
+    )
+    assert search_query("I uploaded my lab report in another conversation. What was my vitamin D level?", config) == (
+        "lab report vitamin d level"
+    )
+    # Nothing but reference words: the message is searched whole.
+    assert search_query("رفعت لك ملف", config) == "رفعت لك ملف"

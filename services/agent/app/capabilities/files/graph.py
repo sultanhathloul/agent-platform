@@ -7,7 +7,7 @@ No model call, like docs: the broker calls decide what the answer reads.
 a
    send or an earlier word. Otherwise the capability calls no tool and returns nothing, whatever the router
    chose, so an earlier file is never used unless the user's message refers to it (decision 2's negative).
-2. `file_search` with the message over the caller's own indexed files of every conversation.
+2. `file_search` with the message, less its reference and conversational words (ADR-0447), over the caller's own indexed files of every conversation.
 3. `file_read` of the best file when the message names pages («الصفحة 3») or asks for the whole file
    («لخّصه»), its chunks in page order, beside what the search found.
 
@@ -75,6 +75,25 @@ def refers_to_earlier_file(message: str, config: dict) -> bool:
     return (named and (sent or earlier)) or (sent and earlier)
 
 
+def search_query(message: str, config: dict) -> str:
+    """The message without the words that only refer to the earlier file and without conversational words
+    (config/files.yaml `query_stopwords`), Arabic-normalized; the whole message when nothing would be left."""
+    refer = config.get("refer") or {}
+    phrases = [
+        " ".join(_WORD.findall(normalize(w)))
+        for key in ("upload_words", "send_words", "file_words", "earlier_words")
+        for w in _words(refer, key)
+    ]
+    text = f" {' '.join(_WORD.findall(normalize(message)))} "
+    for phrase in sorted((p for p in phrases if " " in p), key=len, reverse=True):
+        text = text.replace(f" {phrase} ", " ")
+    drop = {p for p in phrases if " " not in p} | {
+        " ".join(_WORD.findall(normalize(w))) for w in _words(config, "query_stopwords")
+    }
+    kept = [w for w in text.split() if not (keyword_stems(w, min_length=2) & drop)]
+    return " ".join(kept) or message
+
+
 def named_pages(message: str) -> list[int]:
     found: list[int] = []
     for match in _PAGES.finditer(normalize(message)):
@@ -113,7 +132,7 @@ async def _run(state: _State, runtime: Runtime[RuntimeContext]) -> dict:
         # Decision 2: no earlier file is used unless the message refers to one; no tool runs.
         return {"output": CapabilityOutput(findings="", cap_state={"searches": runs})}
     result = await rt.broker.execute(
-        "file_search", {"query": request.message[:8000], "k": int(config.get("top_k", 8))}
+        "file_search", {"query": search_query(request.message, config)[:8000], "k": int(config.get("top_k", 8))}
     )
     failed = result.status != "ok"
     found = [] if failed else list(result.sources)
