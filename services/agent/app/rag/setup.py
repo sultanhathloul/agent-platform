@@ -37,6 +37,9 @@ class Documents:
     pipeline: IngestPipeline | None = None
     worker: IngestWorker | None = None
     backends: Mapping[str, DocumentBackend] = field(default_factory=dict)  # every backend, by name
+    # The internal index, for the caller's file library across conversations (my-files PR, ADR-0443).
+    vectors: object | None = None
+    retriever: object | None = None
 
 
 def build_documents(
@@ -104,5 +107,6 @@ def build_documents(
     if selected not in backends:
         raise ValueError(f"unknown document backend {selected!r}; known: {sorted(backends)}")
     return Documents(
-        backend=backends[selected], config=config, pipeline=pipeline, worker=worker, backends=backends
+        backend=backends[selected], config=config, pipeline=pipeline, worker=worker, backends=backends,
+        vectors=vectors, retriever=retriever,
     )

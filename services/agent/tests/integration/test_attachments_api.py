@@ -1,6 +1,6 @@
 """The agent's attachment API (phase 04, A2; ADR-0129). Isolation first (G6): another
 user, by the owner's attachment id, gets 404 on status; by the owner's conversation id, 403;
-no role or header reaches another user's file. There is no delete (owner decision S4). Then
+no role or header reaches another user's file, nor deletes it (the owner's delete: test_my_files.py). Then
 registration, the file limit and the type check."""
 
 import uuid
@@ -59,9 +59,12 @@ async def test_another_user_never_reads_or_lists_an_attachment(client):
     response = await client.get(f"{path}/{attachment['id']}", headers=identity(owner, "t2"))
     assert response.status_code == 403
 
-    # The owner still has it, and cannot delete it: the product deletes no file (S4).
-    assert (await client.get(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 200
-    assert (await client.delete(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 405
+    # Another user cannot delete it (my-files PR, ADR-0444): by the owner's conversation 403, by their own 404;
+    # the owner still has it.
+    assert (await client.delete(f"{path}/{attachment['id']}", headers=identity(intruder))).status_code == 403
+    own_path = f"/v1/conversations/{own}/attachments/{attachment['id']}"
+    assert (await client.delete(own_path, headers=identity(intruder))).status_code == 404
+    assert (await client.delete(f"{path}/{attachment['id']}", headers=identity(owner, "t2"))).status_code == 403
     assert (await client.get(f"{path}/{attachment['id']}", headers=identity(owner))).status_code == 200
 
 

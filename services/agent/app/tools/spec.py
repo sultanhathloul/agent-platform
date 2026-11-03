@@ -149,6 +149,10 @@ class ToolContext:
     # (app.context.recall.HistoryFacade), both bound to the scope; None otherwise.
     library: Any = None
     history: Any = None
+    # For a capability whose manifest declares `access: [user_files]` (my-files PR, ADR-0443): the caller's
+    # own
+    # files of every conversation (app.attachments.library.FilesFacade), bound to the scope; None otherwise.
+    files: Any = None
 
 
 class Label(BaseModel):

@@ -3,7 +3,8 @@ reads this turn's user message as persisted — its post-guard `content` (ADR-00
 never the reply: memory holds only what the user stated, never what the assistant wrote,
 a memo, a report or an answer (report library PR, owner decision 6, ADR-0435) — and the
 kept candidates are stored for the turn's (tenant, user). Nothing is written when that
-user's memory is off or a guard flagged the turn.
+user's memory is off, a guard flagged the turn, or the turn read a file (config/memory.yaml
+`skip_capabilities`, my-files PR, owner decision 4, ADR-0445).
 
 Every kept candidate goes through DATA with target `memory_candidate` before it is
 stored (phase 03, B1): a candidate a policy blocks is dropped without a message to
@@ -59,6 +60,10 @@ async def _write(state: AgentState, ctx: TurnContext) -> tuple[str, int, int]:
         return "disabled", 0, 0
     if guard_flagged(state.get("guard_events") or []):
         return "guard_flagged", 0, 0
+    ran = set((state.get("intent") or {}).get("capabilities") or ())
+    if ran & set(memory.config.skip_capabilities):
+        # A turn that read a file, in this conversation or an earlier one (decision 4, ADR-0445).
+        return "file_turn", 0, 0
     exchange = _exchange(state)
     if exchange is None:
         return "no_exchange", 0, 0

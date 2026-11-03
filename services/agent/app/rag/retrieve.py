@@ -106,7 +106,11 @@ class HybridRetriever:
         document_ids: Sequence[str] | None = None,
         top_k: int | None = None,
         prefer: Callable[[list[ScoredChunk]], list[ScoredChunk]] | None = None,
+        min_per_collection: int | None = None,
     ) -> list[ScoredChunk]:
+        """`min_per_collection`: the floor of each collection in the top_k when several are searched; None
+        uses the configured one (cross-KB retrieval), 0 keeps the best chunks whichever collection holds them
+        (a user's files across conversations, my-files PR, ADR-0443)."""
         config = self._config
         with tracer.start_as_current_span("rag.retrieve") as span:
             names = [collection] if isinstance(collection, str) else list(collection)
@@ -148,7 +152,8 @@ class HybridRetriever:
                     )
                     if prefer is not None:
                         ranked = prefer(ranked)
-            top = with_floor(ranked, top_k or config.top_k, config.min_per_collection if len(names) > 1 else 0)
+            floor = config.min_per_collection if min_per_collection is None else min_per_collection
+            top = with_floor(ranked, top_k or config.top_k, floor if len(names) > 1 else 0)
             span.set_attribute("rag.vector_hits", len(by_vector))
             span.set_attribute("rag.text_hits", len(by_text))
             span.set_attribute("rag.candidates", len(candidates))

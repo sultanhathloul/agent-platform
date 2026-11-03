@@ -1,0 +1,27 @@
+# The `files` capability's own configuration (my-files PR, owner decision 2, ADR-0446; README §18.3 C3:
+# config/<slug>.yaml). The capability searches the caller's earlier files only when the message refers to one:
+# an upload word alone («رفعت», "uploaded"), or a file word with a send or an earlier word («الملف اللي
+# أرسلته», «المستند في محادثة ثانية», "the document I sent"). Every word is matched Arabic-normalized
+# (app/text/arabic.py contains_keyword: a leading و/ف/ب/ل/ال is stripped). A message that refers to no earlier
+# file runs no tool, whatever the router chose (the negative of decision 2).
+refer:
+  upload_words:
+    ar: [رفعت, رفعته, رفعتها, رفعتلك, رفعنا, حملت, حملته, حملتها, نزلت لك]
+    en: [uploaded, upload]
+  send_words:
+    ar: [ارسلت, ارسلته, ارسلتها, ارسلتلك, بعثت, بعثته, بعثتها, شاركت, شاركته, رسلت, رسلته, عطيتك]
+    en: [sent, shared, attached, gave you]
+  file_words:
+    ar: [ملف, ملفي, ملفات, ملفاتي, مرفق, مرفقات, مستند, مستندات, وثيقه, وثيقتي, pdf, اكسل, وورد]
+    en: [file, files, document, documents, attachment, pdf, spreadsheet]
+  earlier_words:
+    ar: [سابق, سابقه, السابق, السابقه, قبل, امس, الاسبوع الماضي, محادثه ثانيه, محادثه اخرى, محادثه سابقه,
+         المحادثه الثانيه, المحادثه الاخرى, المحادثه السابقه, المره الماضيه, المره اللي فاتت]
+    en: [earlier, previous, before, yesterday, last week, last time, another conversation, other conversation,
+         earlier conversation, previous conversation]
+  # Words asking for the whole file: with one file found, file_read reads it from its start.
+  whole_words:
+    ar: [لخص, لخصه, لخصها, ملخص, تلخيص, اختصر, كامل, كله, كلها]
+    en: [summarize, summarise, summary, whole, entire, all of it]
+# Passages one file_search returns (≤ config/file_library.yaml search.max_k).
+top_k: 8

@@ -68,6 +68,10 @@ async def _fetch(
         conversation_id=state["conversation_id"],
         selected_kbs=tuple(state.get("selected_kbs") or ()),
     ).collections
+    if any(source.get("collection") not in allowed for source in sources):
+        # A capability reading the caller's files of other conversations (my-files PR, ADR-0443): their
+        # session collections, the caller's own only (every fetch below names the principal as the owner).
+        allowed = allowed + await services.broker.owned_collections(capability, ctx.principal)
     groups: dict[tuple[str, str | None], list[str]] = defaultdict(list)
     for source in sources:
         backend = source.get("backend") or services.backend_name(capability) or ""
@@ -136,7 +140,8 @@ async def load_evidence(state: AgentState, ctx: TurnContext) -> list[dict[str, A
             Checkpoint.POST_TOOL,
             ToolOutput(content=content),
             principal=ctx.principal,
-            context=guard_context(state, ctx, tools=(output["capability"],)),
+            # The capability's own scope and those its manifest guards it as (ADR-0445).
+            context=guard_context(state, ctx, tools=ctx.services.broker.guard_scopes(output["capability"])),
         )
         ctx.report_guard(outcome.events)
         if outcome.unavailable:

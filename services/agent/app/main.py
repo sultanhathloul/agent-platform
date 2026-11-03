@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from app.api.admin import router as admin_router
 from app.api.attachments import router as attachments_router
 from app.api.conversations import router as conversations_router
+from app.api.files import router as files_router
 from app.api.kbs import router as kbs_router
 from app.api.locks import TurnLocks
 from app.api.messages import ErrorMessages
@@ -35,6 +36,7 @@ from app.api.skills import router as skills_router
 from app.artifacts.config import load_artifacts
 from app.artifacts.library import load_library_config
 from app.artifacts.store import PageStore, ReportStore
+from app.attachments.library import FileLibrary, load_file_library_config
 from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
 from app.attachments.service import AttachmentService
@@ -107,7 +109,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.8.0"
+API_VERSION = "2.9.0"
 
 
 def build_services(
@@ -208,7 +210,13 @@ def build_services(
         {cap.slug: cap.manifest.documents.collections for cap in registry.all()},
         mcp=mcp,
         access={cap.slug: cap.manifest.access for cap in registry.all()},
+        guard_as={cap.slug: cap.manifest.guard_as for cap in registry.all()},
     )
+    slugs = {cap.slug for cap in registry.all()}
+    for cap in registry.all():
+        unknown_scopes = [s for s in cap.manifest.guard_as if s not in slugs or s == cap.slug]
+        if unknown_scopes:
+            raise ManifestError(f"{cap.path}/manifest.yaml: guard_as {unknown_scopes} are not other capabilities")
 
     embeddings = EmbeddingGateway(settings, models_config)
     attachment_store = AttachmentStore(db)
@@ -343,9 +351,18 @@ def build_services(
     )
     reports = ReportStore(db, pages)
     library = load_library_config(settings.config_dir / "library.yaml")
+    # The caller's files of every conversation (my-files PR, ADR-0442, ADR-0443): the page's list and delete,
+    # and the `files` capability's search and read on the internal index.
+    files = FileLibrary(
+        db,
+        load_file_library_config(settings.config_dir / "file_library.yaml"),
+        vectors=documents.vectors,
+        retriever=documents.retriever,
+        objects=objects,
+    )
     services = dataclasses.replace(
-        services, artifacts=artifacts, reports=reports, library=library,
-        broker=services.broker.with_records(reports, library),
+        services, artifacts=artifacts, reports=reports, library=library, files=files,
+        broker=services.broker.with_records(reports, library).with_files(files),
     )
     judge.bind(services)
     platform.on_change(lambda snapshot: _resize(services, snapshot))
@@ -562,6 +579,7 @@ def create_app(*, start_background: bool = True, services: Services | None = Non
     app.include_router(skills_router)
     app.include_router(kbs_router)
     app.include_router(reports_router)
+    app.include_router(files_router)
     app.include_router(internal_router)
 
     @app.exception_handler(RequestValidationError)

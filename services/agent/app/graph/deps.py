@@ -87,6 +87,9 @@ class Services:
     # The report library and recall bounds (config/library.yaml; report library PR, ADR-0430 onward):
     # app.artifacts.library.LibraryConfig.
     library: Any = None
+    # The caller's file library (config/file_library.yaml; my-files PR, ADR-0442 onward):
+    # app.attachments.library.FileLibrary.
+    files: Any = None
 
     def backend_name(self, slug: str) -> str | None:
         name = self.registry.get(slug).config.get("backend")

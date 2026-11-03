@@ -410,6 +410,29 @@ class AttachmentList(BaseModel):
     attachments: list[AttachmentView] = Field(description="Oldest first.")
 
 
+class FileItem(BaseModel):
+    """One of the caller's uploaded files, as the page «ملفاتي» lists it (my-files PR, owner decision 1,
+    ADR-0442). No object key: the browser downloads through the conversation's attachment path."""
+
+    id: str
+    conversation_id: str
+    conversation_title: str = Field(default="", description="The conversation's first question, as stored.")
+    conversation_created_at: datetime | None = Field(default=None, description="When the conversation began.")
+    name: str
+    mime: str
+    kind: Literal["pdf", "docx", "xlsx", "txt", "md"]
+    size: int
+    status: Literal["pending", "indexed", "failed"]
+    reason: str | None = Field(default=None, description="Why ingestion failed (failed only).")
+    pages: int | None = None
+    created_at: datetime = Field(description="When it was uploaded.")
+
+
+class FilePage(BaseModel):
+    files: list[FileItem] = Field(description="Newest first.")
+    next_before: datetime | None = Field(default=None, description="`before` of the next page, if any.")
+
+
 class ConversationSummary(BaseModel):
     id: str
     title: str = Field(description="The conversation's first question, at most 80 characters (ADR-0192).")

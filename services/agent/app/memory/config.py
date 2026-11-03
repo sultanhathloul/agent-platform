@@ -28,6 +28,9 @@ class MemoryConfig(BaseModel):
     # asks for is not where they work.
     self_kinds: list[str] = []
     self_words: list[str] = []
+    # Nothing from a file reaches long-term memory (my-files PR, owner decision 4, ADR-0445): a turn on which
+    # one of these capabilities ran writes no memory at all.
+    skip_capabilities: list[str] = []
 
     @model_validator(mode="after")
     def _known_kinds(self) -> "MemoryConfig":

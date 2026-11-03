@@ -26,6 +26,13 @@ def guard_context(
     actions: frozenset[str] | None = None,
 ) -> GuardContext:
     capabilities = tools if tools is not None else (state.get("intent") or {}).get("capabilities") or ()
+    if tools is None:
+        # A capability guarded as another (my-files PR, ADR-0445) brings that one's scope to the turn's
+        # checks.
+        broker = getattr(ctx.services, "broker", None)
+        scopes = getattr(broker, "guard_scopes", None)
+        if scopes is not None:
+            capabilities = tuple(dict.fromkeys(s for c in capabilities for s in scopes(c)))
     return GuardContext(
         kbs=tuple(state.get("selected_kbs") or ()),
         tools=tuple(capabilities),

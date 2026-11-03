@@ -52,6 +52,18 @@ class VectorStore(Protocol):
         """Deletes every chunk of the owner's collection (a deleted knowledge base, I1)."""
         ...
 
+    async def document_chunks(
+        self,
+        owner: Owner,
+        collection: str,
+        document_id: str,
+        *,
+        pages: Sequence[int] | None = None,
+        limit: int,
+    ) -> list[dict]:
+        """One document's chunks in reading order ({id, page, section}, no text), of `pages` when named."""
+        ...
+
     async def fetch(self, owner: Owner, collection: str, ids: Sequence[str]) -> dict[str, str]:
         """The text of each chunk id in the owner's collection; ids outside it are left out."""
         ...
