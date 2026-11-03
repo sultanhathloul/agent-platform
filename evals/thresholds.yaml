@@ -65,3 +65,8 @@ memory:
 long_conversation:
   steps: 0.90
   negative: 1.00
+# My files (my-files PR, ADR-0446): the share of steps passed, and every negative step (another user's file, a
+# question that refers to no earlier file, a deleted file) at 1.00.
+files:
+  steps: 0.85
+  negative: 1.00

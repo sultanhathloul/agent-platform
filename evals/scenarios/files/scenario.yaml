@@ -1,0 +1,85 @@
+# My files (my-files PR, owner decisions 1 to 4; ADR-0442 to ADR-0446): files uploaded in one conversation and asked
+# about in others, on request only. Run as evaluator through the gateway; the lab reports are fictional (no real
+# data, ADR-0065). Gated in evals/thresholds.yaml: `steps` and `negative` (another user's file, a question that
+# refers to no earlier file, a deleted file).
+user: evaluator
+steps:
+  # Two files, each uploaded in a conversation of its own.
+  - id: f01
+    conversation: upload-ar
+    upload: تقرير-مختبر-تجريبي.md
+    upload_name: lab-ar
+    message: "هذا تقرير المختبر الخاص بي، لخصه لي في سطرين."
+    expect: {form: text}
+  - id: f02
+    conversation: upload-en
+    upload: lab-report-sample.txt
+    upload_name: lab-en
+    locale: en
+    message: "This is my lab report. Summarize it in two lines."
+    expect: {form: text}
+
+  # Search on request across conversations: Arabic, Gulf, English; the answer cites the file.
+  - id: f03
+    conversation: ask-ar
+    message: "رفعت لك تقرير المختبر في محادثة ثانية، كم كانت نسبة الهيموجلوبين؟"
+    expect: {form: text, tools_any: [file_search], answer_any: ["13.2"], cites_file: true, cited: lab-ar}
+  - id: f04
+    conversation: ask-gulf
+    message: "الملف اللي أرسلته لك قبل عن التحاليل، وش طلعت نتيجة السكر التراكمي فيه؟"
+    expect: {form: text, tools_any: [file_search], answer_any: ["5.4"], cites_file: true, cited: lab-ar}
+  - id: f05
+    conversation: ask-en
+    locale: en
+    message: "I uploaded my lab report in another conversation. What was my vitamin D level?"
+    expect: {form: text, tools_any: [file_search], answer_any: ["18"], cites_file: true, cited: lab-en}
+
+  # An unrelated question in a new conversation uses no earlier file.
+  - id: f06
+    conversation: unrelated-ar
+    negative: true
+    message: "كم المعدل الطبيعي للهيموجلوبين عند البالغين؟"
+    expect: {form: text, tools_none: [file_search, file_read], answer_none: ["13.2", "من ملفك", "تقرير المختبر"]}
+  - id: f07
+    conversation: unrelated-en
+    locale: en
+    negative: true
+    message: "What is a normal vitamin D level for adults?"
+    expect: {form: text, tools_none: [file_search, file_read], answer_none: ["18 ng", "from your file", "your lab report"]}
+
+  # The page lists the user's files; another user's list and search never reach them.
+  - id: f08
+    check: files
+    expect: {all_of: [lab-ar, lab-en]}
+  - id: f09
+    check: files
+    as: viewer
+    negative: true
+    expect: {none_of: [lab-ar, lab-en]}
+  - id: f10
+    as: viewer
+    conversation: viewer-ask
+    negative: true
+    message: "رفعت لك تقرير المختبر في محادثة ثانية، كم كانت نسبة الهيموجلوبين؟"
+    expect: {form: text, answer_none: ["13.2"]}
+  - id: f11
+    check: delete_file
+    as: viewer
+    file: lab-en
+    negative: true
+    expect: {status: 403}
+
+  # A deleted file leaves every conversation and search.
+  - id: f12
+    check: delete_file
+    file: lab-en
+  - id: f13
+    check: files
+    negative: true
+    expect: {none_of: [lab-en], all_of: [lab-ar]}
+  - id: f14
+    conversation: after-delete
+    locale: en
+    negative: true
+    message: "I uploaded my lab report in another conversation. What was my vitamin D level?"
+    expect: {form: text, answer_none: ["18 ng", "18 ng/ml"]}

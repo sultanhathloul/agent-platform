@@ -15,9 +15,15 @@ memory`). A step's `expect` keys:
   selected sources hold nothing; `cites_report`: the answer cites «من التقرير»;
 - `tools_any` / `tools_none`: tool names among the turn's `tool_start` events;
 - `summary`: the conversation has a rolling summary after this turn (read from its checkpoint);
-- `mentions_reports`: named reports whose titles the answer names.
+- `mentions_reports`: named reports whose titles the answer names;
+- `cites_file`: the answer cites «من ملفك» / "from your file"; `cited`: a named upload is among the done
+  event's citations (my-files PR, ADR-0443).
 
-A check step: `memory_on` (switches the user's memory to `enabled`); `library` (GET /v1/reports as the step's user: none of the named reports); `report` (GET
+A turn step may carry `upload: <file>` (a file of the scenario's folder) and `upload_name`: the file is uploaded
+to the step's conversation and indexed before the turn, which carries it (my-files PR).
+
+A check step: `files` (GET /v1/files as the step's user: `all_of` / `none_of` named uploads); `delete_file`
+(DELETE the named upload as the step's user: `status`, 204 by default); `memory_on` (switches the user's memory to `enabled`); `library` (GET /v1/reports as the step's user: none of the named reports); `report` (GET
 /v1/reports/{id} as the step's user: `status` and, when 200, `latest_version`); `memory` (the user's memory
 items added since the scenario began: each grounded in one of the user's own messages of the scenario, none
 holding `memory_none` phrases; `memory_any`: phrases one of them holds).
@@ -160,6 +166,8 @@ class Runner:
         self.user_messages: dict[str, list[str]] = {}
         self.conversations: dict[str, str] = {}
         self.turns: dict[str, int] = {}
+        self.uploads: dict[str, tuple[str, str]] = {}  # name → (conversation id, attachment id)
+        self.folder: Path | None = None
 
     def token(self, user: str) -> str:
         token, at = self.tokens.get(user, ("", 0.0))
@@ -176,6 +184,30 @@ class Runner:
         response.raise_for_status()
         return response.json()["data"]["items"]
 
+    def upload(self, user: str, conversation: str, file: str) -> str:
+        """Uploads a file of the scenario's folder to `conversation` and waits until it is indexed."""
+        path = (self.folder or Path(".")) / file
+        headers = {"Authorization": f"Bearer {self.token(user)}"}
+        for _ in range(5):
+            with path.open("rb") as handle:
+                response = self.http.post(f"{self.gateway}/v1/conversations/{conversation}/attachments",
+                                          files={"file": (path.name, handle)}, headers=headers)
+            if response.status_code != 429:
+                break
+            time.sleep(61)  # the per-user upload allowance is per minute (ADR-0177)
+        response.raise_for_status()
+        attachment = response.json()["data"]["id"]
+        for _ in range(120):
+            status = self.http.get(f"{self.gateway}/v1/conversations/{conversation}/attachments/{attachment}",
+                                   headers=headers)
+            status.raise_for_status()
+            if status.json()["data"]["status"] == "indexed":
+                return attachment
+            if status.json()["data"]["status"] == "failed":
+                raise RuntimeError(f"{file} failed to index")
+            time.sleep(1)
+        raise RuntimeError(f"{file} was not indexed within 120 s")
+
     # ------------------------------------------------------------------ steps
 
     def turn(self, step: dict, user: str, measure_at: set[int]) -> dict:
@@ -183,6 +215,10 @@ class Runner:
         conversation = self.conversations.setdefault(f"{user}:{name}", str(uuid.uuid4()))
         body = {"conversation_id": conversation, "message": step["message"], "locale": step.get("locale", "ar"),
                 "attachment_ids": []}
+        if step.get("upload"):
+            attachment = self.upload(user, conversation, step["upload"])
+            self.uploads[step.get("upload_name") or step["upload"]] = (conversation, attachment)
+            body["attachment_ids"] = [attachment]
         if step.get("selected_kbs"):
             body["selected_kbs"] = step["selected_kbs"]
         if step.get("output"):
@@ -202,6 +238,8 @@ class Runner:
             "capabilities": (data.get("state_digest") or {}).get("capabilities"),
             "artifact": data.get("artifact"), "tools": [e["data"].get("tool") for e in events if e.get("type") == "tool_start"],
             "seconds": round(seconds, 2), "usage": data.get("usage"), "trace_id": data.get("trace_id"),
+            "citations": [{"document_id": c.get("document_id"), "title": c.get("title"), "pages": c.get("pages")}
+                          for c in data.get("citations") or []],
         }
         record["context_tokens"] = context_tokens(self.http, self.cfg, self.auth, data.get("trace_id"))
         if number in measure_at:
@@ -246,6 +284,12 @@ class Runner:
             problems.append("no nothing-found reply")
         if expect.get("cites_report") and "من التقرير" not in answer and "from the report" not in answer:
             problems.append("no «من التقرير» citation")
+        if expect.get("cites_file") and "من ملفك" not in answer and "from your file" not in answer:
+            problems.append("no «من ملفك» citation")
+        if "cited" in expect:
+            wanted = (self.uploads.get(expect["cited"]) or ("", ""))[1]
+            if wanted not in {c.get("document_id") for c in r.get("citations") or []}:
+                problems.append(f"{expect['cited']} is not among the citations")
         if "numbers_of" in expect:
             shared = _numbers(self.answers.get(expect["numbers_of"], "")) & _numbers(r["answer"])
             if not shared:
@@ -294,6 +338,25 @@ class Runner:
             for name in expect.get("all_of") or []:
                 if self.reports.get(name) not in ids:
                     record["problems"].append(f"does not list {name}")
+        elif kind == "files":
+            response = self.get(user, "/v1/files")
+            ids = [f["id"] for f in response.json().get("data", {}).get("files", [])] if response.status_code == 200 else []
+            record.update(status=response.status_code, listed=len(ids))
+            if response.status_code != 200:
+                record["problems"].append(f"HTTP {response.status_code}")
+            for name in expect.get("none_of") or []:
+                if (self.uploads.get(name) or ("", ""))[1] in ids:
+                    record["problems"].append(f"lists {name}")
+            for name in expect.get("all_of") or []:
+                if (self.uploads.get(name) or ("", ""))[1] not in ids:
+                    record["problems"].append(f"does not list {name}")
+        elif kind == "delete_file":
+            conversation, attachment = self.uploads.get(step["file"]) or ("", "")
+            response = self.http.delete(f"{self.gateway}/v1/conversations/{conversation}/attachments/{attachment}",
+                                        headers={"Authorization": f"Bearer {self.token(user)}"})
+            record.update(status=response.status_code)
+            if response.status_code != expect.get("status", 204):
+                record["problems"].append(f"HTTP {response.status_code} != {expect.get('status', 204)}")
         elif kind == "report":
             report = self.reports.get(step["report"])
             response = self.get(user, f"/v1/reports/{report}")
@@ -363,6 +426,7 @@ def run_scenario(http, cfg, auth, login, backoff, repo: Path, users: dict, name:
     share of steps marked `negative: true` passed) in evals/thresholds.yaml."""
     scenario = yaml.safe_load(path.read_text(encoding="utf-8"))
     runner = Runner(http, cfg, auth, login, backoff, repo, users)
+    runner.folder = path.parent
     print(f"\n{name}: {len(scenario['steps'])} steps as {scenario['user']}")
     records = runner.run(scenario)
     negative = [r for r, s in zip(records, scenario["steps"], strict=True) if s.get("negative")]
