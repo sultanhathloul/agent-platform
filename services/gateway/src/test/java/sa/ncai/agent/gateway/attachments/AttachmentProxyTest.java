@@ -411,11 +411,45 @@ class AttachmentProxyTest extends GatewayTestSupport {
     }
 
     @Test
-    void thereIsNoDeleteTheProductDeletesNoFile() throws Exception {
+    void theOwnerDeletesAFileAndTheDeleteIsAuditedWithoutItsName() throws Exception {
+        // My files (my-files PR, owner decision 1, ADR-0444): delete replaces S4's "no delete".
         conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        AGENT.enqueue(new MockResponse().setResponseCode(204));
         mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
-                .andExpect(status().isMethodNotAllowed());
+                .andExpect(status().isNoContent());
+        RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(upstream.getMethod()).isEqualTo("DELETE");
+        assertThat(upstream.getPath()).isEqualTo(BASE + "/" + ATTACHMENT);
+        assertThat(upstream.getHeaders().values("X-User-Id")).containsExactly("viewer-1");
+        List<AuditEvent> events = auditLog().events();
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().action()).isEqualTo("attachment.delete");
+        assertThat(events.getFirst().status()).isEqualTo(AuditStatus.OK);
+        assertThat(events.getFirst().detail()).containsEntry("attachment_id", ATTACHMENT);
+    }
+
+    @Test
+    void anotherUsersFileIsNeverDeleted() throws Exception {
+        // Another owner's conversation: 403 before the agent; the refusal is audited.
+        conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, bearer(other())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("conversation_forbidden"));
         assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
+        // A conversation the gateway does not know holds none of the caller's files: 404, no agent call.
+        String unknown = "/v1/conversations/1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a/attachments/" + ATTACHMENT;
+        mvc.perform(delete(unknown).header(HttpHeaders.AUTHORIZATION, bearer(other())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("attachment_not_found"));
+        assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
+        // The agent's own check: an id it does not hold for the caller is 404.
+        AGENT.enqueue(new MockResponse().setResponseCode(404).setHeader("Content-Type", "application/json")
+                .setBody("{\"request_id\":\"x\",\"error\":{\"code\":\"attachment_not_found\",\"message_ar\":\"م\","
+                        + "\"message_en\":\"m\",\"retryable\":false}}"));
+        mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                .andExpect(status().isNotFound());
+        assertThat(auditLog().events()).extracting(AuditEvent::status)
+                .containsExactly(AuditStatus.DENIED, AuditStatus.DENIED, AuditStatus.DENIED);
     }
 
     @Test

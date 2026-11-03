@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.8.0"
+    "version" : "2.9.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -140,7 +140,7 @@
     },
     "/v1/admin/kbs/{slug}" : {
       "delete" : {
-        "operationId" : "delete",
+        "operationId" : "delete_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "slug",
@@ -2068,6 +2068,72 @@
       }
     },
     "/v1/conversations/{conversationId}/attachments/{attachmentId}" : {
+      "delete" : {
+        "description" : "My files (my-files PR, owner decision 1): the agent deletes the file's record, its chunks in the index, the recorded context packages that hold them and its stored object; later turns and the history no longer show it. Its conversation stays. Audited as attachment.delete with the attachment's id, never its name.",
+        "operationId" : "delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "attachmentId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "Deleted"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "conversation_forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "attachment_not_found, also for another user's id"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "Deletes one of the caller's files from every index and every conversation (owner only)",
+        "tags" : [ "attachments" ]
+      },
       "get" : {
         "operationId" : "status",
         "parameters" : [ {
@@ -2371,6 +2437,131 @@
         "tags" : [ "reports" ]
       }
     },
+    "/v1/files" : {
+      "get" : {
+        "description" : "Searched by name or conversation title with q, filtered by type, status and upload date. Knowledge base documents are never listed. Checked twice: the agent lists the caller's own files only, and the gateway drops any file whose conversation is not the caller's in its conversations table. Audited as file.library with the filters and the count, never the query.",
+        "operationId" : "library_1",
+        "parameters" : [ {
+          "description" : "Words of the file's name or its conversation's title; empty lists the newest.",
+          "in" : "query",
+          "name" : "q",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "Only files of these types (repeatable).",
+          "in" : "query",
+          "name" : "kind",
+          "required" : false,
+          "schema" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "enum" : [ "pdf", "docx", "xlsx", "txt", "md" ]
+            }
+          }
+        }, {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "pending", "indexed", "failed" ]
+          }
+        }, {
+          "description" : "Uploaded on or after this time (ISO 8601).",
+          "in" : "query",
+          "name" : "since",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }, {
+          "description" : "Uploaded before this time (ISO 8601).",
+          "in" : "query",
+          "name" : "until",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }, {
+          "description" : "`next_before` of the previous page.",
+          "in" : "query",
+          "name" : "before",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "maximum" : 100,
+            "minimum" : 1
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeFilePage"
+                }
+              }
+            },
+            "description" : "A page of the caller's files"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The caller's files: every file they uploaded in any conversation, newest first",
+        "tags" : [ "files" ]
+      }
+    },
     "/v1/health" : {
       "get" : {
         "operationId" : "health",
@@ -2530,7 +2721,7 @@
     },
     "/v1/memory/{itemId}" : {
       "delete" : {
-        "operationId" : "delete_1",
+        "operationId" : "delete_2",
         "parameters" : [ {
           "in" : "path",
           "name" : "itemId",
@@ -3171,6 +3362,20 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/ConversationMessages"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeFilePage" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/FilePage"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -3877,6 +4082,77 @@
             "minLength" : 0
           }
         }
+      },
+      "FileItem" : {
+        "properties" : {
+          "conversation_created_at" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "When the conversation began."
+          },
+          "conversation_id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "conversation_title" : {
+            "type" : "string",
+            "description" : "The conversation's first question, as stored; empty when it has none."
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "When it was uploaded."
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "pdf", "docx", "xlsx", "txt", "md" ]
+          },
+          "mime" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "pages" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Pages, when known."
+          },
+          "reason" : {
+            "type" : "string",
+            "description" : "Why ingestion failed (failed only)."
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64",
+            "description" : "Bytes."
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "pending", "indexed", "failed" ]
+          }
+        },
+        "required" : [ "conversation_id", "conversation_title", "created_at", "id", "kind", "mime", "name", "size", "status" ]
+      },
+      "FilePage" : {
+        "properties" : {
+          "files" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FileItem"
+            }
+          },
+          "next_before" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "`before` of the next page; absent on the last."
+          }
+        },
+        "required" : [ "files" ]
       },
       "HealthResponse" : {
         "properties" : {
