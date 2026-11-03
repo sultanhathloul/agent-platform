@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from langgraph.runtime import Runtime
 from opentelemetry import trace
 
+from app.artifacts.index import has_reports, report_index
 from app.artifacts.writer import write_report
 from app.context.package import BLOCK_NAMES, SKILL_BLOCK, AssemblyRequest, BlockName, SkillBlockRequest
 from app.errors import TurnError
@@ -51,6 +52,8 @@ def answer_needs(state: AgentState, ctx: TurnContext) -> list[BlockName]:
         wanted.update(ctx.services.registry.get(slug).manifest.context.needs_or(default))
     if state.get("skill"):
         wanted.add(SKILL_BLOCK)  # the turn's skill: requested by the answer node only (ADR-0300)
+    if has_reports(state):
+        wanted.add("reports")  # every turn of a conversation with reports lists them (decision 1, ADR-0430)
     return [block for block in BLOCK_NAMES if block in wanted]
 
 
@@ -69,6 +72,7 @@ def answer_request(
     *,
     policy_hints: Sequence[str] = (),
     retrieved: Sequence[dict] = (),
+    reports: Sequence[dict] = (),
 ) -> AssemblyRequest:
     node = ctx.services.assembler.node("answer")
     return AssemblyRequest(
@@ -84,6 +88,7 @@ def answer_request(
         retrieved=list(retrieved),
         policy_hints=list(policy_hints),
         skill=skill_request(state, ctx),
+        reports=list(reports),
         memory_scope=MemoryScope.of(ctx.principal),
     )
 
@@ -91,14 +96,16 @@ def answer_request(
 async def prepare_answer(state: AgentState, ctx: TurnContext, *, policy_hints: Sequence[str] = ()):
     # Chunk text is fetched now, never earlier, and only for a turn whose capabilities need
     # the retrieval block (S4, C2).
-    retrieved = await load_evidence(state, ctx) if "retrieval" in answer_needs(state, ctx) else []
+    needs = answer_needs(state, ctx)
+    retrieved = await load_evidence(state, ctx) if "retrieval" in needs else []
+    reports = await report_index(state, ctx) if "reports" in needs else []
     selected = [ctx.services.registry.get(slug) for slug in state["intent"]["capabilities"]]
     max_inputs = [
         c.manifest.context.max_input_tokens for c in selected if c.manifest.context.max_input_tokens
     ]
     return await prepare_call(
         ctx,
-        answer_request(state, ctx, policy_hints=policy_hints, retrieved=retrieved),
+        answer_request(state, ctx, policy_hints=policy_hints, retrieved=retrieved, reports=reports),
         role="reasoning",
         step="answer",
         capabilities=selected,

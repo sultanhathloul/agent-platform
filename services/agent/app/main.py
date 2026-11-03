@@ -33,6 +33,7 @@ from app.api.settings import internal as internal_router
 from app.api.settings import router as settings_router
 from app.api.skills import router as skills_router
 from app.artifacts.config import load_artifacts
+from app.artifacts.library import load_library_config
 from app.artifacts.store import PageStore, ReportStore
 from app.attachments.limits import load_upload_limits
 from app.attachments.objects import ObjectStore
@@ -106,7 +107,7 @@ CORE_PROMPTS = (
 )
 
 # Bump on any change to docs/openapi/agent.json; tests/unit/test_contracts.py fails on drift (ADR-0044).
-API_VERSION = "2.7.0"
+API_VERSION = "2.8.0"
 
 
 def build_services(
@@ -206,6 +207,7 @@ def build_services(
         {cap.slug: cap.manifest.tools for cap in registry.all()},
         {cap.slug: cap.manifest.documents.collections for cap in registry.all()},
         mcp=mcp,
+        access={cap.slug: cap.manifest.access for cap in registry.all()},
     )
 
     embeddings = EmbeddingGateway(settings, models_config)
@@ -339,7 +341,12 @@ def build_services(
         if settings.minio_artifacts_access_key
         else None
     )
-    services = dataclasses.replace(services, artifacts=artifacts, reports=ReportStore(db, pages))
+    reports = ReportStore(db, pages)
+    library = load_library_config(settings.config_dir / "library.yaml")
+    services = dataclasses.replace(
+        services, artifacts=artifacts, reports=reports, library=library,
+        broker=services.broker.with_records(reports, library),
+    )
     judge.bind(services)
     platform.on_change(lambda snapshot: _resize(services, snapshot))
     return services
@@ -443,6 +450,10 @@ async def start_services(services: Services) -> Services:
         # A deleted KB's purge a backend could not take is retried, in the background: a backend
         # that is down never stops the agent (phase 08, I1).
         services.tasks.append(asyncio.create_task(_settle_owed_purges(services.kbs)))
+    if services.reports is not None:
+        # Versions written before the report library are indexed in the background, in bounded batches
+        # (report library PR, ADR-0432): a store that cannot answer never stops the agent.
+        services.tasks.append(asyncio.create_task(_backfill_library(services.reports)))
     started = dataclasses.replace(services, graph=build_graph(checkpointer))
     freeze_startup_heap()
     return started
@@ -458,6 +469,29 @@ def freeze_startup_heap() -> None:
     gc.collect()
     gc.freeze()
     log.info("startup heap frozen: %d objects (gc.freeze, ADR-0324)", gc.get_freeze_count())
+
+
+# The library backfill (ADR-0432): versions per batch, and the batches one start runs at most.
+LIBRARY_BACKFILL_BATCH = 50
+LIBRARY_BACKFILL_BATCHES = 200
+
+
+async def _backfill_library(reports: ReportStore) -> None:
+    total = 0
+    try:
+        for _ in range(LIBRARY_BACKFILL_BATCHES):
+            indexed = await reports.backfill(LIBRARY_BACKFILL_BATCH)
+            total += indexed
+            if indexed < LIBRARY_BACKFILL_BATCH:
+                break
+            await asyncio.sleep(0)  # one batch at a time, the event loop free between them
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("report library backfill stopped after %d version(s): %s", total, type(exc).__name__)
+        return
+    if total:
+        log.info("report library backfill indexed %d version(s)", total)
 
 
 async def _settle_owed_purges(kbs: KbService) -> None:

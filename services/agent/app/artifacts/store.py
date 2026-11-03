@@ -21,6 +21,7 @@ from minio.error import S3Error
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
+from app.artifacts import library
 from app.db import Database
 from app.resilience import deadline
 
@@ -52,6 +53,33 @@ class ReportRecord(BaseModel):
     created_at: datetime
     updated_at: datetime
     versions: list[VersionInfo] = []
+    # A report made from another conversation's report (owner decision 3, ADR-0433): the version it began from.
+    based_on: dict[str, Any] | None = None
+
+
+class LibraryHit(BaseModel):
+    """One report of the caller's library, as report_search and the web page's list return it: its latest
+    matching version, never the page (owner decision 3, ADR-0432)."""
+
+    report_id: str
+    version: int
+    latest_version: int
+    title: str
+    subject: str = ""
+    conversation_id: str
+    sections: list[dict[str, Any]] = []
+    sources: list[str] = []
+    source_kinds: list[str] = []
+    created_at: datetime
+    updated_at: datetime
+    score: float = 0.0
+
+
+class Reference(BaseModel):
+    report_id: str
+    version: int
+    title: str
+    conversation_id: str
 
 
 class VersionRecord(VersionInfo):
@@ -167,15 +195,20 @@ class ReportStore:
         timeout_s: float,
         passages: list[dict] | None = None,
         spec: dict | None = None,
+        based_on: dict | None = None,
     ) -> VersionRecord:
-        """A new report (`new`) or the next version of one: the page first, then its row."""
+        """A new report (`new`) or the next version of one: the page first, then its row and its library
+        entry in the same transaction (ADR-0432). `based_on` ({report_id, version}): a new report made from
+        another conversation's report, which stays as it was (ADR-0433)."""
         title = title[:300] or "-"
         async with self._db.connection() as conn, conn.transaction():
             if new:
+                based = based_on or {}
                 await conn.execute(
-                    "INSERT INTO agent.reports (id, tenant_id, user_id, conversation_id, title) "
-                    "VALUES (%s, %s, %s, %s, %s)",
-                    (report_id, tenant_id, user_id, conversation_id, title),
+                    "INSERT INTO agent.reports (id, tenant_id, user_id, conversation_id, title, based_on_report, "
+                    "based_on_version) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (report_id, tenant_id, user_id, conversation_id, title, based.get("report_id"),
+                     based.get("version")),
                 )
             cursor = await conn.execute(
                 "SELECT latest_version FROM agent.reports WHERE id = %s AND tenant_id = %s AND user_id = %s "
@@ -204,6 +237,11 @@ class ReportStore:
                 "UPDATE agent.reports SET latest_version = %s, title = %s, updated_at = now() WHERE id = %s",
                 (version, title, report_id),
             )
+            await _index(
+                conn, report_id=report_id, version=version, tenant_id=tenant_id, user_id=user_id,
+                conversation_id=conversation_id, title=title, spec=spec, citations=citations, general=general,
+                created_at=None,
+            )
         record = await self.version(tenant_id, user_id, report_id, version)
         assert record is not None
         return record
@@ -211,20 +249,25 @@ class ReportStore:
     async def get(self, tenant_id: str, user_id: str, report_id: str) -> ReportRecord | None:
         async with self._db.connection() as conn:
             cursor = await conn.execute(
-                "SELECT id::text AS id, conversation_id, title, latest_version, created_at, updated_at "
+                "SELECT id::text AS id, conversation_id, title, latest_version, created_at, updated_at, "
+                "based_on_report, based_on_version "
                 "FROM agent.reports WHERE id = %s AND tenant_id = %s AND user_id = %s AND latest_version > 0",
                 (report_id, tenant_id, user_id),
             )
             row = await cursor.fetchone()
             if row is None:
                 return None
+            row = dict(row)
+            based_report, based_version = row.pop("based_on_report"), row.pop("based_on_version")
+            if based_report is not None:
+                row["based_on"] = {"report_id": str(based_report), "version": based_version}
             cursor = await conn.execute(
                 "SELECT version, title, size, sha256, locale, created_at, figures, general "
                 "FROM agent.report_versions WHERE report_id = %s ORDER BY version",
                 (report_id,),
             )
             versions = [VersionInfo.model_validate(dict(v)) for v in await cursor.fetchall()]
-        return ReportRecord.model_validate({**dict(row), "versions": versions})
+        return ReportRecord.model_validate({**row, "versions": versions})
 
     async def in_conversation(self, tenant_id: str, user_id: str, conversation_id: str) -> list[ReportRecord]:
         async with self._db.connection() as conn:
@@ -254,3 +297,156 @@ class ReportStore:
         if hashlib.sha256(page).hexdigest() != record.sha256:
             raise ReportUnavailable("stored page does not match its record")
         return page
+
+    # ------------------------------------------------------------------ the library (ADR-0432, ADR-0433)
+
+    async def in_conversation_latest(
+        self, tenant_id: str, user_id: str, conversation_id: str, limit: int
+    ) -> list[VersionRecord]:
+        """The conversation's reports, each at its latest version, the most recently changed first: the
+        index every turn's context lists (decision 1)."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                f"SELECT {_VERSION_COLUMNS} FROM agent.reports r JOIN agent.report_versions v "
+                "ON v.report_id = r.id AND v.version = r.latest_version "
+                "WHERE r.conversation_id = %s AND r.tenant_id = %s AND r.user_id = %s "
+                "ORDER BY r.updated_at DESC LIMIT %s",
+                (conversation_id, tenant_id, user_id, limit),
+            )
+            rows = await cursor.fetchall()
+        return [VersionRecord.model_validate(dict(row)) for row in rows]
+
+    async def search(
+        self,
+        tenant_id: str,
+        user_id: str,
+        terms: list[str],
+        *,
+        limit: int,
+        conversation_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        source: str | None = None,
+        before: datetime | None = None,
+    ) -> list[LibraryHit]:
+        """The caller's reports, one hit per report at its best-ranked matching version (with no terms: its
+        latest version, newest first). Owner in every WHERE; `conversation_id` keeps one conversation's;
+        `source` is `general`, `file` or `kb:<slug>` (the page's filter); `before` pages by updated_at."""
+        words = sorted({t for t in terms if t and t.isalnum()})
+        params: dict[str, Any] = {"tenant_id": tenant_id, "user_id": user_id, "limit": limit}
+        where = ["l.tenant_id = %(tenant_id)s", "l.user_id = %(user_id)s", "r.tenant_id = %(tenant_id)s",
+                 "r.user_id = %(user_id)s"]
+        if words:
+            params["query"] = " | ".join(words)
+            where.append("l.tsv @@ to_tsquery('simple', %(query)s)")
+            rank = "ts_rank_cd(l.tsv, to_tsquery('simple', %(query)s))"
+        else:
+            where.append("l.version = r.latest_version")
+            rank = "0.0::real"
+        if conversation_id is not None:
+            params["conversation_id"] = conversation_id
+            where.append("l.conversation_id = %(conversation_id)s")
+        if since is not None:
+            params["since"] = since
+            where.append("r.updated_at >= %(since)s")
+        if until is not None:
+            params["until"] = until
+            where.append("r.updated_at < %(until)s")
+        if before is not None:
+            params["before"] = before
+            where.append("r.updated_at < %(before)s")
+        if source:
+            params["source"] = source
+            where.append("%(source)s = ANY(l.source_kinds)")
+        sql = (
+            "SELECT * FROM (SELECT DISTINCT ON (l.report_id) l.report_id::text AS report_id, l.version, "
+            "r.latest_version, l.title, l.subject, l.conversation_id, l.sections, l.sources, l.source_kinds, "
+            f"l.created_at, r.updated_at, {rank} AS score "
+            "FROM agent.report_library l JOIN agent.reports r ON r.id = l.report_id "
+            f"WHERE {' AND '.join(where)} "
+            f"ORDER BY l.report_id, {rank + ' DESC, ' if words else ''}l.version DESC) hits "
+            "ORDER BY score DESC, updated_at DESC LIMIT %(limit)s"
+        )
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(sql, params)
+            rows = await cursor.fetchall()
+        return [LibraryHit.model_validate({**dict(row), "score": float(row["score"])}) for row in rows]
+
+    async def owned_version(self, tenant_id: str, user_id: str, report_id: str, version: int | None) -> VersionRecord | None:
+        """One of the caller's report versions, in any of their conversations; None for any other id."""
+        if version is None:
+            report = await self.get(tenant_id, user_id, report_id)
+            if report is None:
+                return None
+            version = report.latest_version
+        return await self.version(tenant_id, user_id, report_id, version)
+
+    async def refer(self, tenant_id: str, user_id: str, conversation_id: str, report_id: str, version: int) -> None:
+        """The conversation read one of the caller's reports (ADR-0433); its own reports are not recorded."""
+        async with self._db.connection() as conn:
+            await conn.execute(
+                "INSERT INTO agent.report_references (conversation_id, tenant_id, user_id, report_id, version) "
+                "SELECT %s, %s, %s, r.id, %s FROM agent.reports r WHERE r.id = %s AND r.tenant_id = %s "
+                "AND r.user_id = %s AND r.conversation_id <> %s "
+                "ON CONFLICT (conversation_id, report_id) DO UPDATE SET version = EXCLUDED.version, "
+                "referenced_at = now()",
+                (conversation_id, tenant_id, user_id, version, report_id, tenant_id, user_id, conversation_id),
+            )
+
+    async def referenced(self, tenant_id: str, user_id: str, conversation_id: str) -> Reference | None:
+        """The conversation's latest reference to another conversation's report of the caller's."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT x.report_id::text AS report_id, x.version, v.title, r.conversation_id "
+                "FROM agent.report_references x JOIN agent.reports r ON r.id = x.report_id "
+                "JOIN agent.report_versions v ON v.report_id = x.report_id AND v.version = x.version "
+                "WHERE x.conversation_id = %s AND x.tenant_id = %s AND x.user_id = %s "
+                "AND r.tenant_id = %s AND r.user_id = %s ORDER BY x.referenced_at DESC LIMIT 1",
+                (conversation_id, tenant_id, user_id, tenant_id, user_id),
+            )
+            row = await cursor.fetchone()
+        return Reference.model_validate(dict(row)) if row else None
+
+    async def has_reference(self, tenant_id: str, user_id: str, conversation_id: str) -> bool:
+        return await self.referenced(tenant_id, user_id, conversation_id) is not None
+
+    async def backfill(self, batch: int) -> int:
+        """Indexes up to `batch` versions written before the library existed (ADR-0432); idempotent. Returns
+        how many it indexed; 0 when none is left."""
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT v.report_id::text AS report_id, v.version, v.title, v.citations, v.general, v.spec, "
+                "v.created_at, r.tenant_id, r.user_id, r.conversation_id "
+                "FROM agent.report_versions v JOIN agent.reports r ON r.id = v.report_id "
+                "LEFT JOIN agent.report_library l ON l.report_id = v.report_id AND l.version = v.version "
+                "WHERE l.report_id IS NULL ORDER BY v.created_at LIMIT %s",
+                (batch,),
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                async with conn.transaction():
+                    await _index(
+                        conn, report_id=row["report_id"], version=row["version"], tenant_id=row["tenant_id"],
+                        user_id=row["user_id"], conversation_id=row["conversation_id"], title=row["title"],
+                        spec=row["spec"], citations=row["citations"] or [], general=row["general"],
+                        created_at=row["created_at"],
+                    )
+        return len(rows)
+
+
+async def _index(
+    conn, *, report_id: str, version: int, tenant_id: str, user_id: str, conversation_id: str, title: str,
+    spec: dict | None, citations: list[dict], general: int, created_at: datetime | None,
+) -> None:
+    """One version's library entry (ADR-0432): linear in the spec, capped by its schema and the index's CHECKs."""
+    await conn.execute(
+        "INSERT INTO agent.report_library (report_id, version, tenant_id, user_id, conversation_id, title, subject, "
+        "sections, sources, source_kinds, text_norm, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now())) "
+        "ON CONFLICT (report_id, version) DO NOTHING",
+        (
+            report_id, version, tenant_id, user_id, conversation_id, (title or "-")[:300],
+            library.subject(spec), Jsonb(library.section_titles(spec)), Jsonb(library.source_names(citations)),
+            library.source_kinds(citations, general), library.index_text(title, spec, citations), created_at,
+        ),
+    )

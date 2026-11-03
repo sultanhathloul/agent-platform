@@ -39,4 +39,19 @@ public class JdbcConversationRepository implements ConversationRepository {
                 .query((rs, row) -> new ConversationOwner(rs.getString("user_id"), rs.getString("tenant_id")))
                 .optional();
     }
+
+    @Override
+    public java.util.Set<String> ownedBy(java.util.Collection<String> conversationIds, String userId, String tenantId) {
+        if (conversationIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        java.util.List<UUID> ids = conversationIds.stream().map(UUID::fromString).toList();
+        return new java.util.HashSet<>(jdbc.sql(
+                        "SELECT id FROM gateway.conversations WHERE id IN (:ids) AND user_id = :user AND tenant_id = :tenant")
+                .param("ids", ids)
+                .param("user", userId)
+                .param("tenant", tenantId)
+                .query((rs, row) -> rs.getString("id"))
+                .list());
+    }
 }

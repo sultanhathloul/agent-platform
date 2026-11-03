@@ -174,7 +174,7 @@ public class ConversationController {
         if (owner.isEmpty()) {
             // Nobody has used this conversation yet: it holds nothing, and reading binds nobody.
             call.detail.put("messages", 0);
-            return call.ok(new ConversationMessages(conversation, List.of()));
+            return call.ok(new ConversationMessages(conversation, List.of(), 0));
         }
         AgentReply reply = call.agent("/v1/conversations/" + conversation + "/messages");
         if (reply == null) {

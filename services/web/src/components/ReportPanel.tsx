@@ -15,6 +15,7 @@ import {
   kitUrl,
   newestFirst,
   reportFileName,
+  saveFile,
 } from "@/lib/reports";
 import { pageFormat } from "@/lib/settings";
 import { useAuth } from "./AuthProvider";
@@ -324,14 +325,7 @@ export function ReportPanel({ state, onAction }: { state: ReportPanelState; onAc
     if (!token) return;
     try {
       const blob = await downloadReport({ gatewayUrl: config.gatewayUrl, token, id, version });
-      const href = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = reportFileName(id, version);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      saveFile(blob, reportFileName(id, version));
     } catch (failure) {
       setError(failure instanceof GatewayError ? failure.info : { code: "unknown" });
     }

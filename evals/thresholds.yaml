@@ -57,3 +57,11 @@ reports:
   sources_section: 1.00    # each element listed under its document (ADR-0408)
   size_cap: 1.00           # within config/artifacts/report.yaml max_bytes
   version: 1.00            # a follow-up made the next version of the same report (D4)
+# Report library PR (ADR-0438): scripted conversations (evals/scenarios/). `steps`: the share of steps that
+# pass; `negative`: the share of the steps marked negative (no other user's data, no unstated memory) that pass.
+memory:
+  steps: 0.85
+  negative: 1.00
+long_conversation:
+  steps: 0.90
+  negative: 1.00

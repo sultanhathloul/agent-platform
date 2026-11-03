@@ -14,3 +14,10 @@ min_grounding: 0.5
 grounding_ignore: [المستخدم, user, the, and]   # words the extractor's phrasing adds to every candidate
 # A candidate must name its subject: memory is about the user, not about the topic asked (ADR-0064).
 subject_words: [المستخدم, user]
+# Owner decision 6 (report library PR, ADR-0435): memory holds only what the user stated about themselves.
+# The extractor reads the user's message alone (never the reply), and a fact about the user is kept only when
+# that message speaks of the user with one of these words, matched as whole words after Arabic normalization
+# (a leading و counts): «اكتب مذكرة من إدارة التخطيط» names a department; «أعمل في إدارة التخطيط» states one.
+self_kinds: [fact_about_user]
+self_words: [أنا, انا, أعمل, اعمل, نعمل, أشتغل, اشتغل, وظيفتي, عملي, مهنتي, تخصصي, دوري, منصبي, جهتي, إدارتي,
+             ادارتي, قسمي, أدرس, ادرس, i, "i'm", im, my, me, myself]

@@ -285,7 +285,7 @@ async def test_a_request_prompt_replaces_the_user_message(config, prompts):
     package = await _assembler(config, prompts).assemble(request, _budget(10**6))
     user = package.blocks[-1]
     assert user.name == "user_message" and user.content == prompts.render("summarizer.request", "ar").text
-    assert package.prompt_refs == ["summarizer.system@1.0.0", "summarizer.request@1.0.0"]
+    assert package.prompt_refs == ["summarizer.system@1.1.0", "summarizer.request@1.0.0"]
 
 
 def _retracted_history() -> list[dict]:
@@ -384,3 +384,66 @@ def test_truncate_and_extractive_on_arabic():
     passage = "تُزرع النخيل في الواحات. الرياض هي عاصمة المملكة. يهطل المطر شتاءً."
     kept = extractive(passage, "ما هي عاصمة المملكة؟", counter.count("الرياض هي عاصمة المملكة.") + 2, counter)
     assert kept == "الرياض هي عاصمة المملكة."
+
+
+# ------------------------------------------------------------------ report index and marker (ADR-0430)
+
+
+def _reports(n: int) -> list[dict]:
+    return [
+        {"report_id": f"r{i}", "title": f"تقرير رقم {i}", "version": i + 1, "digest": f"- مؤشرات: قيمة {i}: {i}%"}
+        for i in range(n)
+    ]
+
+
+async def test_the_report_index_is_user_role_data_after_the_window(config, prompts):
+    request = _request(
+        {"user_message": "ما نسبة البطالة؟", "messages": _history(2)},
+        ["system", "reports", "window", "user_message"],
+        reports=_reports(2),
+    )
+    package = await _assembler(config, prompts).assemble(request, _budget(10**6))
+    names = [b.name for b in package.blocks]
+    assert names.index("window") < names.index("reports") < names.index("user_message")
+    [block] = [b for b in package.blocks if b.name == "reports"]
+    assert block.role == "user" and "<conversation_reports>" in block.content
+    assert "«تقرير رقم 0» (الإصدار 1)" in block.content and "قيمة 1: 1%" in block.content
+    assert block.meta["reports"] == ["r0", "r1"]
+    # Merged into the current user message, never a history message of its own.
+    assert package.to_messages()[-1]["content"].count("<conversation_reports>") == 1
+
+
+async def test_the_report_index_keeps_the_newest_within_its_budget(config, prompts):
+    small = _assembler(config, prompts, blocks=_blocks(config, reports={"max_tokens": 700}))
+    request = _request({"user_message": "س"}, ["system", "reports", "user_message"], reports=_reports(30))
+    package = await small.assemble(request, _budget(10**6))
+    [block] = [b for b in package.blocks if b.name == "reports"]
+    assert block.tokens <= 700 and "تقرير رقم 0»" in block.content and "تقرير رقم 29»" not in block.content
+    assert [d.reason for d in package.drops if d.block == "reports"] and all(
+        d.reason == "block_budget" for d in package.drops if d.block == "reports"
+    )
+
+
+async def test_no_reports_no_block(config, prompts):
+    request = _request({"user_message": "س"}, ["system", "reports", "user_message"])
+    package = await _assembler(config, prompts).assemble(request, _budget(10**6))
+    assert "reports" not in [b.name for b in package.blocks]
+
+
+async def test_a_report_reply_in_the_window_carries_its_marker_and_digest(config, prompts):
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    messages = [
+        HumanMessage(content="عطني داشبورد عن سوق العمل"),
+        AIMessage(
+            content="أُنشئ التقرير «سوق العمل» (الإصدار 1).",
+            additional_kwargs={"artifact": {"id": "r1", "kind": "report", "title": "سوق العمل", "version": 1},
+                               "artifact_digest": "- مؤشرات: معدل البطالة: 6.5%"},
+        ),
+    ]
+    request = _request({"user_message": "ابحث في اللوحة", "messages": messages}, ["system", "window", "user_message"])
+    package = await _assembler(config, prompts).assemble(request, _budget(10**6))
+    reply = [b for b in package.blocks if b.name == "window"][-1]
+    assert reply.role == "assistant" and reply.content.startswith("أُنشئ التقرير «سوق العمل» (الإصدار 1).")
+    assert "[تقرير: «سوق العمل»، الإصدار 1." in reply.content and "معدل البطالة: 6.5%" in reply.content
+    assert "<html" not in reply.content and "<!DOCTYPE" not in reply.content

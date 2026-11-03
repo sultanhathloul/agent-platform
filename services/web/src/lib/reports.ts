@@ -186,6 +186,18 @@ export function reportFileName(id: string, version: number): string {
   return `report-${id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 8)}-v${version}.html`;
 }
 
+/** Saves a downloaded file under `name` through a temporary link (the panel and the report library). */
+export function saveFile(blob: Blob, name: string): void {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
 /** The versions for the switcher, newest first. */
 export function newestFirst(versions: readonly ReportVersionSummary[]): ReportVersionSummary[] {
   return [...versions].sort((a, b) => b.version - a.version);

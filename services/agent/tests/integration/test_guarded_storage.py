@@ -32,7 +32,8 @@ async def _turn(services, principal: Principal, message: str, conversation: str 
 
 async def test_a_memory_candidate_with_a_mobile_number_is_dropped_without_a_message(services, spans, litellm):
     principal = _principal()
-    # Both candidates are grounded in the user's own words (ADR-0064); one carries the number.
+    # Both candidates are grounded in the user's own words (ADR-0064), the fact in a first-person statement
+    # (ADR-0435); one carries the number.
     extraction = json.dumps(
         [
             {"kind": "fact_about_user", "text": f"المستخدم رقم جواله {MOBILE}", "confidence": 0.9},
@@ -41,7 +42,7 @@ async def test_a_memory_candidate_with_a_mobile_number_is_dropped_without_a_mess
         ensure_ascii=False,
     )
     replaced, _ = replacing(services, {"extractor": extraction})
-    events = await _turn(replaced, principal, f"رقم جوالي {MOBILE} وأفضل الإجابات المختصرة. ما عاصمة الأردن؟")
+    events = await _turn(replaced, principal, f"أنا رقم جوالي {MOBILE} وأفضل الإجابات المختصرة. ما عاصمة الأردن؟")
     assert events[-1].type == "done"
     assert not [e for e in events if e.type == "error"]
 

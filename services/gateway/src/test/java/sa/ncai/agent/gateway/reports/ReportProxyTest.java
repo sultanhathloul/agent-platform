@@ -409,4 +409,53 @@ class ReportProxyTest extends GatewayTestSupport {
         NOW.set(issued.expiresAt());
         assertThat(own.verify(issued.ticket())).isEmpty();
     }
+
+    private static final String STRANGER = "7b2c3d4e-5f6a-4b7c-9d8e-0f1a2b3c4d5e";
+
+    private static String libraryItem(String id, String conversation) {
+        return """
+                {"id":"%s","conversation_id":"%s","title":"%s","latest_version":2,"matched_version":1,\
+                "subject":"الربع الثاني","sections":["مؤشرات"],"sources":["إحصاءات"],"source_kinds":["kb:stats-gov"],\
+                "created_at":"2026-10-28T08:00:00Z","updated_at":"2026-10-28T08:05:00Z"}""".formatted(id, conversation, TITLE);
+    }
+
+    @Test
+    void theLibraryListsOnlyReportsOfTheCallersConversationsAndAuditsNoQueryText() throws Exception {
+        conversations.bindOrGetOwner(STRANGER, "user-456", "tenant-a");
+        AGENT.enqueue(json(200, "{\"reports\":[" + libraryItem(REPORT, CONVERSATION) + ","
+                + libraryItem("8c3d4e5f-6a7b-4c8d-8e9f-1a2b3c4d5e6f", STRANGER) + "],\"next_before\":null}"));
+
+        mvc.perform(get("/v1/reports").param("q", "التضخم السنوي").param("source", "kb:stats-gov")
+                        .param("since", "2026-10-01T00:00:00Z").header(HttpHeaders.AUTHORIZATION, bearer(token()))
+                        .header("X-User-Id", "victim"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reports.length()").value(1))
+                .andExpect(jsonPath("$.data.reports[0].id").value(REPORT))
+                .andExpect(jsonPath("$.data.reports[0].source_kinds[0]").value("kb:stats-gov"))
+                .andExpect(jsonPath("$.data.reports[0].matched_version").value(1));
+
+        RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(upstream.getRequestUrl().queryParameter("q")).isEqualTo("التضخم السنوي");
+        assertThat(upstream.getRequestUrl().queryParameter("source")).isEqualTo("kb:stats-gov");
+        assertThat(upstream.getRequestUrl().queryParameter("limit")).isEqualTo("30");
+        assertThat(upstream.getHeaders().values("X-User-Id")).containsExactly("user-123");
+        assertThat(upstream.getHeaders().values("X-Tenant-Id")).containsExactly("tenant-a");
+        AuditEvent event = singleAudit();
+        assertThat(event.action()).isEqualTo("report.library");
+        assertThat(event.status()).isEqualTo(AuditStatus.OK);
+        assertThat(event.detail()).containsEntry("reports", 1).containsEntry("dropped", 1).containsEntry("query_chars", 13);
+        assertThat(event.detail().toString()).doesNotContain("التضخم");
+    }
+
+    @Test
+    void theLibraryRefusesMalformedFiltersBeforeTheAgentAndWithoutAnAuditRow() throws Exception {
+        for (String[] bad : List.of(new String[] {"source", "kb:../x"}, new String[] {"since", "yesterday"},
+                new String[] {"limit", "1000"}, new String[] {"q", "س".repeat(501)})) {
+            mvc.perform(get("/v1/reports").param(bad[0], bad[1]).header(HttpHeaders.AUTHORIZATION, bearer(token())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("invalid_request"));
+        }
+        assertThat(AGENT.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(auditLog().events()).isEmpty();
+    }
 }

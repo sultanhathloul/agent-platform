@@ -1,0 +1,54 @@
+# Owner decision 6 (report library PR, ADR-0435, ADR-0438): long-term memory holds only what the user stated.
+# Runs as the evaluator, whose memory is switched on for this suite and off again at its end; every turn is a
+# new conversation. `negative` steps: nothing the user did not state is stored.
+user: evaluator
+steps:
+  - {id: memory-on, check: memory_on, enabled: true, clear: true}
+  - id: memo
+    conversation: memo
+    message: "اكتب مذكرة داخلية من إدارة التخطيط إلى إدارة الموارد البشرية بشأن مواعيد الدوام في رمضان."
+    expect: {}
+  - id: memo-check
+    check: memory
+    negative: true
+    expect: {memory_none: [التخطيط, الموارد البشريه, رمضان]}
+  - id: memo-skill
+    conversation: memo2
+    skill: official_memo
+    message: "اكتب مذكرة من مدير إدارة المشاريع إلى فريق العمل يطلب فيها تسليم التقارير الأسبوعية يوم الخميس."
+    expect: {}
+  - id: report
+    conversation: report
+    output: report
+    message: "اعمل لي لوحة مؤشرات عن نمو السياحة في المملكة"
+    expect: {form: report}
+  - id: answer
+    conversation: answer
+    message: "ما أكبر مدينة في أستراليا من حيث عدد السكان؟"
+    expect: {answer_any: [سيدني, Sydney]}
+  - id: follow-up
+    conversation: memo2
+    message: "شكرًا، ما عاصمة كندا؟"
+    expect: {answer_any: [أوتاوا, اوتاوا, Ottawa]}
+  - id: generated-check
+    check: memory
+    negative: true
+    expect: {memory_none: [المشاريع, الخميس, السياحه, سيدني, استراليا, اوتاوا, كندا]}
+  - id: stated
+    conversation: stated
+    message: "أعمل مهندسة في هيئة المساحة الجيولوجية، وأفضّل أن تكون الإجابات في نقاط مرقمة. ما فوائد المشي؟"
+    expect: {}
+  - id: stated-en
+    conversation: stated-en
+    locale: en
+    message: "I work as a nurse at King Faisal Specialist Hospital. What is the capital of Peru?"
+    expect: {answer_any: [Lima]}
+  - id: stated-check
+    check: memory
+    negative: false
+    expect: {memory_any: [المساحه, نقاط, nurse]}
+  - id: all-stated
+    check: memory
+    negative: true
+    expect: {memory_none: [المشاريع, التخطيط, سيدني, اوتاوا]}
+  - {id: memory-off, check: memory_on, enabled: false}

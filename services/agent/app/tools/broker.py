@@ -37,7 +37,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from typing import Any
 
 from pydantic import ValidationError
@@ -105,6 +105,8 @@ class ToolBroker:
         *,
         documents: DocumentAccess | None = None,
         mcp: Any = None,
+        access: Mapping[str, Collection[str]] | None = None,
+        records: Any = None,
     ):
         """`declared`: each capability's manifest `tools`, by slug. `collections`: the document
         collection kinds each capability's manifest declares (`documents.collections`).
@@ -116,12 +118,43 @@ class ToolBroker:
         self.collections = {slug: frozenset(kinds) for slug, kinds in (collections or {}).items()}
         self.documents = documents
         self.mcp = mcp
+        # Each capability's manifest `access` and what serves it (ADR-0431): `records` is (ReportStore,
+        # LibraryConfig), set once the report store exists.
+        self.access = {slug: frozenset(kinds) for slug, kinds in (access or {}).items()}
+        self.records = records
 
     def with_documents(self, documents: DocumentAccess) -> "ToolBroker":
         """This broker with other document backends (tests swap the backend)."""
         return ToolBroker(
-            self.registry, self.guard, self.declared, self.collections, documents=documents, mcp=self.mcp
+            self.registry, self.guard, self.declared, self.collections, documents=documents, mcp=self.mcp,
+            access=self.access, records=self.records,
         )
+
+    def with_records(self, reports: Any, library: Any) -> "ToolBroker":
+        """This broker with the report store and config/library.yaml (report library PR, ADR-0431)."""
+        return ToolBroker(
+            self.registry, self.guard, self.declared, self.collections, documents=self.documents, mcp=self.mcp,
+            access=self.access, records=(reports, library) if reports is not None and library is not None else None,
+        )
+
+    def library_for(self, caller: str, scope: ToolScope):
+        """The caller's report library bound to `scope`; None unless its manifest declares it (ADR-0431)."""
+        if "report_library" not in self.access.get(caller, ()) or self.records is None or not scope.conversation_id:
+            return None
+        from app.artifacts.access import ReportLibraryFacade
+
+        store, config = self.records
+        return ReportLibraryFacade(
+            store, config, tenant_id=scope.tenant_id, user_id=scope.user_id, conversation_id=scope.conversation_id
+        )
+
+    def history_for(self, caller: str, history: Sequence[Any] | None):
+        """The turn's conversation history; None unless the caller's manifest declares it (ADR-0434)."""
+        if "conversation_history" not in self.access.get(caller, ()) or self.records is None or history is None:
+            return None
+        from app.context.recall import HistoryFacade
+
+        return HistoryFacade(history, self.records[1].recall)
 
     def transport_servers(self) -> set[str]:
         """The MCP servers a backend adapter may reach through `transport`."""
@@ -205,6 +238,7 @@ class ToolBroker:
         return ToolScope(
             tenant_id=principal.tenant_id,
             user_id=principal.user_id,
+            conversation_id=conversation_id,
             collections=turn_collections(
                 permissions=principal.permissions,
                 conversation_id=conversation_id,
@@ -226,7 +260,9 @@ class ToolBroker:
         context: GuardContext | None = None,
         on_guard: OnGuard | None = None,
         on_audit: OnAudit | None = None,
+        history: Sequence[Any] | None = None,
     ) -> ToolResult:
+        """`history`: the turn's checkpointed messages, for a caller declaring `conversation_history`."""
         if name not in self.declared.get(caller, ()):
             return self._undeclared(name, caller, on_guard)
         spec = self.registry.get(name)
@@ -252,7 +288,12 @@ class ToolBroker:
             scope = self.scope_for(
                 caller, principal, conversation_id=conversation_id, selected_kbs=selected_kbs
             )
-            tool_context = ToolContext(scope=scope, documents=self.facade_for(caller, scope))
+            tool_context = ToolContext(
+                scope=scope,
+                documents=self.facade_for(caller, scope),
+                library=self.library_for(caller, scope),
+                history=self.history_for(caller, history),
+            )
             with auditing(caller, on_audit):
                 result = await self._run(
                     spec, args, principal, scoped, tool_context, on_guard or (lambda _outcome: None), observed

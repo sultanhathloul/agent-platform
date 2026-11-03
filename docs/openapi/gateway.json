@@ -2,7 +2,7 @@
   "openapi" : "3.1.0",
   "info" : {
     "title" : "Agent Platform Gateway API",
-    "version" : "2.7.0"
+    "version" : "2.8.0"
   },
   "servers" : [ {
     "url" : "/",
@@ -2598,6 +2598,119 @@
         "tags" : [ "memory" ]
       }
     },
+    "/v1/reports" : {
+      "get" : {
+        "description" : "Every report of the caller's, in any of their conversations (report library PR, owner decisions 3 and 4). Checked twice: the agent searches the caller's own reports only, and the gateway drops any report whose conversation is not the caller's in its conversations table. Audited as report.library with the filters and the count, never the query's text.",
+        "operationId" : "library",
+        "parameters" : [ {
+          "description" : "Words to search for; empty lists the newest.",
+          "in" : "query",
+          "name" : "q",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "Changed on or after this time (ISO 8601).",
+          "in" : "query",
+          "name" : "since",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }, {
+          "description" : "Changed before this time (ISO 8601).",
+          "in" : "query",
+          "name" : "until",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }, {
+          "description" : "general, file, or kb:<slug>.",
+          "in" : "query",
+          "name" : "source",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "`next_before` of the previous page.",
+          "in" : "query",
+          "name" : "before",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "maximum" : 100,
+            "minimum" : 1
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiEnvelopeLibraryPage"
+                }
+              }
+            },
+            "description" : "A page of the caller's reports"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "invalid_request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "unauthorized"
+          },
+          "502" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "agent_unavailable"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description" : "audit_unavailable"
+          }
+        },
+        "summary" : "The caller's report library: newest first, or searched; filtered by date and source",
+        "tags" : [ "reports" ]
+      }
+    },
     "/v1/reports/{reportId}" : {
       "get" : {
         "operationId" : "report",
@@ -3128,6 +3241,20 @@
         "properties" : {
           "data" : {
             "$ref" : "#/components/schemas/KbView"
+          },
+          "error" : {
+            "$ref" : "#/components/schemas/ApiError"
+          },
+          "request_id" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "request_id" ]
+      },
+      "ApiEnvelopeLibraryPage" : {
+        "properties" : {
+          "data" : {
+            "$ref" : "#/components/schemas/LibraryPage"
           },
           "error" : {
             "$ref" : "#/components/schemas/ApiError"
@@ -3711,9 +3838,15 @@
             "items" : {
               "$ref" : "#/components/schemas/HistoryMessage"
             }
+          },
+          "omitted" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "Older messages left out: the newest page of the history is returned (ADR-0437).",
+            "minimum" : 0
           }
         },
-        "required" : [ "conversation_id", "messages" ]
+        "required" : [ "conversation_id", "messages", "omitted" ]
       },
       "ConversationSummary" : {
         "properties" : {
@@ -4102,6 +4235,86 @@
           }
         },
         "required" : [ "ar", "en" ]
+      },
+      "LibraryItem" : {
+        "properties" : {
+          "conversation_id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "created_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "latest_version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 1
+          },
+          "matched_version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "The version the search matched best; the latest without a query.",
+            "minimum" : 1
+          },
+          "sections" : {
+            "type" : "array",
+            "description" : "Section titles, in order.",
+            "items" : {
+              "type" : "string",
+              "description" : "Section titles, in order."
+            }
+          },
+          "source_kinds" : {
+            "type" : "array",
+            "description" : "general, file, or kb:<slug>: the source filter's values.",
+            "items" : {
+              "type" : "string",
+              "description" : "general, file, or kb:<slug>: the source filter's values."
+            }
+          },
+          "sources" : {
+            "type" : "array",
+            "description" : "The names of the sources it cites.",
+            "items" : {
+              "type" : "string",
+              "description" : "The names of the sources it cites."
+            }
+          },
+          "subject" : {
+            "type" : "string",
+            "description" : "The spec's subtitle and period."
+          },
+          "title" : {
+            "type" : "string",
+            "description" : "The latest version's title."
+          },
+          "updated_at" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "conversation_id", "created_at", "id", "latest_version", "matched_version", "sections", "source_kinds", "sources", "subject", "title", "updated_at" ]
+      },
+      "LibraryPage" : {
+        "properties" : {
+          "next_before" : {
+            "type" : "string",
+            "format" : "date-time",
+            "description" : "`before` of the next page; absent on the last."
+          },
+          "reports" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/LibraryItem"
+            }
+          }
+        },
+        "required" : [ "reports" ]
       },
       "MeResponse" : {
         "properties" : {

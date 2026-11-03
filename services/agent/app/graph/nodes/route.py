@@ -53,6 +53,25 @@ async def _current_sections(state: AgentState, ctx: TurnContext) -> tuple[str, .
     titles = [s.get("title") for s in spec.get("sections") or [] if isinstance(s, dict) and s.get("title")]
     return tuple(str(t)[:120] for t in titles[:12])
 
+async def _reference(state: AgentState, ctx: TurnContext) -> dict | None:
+    """The user's earlier report this conversation read last (ADR-0433), with its section titles; None."""
+    reports = ctx.services.reports
+    if reports is None:
+        return None
+    principal = ctx.principal
+    try:
+        ref = await reports.referenced(principal.tenant_id, principal.user_id, state["conversation_id"])
+        record = await reports.version(principal.tenant_id, principal.user_id, ref.report_id, ref.version) if ref else None
+    except Exception:  # the store unreachable: no reference this turn
+        return None
+    if record is None:
+        return None
+    spec = record.spec or {}
+    titles = [s.get("title") for s in spec.get("sections") or [] if isinstance(s, dict) and s.get("title")]
+    return {"report_id": record.report_id, "version": record.version, "title": record.title,
+            "sections": tuple(str(t)[:120] for t in titles[:12])}
+
+
 def select_capabilities(
     candidates: Sequence[LoadedCapability],
     *,
@@ -162,12 +181,20 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
     candidate = None
     reports = [a for a in state.get("artifacts") or [] if a.get("kind") == "report"]
     sections = await _current_sections(state, ctx) if reports and (picked in (None, "report")) else ()
+    # A conversation with no report of its own that read one of the user's earlier reports (ADR-0433): that
+    # report is the current one, and an edit makes a new version of it in this conversation.
+    reference = None
+    if not reports and (picked == "report" or (picked is None and ctx.profile == "report")):
+        reference = await _reference(state, ctx)
+    current = reports[-1]["title"] if reports else (reference["title"] if reference else None)
+    if reference is not None:
+        sections = reference["sections"]
     if picked is None and ctx.profile == "report":
-        candidate = OutputCandidate(current=reports[-1]["title"] if reports else None, sections=sections)
-    elif picked == "report" and reports:
+        candidate = OutputCandidate(current=current, sections=sections, library=reference is not None)
+    elif picked == "report" and current:
         # The picker chose a report and the conversation holds one: the router's call says whether this
         # request edits it or starts a new one (ADR-0400).
-        candidate = OutputCandidate(current=reports[-1]["title"], picked=True, sections=sections)
+        candidate = OutputCandidate(current=current, picked=True, sections=sections, library=reference is not None)
     if pool or skill_candidates or candidate is not None:
         if pool:
             fallback = [
@@ -187,6 +214,9 @@ async def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict:
         if candidate is not None and candidate.current:
             output["edit"] = bool(decision.edit)
             output["edit_decided_by"] = decision.source
+            if reference is not None and output["edit"]:
+                # The new version's base: the library report as read here; the original is never changed.
+                output["based_on"] = {"report_id": reference["report_id"], "version": reference["version"]}
         if pool:
             slugs = decision.capabilities[:MAX_CAPABILITIES]
             reasons = [f"{slug}:{decision.source}" for slug in slugs]

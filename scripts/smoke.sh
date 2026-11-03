@@ -290,6 +290,18 @@ check "error code is memory_not_found" jq -e '.error.code == "memory_not_found"'
   || fail "the analyst's item is gone"
 denied=$(sql "select count(*) from gateway.audit_events where action = 'memory.delete' and status = 'denied' and detail->>'item_id' = '$ITEM'")
 (( denied >= 1 )) && ok "the refused delete is audited as denied" || fail "no denied memory.delete audit row"
+# The memory smoke's own items are deleted again through the analyst's API (ADR-0435): a smoke run leaves the
+# analyst's memory as it found it.
+forget_turn() {  # deletes, as the analyst, the items one smoke turn stored
+  local turn=$1 id
+  for id in $(sql "select id from agent.memory_items where user_id = '$ANALYST_ID' and source_turn = '$turn'"); do
+    [[ $(status -X DELETE -H "Authorization: Bearer $ANALYST" "$GW/v1/memory/$id") == 204 ]] \
+      || fail "the analyst could not delete smoke's item $id"
+  done
+}
+forget_turn "$MEMORY_TURN"
+[[ $(sql "select count(*) from agent.memory_items where user_id = '$ANALYST_ID' and source_turn = '$MEMORY_TURN'") == 0 ]] \
+  && ok "smoke's memory items are deleted again" || fail "smoke's memory items are still stored"
 
 # Fresh tokens: the realm's access tokens live 300 s and the steps above take a while.
 ADMIN=$(token_for admin admin) || fail "admin login"
@@ -328,6 +340,9 @@ stored=$(sql "select count(*) from agent.memory_items where user_id = '$ANALYST_
 (( stored == 0 )) && ok "no memory item holds the mobile number" || fail "$stored memory item(s) hold the mobile number"
 blocked=$(jq -se '[.[] | select(.type == "guard" and .data.policy_id == "pii-block-in-memory" and .data.action == "block")] | length' "$TMP/mobile.jsonl")
 printf '        pii-block-in-memory blocks in this turn: %s (0 when the extractor kept no candidate with the number, or the answer repeated it and the turn was guard-flagged)\n' "$blocked"
+# This turn's message states where the analyst works («وأعمل في إدارة التخطيط»): a fact smoke wrote, deleted
+# again so the analyst's real memory never keeps it (ADR-0435).
+forget_turn "$(jq -sr 'last.turn_id' "$TMP/mobile.jsonl")"
 
 step "phase 03: admin policy endpoints are admin-only"
 code=$(status -H "Authorization: Bearer $VIEWER" "$GW/v1/admin/policies")

@@ -631,6 +631,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's report library: newest first, or searched; filtered by date and source
+         * @description Every report of the caller's, in any of their conversations (report library PR, owner decisions 3 and 4). Checked twice: the agent searches the caller's own reports only, and the gateway drops any report whose conversation is not the caller's in its conversations table. Audited as report.library with the filters and the count, never the query's text.
+         */
+        get: operations["library"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/reports/{reportId}": {
         parameters: {
             query?: never;
@@ -778,6 +798,11 @@ export interface components {
         };
         ApiEnvelopeKbView: {
             data?: components["schemas"]["KbView"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeLibraryPage: {
+            data?: components["schemas"]["LibraryPage"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -995,6 +1020,11 @@ export interface components {
         ConversationMessages: {
             conversation_id: string;
             messages: components["schemas"]["HistoryMessage"][];
+            /**
+             * Format: int32
+             * @description Older messages left out: the newest page of the history is returned (ADR-0437).
+             */
+            omitted: number;
         };
         ConversationSummary: {
             id: string;
@@ -1144,6 +1174,41 @@ export interface components {
         Label: {
             ar: string;
             en: string;
+        };
+        LibraryItem: {
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            latest_version: number;
+            /**
+             * Format: int32
+             * @description The version the search matched best; the latest without a query.
+             */
+            matched_version: number;
+            /** @description Section titles, in order. */
+            sections: string[];
+            /** @description general, file, or kb:<slug>: the source filter's values. */
+            source_kinds: string[];
+            /** @description The names of the sources it cites. */
+            sources: string[];
+            /** @description The spec's subtitle and period. */
+            subject: string;
+            /** @description The latest version's title. */
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        LibraryPage: {
+            /**
+             * Format: date-time
+             * @description `before` of the next page; absent on the last.
+             */
+            next_before?: string;
+            reports: components["schemas"]["LibraryItem"][];
         };
         MeResponse: {
             display_name?: string;
@@ -3854,6 +3919,74 @@ export interface operations {
             };
             /** @description memory_not_found, also for another user's item */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
+    library: {
+        parameters: {
+            query?: {
+                /** @description Words to search for; empty lists the newest. */
+                q?: string;
+                /** @description Changed on or after this time (ISO 8601). */
+                since?: string;
+                /** @description Changed before this time (ISO 8601). */
+                until?: string;
+                /** @description general, file, or kb:<slug>. */
+                source?: string;
+                /** @description `next_before` of the previous page. */
+                before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's reports */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeLibraryPage"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

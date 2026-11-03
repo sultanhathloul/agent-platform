@@ -7,6 +7,7 @@ pipeline:
   - state_digest
   - sliding_window
   - rolling_summary   # after the window: part of the current message, never before history (ADR-0077)
+  - report_index      # the conversation's reports, digests, user role (report library PR, decision 1, ADR-0430)
   - memory_retrieval
   - semantic_retrieval
   - tool_results
@@ -25,6 +26,7 @@ blocks:
   skill:        {max_tokens: 3000}   # never dropped; a skill whose block exceeds it fails startup (ADR-0318: the largest reference skill block measured 2402 tokens, 2026-10-25)
   state_digest: {max_tokens: 300}
   summary:      {max_tokens: 1200}
+  reports:      {max_tokens: 1500}   # the conversation's reports' digests; the oldest leave first (ADR-0430)
   window:       {max_tokens: 8000}
   memory:       {max_tokens: 800, top_k: 5}
   retrieval:    {max_tokens: 6000, top_k: 8}
@@ -58,13 +60,13 @@ summary:
 nodes:
   answer:
     system_prompt: answer.system
-    needs: [system, state_digest, summary, window, memory, findings, user_message]
+    needs: [system, state_digest, summary, reports, window, memory, findings, user_message]
     forms: {findings: full}
   report:
     # The report writer (reports PR, D1, ADR-0380): the answer node's blocks for the turn's capabilities,
     # plus the kit and, on a follow-up, the current version. Never the skill block: a report applies none.
     system_prompt: report.system
-    needs: [system, report_kit, state_digest, summary, window, memory, findings, report_current, user_message]
+    needs: [system, report_kit, state_digest, summary, reports, window, memory, findings, report_current, user_message]
     forms: {findings: full}
     # A report draws its tables and charts from the passages alone (ADR-0398), so it reads deeper than a
     # text answer: the general search, one per planned chart or table and, on an edit, the passages the
@@ -85,10 +87,8 @@ nodes:
       window: {max_tokens: 24000}   # the messages being folded, not a recent window
   memory_writer:
     system_prompt: memory.extractor
-    request_prompt: memory.extract_request
-    needs: [system, window, user_message]
-    blocks:
-      window: {max_tokens: 12000}   # this turn's exchange, post-guard content only
+    request_prompt: memory.extract_request   # the user's message alone, delimited in the request (ADR-0435)
+    needs: [system, user_message]
   guard_judge:
     system_prompt: guardrails.judge.system
     request_prompt: guardrails.judge.request

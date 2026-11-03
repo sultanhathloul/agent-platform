@@ -8,7 +8,10 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ConversationMessages(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String conversationId,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryMessage> messages) {
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<HistoryMessage> messages,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0",
+                description = "Older messages left out: the newest page of the history is returned (ADR-0437).")
+        int omitted) {
 
     /** One message: the post-guard text, a question's files and a reply's citations when recorded. */
     @JsonIgnoreProperties(ignoreUnknown = true)

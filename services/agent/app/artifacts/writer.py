@@ -30,6 +30,7 @@ from opentelemetry import trace
 
 from app.artifacts.config import ReportText
 from app.artifacts.document import ModelCall, model_strip
+from app.artifacts.index import has_reports, marker_digest, report_index
 from app.artifacts.render import PageRenderer, render_page
 from app.artifacts.spec import SpecError
 from app.artifacts.spec import Chart, KpiRow, ReportSpec, Table
@@ -66,6 +67,8 @@ def report_needs(state: AgentState, ctx: TurnContext) -> list[str]:
     for slug in state["intent"]["capabilities"]:
         wanted.update(ctx.services.registry.get(slug).manifest.context.needs_or(default))
     wanted.discard("skill")
+    if has_reports(state):
+        wanted.add("reports")  # decision 1 (ADR-0430): the conversation's reports, on a report turn too
     return [block for block in BLOCK_NAMES if block in wanted]
 
 
@@ -238,10 +241,19 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     # report, version 1, that inherits nothing.
     edit = bool((state.get("output") or {}).get("edit"))
     current = latest if edit else None
+    # A new version of one of the user's earlier reports, read in this conversation (ADR-0433): its spec is
+    # the base, and the new report is this conversation's, version 1; the original is never changed.
+    based = (state.get("output") or {}).get("based_on")
+    base = None
+    if edit and latest is None and isinstance(based, dict):
+        base = await reports.version(principal.tenant_id, principal.user_id, str(based.get("report_id")),
+                                     int(based.get("version") or 0))
+    revised = current or base
     # The current version's spec (ADR-0406); a version written before option C has none, and its edit
     # writes a whole new spec under the same report.
-    current_spec = json.dumps(current.spec, ensure_ascii=False) if current is not None and current.spec else None
+    current_spec = json.dumps(revised.spec, ensure_ascii=False) if revised is not None and revised.spec else None
     span.set_attribute("report.edit", current is not None)
+    span.set_attribute("report.based_on", base is not None)
     sources = [s for o in state.get("capability_outputs") or [] for s in o.get("sources", [])]
     sourced = sourced_turn(state, sources)
     span.set_attribute("report.sourced", sourced)
@@ -268,11 +280,12 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             kit_id=art.design.id,
             kit_version=art.design.version,
             kit_text=art.design.text,
-            current_title=current.title if current else None,
-            current_version=current.version if current else None,
+            current_title=revised.title if revised else None,
+            current_version=revised.version if revised else None,
             current_spec=current_spec,
         ),
         prompt_vars={"has_current": current_spec is not None, "sourced": sourced},
+        reports=await report_index(state, ctx) if "reports" in needs else [],
         memory_scope=MemoryScope.of(principal),
     )
 
@@ -290,7 +303,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
     # toggled, or one the backend could not return) is not a source of this page (ADR-0402).
     sources = [s for s in sources if not s.get("ref") or s["ref"] in ctx.evidence]
     passages = passages_for(retrieved, sources)
-    known = known_sources(state, latest.citations if latest else [])
+    known = known_sources(state, (latest or base).citations if (latest or base) else [])
     buffered = services.guard.requires_buffering(principal, guard_context(state, ctx))
     span.set_attribute("answer.mode", "buffered" if buffered else "streaming")
     # The report's id is known before the page streams, so the panel follows one id across its versions.
@@ -317,7 +330,15 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             tokens_out += result.tokens_out
             spec = invalid = None
             try:
-                spec = await stream.close()
+                try:
+                    spec = await stream.close()
+                except SpecError:
+                    # On a sourced turn whose passages hold nothing on the subject the writer may answer with
+                    # no section at all, which is no spec; the second time, that is "nothing found", said
+                    # plainly, never validation_failed (report library PR, ADR-0439).
+                    if attempt == 2 and sourced and not verifier.result.kept:
+                        raise NothingFound() from None
+                    raise
             except NothingFound:
                 # The toggled sources hold nothing on the subject (ADR-0416): said plainly, no page saved.
                 span.set_attribute("report.nothing_found", True)
@@ -386,6 +407,7 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             record = await reports.save_version(
                 report_id=report_id,
                 new=current is None,
+                based_on={"report_id": base.report_id, "version": base.version} if base else None,
                 tenant_id=principal.tenant_id,
                 user_id=principal.user_id,
                 conversation_id=state["conversation_id"],
@@ -405,11 +427,16 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
             raise TurnError("report_unavailable", retryable=True, detail=str(exc)) from None
     emit(runtime, "artifact_done", {"id": record.report_id, "version": record.version, "size": record.size,
                                     "title": record.title})
-    line = (text_config.updated if current else text_config.created).of(locale).format(
-        title=record.title, version=record.version
-    )
+    if base is not None:
+        line = text_config.created_from.of(locale).format(
+            title=record.title, version=record.version, base_title=base.title, base_version=base.version
+        )
+    else:
+        line = (text_config.updated if current else text_config.created).of(locale).format(
+            title=record.title, version=record.version
+        )
     # Never silent (ADR-0416): what could not be done, after the line naming the report.
-    missing = shortfall(verified, spec, text_config, edit=current is not None)
+    missing = shortfall(verified, spec, text_config, edit=revised is not None)
     if missing:
         line = f"{line} {missing}"
         span.set_attribute("report.shortfall", True)
@@ -424,6 +451,10 @@ async def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict
         "citations": citations,
         "artifacts": [*others, artifact],
         "report": artifact,
+        "report_digest": marker_digest(
+            record.report_id, record.title, record.version, spec.model_dump(mode="json", exclude_none=True), locale,
+            services.library.index.marker_chars if services.library else 500,
+        ),
         "guard_events": ctx.guard_records(),
         "tokens_in": (state.get("tokens_in") or 0) + tokens_in,
         "tokens_out": (state.get("tokens_out") or 0) + tokens_out,

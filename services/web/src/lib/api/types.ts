@@ -86,3 +86,5 @@ export type ReportList = Schemas["ReportList"];
 export type ReportVersionSummary = Schemas["ReportVersionInfo"];
 export type ReportVersionView = Schemas["ReportVersionView"];
 export type ReportViewLink = Schemas["ViewLink"];
+export type LibraryItem = Schemas["LibraryItem"];
+export type LibraryPage = Schemas["LibraryPage"];

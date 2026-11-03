@@ -65,6 +65,8 @@ export function Chat({
   const [sentFiles, setSentFiles] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [history, setHistory] = useState<"loading" | "ready" | "failed">("loading");
+  // Older messages the history reply left out (ADR-0437): the chat shows the newest page only.
+  const [omitted, setOmitted] = useState(0);
   const [skills, setSkills] = useState<SkillView[]>([]);
   const [skill, setSkill] = useState(NO_SKILL);
   const [kbs, setKbs] = useState<KbToggle[]>([]);
@@ -96,6 +98,7 @@ export function Chat({
           ...turnsFromHistory(loaded.messages),
           ...current.filter((turn) => !turn.id.startsWith("history-")),
         ]);
+        setOmitted(loaded.omitted ?? 0);
         setHistory("ready");
       } catch (error) {
         if (!isAbortError(error)) setHistory("failed");
@@ -333,6 +336,7 @@ export function Chat({
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
       <div className="flex-1 overflow-y-auto px-4 py-6" aria-busy={streaming}>
         {history === "failed" && <p className="mb-4 text-center text-sm text-error">{t("chat.historyFailed")}</p>}
+        {omitted > 0 && <p className="mb-4 text-center text-sm text-muted">{t("chat.historyOmitted", { count: omitted })}</p>}
         {turns.length === 0 && history === "loading" ? (
           <p className="mt-24 text-center text-sm text-muted">{t("chat.historyLoading")}</p>
         ) : turns.length === 0 ? (

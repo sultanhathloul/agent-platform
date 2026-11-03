@@ -2,7 +2,7 @@
 # A report is an output form, not a data source (D1): capabilities, KB toggles and attachments run as
 # today, and on a report turn the answer node writes one HTML page instead of text. Read by the agent
 # (app/artifacts/config.py); the gateway reads `kit` and `max_bytes` for the view and the download.
-version: 2.3.0
+version: 2.4.0
 
 # D3: a keyword in the message makes the turn a report candidate; the router model decides, as for a
 # skill's keywords (ADR-0299). Matched like a skill's keywords: Arabic-normalized, light-stemmed, whole
@@ -76,6 +76,8 @@ text:
   page: {ar: "ص", en: "p."}
   created: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}).", en: "Created the report \"{title}\" (version {version})."}
   updated: {ar: "حُدّث التقرير «{title}» (الإصدار {version}).", en: "Updated the report \"{title}\" (version {version})."}
+  # A new report from one of the user's earlier reports, read in this conversation (report library PR, ADR-0433).
+  created_from: {ar: "أُنشئ التقرير «{title}» (الإصدار {version}) نسخةً جديدة من «{base_title}» (الإصدار {base_version})، ويبقى الأصل كما هو.", en: "Created the report \"{title}\" (version {version}) as a new version of \"{base_title}\" (version {base_version}); the original is unchanged."}
   untitled: {ar: "تقرير", en: "Report"}
   # Never silent (owner visual check on PR #17, ADR-0416): what a report could not do, said in its reply, in the
   # request's language. {items} are titles in quotes, joined; {sources} the toggled KBs' or the files' names.

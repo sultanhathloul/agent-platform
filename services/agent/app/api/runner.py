@@ -76,6 +76,7 @@ from app.api.ownership import Owner, StoredOwner
 from app.api.schemas import TurnRequest
 from app.errors import TurnError
 from app.graph.deps import Services, TurnContext
+from app.graph.prune import prune_thread
 from app.identity import Principal, hash_user_id
 from app.memory.types import MemoryScope
 from app.observability.langfuse import set_trace_attributes
@@ -292,7 +293,8 @@ class TurnRunner:
         """The turn's deadline profile (ADR-0379): `report` when the turn may write a report, decided before
         the turn starts, so its deadline is known from its arrival: the composer picked a report; or it
         picked nothing and a report keyword is in the message (D3), or the conversation holds a report a
-        follow-up may edit (D4). The route node then decides among these (ADR-0378)."""
+        follow-up may edit (D4), or one of the user's earlier reports it read (ADR-0433). The route node then
+        decides among these (ADR-0378)."""
         services = self.services
         if services.artifacts is None or services.reports is None or req.output == "text":
             return None
@@ -302,6 +304,9 @@ class TurnRunner:
             return "report"
         principal = req.principal
         if await services.reports.has_report(principal.tenant_id, principal.user_id, req.conversation_id):
+            return "report"
+        # A conversation that read one of the user's earlier reports may make a new version of it (ADR-0433).
+        if await services.reports.has_reference(principal.tenant_id, principal.user_id, req.conversation_id):
             return "report"
         return None
 
@@ -362,6 +367,7 @@ class TurnRunner:
             # This task and every task the turn starts read the settings it was admitted with.
             effective.pin_here(admission.settings)
             await self._run(req, request_id, turn_id, parent, emit, admission.ends_at, admission.profile)
+            await self._prune(req.conversation_id)
         finally:
             try:
                 if admission is not None:
@@ -396,6 +402,7 @@ class TurnRunner:
             # The composer's output picker (reports PR, D3); a report is written only on a report profile.
             "requested_output": req.output,
             "report": None,
+            "report_digest": None,
         }
         with tracer.start_as_current_span("turn", context=parent) as span:
             set_trace_attributes(
@@ -442,6 +449,21 @@ class TurnRunner:
                 emit("error", self._error(ctx, "turn_failed", retryable=True))
             finally:
                 await self._record_guard_events(ctx, req)
+
+    async def _prune(self, conversation_id: str) -> None:
+        """The thread's older checkpoints, deleted under the turn lock (ADR-0437); never the turn's concern."""
+        library = self.services.library
+        if library is None:
+            return
+        try:
+            pruned = await prune_thread(self.services.db, conversation_id, keep=library.history.keep_checkpoints,
+                                        timeout_s=library.history.prune_s)
+            if pruned:
+                log.info("checkpoints pruned conversation=%s deleted=%d", conversation_id, pruned)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # the turn is done; the next turn's prune takes what is left
+            log.warning("checkpoint prune failed for %s: %s", conversation_id, type(exc).__name__)
 
     @staticmethod
     def _cut(ctx: TurnContext, budget: deadline.Budget | None) -> bool:

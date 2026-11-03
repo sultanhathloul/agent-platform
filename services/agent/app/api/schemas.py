@@ -462,6 +462,11 @@ class HistoryMessage(BaseModel):
 class ConversationMessages(BaseModel):
     conversation_id: str
     messages: list[HistoryMessage] = Field(description="Oldest first; a retracted exchange is left out.")
+    omitted: int = Field(
+        default=0, ge=0,
+        description="Older shown messages left out of this reply: the newest config/library.yaml "
+        "history.page_messages are returned (report library PR, ADR-0437).",
+    )
 
 
 # ------------------------------------------------------------------ reports (reports PR, I5, I6)
@@ -477,6 +482,11 @@ class ReportVersionInfo(BaseModel):
     general: int = Field(default=0, description="Of them, those labelled general knowledge: matched to no source (D2, ADR-0388).")
 
 
+class ReportBase(BaseModel):
+    report_id: str
+    version: int = Field(ge=1)
+
+
 class ReportView(BaseModel):
     id: str
     conversation_id: str
@@ -485,6 +495,30 @@ class ReportView(BaseModel):
     created_at: datetime
     updated_at: datetime
     versions: list[ReportVersionInfo] = Field(description="Oldest first; none is ever removed (D4).")
+    based_on: ReportBase | None = Field(
+        default=None, description="The earlier report of the caller's this one was made from (ADR-0433)."
+    )
+
+
+class LibraryItem(BaseModel):
+    """One report of the caller's library (report library PR, owner decisions 3 and 4, ADR-0432, ADR-0436)."""
+
+    id: str
+    conversation_id: str
+    title: str = Field(description="The latest version's title.")
+    latest_version: int = Field(ge=1)
+    matched_version: int = Field(ge=1, description="The version the search matched best (the latest without a query).")
+    subject: str = Field(default="", description="The spec's subtitle and period.")
+    sections: list[str] = Field(default=[], description="Section titles, in order.")
+    sources: list[str] = Field(default=[], description="The names of the sources it cites.")
+    source_kinds: list[str] = Field(default=[], description="general, file, or kb:<slug>, for the source filter.")
+    created_at: datetime
+    updated_at: datetime
+
+
+class LibraryPage(BaseModel):
+    reports: list[LibraryItem] = Field(description="Best match first with a query; otherwise newest first.")
+    next_before: datetime | None = Field(default=None, description="`before` of the next page, if any.")
 
 
 class ReportList(BaseModel):

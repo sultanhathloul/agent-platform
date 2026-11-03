@@ -4,11 +4,14 @@
 # only from `letters` (Unicode script names); digits, punctuation, symbols and
 # whitespace are always allowed. A whitespace-delimited token that mixes letters of
 # two scripts fails, unless it appears in `mixed_token_allowlist` (compared after
-# trimming punctuation at its ends). A locale without an entry is not script-checked.
+# trimming punctuation at its ends), or unless it is one of `prefixes` (optionally with a
+# tatweel) followed by a word of one other script: `وSQL`, `بـPython`, `الـAPI` pass,
+# `الريyal` does not (ADR-0440). A locale without an entry is not script-checked.
 scripts:
   ar:
     letters: [ARABIC, LATIN]
     mixed_token_allowlist: []
+    prefixes: [و, ف, ب, ل, ك, ال, وال, فال, بال, كال, لل, ولل, فلل, وب, ول, وك, فب, فل]
 
 # When the answer fails one of these checks, the answer node retries it once at this
 # temperature on the same context package; validate fails the turn only if the retry

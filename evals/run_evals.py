@@ -122,6 +122,7 @@ from get_token import env, login  # noqa: E402
 
 sys.path.insert(0, str(REPO / "evals"))
 import pages  # noqa: E402
+import scenarios  # noqa: E402
 
 # A dedicated seed user whose memory is switched off before every run, so a case never
 # reads what an earlier case or run stored; the analyst keeps memory for smoke (ADR-0074).
@@ -1118,6 +1119,8 @@ def suites() -> dict[str, Path]:
     files += sorted((REPO / "skills").glob("*/evals/*.jsonl"))  # phase 06 (I9): names no skill
     files += sorted((REPO / "evals" / "outputs").glob("*/*.jsonl"))  # reports PR (I8): names no form
     found = {path.stem: path for path in files}
+    # Report library PR (ADR-0438): scripted conversations, evals/scenarios/<name>/scenario.yaml.
+    found.update({path.parent.name: path for path in scenarios.suites(REPO)})
     # rag.jsonl runs on both document backends; the second run is `rag@mcp` (phase 05, I11).
     ordered: dict[str, Path] = {}
     for name, path in found.items():
@@ -1151,6 +1154,14 @@ def main() -> int:
         try:
             for name, path in found.items():
                 if only and name not in only and name.removesuffix(MCP_SUFFIX) not in only:
+                    continue
+                if scenarios.is_scenario(path, REPO):
+                    passed, total, ok, record = scenarios.run_scenario(
+                        http, cfg, auth, login, with_backoff, REPO, SEED_USERS, name, path, thresholds.get(name),
+                        run_name,
+                    )
+                    rows.append((name, passed, total, passed / total if total else 0.0, thresholds.get(name), ok))
+                    records[name] = record
                     continue
                 use_backend("mcp" if name.endswith(MCP_SUFFIX) else "")
                 skill_suite = is_skill_suite(path)

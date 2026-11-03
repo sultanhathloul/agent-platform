@@ -130,6 +130,9 @@ class ToolScope:
     tenant_id: str
     user_id: str
     collections: tuple[str, ...] = ()
+    # The turn's conversation, whose owner admission checked (report library PR, ADR-0431): a library or
+    # history facade is bound to it; never an argument.
+    conversation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,11 @@ class ToolContext:
 
     scope: ToolScope
     documents: Any = None  # app.rag.access.DocumentFacade, or None
+    # For a capability whose manifest declares `access` (report library PR, ADR-0431): the caller's own
+    # report library (app.artifacts.access.ReportLibraryFacade) and the turn's conversation history
+    # (app.context.recall.HistoryFacade), both bound to the scope; None otherwise.
+    library: Any = None
+    history: Any = None
 
 
 class Label(BaseModel):
