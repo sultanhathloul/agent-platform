@@ -275,6 +275,8 @@ GET  /v1/health
 
 > **Amendment 2026-11-02 (report library PR, ADR-0432, ADR-0436, ADR-0437).** Agent and gateway API version 2.8.0, additive: `GET /v1/reports` (the caller's report library: `q`, `since`, `until`, `source`, `before`, `limit`; owner only, checked at the agent and again at the gateway against its conversations table, audited `report.library` without the query's text); `based_on` on a report; `omitted` on a conversation's history reply, which returns its newest 400 messages.
 
+> **Amendment 2026-11-03 (my-files PR, ADR-0442, ADR-0444).** Agent and gateway API version 2.9.0, additive: `GET /v1/files` (the caller's uploaded files of every conversation: `q`, `kind`, `status`, `since`, `until`, `before`, `limit`; owner only, checked at the agent and again at the gateway against its conversations table, audited `file.library` without the query's text) and `DELETE /v1/conversations/{id}/attachments/{attachment}` (owner only at both, audited `attachment.delete`).
+
 ### 6.3 API standards
 
 - **REST:** every HTTP API (gateway public API, agent internal API) is described by **OpenAPI 3.1**. FastAPI generates the agent spec from Pydantic models; the gateway uses `springdoc-openapi`. Specs are committed under `docs/openapi/{gateway,agent}.json` and regenerated in CI; a diff without a version bump fails the build.
@@ -328,6 +330,8 @@ Memory write is a background job (Redis queue + worker inside the agent service)
 
 > **Amendment 2026-11-02 (report library PR, ADR-0435).** Memory holds only what the user stated: the extractor reads the user's message alone, never the reply (a memo, a report, an answer), and a `fact_about_user` is kept only when that message speaks of the user in the first person (config/memory.yaml `self_kinds`, `self_words`).
 
+> **Amendment 2026-11-03 (my-files PR, owner decision 4, ADR-0445).** Nothing from a file reaches long-term memory: a turn on which a capability that reads files ran (config/memory.yaml `skip_capabilities`: `docs`, `files`) writes no memory.
+
 ---
 
 ## 9. Tools and reference capabilities
@@ -374,6 +378,8 @@ All tools register in `tools/registry.py` with: `name`, `description_ar`, `descr
 > **Amendment 2026-10-26 (phase 08, ADR-0328 to ADR-0356).** KBs are filled ahead of time by an administrator's upload, never from the internet at question time (D2). A KB belongs to the tenant of the administrator who created it; its slug, and its role `kb:<slug>:read` created through the Keycloak Admin API first, are unique on the platform; deleting is soft (hidden, role kept, slug kept, its chunks purged from the internal index; an MCP server keeps its copy for operations to remove, since no MCP operation deletes, D6). Every document carries a title, publisher, optional source URL, publication date and optional `supersedes` (an earlier version of the same source in the same KB; one successor at most, no loop) (D3). Documents go through the phase 04 pipeline and the `DocumentBackend` of config/kb.yaml (I2); their records are `agent.kb_documents`, their chunks `agent.rag_chunks.kb_document_id`. The kb capability searches all toggled KBs in one hybrid search, each KB keeping its best 2 chunks in the top 8, prefers the latest version of a source before and after rerank (an older chunk stays beside its newer version only once, labelled), and its citations show KB › title, publisher, date and pages; the answer states a figure's source and date. The composer's toggles come from `GET /v1/capabilities`; the gateway and the agent each refuse a KB the caller may not read, a deleted one or another tenant's. Admin pages: `/admin/kbs` and `/admin/kbs/<slug>`. The proof-of-concept KB «الاقتصاد الدولي» is seeded in development by `make kb-poc` (D4).
 
 > **Amendment 2026-10-29 (report branch, owner decision B, ADR-0392, ADR-0393).** Development KBs are seeded from the repository: `kb-seed/<slug>/` holds kb.yaml (names, description, role `kb:<slug>:read` and the development users that hold it in the realm export), the documents, a `<file>.meta.yaml` sidecar per document and manifest.json (URL, retrieval date, SHA-256), all committed. `make up` runs `make kb-seed` after the stack is healthy: it creates a missing KB, uploads each document whose SHA-256 the KB does not hold (the gateway hashes every KB upload; `agent.kb_documents.sha256`) and skips the rest, offline and idempotent; a file without a sidecar is uploaded under its file name, flagged `metadata_missing` on its admin page until corrected; a document whose file left the folder is reported, never deleted. Two KBs are seeded: «الاقتصاد الدولي» (`intl-economy`, which replaces `make kb-poc`) and «إحصاءات الهيئة العامة للإحصاء» (`stats-gov`), fetched in development by `make kb-fetch` from stats.gov.sa's social statistics (ten categories, the newest edition of every publication series, PDF and Excel; ADR-0395).
+
+> **Amendment 2026-11-03 (my-files PR, owner decisions 1 to 5, ADR-0442 to ADR-0446).** A user's uploaded files form their library, «ملفاتي» / "My files". The capability `files` (`cap:files`, every user) searches and reads the caller's own files of every conversation through two broker tools, `file_search(query)` and `file_read(file_id, pages?)`, on the phase 04 index, returning source references the answer step fetches and the phase 04 attribution cites; only when the user's message refers to an earlier file (keyword candidacy, then config/files.yaml `refer` in the capability), and the answer cites «من ملفك: <title> (محادثة <date>)». It is guarded as `docs` (manifest `guard_as`), so a file's policies follow it into another conversation. The user may delete a file: its record, chunks, recorded context packages and stored object go, and it leaves every conversation's history; this supersedes "the product deletes no file" (ADR-0166) for the user's own file only. Its conversation stays; files still never expire. Automatic use of earlier files is a BACKLOG item.
 
 ### 9.5 General (UC5)
 
@@ -492,6 +498,8 @@ Seed policies in `config/policies/`:
 
 > **Amendment 2026-11-02 (report library PR, owner decisions 2 to 5, ADR-0431 to ADR-0436).** The capability `recall` (`cap:recall`, every user) answers questions about the user's reports and about what was said earlier in the conversation, through three broker tools bound to the caller and the turn's conversation: `report_search`, `report_read` and `conversation_recall`; a question about a report is a text answer citing «من التقرير: <title> (الإصدار n)», never an edit (`router.system` 1.6.0). Every report version is indexed in `agent.report_library`; a report of another conversation the user read can be the base of a new report in this one, the original untouched. The page `/reports` «تقاريري» / "My reports" lists, searches and filters the user's reports (date, source), opens them in the side panel and downloads them.
 
+> **Amendment 2026-11-03 (my-files PR, owner decision 1, ADR-0442).** The page `/files` «ملفاتي» / "My files" lists every file the user uploaded in any conversation (never a KB document) with its type, size, status, upload date and its conversation's title and date; it searches by name or conversation title, filters by type, status and date, downloads, deletes (confirmed) and opens the conversation at the upload (`/chat/<id>?file=<attachment>`, the chat scrolls to that message). The header links «ملفاتي».
+
 ---
 
 ## 14. Docker Compose (v1 services)
@@ -609,6 +617,8 @@ state_namespace: "cap.email_proofreader"    # isolated slice of AgentState
 ```
 
 > **Amendment 2026-10-15 (phase 05, ADR-0202, ADR-0213).** Two manifest sections. `documents.collections` (`session`, `kb`) names the kinds of document collection the capability's tools may read; the broker builds the turn's collections from the principal (the conversation's session collection, and each knowledge base the principal may read and the turn selected) and keeps only those kinds; omitted, no document. `declarative: {extract: {role, prompt, schema, on_missing: ask}, steps: [{id, tool, args}], findings: {prompt}}` makes a capability of a manifest, prompts and evals with no `graph.py`: a core runner fills the extract schema with one structured-output call, runs the steps in order through the broker with arguments mapped from `$.extract.<field>`, `$.steps.<id>.result.<path>` or literals, and renders the findings with the capability's prompt. MCP tools are declared in `tools` as `{server}.{tool}` (ADR-0205). `RuntimeContext.documents` holds the document backends by name; config/<slug>.yaml `backend` names the one a capability's tools use.
+
+> **Amendment 2026-11-03 (my-files PR, ADR-0443, ADR-0445).** `access` gains `user_files` (the caller's own files of every conversation: the broker hands the tools a facade bound to the principal, and the evidence step may fetch that caller's sources from those files' collections). A manifest may name `guard_as`: other capabilities whose policy scope also guards it (startup refuses an unknown slug).
 
 > **Amendment 2026-10-18 (phase 05 fix session, ADR-0230, ADR-0231, ADR-0238, ADR-0239).** `RuntimeContext` carries no document backend: a tool of a capability declaring `documents.collections` receives a scope-bound facade (search, fetch, status) from the broker, which resolves the backend from `config/<slug>.yaml`. A declarative step may declare `result_list`, `empty_when` and `ambiguous_when`; the core appends every step result inside untrusted delimiters (`context.tool_result`). An MCP document backend reaches its server only through `broker.transport`, whose operations are `class: transport` in config/mcp.yaml and never declared by a capability.
 
@@ -996,6 +1006,17 @@ Rules:
 | `services/agent/app/db/migrations/0023_report_library.sql` | `report_library`, `report_references`, `reports.based_on_*` | The library index and references (ADR-0432, ADR-0433) |
 | `infra/keycloak/realm-export.json` | `cap:recall`, a composite of `user` | Every user may use recall on their own data |
 | `evals/scenarios/` (new) | `memory/scenario.yaml`, `long_conversation/scenario.yaml`; `evals/thresholds.yaml` `memory`, `long_conversation` | The scenario suites (ADR-0438) |
+
+### 20.13 Configuration added by the my-files PR (owner decisions 1 to 5, ADR-0442 to ADR-0446)
+
+| File | Keys | Meaning |
+|------|------|---------|
+| `config/file_library.yaml` (new) | `list.*`, `search.*`, `read.*` | The page's page size and scan cap, file_search's file and chunk caps, file_read's chunk and page caps |
+| `config/files.yaml` (new) | `refer.{upload,send,file,earlier,whole}_words`, `top_k` | When a message refers to an earlier file; passages per search |
+| `capabilities/files/` (new) | manifest (`access: [user_files]`, `guard_as: [docs]`, `keyword_candidate`), tools, `files.findings` 1.0.0 | The files capability (ADR-0443, ADR-0446) |
+| `config/memory.yaml` | `skip_capabilities` | No memory from a file turn (ADR-0445) |
+| `infra/keycloak/realm-export.json` | `cap:files`, a composite of `user` | Every user may search their own files |
+| `evals/scenarios/files/` (new) | `scenario.yaml`; `evals/thresholds.yaml` `files` | The files scenario suite |
 
 ## 21. Getting started on a new machine
 
