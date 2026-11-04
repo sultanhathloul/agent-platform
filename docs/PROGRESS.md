@@ -2976,7 +2976,7 @@ Results (rule 11; a UI change, so make test (web) and smoke, no eval)
 
 - Branch: `feat/my-files`, from main at 8c16222 (PR #20, the report library, merged on 2026-11-03). The session prompt is kept verbatim in `docs/MY-FILES-PROMPT.md`; it arrived whole (it ends with FINISH). Threat model: ADR-0054. `docs/HANDOFF.md` untouched.
 - ADR numbers: main ends at ADR-0441, so this PR's ADRs start at ADR-0442.
-- Status: done; awaiting the owner's review and merge. make test, make eval (routing, rag, files) and make smoke green on the build of 2026-11-03, recorded below; the review fixes of 2026-11-04 (below) await the owner's final runs.
+- Status: done; the owner merges it (ADR-0451). make test, make eval (routing, rag, files) and make smoke green on the build of 2026-11-03, recorded below; on the final build after the review fixes of 2026-11-04 (below), make test green, make eval and make smoke deferred to before the next PR merges (ADR-0451).
 - Baseline (the last recorded runs on main): make test 2026-11-02 15:05Z (ADR-0440): agent 1307 / 0 / 0, gateway 217 / 0 / 0, gateway-db 5 / 0 / 0, evals harness 40 / 0 / 0, timeout budget 43 / 0 / 0, scripts/tests 37 / 0 / 0; web 258 / 0 / 0 (23 files) after ADR-0441; make smoke 257/257 (2026-11-02 13:41Z), then 48 passed, 1 failed at `pii-redact-output redacted the answer` (15:20Z) because the owner disabled every guard policy on the development stack (still 0 of 11 enabled on 2026-11-03); make eval: routing 113/113 (make-eval-20261102T132547Z), rag 51/53 and rag@mcp 51/53 (make-eval-20261030T122309Z).
 - Done when (the prompt): the page «ملفاتي» / "My files" lists every file the user uploaded in any conversation (KB uploads excluded) with its conversation title and date, a link back to the conversation at the upload, type, size and status, with search, filter, download and delete (a delete removes the file from every index and every conversation, audited); `file_search(query)` and `file_read(file_id, pages?)` search and read the caller's own files across conversations through the broker, checked at the gateway and the agent, on the phase 04 index and citations, only when the user's message refers to an earlier file, and the answer cites «من ملفك: <title> (محادثة <date>)»; automatic use of earlier files is a BACKLOG item; DATA policies apply to a file's content in every conversation as in its own, and nothing from a file reaches long-term memory; retention unchanged; rule 12 for the new tools; negative tests (no path returns another user's files; an earlier file is never used unless the message refers to it); an eval suite (Arabic, Gulf, English; a lab report uploaded in one conversation and asked about in another, cited; an unrelated question in a new conversation uses no earlier file); make test, make eval (routing, rag, the new suite) once, make smoke; recorded per rule 11; pages listed for the owner; pushed, MR open.
 
@@ -3052,9 +3052,9 @@ Files for human review
 
 ### The review of PR #21 (2026-11-04): findings 1 to 4 and the low-severity variant
 
-- Status: fixes done and pushed; **make test, make eval and make smoke not run on the final build**: owner decision of 2026-11-04, they run once at the end when the owner says so. Until then only the new and changed test files were run, directly (below).
+- Status: fixes done and pushed. **Owner decision of 2026-11-04 (ADR-0451): PR #21 merges without make eval and make smoke on its final build.** make test passed on the final code (14:18:00Z–14:33:18Z, rc 0; only docs changed after it). make eval (files and routing, rule 13) and make smoke, with the new delete checks, run before the next PR merges and are recorded under that PR.
 - Commits: e35d872 finding 3 (ADR-0449); 0103819 findings 1 and 2, the low-severity variant, the finding 4 agent tests (ADR-0448); eed53a4 finding 4: the gateway deletes the stored object, smoke checks (ADR-0450); b38e904 ADRs and RESILIENCE; then this record.
-- Decisions: ADR-0448 (every package names the turn's files; tombstones; one purge pass after the longest turn, 315 s), ADR-0449 (an upload or send word together with a file or earlier-conversation word, in the check and in router candidacy; the core change `routing_hints.keywords_with`), ADR-0450 (the gateway deletes the object). ADR-0444, ADR-0446 and ADR-0447 superseded in part.
+- Decisions: ADR-0451 (owner: merge without make eval and make smoke on the final build; they run before the next PR merges), ADR-0448 (every package names the turn's files; tombstones; one purge pass after the longest turn, 315 s), ADR-0449 (an upload or send word together with a file or earlier-conversation word, in the check and in router candidacy; the core change `routing_hints.keywords_with`), ADR-0450 (the gateway deletes the object). ADR-0444, ADR-0446 and ADR-0447 superseded in part.
 - Found while adding the finding 4 test: the agent's container holds no MinIO key, so every delete on the stack left its object to the orphan sweeper (agent log 2026-11-03 12:44:45Z "its object is left to the orphan sweeper"); the agent tests passed only because they run with the gateway's key. Fixed by ADR-0450. Also found: the earlier delete test ran on `services`, which records no context package, so its package assertion could not fail; the my-files tests now run on `debug_services`.
 
 Checklist
@@ -3062,7 +3062,8 @@ Checklist
 - [x] 2. Tombstones (migration 0024): package records, history citations and chips, and the turn's evidence drop a deleted file; the purge pass after the longest turn deadline. Test: delete between the evidence fetch and the answer, the purge pass on a package that slipped past.
 - [x] 3. Upload or send word with a file or earlier-conversation word, in the check and in candidacy. Tests: «رفعت سعر المنتج، كيف أحسب الربح؟» and «حملت التطبيق أمس» run no tool and make no candidate; «رفعت لك ملف الفحوصات في محادثة ثانية» does.
 - [x] 4. After a delete the MinIO object is gone and …/content is 404 (AttachmentProxyTest; smoke, written, not yet run); a forged files source of another user's collection or chunk fetches nothing (agent integration test).
-- [ ] make test, make eval (files and routing, rule 13: the word lists and routing changed) and make smoke, when the owner says so; rule 11 record then.
+- [x] make test on the final code (rc 0, counts below; only docs changed after it).
+- [ ] make eval (files and routing, rule 13: the word lists and routing changed) and make smoke with the new delete checks: deferred by ADR-0451, before the next PR merges.
 
 Tests run directly on the final build (2026-11-04)
 | File | Passed / failed / skipped |
@@ -3072,9 +3073,9 @@ Tests run directly on the final build (2026-11-04)
 
 To verify the fixes before that is a reliable gate: the two finding 1 and 2 tests were also run with the tagging and tombstone code stashed: 2 failed (test_my_files.py:362 and :386), 7 passed; restored: 9 passed.
 
-Runs before the owner's decision, recorded (rule 13), not the final record
+Runs during the review fixes, recorded (rule 13)
 - A full agent suite during the work (background, while other agent-tests runs shared the test database): 1351 passed, 6 failed (test_post_answer 1, test_rag_ingest 4, test_contracts 1); the five integration failures passed alone (14 / 0 / 0 with test_contracts after `make openapi`), so they were the concurrent runs'; the contract failure was the regenerated description.
-- make test 14:18:00Z–14:33:18Z on 0103819 + eed53a4 (code as pushed, before this record), rc 0: agent 1357 / 0 / 0, gateway 222 / 0 / 0, gateway-db 5 / 0 / 0, web 271 / 0 / 0 (25 files), evals harness 40 / 0 / 0, timeout budget 48 / 0 / 0, scripts/tests 38 / 0 / 0.
+- make test 14:18:00Z–14:33:18Z on 0103819 + eed53a4 (the final code; only docs changed after it, so this is the final make test, ADR-0451), rc 0: agent 1357 / 0 / 0, gateway 222 / 0 / 0, gateway-db 5 / 0 / 0, web 271 / 0 / 0 (25 files), evals harness 40 / 0 / 0, timeout budget 48 / 0 / 0, scripts/tests 38 / 0 / 0.
 - make eval s="files routing" started after make up (14:34Z), stopped on the owner's decision during the routing suite: no run file written, not a result (53 routing cases had printed, none failing). make smoke not started.
 
 Files for human review
