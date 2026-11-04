@@ -1,0 +1,46 @@
+# The `files` capability's own configuration (my-files PR, owner decision 2, ADR-0446; README §18.3 C3:
+# config/<slug>.yaml). The capability searches the caller's earlier files only when the message refers to one
+# (ADR-0449): an upload or a send word together with a file word or an earlier-conversation word («رفعت لك ملف…»,
+# «الملف اللي أرسلته…», «أرسلت لك … في محادثة ثانية», "the document I sent"). An upload or a send word alone never
+# refers to a file: «رفعت سعر المنتج» ("I raised the price"), «حملت التطبيق أمس» ("I downloaded the app
+# yesterday"). Time words (أمس، الأسبوع الماضي, yesterday) are not earlier-conversation words. Every word is
+# matched as a whole word, Arabic-normalized (a leading و/ف/ب/ل/ال stripped); a phrase as a run of whole words.
+# The manifest's `routing_hints.keywords` (upload and send words) and `keywords_with` (the other three lists)
+# hold the same words, so the router's candidacy needs both too (a test checks they agree). A message that
+# refers to no earlier file runs no tool, whatever the router chose (the negative of decision 2).
+refer:
+  upload_words:
+    ar: [رفعت, رفعته, رفعتها, رفعتلك, رفعنا, حملت, حملته, حملتها, نزلت لك]
+    en: [uploaded]
+  send_words:
+    ar: [ارسلت, ارسلته, ارسلتها, ارسلتلك, بعثت, بعثته, بعثتها, شاركت, شاركته, رسلت, رسلته, عطيتك]
+    en: [i sent, "i've sent", i have sent, sent you, i shared, "i've shared", i attached, i gave you]
+  # Words for a file: dropped from the search query (they only say "a file").
+  file_words:
+    ar: [ملف, ملفي, ملفات, ملفاتي, مرفق, مرفقات, مستند, مستندات, وثيقه, وثيقتي, pdf, اكسل, وورد]
+    en: [file, files, document, documents, attachment, attachments, pdf, spreadsheet]
+  # Words for a file that also name what it is about: file words for the reference, kept in the search query.
+  subject_file_words:
+    ar: [تقرير, تقريري, تقارير, صوره, صورتي, صور]
+    en: [report, reports, image, photo, scan]
+  earlier_words:
+    ar: [سابق, سابقه, سابقا, السابق, السابقه, قبل, من قبل, محادثه ثانيه, محادثه اخرى, محادثه سابقه,
+         المحادثه الثانيه, المحادثه الاخرى, المحادثه السابقه]
+    en: [earlier, previous, previously, before, another conversation, other conversation, earlier conversation,
+         previous conversation]
+  # Words asking for the whole file: with one file found, file_read reads it from its start.
+  whole_words:
+    ar: [لخص, لخصه, لخصها, ملخص, تلخيص, اختصر, كامل, كله, كلها]
+    en: [summarize, summarise, summary, whole, entire, all of it]
+# Passages one file_search returns (≤ config/file_library.yaml search.max_k).
+top_k: 8
+# The search query is the message without the words that only say a file was sent before (every `refer` list
+# but `subject_file_words` and `whole_words`) and these conversational words, so «رفعت لك تقرير المختبر في محادثة ثانية، كم الهيموجلوبين؟»
+# searches «تقرير المختبر … الهيموجلوبين» and the passage that answers outranks the file's heading (ADR-0447). A
+# message left with nothing is searched whole.
+query_stopwords:
+  ar: [لك, لي, في, فيه, فيها, عن, من, على, الى, اللي, الذي, التي, هذا, هذه, ذاك, ذلك, وش, ايش, كم, كان, كانت, هل, ممكن,
+       تقدر, ابغى, ابي, عطني, قل, قولي, طلعت, محادثه, المحادثه, ثانيه, الثانيه, اخرى, الاخرى,
+       امس, الاسبوع, الماضي, الماضيه, المره, فاتت]
+  en: [i, my, me, you, the, a, an, in, "on", of, to, for, about, what, was, is, did, does, it, this, that, which,
+       how, much, many, there, conversation, another, other, please, tell, say, yesterday, last, week, time]

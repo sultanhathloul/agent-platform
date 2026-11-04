@@ -1,0 +1,50 @@
+slug: files
+version: 1.0.0
+name: {ar: "ملفاتي السابقة", en: "My earlier files"}
+description:
+  ar: "يجيب من ملف رفعه المستخدم في محادثة سابقة، حين يشير إليه في سؤاله، ويذكر الملف ومحادثته."
+  en: "Answers from a file the user uploaded in an earlier conversation, when the question refers to it, naming the file and its conversation."
+icon: "folder-open"
+enabled_by_default: true
+permission: "cap:files"             # a composite child of `user`: every user reads only their own files (ADR-0443)
+risk: read
+ui:
+  mode: auto                        # chosen by the router; no toggle
+  order: 25
+routing_hints:
+  description:
+    ar: "أسئلة يشير فيها المستخدم إلى ملف رفعه أو أرسله من قبل، في محادثة سابقة أو أخرى (تحليل، تقرير مختبر، عقد، سيرة ذاتية…)، ويسأل عن محتواه. ليست لسؤال لا يذكر ملفًا سابقًا، ولا لملف مرفق في هذه الرسالة."
+    en: "Questions where the user refers to a file they uploaded or sent before, in an earlier or another conversation (a lab report, a contract, a CV…), and asks about its content. Not for a question that names no earlier file, nor for a file attached to this message."
+  # Candidacy only (ADR-0216): the router model decides, and the capability itself searches only when the
+  # message refers to an earlier file (config/files.yaml `refer`). Candidacy needs a word of each group
+  # (ADR-0449): an upload or a send word (`keywords`) and a file or an earlier-conversation word
+  # (`keywords_with`), so «رفعت سعر المنتج» or «حملت التطبيق أمس» is no candidate. The same words as
+  # config/files.yaml `refer` (tests/test_files.py checks they agree). Matched Arabic-normalized.
+  keywords:
+    ar: [رفعت, رفعته, رفعتها, رفعتلك, رفعنا, حملت, حملته, حملتها, نزلت لك,
+         ارسلت, ارسلته, ارسلتها, ارسلتلك, بعثت, بعثته, بعثتها, شاركت, شاركته, رسلت, رسلته, عطيتك]
+    en: [uploaded, i sent, "i've sent", i have sent, sent you, i shared, "i've shared", i attached, i gave you]
+  keywords_with:
+    ar: [ملف, ملفي, ملفات, ملفاتي, مرفق, مرفقات, مستند, مستندات, وثيقه, وثيقتي, pdf, اكسل, وورد,
+         تقرير, تقريري, تقارير, صوره, صورتي, صور,
+         سابق, سابقه, سابقا, السابق, السابقه, قبل, من قبل, محادثه ثانيه, محادثه اخرى, محادثه سابقه,
+         المحادثه الثانيه, المحادثه الاخرى, المحادثه السابقه]
+    en: [file, files, document, documents, attachment, attachments, pdf, spreadsheet, report, reports, image,
+         photo, scan, earlier, previous, previously, before, another conversation, other conversation,
+         earlier conversation, previous conversation]
+  rules:
+    - when: keyword_candidate
+model:
+  min_tier: standard                # the answer synthesizes from the file's passages (README §19.4)
+  steps: {}
+  on_overflow: compress
+context:
+  needs: [state_digest, summary, window, memory, retrieval, findings]
+  max_input_tokens: 14000
+tools: [file_search, file_read]
+access: [user_files]                # the caller's own files of every conversation (ADR-0443)
+guard_as: [docs]                    # guarded as a file is in its own conversation (decision 4, ADR-0445)
+limits:
+  max_iterations: 1
+  timeout_s: 60
+state_namespace: "cap.files"

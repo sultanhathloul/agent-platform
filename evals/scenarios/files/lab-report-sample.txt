@@ -1,0 +1,16 @@
+Sample Medical Laboratory - Test Report (a fictional document for testing; all data invented)
+
+Patient: Test Patient
+Sample collected: 2026-10-22
+
+Vitamins and minerals
+- Vitamin D (25-OH): 18 ng/mL (reference range 30 to 100; insufficient)
+- Vitamin B12: 410 pg/mL
+- Ferritin: 35 ng/mL
+
+Thyroid function
+- TSH: 2.1 mIU/L
+- Free T4: 1.2 ng/dL
+
+Doctor's note
+Vitamin D is below the reference range. Repeat the vitamin D test after three months of supplements.

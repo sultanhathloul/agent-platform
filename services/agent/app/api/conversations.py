@@ -124,11 +124,20 @@ async def conversation_messages(
     omitted = max(len(shown) - page, 0)
     shown = shown[omitted:]
     names: dict[str, str] = {}
+    data_owner = DataOwner(tenant_id=caller.tenant_id, user_id=caller.user_id)
     if any(m.get("attachment_ids") for m in shown):
-        records = await services.attachments.store.list_for(
-            DataOwner(tenant_id=caller.tenant_id, user_id=caller.user_id), conversation_id
-        )
+        records = await services.attachments.store.list_for(data_owner, conversation_id)
         names = {r.id: r.name for r in records}
+    # A deleted file leaves every conversation (my-files PR, owner decision 1, ADR-0444): its chip goes with
+    # its
+    # record (above), and so do the citations of it, here or in another conversation that cited it.
+    cited = {
+        c["document_id"]
+        for m in shown
+        for c in m.get("citations", [])
+        if c.get("source") == "doc" and isinstance(c.get("document_id"), str)
+    }
+    kept = await services.files.existing(data_owner, sorted(cited)) if cited and services.files else cited
     messages = [
         HistoryMessage(
             role=m["role"],
@@ -138,7 +147,13 @@ async def conversation_messages(
             attachments=[
                 HistoryAttachment(id=i, name=names[i]) for i in m.get("attachment_ids", []) if i in names
             ],
-            citations=m.get("citations", []),
+            citations=[
+                c
+                for c in m.get("citations", [])
+                if c.get("source") != "doc"
+                or not isinstance(c.get("document_id"), str)
+                or c["document_id"] in kept
+            ],
             skill=_skill_label(services, m.get("skill")),
             artifact=m.get("artifact"),
         )

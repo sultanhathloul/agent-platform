@@ -3,7 +3,14 @@
 import type { ArtifactRef, Citation, HistoryMessage } from "@/lib/api/types";
 import type { AppliedSkill, AssistantMessage } from "./stream";
 
-export type Turn = { id: string; question: string; files: string[]; answer: AssistantMessage };
+export type Turn = {
+  id: string;
+  question: string;
+  files: string[];
+  answer: AssistantMessage;
+  /** The ids of the files the question carried (history only): «ملفاتي» opens a conversation at one. */
+  fileIds?: string[];
+};
 
 function finished(
   text: string,
@@ -20,7 +27,8 @@ export function turnsFromHistory(messages: HistoryMessage[]): Turn[] {
   messages.forEach((message, index) => {
     if (message.role === "user") {
       const files = message.attachments.map((file) => file.name);
-      turns.push({ id: `history-${index}`, question: message.text, files, answer: finished("", []) });
+      const fileIds = message.attachments.map((file) => file.id);
+      turns.push({ id: `history-${index}`, question: message.text, files, fileIds, answer: finished("", []) });
       return;
     }
     const open = turns.at(-1);
@@ -41,4 +49,15 @@ export function listDate(iso: string, locale: string, now: Date = new Date()): s
   if (sameDay) return new Intl.DateTimeFormat(tag, { hour: "numeric", minute: "2-digit" }).format(at);
   if (days < 7) return new Intl.DateTimeFormat(tag, { weekday: "long" }).format(at);
   return new Intl.DateTimeFormat(tag, { day: "numeric", month: "short", year: "numeric" }).format(at);
+}
+
+/** The turn whose question carried the file `id`, as the link from «ملفاتي» names it (my-files PR). */
+export function turnWithFile(turns: readonly Turn[], id: string | null): Turn | undefined {
+  return id ? turns.find((turn) => turn.fileIds?.includes(id)) : undefined;
+}
+
+/** The `file` parameter of a chat URL's query, when it is an id. */
+export function fileParam(search: string): string | null {
+  const id = new URLSearchParams(search).get("file");
+  return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
 }

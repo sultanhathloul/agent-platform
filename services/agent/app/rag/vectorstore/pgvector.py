@@ -200,6 +200,32 @@ class PgVectorStore:
             )
             return cursor.rowcount
 
+    async def document_chunks(
+        self,
+        owner: Owner,
+        collection: str,
+        document_id: str,
+        *,
+        pages: Sequence[int] | None = None,
+        limit: int,
+    ) -> list[dict]:
+        """One document's chunks of the owner's collection in reading order (page, then position), those of
+        `pages` only when named, at most `limit`: id, page and section, never the text (my-files PR, file_read)."""
+        if not _UUID.match(document_id):
+            return []
+        where, params = "", [collection, owner.tenant_id, owner.user_id, document_id]
+        if pages:
+            where = " AND page = ANY(%s)"
+            params.append(list(pages))
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                f"SELECT id::text AS id, page, section FROM {self._table} "
+                f"WHERE collection = %s AND tenant_id = %s AND user_id = %s AND {self._column(collection)} = %s"
+                f"{where} ORDER BY page NULLS FIRST, ord LIMIT %s",
+                (*params, limit),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
+
     async def fetch(self, owner: Owner, collection: str, ids: Sequence[str]) -> dict[str, str]:
         wanted = [i for i in dict.fromkeys(ids) if _UUID.match(i)]
         if not wanted:

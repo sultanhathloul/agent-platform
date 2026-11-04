@@ -30,6 +30,20 @@ async def _history(client, fixture: dict) -> list[dict]:
     return response.json()["messages"]
 
 
+async def _record_cited_files(db, fixture: dict) -> None:
+    """The attachment record of each document the fixture's replies cite, as its upload made it."""
+    cited = {c["document_id"]: c["title"] for c in fixture["citations"][0] if c.get("document_id")}
+    async with db.connection() as conn:
+        for document, title in cited.items():
+            await conn.execute(
+                "INSERT INTO agent.attachments (id, conversation_id, tenant_id, user_id, name, mime, kind, size, "
+                "object_key, collection, status) VALUES (%s, %s, %s, %s, %s, 'application/pdf', 'pdf', 1, %s, %s, "
+                "'indexed') ON CONFLICT (id) DO NOTHING",
+                (document, fixture["conversation_id"], fixture["tenant_id"], fixture["user_id"], title,
+                 f"fixture/{document}", f"sess_{fixture['conversation_id']}"),
+            )
+
+
 @pytest.mark.parametrize(("name", "commit"), CASES)
 async def test_a_conversation_persisted_before_skills_reopens_unchanged(client, services, litellm, name, commit):
     fixture = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
@@ -45,8 +59,13 @@ async def test_a_conversation_persisted_before_skills_reopens_unchanged(client, 
     assert all(m.get("skill") is None for m in messages)
     replies = [m for m in messages if m["role"] == "assistant"]
     if commit == "09464df":
-        # Since the conversation history (ADR-0193) a reply records its citations: they come back
-        # exactly as the turn returned them.
+        # Since the conversation history (ADR-0193) a reply records its citations: they come back exactly as the
+        # turn returned them while the cited file exists. The fixture holds the checkpoints, not the file's record,
+        # so a cited file is a deleted one until its record is put back (my-files PR, ADR-0444).
+        assert all(c["source"] != "doc" for c in replies[0]["citations"])
+        await _record_cited_files(services.db, fixture)
+        messages = await _history(client, fixture)
+        replies = [m for m in messages if m["role"] == "assistant"]
         assert replies[0]["citations"] == fixture["citations"][0] and replies[1]["citations"] == []
     else:
         assert all(r["citations"] == [] for r in replies)

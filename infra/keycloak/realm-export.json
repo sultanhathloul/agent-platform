@@ -27,12 +27,13 @@
         "name": "user",
         "description": "Base role for every platform user",
         "composite": true,
-        "composites": { "realm": ["cap:general", "cap:recall"] }
+        "composites": { "realm": ["cap:general", "cap:recall", "cap:files"] }
       },
       { "name": "admin", "description": "Platform administrator" },
       { "name": "viewer", "description": "Read-mostly user; model tier capped at standard (config/models.yaml caps, ADR-0040)" },
       { "name": "cap:general", "description": "Capability: general knowledge answers" },
       { "name": "cap:recall", "description": "Capability: the user's own earlier reports and this conversation's earlier messages (report library PR, ADR-0431)" },
+      { "name": "cap:files", "description": "Capability: the user's own files of earlier conversations, searched on request (my-files PR, ADR-0443)" },
       { "name": "cap:sql", "description": "Capability: text-to-SQL over business data" },
       { "name": "cap:web", "description": "Capability: web search" },
       { "name": "cap:docs", "description": "Capability: chat with uploaded documents" },

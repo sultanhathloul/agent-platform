@@ -89,7 +89,7 @@ def select_capabilities(
             if rule.when == "toggled":
                 matched = cap.slug in toggled
             elif rule.when == "keyword":
-                matched = any(contains_keyword(message, k) for k in [*hints.keywords.ar, *hints.keywords.en])
+                matched = _keyword_in(cap, message)
             elif rule.when == "attachments":
                 matched = has_attachments
             elif rule.when == "kbs_selected":
@@ -109,8 +109,13 @@ def select_capabilities(
 
 
 def _keyword_in(cap: LoadedCapability, message: str) -> bool:
-    keywords = cap.manifest.routing_hints.keywords
-    return any(contains_keyword(message, k) for k in [*keywords.ar, *keywords.en])
+    """A word of the manifest's `keywords` in the message and, when the manifest names a second group
+    (`keywords_with`, ADR-0449), a word of that group too."""
+    hints = cap.manifest.routing_hints
+    if not any(contains_keyword(message, k) for k in [*hints.keywords.ar, *hints.keywords.en]):
+        return False
+    group = [*hints.keywords_with.ar, *hints.keywords_with.en]
+    return not group or any(contains_keyword(message, k) for k in group)
 
 
 def router_candidates(

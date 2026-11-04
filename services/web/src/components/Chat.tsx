@@ -15,7 +15,7 @@ import {
   turnAttachmentIds,
   uploadAttachment,
 } from "@/lib/attachments";
-import { type Turn, turnsFromHistory } from "@/lib/conversations";
+import { type Turn, fileParam, turnWithFile, turnsFromHistory } from "@/lib/conversations";
 import { GatewayError, getConversationMessages, isAbortError, listCapabilities, listSkills, streamTurn } from "@/lib/gateway";
 import { loadSelection, saveSelection, selectedForTurn, toggled } from "@/lib/kbs";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locale";
@@ -257,6 +257,19 @@ export function Chat({
     endRef.current?.scrollIntoView({ block: "end" });
   }, [turns]);
 
+  // Opened from «ملفاتي» at an upload (/chat/<id>?file=<attachment>): once the history is in, the message that
+  // carried the file is brought into view and marked (my-files PR, owner decision 1).
+  const [focused, setFocused] = useState<string | null>(null);
+  const focusDone = useRef(false);
+  useEffect(() => {
+    if (history !== "ready" || focusDone.current) return;
+    focusDone.current = true;
+    const turn = turnWithFile(turns, fileParam(window.location.search));
+    if (!turn) return;
+    setFocused(turn.id);
+    document.getElementById(`turn-${turn.id}`)?.scrollIntoView({ block: "center" });
+  }, [history, turns]);
+
   useEffect(() => () => controllerRef.current?.abort(), []);
 
   function updateAnswer(id: string, fn: (m: AssistantMessage) => AssistantMessage) {
@@ -347,8 +360,12 @@ export function Chat({
         ) : (
           <ol className="flex flex-col gap-6">
             {turns.map((turn) => (
-              <li key={turn.id} className="flex flex-col gap-3">
-                <div className="max-w-[85%] self-end rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-sm">
+              <li key={turn.id} id={`turn-${turn.id}`} className="flex flex-col gap-3">
+                <div
+                  className={`max-w-[85%] self-end rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-sm ${
+                    focused === turn.id ? "ring-4 ring-focus" : ""
+                  }`}
+                >
                   <h2 className="sr-only">{t("chat.you")}</h2>
                   <p dir="auto" className="whitespace-pre-wrap leading-7">
                     {turn.question}

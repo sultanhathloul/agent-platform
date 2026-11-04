@@ -1,0 +1,37 @@
+# My files (my-files PR, owner decisions 1 and 2; ADR-0442 to ADR-0445). Read by the agent
+# (app/attachments/library.py). Every bound here is a size cap on what leaves the database toward a page or a
+# model call (CLAUDE.md rule 12d). Only conversation uploads are files here: a knowledge base's documents are
+# never listed or searched (decision 1).
+version: 1.0.0
+
+# Decision 1: the page «ملفاتي» (GET /v1/files). Newest first, `page_size` a page (the request may ask for up to
+# `max_page`). A search or a filter reads at most the owner's newest `scan_max` files and keeps those whose name
+# or conversation title holds every word of the query (Arabic-folded), so a search is linear and bounded.
+list:
+  page_size: 30
+  max_page: 100
+  scan_max: 2000
+  max_query_chars: 200
+
+# Decision 2: file_search(query) over the caller's own indexed files of every conversation, in one hybrid search
+# of the phase 04 index (one embedding, vector and full-text top k, fusion). At most the owner's newest
+# `max_files` indexed files are searched; at most `max_k` chunks return (each a source the answer step fetches,
+# never text in the tool's result).
+search:
+  max_files: 500
+  top_k: 8
+  max_k: 10
+
+# file_read(file_id, pages?): the chunks of one of the caller's files, in page order, as sources; at most
+# `max_chunks` chunks and `max_pages` pages named in one call.
+read:
+  max_chunks: 12
+  max_pages: 10
+
+# A delete (ADR-0444, ADR-0448) leaves a tombstone of the file's id. The purge pass runs every `purge_every_s`
+# and, for at most `purge_batch` files deleted longer ago than the longest turn deadline (config/turn.yaml: the
+# longest profile's deadline_s and gateway_margin_s), removes every recorded context package that names one: a
+# turn in flight at the delete may have recorded it. Each file is purged once.
+delete:
+  purge_every_s: 60
+  purge_batch: 100

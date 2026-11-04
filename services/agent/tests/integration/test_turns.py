@@ -229,4 +229,4 @@ async def test_unpermitted_kbs_are_refused_again(client, services, litellm):
 async def test_health_lists_enabled_capabilities(client):
     response = await client.get("/v1/health")
     body = response.json()
-    assert (body["status"], body["capabilities"]) == ("ok", ["docs", "kb", "directions", "recall", "general"])
+    assert (body["status"], body["capabilities"]) == ("ok", ["docs", "files", "kb", "directions", "recall", "general"])

@@ -565,12 +565,13 @@ for what in "list:" "status:/$ANALYST_ATT" "download:/$ANALYST_ATT/content"; do
   [[ $code == 403 ]] && jq -e '.error.code == "conversation_forbidden"' "$TMP/denied.json" >/dev/null \
     && ok "by the analyst's conversation id: $label → 403 conversation_forbidden" || fail "$label by the analyst's conversation id returned $code"
 done
-code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $ANALYST" \
+code=$(curl -s -o "$TMP/denied.json" -w '%{http_code}' -X DELETE -H "Authorization: Bearer $VIEWER" \
   "$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT")
-[[ $code == 405 ]] && ok "there is no delete, not even for the owner: DELETE → 405 (S4)" || fail "DELETE returned $code"
+[[ $code == 403 ]] && jq -e '.error.code == "conversation_forbidden"' "$TMP/denied.json" >/dev/null \
+  && ok "the viewer cannot delete the analyst's file: DELETE → 403 conversation_forbidden (ADR-0444)" || fail "the viewer's DELETE returned $code"
 check "the analyst's file is untouched" bash -c "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT' | jq -e '.data.id == \"$ANALYST_ATT\"'"
 denied=$(sql "select count(*) from gateway.audit_events where action like 'attachment.%' and status = 'denied' and conversation_id in ('$DOC_CONV', '$ANALYST_CONV')")
-(( denied == 5 )) && ok "each of the 5 refusals is audited as denied" || fail "denied attachment audit rows: $denied"
+(( denied == 6 )) && ok "each of the 6 refusals is audited as denied" || fail "denied attachment audit rows: $denied"
 
 step "phase 04: a scanned PDF ends failed with scanned_unsupported (D4)"
 SCAN_CONV=$(uuidgen | tr 'A-Z' 'a-z')
@@ -1319,6 +1320,47 @@ check "the follow-up ends done with version 2 of the same report" jq -se --arg r
 curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/reports/$REPORT_ID" > "$TMP/report-meta.json" || fail "the report's metadata"
 check "both versions stay readable (D4)" jq -e '[.data.versions[].version] == [1, 2]' "$TMP/report-meta.json"
 [[ $(status -H "Authorization: Bearer $ANALYST" "$GW/v1/reports/$REPORT_ID/versions/1") == 200 ]] && ok "version 1 is still served" || fail "version 1 is gone"
+
+step "my files: the analyst's file of another conversation is listed, searched on request, cited and deleted (ADR-0442 to ADR-0446)"
+ANALYST=$(token_for analyst analyst) || fail "analyst login"
+VIEWER=$(token_for viewer viewer) || fail "viewer login"
+curl -fsS -H "Authorization: Bearer $ANALYST" "$GW/v1/files?q=summer" > "$TMP/files.json" || fail "the analyst's file list"
+check "«ملفاتي» lists the analyst's summer-hours.txt with its conversation, no object key" jq -e --arg a "$ANALYST_ATT" --arg c "$ANALYST_CONV" \
+  '[.data.files[] | select(.id == $a and .conversation_id == $c and .kind == "txt" and (has("object_key") | not))] | length == 1' "$TMP/files.json"
+curl -fsS -H "Authorization: Bearer $VIEWER" "$GW/v1/files" > "$TMP/viewer-files.json" || fail "the viewer's file list"
+check "the viewer's list holds none of the analyst's files" jq -e --arg a "$ANALYST_ATT" '[.data.files[] | select(.id == $a)] | length == 0' "$TMP/viewer-files.json"
+FILES_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+doc_turn "$ANALYST" "$FILES_CONV" "رفعت لك تعميم ساعات العمل الصيفية في محادثة ثانية، متى يبدأ الدوام؟" "" "$TMP/files-turn.jsonl"
+check "the question in a new conversation ends done and ran files" jq -se 'last.type == "done" and (last.data.state_digest.capabilities | index("files"))' "$TMP/files-turn.jsonl"
+check "file_search ran through the broker" jq -se '[.[] | select(.type == "tool_end" and .data.tool == "file_search" and .data.status == "ok")] | length == 1' "$TMP/files-turn.jsonl"
+check "the answer cites the analyst's earlier file" jq -se --arg a "$ANALYST_ATT" '[last.data.citations[] | select(.document_id == $a)] | length == 1' "$TMP/files-turn.jsonl"
+printf '        answer: %s\n' "$(jq -rse 'last.data.answer' "$TMP/files-turn.jsonl")"
+UNRELATED_CONV=$(uuidgen | tr 'A-Z' 'a-z')
+doc_turn "$ANALYST" "$UNRELATED_CONV" "متى تبدأ ساعات العمل عادة في الجهات الحكومية؟" "" "$TMP/unrelated-turn.jsonl"
+check "a question that refers to no earlier file runs no file tool and cites none" jq -se \
+  'last.type == "done" and ([.[] | select(.type == "tool_start" and (.data.tool | startswith("file_")))] | length == 0) and (last.data.citations | length == 0)' \
+  "$TMP/unrelated-turn.jsonl"
+ANALYST_KEY=$(sql "select object_key from agent.attachments where id = '$ANALYST_ATT'")
+[[ -n $ANALYST_KEY ]] || fail "no object key recorded for the analyst's file"
+stored() { docker compose exec -T minio sh -c 'mc alias set probe http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc stat "probe/uploads/$1" >/dev/null 2>&1' _ "$1"; }
+check "the analyst's file is stored in MinIO before the delete" stored "$ANALYST_KEY"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT")
+[[ $code == 204 ]] && ok "the analyst deletes the file: DELETE → 204" || fail "the analyst's DELETE returned $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT/content")
+[[ $code == 404 ]] && ok "its download afterwards: GET …/content → 404" || fail "the download after the delete returned $code"
+if stored "$ANALYST_KEY"; then fail "MinIO still holds the deleted file's object"; else ok "MinIO no longer holds its object (the gateway deleted it, ADR-0450)"; fi
+check "a tombstone names it, so a turn in flight writes nothing of it (ADR-0448)" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from agent.deleted_attachments where id = '$ANALYST_ATT'\") == 1 ]]"
+check "no recorded context package names it" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from agent.context_packages where attachment_ids @> array['$ANALYST_ATT']::uuid[]\") == 0 ]]"
+check "the file is gone from the list" bash -c "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/files?q=summer' | jq -e '[.data.files[] | select(.id == \"$ANALYST_ATT\")] | length == 0'"
+check "its chunks are gone from the index" bash -c "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from agent.rag_chunks where attachment_id = '$ANALYST_ATT'\") == 0 ]]"
+check "the history of the conversation that cited it no longer cites it" bash -c \
+  "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/conversations/$FILES_CONV/messages' | jq -e '[.data.messages[].citations[] | select(.document_id == \"$ANALYST_ATT\")] | length == 0'"
+deleted=$(sql "select count(*) from gateway.audit_events where action = 'attachment.delete' and status = 'ok' and conversation_id = '$ANALYST_CONV' and detail->>'attachment_id' = '$ANALYST_ATT'")
+listed=$(sql "select count(*) from gateway.audit_events where action = 'file.library' and status = 'ok' and occurred_at > now() - interval '15 minutes' and detail ? 'files' and not (detail::text like '%summer%')")
+(( deleted == 1 && listed >= 3 )) && ok "the delete and each list are audited, without the query's text ($deleted delete, $listed lists)" \
+  || fail "my files audit rows: $deleted delete, $listed lists"
 
 printf '\nsmoke: all phase 01 to 08 checks, the interactive report checks, the conversation history checks, the timeout budget checks and the platform settings checks passed\n'
 

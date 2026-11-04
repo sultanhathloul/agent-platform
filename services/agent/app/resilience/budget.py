@@ -328,9 +328,10 @@ def _tool_bound(v: dict, tool: str) -> tuple[str, float] | None:
 
 def _facade_tools(v: dict, slug: str) -> list[str]:
     """The in-process tools of a capability whose manifest declares `documents`: the broker hands
-    each the document facade (ADR-0231), so each must fit one facade search."""
+    each the document facade (ADR-0231), so each must fit one facade search. A capability declaring
+    `access: [user_files]` searches the same index across the caller's conversations (my-files PR, ADR-0443)."""
     manifest = v["manifests"][slug]
-    if not manifest.get("documents"):
+    if not manifest.get("documents") and "user_files" not in (manifest.get("access") or []):
         return []
     return [tool for tool in manifest.get("tools") or [] if _mcp_server(v, tool) is None]
 
@@ -350,7 +351,8 @@ def _keys(v: dict, family: str) -> list[tuple[str, ...]]:
     if family == "document-server-in-tool":
         if _document_server(v) is None:
             return []
-        return [(slug, tool) for slug, _ in manifests for tool in _facade_tools(v, slug)]
+        # A user_files capability searches the internal index only, never the document server (ADR-0443).
+        return [(slug, tool) for slug, m in manifests if m.get("documents") for tool in _facade_tools(v, slug)]
     if family == "slot-and-attempt-in-broker":
         return [(server["id"],) for server in v["mcp"]["servers"]]
     raise KeyError(family)

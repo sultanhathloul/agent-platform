@@ -58,6 +58,10 @@ class RoutingRule(_Strict):
 class RoutingHints(_Strict):
     description: Localized
     keywords: LocalizedList = LocalizedList()
+    # A second group (my-files review, ADR-0449): when set, a `keyword` or `keyword_candidate` rule holds only
+    # when the message has a word of `keywords` and a word of `keywords_with`, so one ambiguous word alone
+    # («رفعت» "I raised", «حملت» "I downloaded") never makes the capability a candidate. Empty: `keywords` alone.
+    keywords_with: LocalizedList = LocalizedList()
     rules: list[RoutingRule] = []
 
 
@@ -246,8 +250,14 @@ class Manifest(_Strict):
     documents: DocumentsSpec = DocumentsSpec()
     # What else this capability's tools may read (report library PR, ADR-0431), each bound by the broker to
     # the verified principal and the turn: `report_library`, the caller's own reports; `conversation_history`,
-    # the turn's conversation's stored messages. [] reaches neither.
-    access: list[Literal["report_library", "conversation_history"]] = []
+    # the turn's conversation's stored messages; `user_files` (my-files PR, ADR-0443), the caller's own
+    # uploaded
+    # files of every conversation. [] reaches none.
+    access: list[Literal["report_library", "conversation_history", "user_files"]] = []
+    # The capability scopes whose guard policies also apply to what this capability reads (my-files PR,
+    # decision 4, ADR-0445): a capability reading files of other conversations is guarded as `docs` is in the
+    # file's own conversation. Each must be another capability's slug; [] adds none.
+    guard_as: list[str] = []
     # A declarative capability (I12): no graph.py; the core runner builds its subgraph.
     declarative: DeclarativeSpec | None = None
 

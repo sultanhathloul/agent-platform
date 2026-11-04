@@ -34,7 +34,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Deletes a knowledge base: hidden, its role kept, its documents purged from the index */
-        delete: operations["delete"];
+        delete: operations["delete_1"];
         options?: never;
         head?: never;
         patch?: never;
@@ -489,7 +489,11 @@ export interface paths {
         get: operations["status"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Deletes one of the caller's files from every index and every conversation (owner only)
+         * @description My files (my-files PR, owner decision 1): the agent deletes the file's record, its chunks in the index and the recorded context packages that name it, and the gateway its stored object; later turns and the history no longer show it. Its conversation stays. Audited as attachment.delete with the attachment's id, never its name.
+         */
+        delete: operations["delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -538,6 +542,26 @@ export interface paths {
         };
         /** A conversation's reports, oldest first */
         get: operations["list_5"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's files: every file they uploaded in any conversation, newest first
+         * @description Searched by name or conversation title with q, filtered by type, status and upload date. Knowledge base documents are never listed. Checked twice: the agent lists the caller's own files only, and the gateway drops any file whose conversation is not the caller's in its conversations table. Audited as file.library with the filters and the count, never the query.
+         */
+        get: operations["library_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -625,7 +649,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Deletes one of the caller's memory items */
-        delete: operations["delete_1"];
+        delete: operations["delete_2"];
         options?: never;
         head?: never;
         patch?: never;
@@ -773,6 +797,11 @@ export interface components {
         };
         ApiEnvelopeConversationMessages: {
             data?: components["schemas"]["ConversationMessages"];
+            error?: components["schemas"]["ApiError"];
+            request_id: string;
+        };
+        ApiEnvelopeFilePage: {
+            data?: components["schemas"]["FilePage"];
             error?: components["schemas"]["ApiError"];
             request_id: string;
         };
@@ -1036,6 +1065,50 @@ export interface components {
         Description: {
             ar?: string;
             en?: string;
+        };
+        FileItem: {
+            /**
+             * Format: date-time
+             * @description When the conversation began.
+             */
+            conversation_created_at?: string;
+            /** Format: uuid */
+            conversation_id: string;
+            /** @description The conversation's first question, as stored; empty when it has none. */
+            conversation_title: string;
+            /**
+             * Format: date-time
+             * @description When it was uploaded.
+             */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "pdf" | "docx" | "xlsx" | "txt" | "md";
+            mime: string;
+            name: string;
+            /**
+             * Format: int32
+             * @description Pages, when known.
+             */
+            pages?: number;
+            /** @description Why ingestion failed (failed only). */
+            reason?: string;
+            /**
+             * Format: int64
+             * @description Bytes.
+             */
+            size: number;
+            /** @enum {string} */
+            status: "pending" | "indexed" | "failed";
+        };
+        FilePage: {
+            files: components["schemas"]["FileItem"][];
+            /**
+             * Format: date-time
+             * @description `before` of the next page; absent on the last.
+             */
+            next_before?: string;
         };
         HealthResponse: {
             status?: string;
@@ -1904,7 +1977,7 @@ export interface operations {
             };
         };
     };
-    delete: {
+    delete_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -3541,6 +3614,63 @@ export interface operations {
             };
         };
     };
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description conversation_forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description attachment_not_found, also for another user's id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     download_1: {
         parameters: {
             query?: never;
@@ -3734,6 +3864,75 @@ export interface operations {
             };
         };
     };
+    library_1: {
+        parameters: {
+            query?: {
+                /** @description Words of the file's name or its conversation's title; empty lists the newest. */
+                q?: string;
+                /** @description Only files of these types (repeatable). */
+                kind?: ("pdf" | "docx" | "xlsx" | "txt" | "md")[];
+                status?: "pending" | "indexed" | "failed";
+                /** @description Uploaded on or after this time (ISO 8601). */
+                since?: string;
+                /** @description Uploaded before this time (ISO 8601). */
+                until?: string;
+                /** @description `next_before` of the previous page. */
+                before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's files */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelopeFilePage"];
+                };
+            };
+            /** @description invalid_request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description agent_unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+            /** @description audit_unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorEnvelope"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -3881,7 +4080,7 @@ export interface operations {
             };
         };
     };
-    delete_1: {
+    delete_2: {
         parameters: {
             query?: never;
             header?: never;

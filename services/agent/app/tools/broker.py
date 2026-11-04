@@ -107,6 +107,8 @@ class ToolBroker:
         mcp: Any = None,
         access: Mapping[str, Collection[str]] | None = None,
         records: Any = None,
+        files: Any = None,
+        guard_as: Mapping[str, Collection[str]] | None = None,
     ):
         """`declared`: each capability's manifest `tools`, by slug. `collections`: the document
         collection kinds each capability's manifest declares (`documents.collections`).
@@ -122,20 +124,57 @@ class ToolBroker:
         # LibraryConfig), set once the report store exists.
         self.access = {slug: frozenset(kinds) for slug, kinds in (access or {}).items()}
         self.records = records
+        # The caller's file library (my-files PR, ADR-0443): app.attachments.library.FileLibrary, once it
+        # exists.
+        self.files = files
+        # Each capability's manifest `guard_as` (ADR-0445): more scopes whose policies guard its tools.
+        self.guard_as = {slug: tuple(scopes) for slug, scopes in (guard_as or {}).items()}
+
+    def _copy(self, **changes: Any) -> "ToolBroker":
+        fields = {
+            "documents": self.documents, "mcp": self.mcp, "access": self.access, "records": self.records,
+            "files": self.files, "guard_as": self.guard_as,
+        } | changes
+        return ToolBroker(self.registry, self.guard, self.declared, self.collections, **fields)
 
     def with_documents(self, documents: DocumentAccess) -> "ToolBroker":
         """This broker with other document backends (tests swap the backend)."""
-        return ToolBroker(
-            self.registry, self.guard, self.declared, self.collections, documents=documents, mcp=self.mcp,
-            access=self.access, records=self.records,
-        )
+        return self._copy(documents=documents)
 
     def with_records(self, reports: Any, library: Any) -> "ToolBroker":
         """This broker with the report store and config/library.yaml (report library PR, ADR-0431)."""
-        return ToolBroker(
-            self.registry, self.guard, self.declared, self.collections, documents=self.documents, mcp=self.mcp,
-            access=self.access, records=(reports, library) if reports is not None and library is not None else None,
+        return self._copy(records=(reports, library) if reports is not None and library is not None else None)
+
+    def with_files(self, files: Any) -> "ToolBroker":
+        """This broker with the caller's file library (my-files PR, ADR-0443)."""
+        return self._copy(files=files)
+
+    def files_for(self, caller: str, scope: ToolScope):
+        """The caller's own files of every conversation, bound to `scope`; None unless its manifest declares
+        `user_files` (ADR-0443)."""
+        if "user_files" not in self.access.get(caller, ()) or self.files is None:
+            return None
+        from app.attachments.library import FilesFacade
+
+        return FilesFacade(
+            self.files,
+            tenant_id=scope.tenant_id,
+            user_id=scope.user_id,
+            conversation_id=scope.conversation_id,
         )
+
+    async def owned_collections(self, caller: str, principal: Principal) -> tuple[str, ...]:
+        """The session collections of the principal's own searchable files, for a caller declaring
+        `user_files`: the evidence step fetches that caller's sources from them (ADR-0443); () otherwise."""
+        if "user_files" not in self.access.get(caller, ()) or self.files is None:
+            return ()
+        from app.rag.types import Owner
+
+        return await self.files.collections(Owner(tenant_id=principal.tenant_id, user_id=principal.user_id))
+
+    def guard_scopes(self, caller: str) -> tuple[str, ...]:
+        """`caller` and the capability scopes its manifest's `guard_as` names (ADR-0445)."""
+        return (caller, *self.guard_as.get(caller, ()))
 
     def library_for(self, caller: str, scope: ToolScope):
         """The caller's report library bound to `scope`; None unless its manifest declares it (ADR-0431)."""
@@ -283,7 +322,11 @@ class ToolBroker:
 
             base = context or GuardContext()
             # The tool's own scope and its caller's; a capability's tool also its owner's (ADR-0025).
-            tools = tuple(dict.fromkeys(t for t in (*base.tools, name, caller, owner) if t != PROVIDER_OWNER))
+            # A capability guarded as another (ADR-0445) is also under that one's tool-scoped policies.
+            also = self.guard_as.get(caller, ())
+            tools = tuple(
+                dict.fromkeys(t for t in (*base.tools, name, caller, owner, *also) if t != PROVIDER_OWNER)
+            )
             scoped = GuardContext(kbs=base.kbs, tools=tools, locale=base.locale, turn=base.turn)
             scope = self.scope_for(
                 caller, principal, conversation_id=conversation_id, selected_kbs=selected_kbs
@@ -293,6 +336,7 @@ class ToolBroker:
                 documents=self.facade_for(caller, scope),
                 library=self.library_for(caller, scope),
                 history=self.history_for(caller, history),
+                files=self.files_for(caller, scope),
             )
             with auditing(caller, on_audit):
                 result = await self._run(

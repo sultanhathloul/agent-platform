@@ -44,3 +44,17 @@ describe("the list date", () => {
     expect(listDate("2026-09-01T09:30:00Z", "ar", now)).toContain("سبتمبر");
   });
 });
+
+describe("a conversation opened at an upload (my-files PR)", () => {
+  it("finds the turn that carried the file named in the URL", async () => {
+    const { fileParam, turnWithFile } = await import("./conversations");
+    const turns = turnsFromHistory([
+      { role: "user", text: "سؤال", attachments: [{ id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", name: "a.pdf" }], citations: [] } as never,
+      { role: "assistant", text: "جواب", attachments: [], citations: [] } as never,
+    ]);
+    expect(fileParam("?file=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d")).toBe("0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    expect(fileParam("?file=../x")).toBeNull();
+    expect(turnWithFile(turns, "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d")?.question).toBe("سؤال");
+    expect(turnWithFile(turns, null)).toBeUndefined();
+  });
+});

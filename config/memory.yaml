@@ -21,3 +21,8 @@ subject_words: [المستخدم, user]
 self_kinds: [fact_about_user]
 self_words: [أنا, انا, أعمل, اعمل, نعمل, أشتغل, اشتغل, وظيفتي, عملي, مهنتي, تخصصي, دوري, منصبي, جهتي, إدارتي,
              ادارتي, قسمي, أدرس, ادرس, i, "i'm", im, my, me, myself]
+# Owner decision 4 (my-files PR, ADR-0445): nothing from a file is written to long-term memory. A turn on which a
+# capability that reads files ran (an attached file, or an earlier file of another conversation) writes no
+# memory: the extractor never reads the reply (ADR-0435), and the user's own message on such a turn is about the
+# file.
+skip_capabilities: [docs, files]
