@@ -3,9 +3,8 @@ earlier
 conversation, only when the message refers to one.
 
 No model call, like docs: the broker calls decide what the answer reads.
-1. The message must refer to an earlier file (config/files.yaml `refer`): an upload word, or a file word with
-a
-   send or an earlier word. Otherwise the capability calls no tool and returns nothing, whatever the router
+1. The message must refer to an earlier file (config/files.yaml `refer`, ADR-0449): an upload or a send word
+   together with a file word or an earlier-conversation word; one of them alone never does. Otherwise the capability calls no tool and returns nothing, whatever the router
    chose, so an earlier file is never used unless the user's message refers to it (decision 2's negative).
 2. `file_search` with the message, less its reference and conversational words (ADR-0447), over the caller's own indexed files of every conversation.
 3. `file_read` of the best file when the message names pages («الصفحة 3») or asks for the whole file
@@ -65,14 +64,17 @@ def has_any(message: str, words: list[str]) -> bool:
 
 
 def refers_to_earlier_file(message: str, config: dict) -> bool:
-    """Decision 2: the message refers to a file the user sent before."""
+    """Decision 2: the message refers to a file the user sent before (ADR-0449): an upload or a send word
+    together with a file word or an earlier-conversation word. An upload or a send word alone never does
+    («رفعت سعر المنتج», «حملت التطبيق أمس»)."""
     refer = config.get("refer") or {}
-    if has_any(message, _words(refer, "upload_words")):
-        return True
-    named = has_any(message, _words(refer, "file_words"))
-    sent = has_any(message, _words(refer, "send_words"))
-    earlier = has_any(message, _words(refer, "earlier_words"))
-    return (named and (sent or earlier)) or (sent and earlier)
+    sent = has_any(message, [*_words(refer, "upload_words"), *_words(refer, "send_words")])
+    if not sent:
+        return False
+    return has_any(
+        message,
+        [*_words(refer, "file_words"), *_words(refer, "subject_file_words"), *_words(refer, "earlier_words")],
+    )
 
 
 def search_query(message: str, config: dict) -> str:

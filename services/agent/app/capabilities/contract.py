@@ -58,6 +58,10 @@ class RoutingRule(_Strict):
 class RoutingHints(_Strict):
     description: Localized
     keywords: LocalizedList = LocalizedList()
+    # A second group (my-files review, ADR-0449): when set, a `keyword` or `keyword_candidate` rule holds only
+    # when the message has a word of `keywords` and a word of `keywords_with`, so one ambiguous word alone
+    # («رفعت» "I raised", «حملت» "I downloaded") never makes the capability a candidate. Empty: `keywords` alone.
+    keywords_with: LocalizedList = LocalizedList()
     rules: list[RoutingRule] = []
 
 

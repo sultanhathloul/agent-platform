@@ -162,6 +162,12 @@ async def test_an_earlier_file_is_never_used_unless_the_message_refers_to_one(fi
     assert _tools(events) == []
     english, _ = await _turn(services, principal, "Please present the hemoglobin ranges")
     assert _tools(english) == []
+    # An upload word alone is no reference to a file (ADR-0449), whatever the router chose.
+    for message in ("رفعت سعر المنتج، كيف أحسب الربح؟", "حملت التطبيق أمس"):
+        events, _ = await _turn(services, principal, message)
+        assert _tools(events) == [], message
+    events, _ = await _turn(services, principal, "رفعت لك ملف الفحوصات في محادثة ثانية")
+    assert _tools(events) == ["file_search"]
 
 
 async def test_no_path_returns_another_users_file(files):

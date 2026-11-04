@@ -15,15 +15,23 @@ routing_hints:
   description:
     ar: "أسئلة يشير فيها المستخدم إلى ملف رفعه أو أرسله من قبل، في محادثة سابقة أو أخرى (تحليل، تقرير مختبر، عقد، سيرة ذاتية…)، ويسأل عن محتواه. ليست لسؤال لا يذكر ملفًا سابقًا، ولا لملف مرفق في هذه الرسالة."
     en: "Questions where the user refers to a file they uploaded or sent before, in an earlier or another conversation (a lab report, a contract, a CV…), and asks about its content. Not for a question that names no earlier file, nor for a file attached to this message."
-  # Candidacy only (ADR-0216): a word of an earlier upload makes `files` a router candidate; the router model
-  # decides, and the capability itself searches only when the message refers to an earlier file
-  # (config/files.yaml `refer`, ADR-0446). Matched Arabic-normalized.
+  # Candidacy only (ADR-0216): the router model decides, and the capability itself searches only when the
+  # message refers to an earlier file (config/files.yaml `refer`). Candidacy needs a word of each group
+  # (ADR-0449): an upload or a send word (`keywords`) and a file or an earlier-conversation word
+  # (`keywords_with`), so «رفعت سعر المنتج» or «حملت التطبيق أمس» is no candidate. The same words as
+  # config/files.yaml `refer` (tests/test_files.py checks they agree). Matched Arabic-normalized.
   keywords:
-    ar: [رفعت, رفعته, رفعتها, رفعتلك, رفعت لك, حملت, حملته, ملفي, ملفاتي, الملف اللي, الملف الذي, المرفق اللي,
-         المستند اللي, ارسلت لك ملف, ارسلتلك ملف, ارسلت ملف, الملف اللي ارسلته, محادثه ثانيه, محادثه اخرى,
-         محادثه سابقه, المحادثه السابقه, المحادثه الثانيه, المحادثه الاخرى]
-    en: [i uploaded, uploaded, my file, my files, the file i sent, the file i shared, the document i sent,
-         another conversation, other conversation, earlier conversation, previous conversation, last conversation]
+    ar: [رفعت, رفعته, رفعتها, رفعتلك, رفعنا, حملت, حملته, حملتها, نزلت لك,
+         ارسلت, ارسلته, ارسلتها, ارسلتلك, بعثت, بعثته, بعثتها, شاركت, شاركته, رسلت, رسلته, عطيتك]
+    en: [uploaded, i sent, "i've sent", i have sent, sent you, i shared, "i've shared", i attached, i gave you]
+  keywords_with:
+    ar: [ملف, ملفي, ملفات, ملفاتي, مرفق, مرفقات, مستند, مستندات, وثيقه, وثيقتي, pdf, اكسل, وورد,
+         تقرير, تقريري, تقارير, صوره, صورتي, صور,
+         سابق, سابقه, سابقا, السابق, السابقه, قبل, من قبل, محادثه ثانيه, محادثه اخرى, محادثه سابقه,
+         المحادثه الثانيه, المحادثه الاخرى, المحادثه السابقه]
+    en: [file, files, document, documents, attachment, attachments, pdf, spreadsheet, report, reports, image,
+         photo, scan, earlier, previous, previously, before, another conversation, other conversation,
+         earlier conversation, previous conversation]
   rules:
     - when: keyword_candidate
 model:

@@ -7,6 +7,8 @@ import pytest
 import yaml
 
 from app.capabilities.contract import Manifest
+from app.graph.nodes.route import router_candidates
+from app.text.arabic import normalize
 from app.capabilities.files.graph import has_any, named_pages, refers_to_earlier_file, search_query
 from app.capabilities.files.tools import title_of
 
@@ -32,6 +34,8 @@ def config(config_dir):
         "I uploaded my lab report earlier, what was my hemoglobin?",
         "The document I sent you in another conversation: what does it say about leave?",
         "Look at the file I shared before and summarize it",
+        "رفعت لك ملف الفحوصات في محادثة ثانية",
+        "I've sent you the report earlier, what does it say about leave?",
     ],
 )
 def test_a_message_that_refers_to_an_earlier_file(message, config):
@@ -49,6 +53,15 @@ def test_a_message_that_refers_to_an_earlier_file(message, config):
         "Please present the hemoglobin ranges",  # "sent" inside "present"
         "How do I update my profile?",  # "file" inside "profile"
         "What is a PDF?",
+        # An upload or a send word alone never refers to a file (ADR-0449).
+        "رفعت سعر المنتج، كيف أحسب الربح؟",
+        "حملت التطبيق أمس",
+        "رفعت الجلسة وحملت الأوراق",
+        "How do I upload a file?",
+        "The ministry sent the document yesterday",
+        # A file or an earlier word with nothing sent or uploaded.
+        "الملف في المحادثة السابقة",
+        "What was in the previous document?",
     ],
 )
 def test_a_message_that_refers_to_no_earlier_file(message, config):
@@ -94,3 +107,39 @@ def test_the_search_query_keeps_the_subject_and_drops_the_reference(config):
     )
     # Nothing but reference words: the message is searched whole.
     assert search_query("رفعت لك ملف", config) == "رفعت لك ملف"
+
+
+class _Cap:
+    """The parts of a loaded capability the router's candidacy reads."""
+
+    slug = "files"
+    manifest = MANIFEST
+
+
+@pytest.mark.parametrize(
+    ("message", "candidate"),
+    [
+        ("رفعت سعر المنتج، كيف أحسب الربح؟", False),
+        ("حملت التطبيق أمس", False),
+        ("رفعت لك ملف الفحوصات في محادثة ثانية", True),
+        ("الملف اللي أرسلته لك قبل عن التحاليل", True),
+        ("I uploaded my lab report in another conversation", True),
+        ("How do I upload a file?", False),
+    ],
+)
+def test_router_candidacy_needs_a_word_of_each_group(message, candidate):
+    # An upload word alone makes no router candidate either (ADR-0449).
+    assert bool(router_candidates([_Cap()], has_indexed=False, message=message)) is candidate
+
+
+def test_the_manifest_keywords_are_the_config_words(config):
+    refer = config["refer"]
+
+    def words(*keys):
+        return {normalize(w) for key in keys for lang in ("ar", "en") for w in refer[key][lang]}
+
+    hints = MANIFEST.routing_hints
+    assert {normalize(w) for w in [*hints.keywords.ar, *hints.keywords.en]} == words("upload_words", "send_words")
+    assert {normalize(w) for w in [*hints.keywords_with.ar, *hints.keywords_with.en]} == words(
+        "file_words", "subject_file_words", "earlier_words"
+    )
