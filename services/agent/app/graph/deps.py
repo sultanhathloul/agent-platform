@@ -12,6 +12,7 @@ from app.attachments.service import AttachmentService
 from app.capabilities.registry import CapabilityRegistry
 from app.context.assembler import ContextAssembler
 from app.context.log import ContextLog
+from app.context.log import file_ids as _file_ids
 from app.db import Database
 from app.graph.router_config import RouterConfig
 from app.guardrails.config import GuardrailsConfig
@@ -143,6 +144,18 @@ class TurnContext:
     finding_calls: list[tuple[str, Any]] = field(default_factory=list)
     # The conversation's report index, read once per turn (report library PR, ADR-0430); None until read.
     report_index: list[dict] | None = None
+    # Every file whose name or text this turn may put into a model call (my-files review, ADR-0448): the
+    # conversation's attachments and the documents the capabilities' sources name. Each recorded context
+    # package names them, so deleting a file deletes every package that could hold any of it.
+    file_ids: set[str] = field(default_factory=set)
+
+    async def touch_files(self, ids: Sequence[Any]) -> None:
+        """Adds `ids` to the turn's files and names them on the packages the turn recorded so far."""
+        new = set(_file_ids(ids)) - self.file_ids
+        if not new:
+            return
+        self.file_ids |= new
+        await self.services.context_log.tag_turn(self.turn_id, self.file_ids)
 
     def emit(self, type_: str, data: dict) -> None:
         if self.writer is not None:

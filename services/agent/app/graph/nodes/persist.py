@@ -17,13 +17,22 @@ async def persist_state(state: AgentState, runtime: Runtime[TurnContext]) -> dic
     Context Assembly reads neither. The checkpointer persists the whole state
     (in-memory in phase 01, Postgres from phase 02). Memory writes, online eval and
     audit flush run after the turn (later phases)."""
+    ctx = runtime.context
+    files = getattr(ctx.services, "files", None)
+    cited = [c.get("document_id") for c in state.get("citations") or [] if isinstance(c, dict)]
+    named = [*cited, *(state.get("turn_attachment_ids") or [])]
+    # A file deleted while the turn ran (its tombstone, ADR-0448): no citation or chip of it is written.
+    gone = await files.deleted(named) if files is not None and any(named) else set()
     draft = state["draft_answer"]
     shown = state.get("shown_answer")
     assistant = {"role": "assistant", "content": draft, "turn_id": state["turn_id"]}
     if shown is not None and shown != draft:
         assistant["shown_answer"] = shown
-    if state.get("citations"):
-        assistant["citations"] = list(state["citations"])
+    citations = [
+        c for c in state.get("citations") or [] if str(c.get("document_id") or "").lower() not in gone
+    ]
+    if citations:
+        assistant["citations"] = citations
     if state.get("report"):
         # The report this reply wrote, {id, kind, title, version}, for the history's report card (I5).
         assistant["artifact"] = dict(state["report"])
@@ -34,6 +43,7 @@ async def persist_state(state: AgentState, runtime: Runtime[TurnContext]) -> dic
         # The skill the reply was written with, {slug, version}, for the history's chip (ADR-0301).
         assistant["skill"] = dict(state["skill"])
     question = {"role": "user", "content": state["user_message"]}
-    if state.get("turn_attachment_ids"):
-        question["attachment_ids"] = list(state["turn_attachment_ids"])
+    sent = [i for i in state.get("turn_attachment_ids") or [] if str(i).lower() not in gone]
+    if sent:
+        question["attachment_ids"] = sent
     return {"messages": [question, assistant]}

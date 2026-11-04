@@ -75,7 +75,10 @@ def _owner(principal: Principal) -> Owner:
 
 
 @pytest.fixture
-def files(services):
+def files(debug_services):
+    # Every context package recorded (ADR-0059), so a delete's removal of them is observable.
+    services = debug_services
+
     def make(replies):
         gateway = Capturing(services.gateway, replies)
         return dataclasses.replace(services, gateway=gateway), gateway
@@ -109,6 +112,30 @@ async def _uploaded(services, principal, name="تحليل-الدم.pdf", pages=L
     assert await harness.ingest(document) == "indexed"
     await _turn(services, principal, message, conversation=conversation, attachments=[document])
     return document, conversation
+
+
+async def _packages_naming(services, document: str) -> int:
+    async with services.db.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT count(*) AS n FROM agent.context_packages WHERE attachment_ids @> ARRAY[%s]::uuid[]", (document,)
+        )
+        return (await cursor.fetchone())["n"]
+
+
+async def _package_texts(services, conversations) -> list[str]:
+    """Every recorded package of these conversations, as text: what a delete must leave none of."""
+    async with services.db.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT package::text AS body FROM agent.context_packages WHERE conversation_id = ANY(%s)",
+            (list(conversations),),
+        )
+        return [row["body"] for row in await cursor.fetchall()]
+
+
+def _names_the_file(bodies) -> list[str]:
+    """The packages holding the lab file's text, its title or its conversation's title."""
+    marks = ("13.2", "تحليل-الدم", "هذا تحليل الدم الخاص بي")
+    return [body[:200] for body in bodies if any(mark in body for mark in marks)]
 
 
 def _block(package, name):
@@ -273,11 +300,19 @@ async def test_the_page_lists_the_callers_files_and_a_delete_removes_them_everyw
             f"/v1/conversations/{first}/attachments/{document}", headers=identity(other.user_id)
         )
         assert elsewhere.status_code == 404 and forbidden.status_code == 403
-        assert await services.files.get(_owner(owner), document) is not None
+        entry = await services.files.get(_owner(owner), document)
+        assert entry is not None
+        before = await http.get(f"/v1/conversations/{first}/attachments/{document}", headers=identity(owner.user_id))
+        assert before.status_code == 200
+        assert await _packages_naming(services, document), "the turns' packages were recorded and name the file"
 
         deleted = await http.delete(f"/v1/conversations/{first}/attachments/{document}", headers=identity(owner.user_id))
         again = await http.delete(f"/v1/conversations/{first}/attachments/{document}", headers=identity(owner.user_id))
         assert deleted.status_code == 204 and again.status_code == 404
+        # The record the gateway's download (…/content) and its object delete read first is 404 (the gateway
+        # deletes the object, ADR-0450: tests/…/AttachmentProxyTest and smoke).
+        after = await http.get(f"/v1/conversations/{first}/attachments/{document}", headers=identity(owner.user_id))
+        assert after.status_code == 404 and after.json()["error"]["code"] == "attachment_not_found"
         history_first = (await http.get(f"/v1/conversations/{first}/messages", headers=identity(owner.user_id))).json()
         history_asked = (
             await http.get(f"/v1/conversations/{asked_in}/messages", headers=identity(owner.user_id))
@@ -297,3 +332,118 @@ async def test_the_page_lists_the_callers_files_and_a_delete_removes_them_everyw
     services2, gateway = files({"router": ROUTE_FILES})
     await _turn(services2, owner, ASKED)
     assert "الهيموجلوبين 13.2" not in _retrieved(gateway.packages["reasoning"][-1])
+
+
+# ------------------------------------------------------------------ the review of PR #21 (ADR-0448)
+
+VERDICT = json.dumps({"violates": False, "confidence": 0.9, "category": "none"})
+
+
+async def test_a_delete_leaves_no_package_holding_the_files_text_title_or_conversation(files, role):
+    """Finding 1: the judge's packages at POST_TOOL and OUTPUT, the findings block and the answer's package all
+    name the file, so the delete removes them; checked on the packages' content, not only their ids."""
+    name, add = role
+    await add(
+        checkpoints=["POST_TOOL", "OUTPUT"],
+        checker="llm_judge",
+        config={"topic_description": "موضوع اختبار"},
+        action="log_only",
+    )
+    services, gateway = files({"router": ROUTE_FILES, "reasoning": CITED, "judge": VERDICT})
+    principal = _principal().model_copy(update={"policy_roles": (f"policy:{name}",)})
+    document, first = await _uploaded(services, principal)
+    events, second = await _turn(services, principal, ASKED)
+    assert [c.document_id for c in events[-1].data.citations] == [document]
+    assert len(gateway.packages.get("judge", [])) >= 2, "the judge ran at POST_TOOL and OUTPUT"
+    held = _names_the_file(await _package_texts(services, [first, second]))
+    assert any("guard_judge" in body or "13.2" in body for body in held), "packages held the file before"
+
+    assert await services.files.delete(_owner(principal), first, document) is not None
+    assert _names_the_file(await _package_texts(services, [first, second])) == []
+
+
+async def test_a_file_deleted_while_a_turn_runs_is_named_nowhere_afterwards(files, monkeypatch):
+    """Finding 2: the delete lands between the evidence fetch and the answer. The turn's later packages and its
+    citations are dropped by the tombstone; what slipped past is removed by the purge pass."""
+    from app.graph.nodes import answer as answer_node
+
+    services, _ = files({"router": ROUTE_FILES, "reasoning": CITED})
+    principal = _principal()
+    document, first = await _uploaded(services, principal)
+    fetched = answer_node.load_evidence
+    deleted: list[str] = []
+
+    async def deleting_after_the_fetch(state, ctx):
+        retrieved = await fetched(state, ctx)
+        if any(r["document_id"] == document for r in retrieved) and not deleted:
+            assert await services.files.delete(_owner(principal), first, document) is not None
+            deleted.append(document)
+        return retrieved
+
+    monkeypatch.setattr(answer_node, "load_evidence", deleting_after_the_fetch)
+    events, second = await _turn(services, principal, ASKED)
+    assert deleted == [document]
+    assert _names_the_file(await _package_texts(services, [first, second])) == []
+    app = __import__("app.main", fromlist=["create_app"]).create_app(start_background=False, services=services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as http:
+        history = (await http.get(f"/v1/conversations/{second}/messages", headers=identity(principal.user_id))).json()
+    assert all(c["document_id"] != document for m in history["messages"] for c in m["citations"])
+    # The answer's own checkpointed citations were written without it, not only filtered when read.
+    state = await services.graph.aget_state({"configurable": {"thread_id": second}})
+    stored = [c for m in state.values["messages"] for c in (getattr(m, "additional_kwargs", {}) or {}).get("citations", [])]
+    assert all(c.get("document_id") != document for c in stored)
+
+    # A package a turn in flight recorded past the tombstone's check (simulated): the purge pass, once the
+    # longest turn deadline has passed, removes it.
+    async with services.db.connection() as conn:
+        await conn.execute(
+            "INSERT INTO agent.context_packages (turn_id, conversation_id, node, package, attachment_ids) "
+            "VALUES (%s, %s, 'answer', %s, ARRAY[%s]::uuid[])",
+            ("late", second, json.dumps({"text": "الهيموجلوبين 13.2"}), document),
+        )
+        await conn.execute(
+            "UPDATE agent.deleted_attachments SET purge_after = now() - interval '1 second' WHERE id = %s", (document,)
+        )
+    assert services.files.purge_after_s >= services.turn.longest_s()
+    assert await services.files.purge_due() >= 1
+    assert await _packages_naming(services, document) == 0
+    assert _names_the_file(await _package_texts(services, [first, second])) == []
+    async with services.db.connection() as conn:
+        cursor = await conn.execute("SELECT purged_at FROM agent.deleted_attachments WHERE id = %s", (document,))
+        assert (await cursor.fetchone())["purged_at"] is not None
+
+
+async def test_a_forged_files_source_of_another_user_fetches_nothing(files):
+    """Finding 4: a source naming another user's collection or chunk id reaches the evidence step and fetches
+    nothing: the step widens only to the caller's own collections, and every fetch names the caller as owner."""
+    from app.graph.deps import TurnContext
+    from app.graph.evidence import load_evidence
+
+    services, _ = files({})
+    owner, other = _principal(), _principal()
+    document, conversation = await _uploaded(services, owner)
+    hits = await services.files.search(_owner(owner), "الهيموجلوبين", 5)
+    assert hits, "the owner's own search finds the chunk"
+    chunk = hits[0].chunk
+    forged = {
+        "id": chunk.ref, "ref": chunk.ref, "title": "تحليل-الدم.pdf", "kind": "doc", "document_id": document,
+        "backend": "internal", "collection": chunk.collection, "page": chunk.page,
+    }
+    own_collection = {**forged, "collection": f"sess_{uuid.uuid4()}"}  # the chunk id in a collection of other's
+    no_collection = {**forged, "collection": None}
+    state = {
+        "conversation_id": str(uuid.uuid4()),
+        "locale": "ar",
+        "selected_kbs": [],
+        "intent": {"capabilities": ["files"]},
+        "capability_outputs": [
+            {"capability": "files", "findings": "", "sources": [forged, own_collection, no_collection]}
+        ],
+    }
+    ctx = TurnContext(services=services, principal=other, request_id="forged", turn_id=uuid.uuid4().hex)
+    retrieved = await load_evidence(state, ctx)
+    assert retrieved == [] and ctx.evidence == {}
+    # The same source for its owner is fetched: the test reaches the fetch, not an earlier refusal.
+    ctx = TurnContext(services=services, principal=owner, request_id="own", turn_id=uuid.uuid4().hex)
+    state["capability_outputs"][0]["sources"] = [forged]
+    assert [r["document_id"] for r in await load_evidence(state, ctx)] == [document]

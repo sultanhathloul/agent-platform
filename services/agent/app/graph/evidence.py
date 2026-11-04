@@ -171,6 +171,15 @@ async def load_evidence(state: AgentState, ctx: TurnContext) -> list[dict[str, A
                     "superseded_by": source.get("superseded_by"),
                 }
             )
+    files = getattr(ctx.services, "files", None)
+    gone = await files.deleted([r["document_id"] for r in retrieved]) if files is not None and retrieved else set()
+    if gone:
+        # A file deleted while the turn ran (its tombstone, ADR-0448): its passages are neither kept for
+        # attribution nor given to the answer.
+        span.add_event("evidence.deleted", {"files": len(gone)})
+        dropped = {r["id"] for r in retrieved if str(r.get("document_id") or "").lower() in gone}
+        retrieved = [r for r in retrieved if r["id"] not in dropped]
+        evidence = {ref: text for ref, text in evidence.items() if ref not in dropped}
     ctx.evidence = evidence
     span.set_attribute("evidence.chunks", len(retrieved))
     return retrieved

@@ -25,6 +25,8 @@ async def ingest_attachments(state: AgentState, runtime: Runtime[TurnContext]) -
     # Read at once under one bound; a backend that cannot answer leaves the last known status (ADR-0233).
     records = await service.with_status(owner, conversation_id, on_audit=ctx.tool_audit.append)
     known = {record.id for record in records}
+    # Their names reach INPUT, the router and the docs findings: every package of the turn names them (ADR-0448).
+    await ctx.touch_files(sorted(known))
     named = list(state.get("turn_attachment_ids") or [])
     span = trace.get_current_span()
     span.set_attribute("attachments.turn", len(named))

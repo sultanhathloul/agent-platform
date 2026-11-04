@@ -70,6 +70,12 @@ class TurnConfig(BaseModel):
         """The deadline of a turn under `profile` (None: the default one)."""
         return self.profiles[profile].deadline_s if profile in self.profiles else self.deadline_s
 
+    def longest_s(self) -> float:
+        """The longest a turn can run: the longest profile's deadline and the gateway's margin, by which the
+        relay has ended it too (a deleted file's purge pass waits this long, ADR-0448)."""
+        longest = max([self.deadline_s, *(p.deadline_s for p in self.profiles.values())])
+        return longest + self.gateway_margin_s
+
     def limiter(self, platform_capacity: int) -> ConcurrencyLimiter:
         """The turn limits over `platform_capacity` turns at once (LOCK_POOL_SIZE)."""
         return ConcurrencyLimiter(

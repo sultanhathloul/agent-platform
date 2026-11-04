@@ -17,8 +17,11 @@ searches one conversation's collection per call, and no backend call spans the o
 the text through the backend under the turn's scope and POST_TOOL checks it there, as for every document
 source (S4, ADR-0159).
 
-A delete (decision 1, ADR-0444) removes the record, and with it (ON DELETE CASCADE) every chunk of the file in
-the index; the recorded context packages that hold its chunks; and the stored object. Later turns of its
+A delete (decision 1, ADR-0444, ADR-0448) removes the record, and with it (ON DELETE CASCADE) every chunk of
+the file in the index; and the recorded context packages that name it. The gateway, which holds the uploads
+bucket's write key, then deletes the stored object (ADR-0450); the agent holds none. It leaves a
+tombstone: a package, a history citation or evidence naming the file is not written afterwards, and one purge
+pass after the longest turn deadline removes what a turn in flight recorded meanwhile. Later turns of its
 conversation no longer see it (the attachments node reads the records), and the history shows neither its chip
 nor its citations. Deleting a file never deletes a conversation; nothing deletes a conversation (decision 5,
 ADR-0166)."""
@@ -33,8 +36,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.attachments.objects import ObjectStore, StorageUnavailable
 from app.attachments.store import _COLUMNS, AttachmentRecord, _record
+from app.context.log import file_ids
 from app.db import Database
 from app.rag.collections import session_collection
 from app.rag.types import Owner
@@ -65,11 +68,17 @@ class ReadConfig(_Strict):
     max_pages: int = Field(ge=1, le=100)
 
 
+class DeleteConfig(_Strict):
+    purge_every_s: float = Field(gt=0, le=3600)
+    purge_batch: int = Field(ge=1, le=1000)
+
+
 class FileLibraryConfig(_Strict):
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
     list: ListConfig
     search: SearchConfig
     read: ReadConfig
+    delete: DeleteConfig
 
 
 def load_file_library_config(path: Path) -> FileLibraryConfig:
@@ -133,15 +142,17 @@ class FileLibrary:
         *,
         vectors=None,
         retriever=None,
-        objects: ObjectStore | None = None,
+        purge_after_s: float = 0.0,
     ):
         """`vectors`, `retriever`: the internal backend's chunk store and hybrid retriever (app/rag), for
-        search and read; `objects`: the uploads bucket, for a delete. None in a test that needs only the list."""
+        search and read. None in a test that needs only the list.
+        `purge_after_s`: the longest a turn can still be running (the longest turn deadline and the gateway's
+        margin); a deleted file's purge pass runs this long after the delete (ADR-0448)."""
         self._db = db
         self.config = config
         self._vectors = vectors
         self._retriever = retriever
-        self._objects = objects
+        self.purge_after_s = purge_after_s
 
     # ------------------------------------------------------------------ the page (decision 1)
 
@@ -221,11 +232,10 @@ class FileLibrary:
             return {row["id"] for row in await cursor.fetchall()}
 
     async def delete(self, owner: Owner, conversation_id: str, attachment_id: str) -> AttachmentRecord | None:
-        """Deletes one of the owner's files of `conversation_id` (decision 1, ADR-0444): the context packages
-        holding its chunks, then the record and, by the foreign key, its chunks, in one transaction; then the
-        stored object. None, and nothing deleted, for an id the owner does not have in that conversation.
-        An object the storage cannot delete now is left to the orphan sweeper, which removes any object no
-        record names."""
+        """Deletes one of the owner's files of `conversation_id` (decision 1, ADR-0444, ADR-0448): its tombstone,
+        the context packages naming it, then the record and, by the foreign key, its chunks, in one transaction.
+        None, and nothing deleted, for an id the owner does not have in that conversation. The gateway deletes
+        the stored object afterwards (ADR-0450)."""
         async with self._db.connection() as conn, conn.transaction():
             cursor = await conn.execute(
                 f"SELECT {_COLUMNS} FROM agent.attachments "
@@ -236,6 +246,13 @@ class FileLibrary:
             if row is None:
                 return None
             record = _record(row)
+            # The tombstone (ADR-0448): what a turn in flight writes after this is dropped, and the purge pass
+            # once every such turn has ended removes what slipped past.
+            await conn.execute(
+                "INSERT INTO agent.deleted_attachments (id, tenant_id, user_id, purge_after) "
+                "VALUES (%s, %s, %s, now() + make_interval(secs => %s)) ON CONFLICT (id) DO NOTHING",
+                (attachment_id, owner.tenant_id, owner.user_id, self.purge_after_s),
+            )
             await conn.execute(
                 "DELETE FROM agent.context_packages WHERE attachment_ids @> ARRAY[%s]::uuid[]",
                 (attachment_id,),
@@ -244,12 +261,55 @@ class FileLibrary:
                 "DELETE FROM agent.attachments WHERE id = %s AND tenant_id = %s AND user_id = %s",
                 (attachment_id, owner.tenant_id, owner.user_id),
             )
-        if self._objects is not None:
-            try:
-                await self._objects.delete(record.object_key)
-            except StorageUnavailable:
-                log.warning("file %s deleted; its object is left to the orphan sweeper", attachment_id)
         return record
+
+    async def deleted(self, ids: Sequence[str]) -> set[str]:
+        """The ids among `ids` of files a user deleted (their tombstones, ADR-0448): a context package, a
+        history citation or the turn's evidence naming one is dropped."""
+        wanted = file_ids(ids)
+        if not wanted:
+            return set()
+        async with self._db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT id::text AS id FROM agent.deleted_attachments WHERE id = ANY(%s::uuid[])", (wanted,)
+            )
+            return {row["id"] for row in await cursor.fetchall()}
+
+    async def purge_due(self) -> int:
+        """One purge pass (ADR-0448): for at most `delete.purge_batch` deleted files whose `purge_after` has
+        passed, removes every context package that names one (a turn in flight at the delete may have recorded
+        it) and marks them purged. A file is purged once; a second agent process skips the rows this one holds.
+        Returns the files purged."""
+        async with self._db.connection() as conn, conn.transaction():
+            cursor = await conn.execute(
+                "SELECT id FROM agent.deleted_attachments WHERE purged_at IS NULL AND purge_after <= now() "
+                "ORDER BY purge_after LIMIT %s FOR UPDATE SKIP LOCKED",
+                (self.config.delete.purge_batch,),
+            )
+            due = [row["id"] for row in await cursor.fetchall()]
+            if not due:
+                return 0
+            await conn.execute(
+                "DELETE FROM agent.context_packages WHERE attachment_ids && %s::uuid[]", (due,)
+            )
+            await conn.execute(
+                "UPDATE agent.deleted_attachments SET purged_at = now() WHERE id = ANY(%s::uuid[])", (due,)
+            )
+        return len(due)
+
+    async def run_purges(self) -> None:
+        """The purge pass every `delete.purge_every_s`, for the life of the process; a database that cannot
+        answer is tried again at the next pass."""
+        while True:
+            try:
+                purged = await self.purge_due()
+                if purged:
+                    log.info("purged the context packages of %d deleted file(s)", purged)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("deleted files' purge pass failed: %s", type(exc).__name__)
+            await asyncio.sleep(self.config.delete.purge_every_s)
 
     # ------------------------------------------------------------------ the tools (decision 2)
 

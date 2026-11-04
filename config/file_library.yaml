@@ -27,3 +27,11 @@ search:
 read:
   max_chunks: 12
   max_pages: 10
+
+# A delete (ADR-0444, ADR-0448) leaves a tombstone of the file's id. The purge pass runs every `purge_every_s`
+# and, for at most `purge_batch` files deleted longer ago than the longest turn deadline (config/turn.yaml: the
+# longest profile's deadline_s and gateway_margin_s), removes every recorded context package that names one: a
+# turn in flight at the delete may have recorded it. Each file is purged once.
+delete:
+  purge_every_s: 60
+  purge_batch: 100

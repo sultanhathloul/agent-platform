@@ -358,7 +358,8 @@ def build_services(
         load_file_library_config(settings.config_dir / "file_library.yaml"),
         vectors=documents.vectors,
         retriever=documents.retriever,
-        objects=objects,
+        # A deleted file's purge pass waits for every turn in flight at the delete to end (ADR-0448).
+        purge_after_s=turn.longest_s(),
     )
     services = dataclasses.replace(
         services, artifacts=artifacts, reports=reports, library=library, files=files,
@@ -467,6 +468,9 @@ async def start_services(services: Services) -> Services:
         # A deleted KB's purge a backend could not take is retried, in the background: a backend
         # that is down never stops the agent (phase 08, I1).
         services.tasks.append(asyncio.create_task(_settle_owed_purges(services.kbs)))
+    if services.files is not None:
+        # Deleted files' purge pass (ADR-0448): bounded batches, once per file, for the life of the process.
+        services.tasks.append(asyncio.create_task(services.files.run_purges()))
     if services.reports is not None:
         # Versions written before the report library are indexed in the background, in bounded batches
         # (report library PR, ADR-0432): a store that cannot answer never stops the agent.

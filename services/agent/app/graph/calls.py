@@ -91,7 +91,7 @@ async def prepare_call(
             )
     if not request.content_free:  # D5: memory and summary text is never recorded (ADR-0110)
         await services.context_log.record(
-            turn_id=ctx.turn_id, conversation_id=ctx.conversation_id, package=package
+            turn_id=ctx.turn_id, conversation_id=ctx.conversation_id, package=package, files=ctx.file_ids
         )
     return PreparedCall(decision, package)
 

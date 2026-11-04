@@ -230,7 +230,7 @@ def _broker_for(ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentSta
     async def execute(name: str, args: dict[str, Any]) -> ToolResult:
         # The scope comes from the verified principal and this turn, never from the capability or
         # a model (S1, I1); the broker hands the tool a scope-bound document facade (ADR-0231).
-        return await ctx.services.broker.execute(
+        result = await ctx.services.broker.execute(
             name,
             args,
             caller=slug,
@@ -245,6 +245,12 @@ def _broker_for(ctx: TurnContext, runtime: Runtime[TurnContext], state: AgentSta
             # a capability declaring `conversation_history` (ADR-0434).
             history=state.get("messages") or [],
         )
+        # The documents the result names reached its POST_TOOL checks, whose packages are already recorded: they
+        # are tagged now, even if the capability fails later (ADR-0448).
+        await ctx.touch_files(
+            [s.get("attachment_id") or s.get("document_id") for s in result.sources or [] if isinstance(s, dict)]
+        )
+        return result
 
     return _Broker(execute=execute)
 
@@ -462,6 +468,9 @@ async def run_capabilities(state: AgentState, runtime: Runtime[TurnContext]) -> 
             span.set_attribute("capability.findings_chars", len(output.findings))
             span.set_attribute("capability.sources", len(output.sources))
             outputs.append({"capability": slug, **output.model_dump(mode="json")})
+            # The documents its sources name (an earlier file's name and passages, ADR-0448): every package of
+            # the turn names them, those its tools' guard checks recorded already included.
+            await ctx.touch_files([s.document_id for s in output.sources if s.document_id])
             if ctx.guard_unavailable:
                 # A fail-closed tool policy could not be evaluated: the turn ends (D8).
                 raise TurnError("guard_unavailable", retryable=True, detail=f"tool: {ctx.guard_unavailable}")
