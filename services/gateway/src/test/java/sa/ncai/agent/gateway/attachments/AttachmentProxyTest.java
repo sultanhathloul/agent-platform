@@ -414,18 +414,44 @@ class AttachmentProxyTest extends GatewayTestSupport {
     void theOwnerDeletesAFileAndTheDeleteIsAuditedWithoutItsName() throws Exception {
         // My files (my-files PR, owner decision 1, ADR-0444): delete replaces S4's "no delete".
         conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        String key = CONVERSATION + "/secret-key";
+        objects().objects.put(key, "نص".getBytes(StandardCharsets.UTF_8));
+        AGENT.enqueue(json(200, view("indexed", null)));
         AGENT.enqueue(new MockResponse().setResponseCode(204));
         mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
                 .andExpect(status().isNoContent());
+        RecordedRequest read = AGENT.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(read.getMethod()).isEqualTo("GET");
+        assertThat(read.getPath()).isEqualTo(BASE + "/" + ATTACHMENT);
         RecordedRequest upstream = AGENT.takeRequest(5, TimeUnit.SECONDS);
         assertThat(upstream.getMethod()).isEqualTo("DELETE");
         assertThat(upstream.getPath()).isEqualTo(BASE + "/" + ATTACHMENT);
         assertThat(upstream.getHeaders().values("X-User-Id")).containsExactly("viewer-1");
+        // The gateway removes the stored object: the agent holds no key that may (ADR-0450).
+        assertThat(objects().objects).doesNotContainKey(key);
         List<AuditEvent> events = auditLog().events();
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().action()).isEqualTo("attachment.delete");
         assertThat(events.getFirst().status()).isEqualTo(AuditStatus.OK);
-        assertThat(events.getFirst().detail()).containsEntry("attachment_id", ATTACHMENT);
+        assertThat(events.getFirst().detail()).containsEntry("attachment_id", ATTACHMENT)
+                .containsEntry("object_removed", true);
+        // A download afterwards: the agent no longer has the record, so …/content is 404 and storage is not read.
+        AGENT.enqueue(json(404, "{\"request_id\":\"x\",\"error\":{\"code\":\"attachment_not_found\","
+                + "\"message_ar\":\"م\",\"message_en\":\"m\",\"retryable\":false}}"));
+        mvc.perform(get(BASE + "/" + ATTACHMENT + "/content").header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("attachment_not_found"));
+        assertThat(objects().reads).isEmpty();
+    }
+
+    @Test
+    void aDeleteTheStorageCannotFinishLeavesTheObjectToTheSweeper() throws Exception {
+        conversations.bindOrGetOwner(CONVERSATION, "viewer-1", "tenant-a");
+        AGENT.enqueue(json(200, view("indexed", null)));
+        AGENT.enqueue(new MockResponse().setResponseCode(204));
+        objects().failing = true;
+        mvc.perform(delete(BASE + "/" + ATTACHMENT).header(HttpHeaders.AUTHORIZATION, bearer(viewer())))
+                .andExpect(status().isNoContent());
+        assertThat(singleAudit().detail()).containsEntry("object_removed", false);
     }
 
     @Test

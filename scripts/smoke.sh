@@ -1340,8 +1340,19 @@ doc_turn "$ANALYST" "$UNRELATED_CONV" "متى تبدأ ساعات العمل ع�
 check "a question that refers to no earlier file runs no file tool and cites none" jq -se \
   'last.type == "done" and ([.[] | select(.type == "tool_start" and (.data.tool | startswith("file_")))] | length == 0) and (last.data.citations | length == 0)' \
   "$TMP/unrelated-turn.jsonl"
+ANALYST_KEY=$(sql "select object_key from agent.attachments where id = '$ANALYST_ATT'")
+[[ -n $ANALYST_KEY ]] || fail "no object key recorded for the analyst's file"
+stored() { docker compose exec -T minio sh -c 'mc alias set probe http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc stat "probe/uploads/$1" >/dev/null 2>&1' _ "$1"; }
+check "the analyst's file is stored in MinIO before the delete" stored "$ANALYST_KEY"
 code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT")
 [[ $code == 204 ]] && ok "the analyst deletes the file: DELETE → 204" || fail "the analyst's DELETE returned $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ANALYST" "$GW/v1/conversations/$ANALYST_CONV/attachments/$ANALYST_ATT/content")
+[[ $code == 404 ]] && ok "its download afterwards: GET …/content → 404" || fail "the download after the delete returned $code"
+if stored "$ANALYST_KEY"; then fail "MinIO still holds the deleted file's object"; else ok "MinIO no longer holds its object (the gateway deleted it, ADR-0450)"; fi
+check "a tombstone names it, so a turn in flight writes nothing of it (ADR-0448)" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from agent.deleted_attachments where id = '$ANALYST_ATT'\") == 1 ]]"
+check "no recorded context package names it" bash -c \
+  "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from agent.context_packages where attachment_ids @> array['$ANALYST_ATT']::uuid[]\") == 0 ]]"
 check "the file is gone from the list" bash -c "curl -fsS -H 'Authorization: Bearer $ANALYST' '$GW/v1/files?q=summer' | jq -e '[.data.files[] | select(.id == \"$ANALYST_ATT\")] | length == 0'"
 check "its chunks are gone from the index" bash -c "[[ \$(docker compose exec -T postgres psql -U postgres -d app -tAc \"select count(*) from agent.rag_chunks where attachment_id = '$ANALYST_ATT'\") == 0 ]]"
 check "the history of the conversation that cited it no longer cites it" bash -c \

@@ -108,8 +108,9 @@ async def delete_file(
     attachment_id: str = Path(pattern=ATTACHMENT_ID_PATTERN),
     x_request_id: str | None = Header(default=None),
 ):
-    """Deletes one of the caller's files: its record, its chunks in the index, the recorded context packages
-    holding them and its stored object (ADR-0444). Later turns and the history no longer show it."""
+    """Deletes one of the caller's files: its record, its chunks in the index and the recorded context packages
+    naming it, and leaves its tombstone (ADR-0444, ADR-0448); the gateway then deletes its stored object
+    (ADR-0450). Later turns and the history no longer show it."""
     services = request.app.state.services
     request_id = x_request_id or str(uuid.uuid4())
     if not _authorized(request.headers.get("x-internal-token"), services.settings.agent_internal_token):

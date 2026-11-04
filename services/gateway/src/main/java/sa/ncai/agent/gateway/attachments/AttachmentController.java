@@ -404,9 +404,9 @@ public class AttachmentController {
     @Operation(
             summary = "Deletes one of the caller's files from every index and every conversation (owner only)",
             description = "My files (my-files PR, owner decision 1): the agent deletes the file's record, its chunks in "
-                    + "the index, the recorded context packages that hold them and its stored object; later turns and "
-                    + "the history no longer show it. Its conversation stays. Audited as attachment.delete with the "
-                    + "attachment's id, never its name.",
+                    + "the index and the recorded context packages that name it, and the gateway its stored object; "
+                    + "later turns and the history no longer show it. Its conversation stays. Audited as "
+                    + "attachment.delete with the attachment's id, never its name.",
             responses = {
                 @ApiResponse(responseCode = "204", description = "Deleted"),
                 @ApiResponse(responseCode = "403", description = "conversation_forbidden", content = @Content(
@@ -437,6 +437,16 @@ public class AttachmentController {
             // A conversation the gateway does not know holds no file of the caller's.
             return call.refuse(ErrorCode.ATTACHMENT_NOT_FOUND, AuditStatus.DENIED);
         }
+        // The record's object key first: the agent holds no key that may delete an upload, the gateway does
+        // (my-files review, ADR-0450).
+        AgentReply found = call.agent(HttpMethod.GET, owned.path());
+        if (found == null) {
+            return null;
+        }
+        if (found.status() != 200) {
+            return call.refuse(refusal(found.status()), status(refusal(found.status())));
+        }
+        AgentAttachment attachment = mapper.readValue(found.body(), AgentAttachment.class);
         AgentReply reply = call.agent(HttpMethod.DELETE, owned.path());
         if (reply == null) {
             return null;
@@ -444,6 +454,16 @@ public class AttachmentController {
         if (reply.status() != 204) {
             return call.refuse(refusal(reply.status()), status(refusal(reply.status())));
         }
+        // The record is gone, so nothing reaches the object any more; an object the storage cannot delete now
+        // is the orphan sweeper's, which removes every object no record names (ADR-0444).
+        boolean removed = true;
+        try {
+            storage.delete(attachment.objectKey());
+        } catch (ObjectStorage.StorageUnavailableException e) {
+            log.warn("file {} deleted; its object is left to the orphan sweeper: {}", attachmentId, e.getMessage());
+            removed = false;
+        }
+        call.detail().put("object_removed", removed);
         if (!audit.append(call.event(AuditStatus.OK))) {
             return failed(request, response, ErrorCode.AUDIT_UNAVAILABLE);
         }

@@ -491,7 +491,7 @@ export interface paths {
         post?: never;
         /**
          * Deletes one of the caller's files from every index and every conversation (owner only)
-         * @description My files (my-files PR, owner decision 1): the agent deletes the file's record, its chunks in the index, the recorded context packages that hold them and its stored object; later turns and the history no longer show it. Its conversation stays. Audited as attachment.delete with the attachment's id, never its name.
+         * @description My files (my-files PR, owner decision 1): the agent deletes the file's record, its chunks in the index and the recorded context packages that name it, and the gateway its stored object; later turns and the history no longer show it. Its conversation stays. Audited as attachment.delete with the attachment's id, never its name.
          */
         delete: operations["delete"];
         options?: never;
